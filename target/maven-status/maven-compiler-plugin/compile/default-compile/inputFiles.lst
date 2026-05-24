@@ -1,4 +1,5 @@
 C:\TestProject\system\src\main\java\com\employee\system\controller\AttendanceController.java
+C:\TestProject\system\src\main\java\com\employee\system\controller\DocumentController.java
 C:\TestProject\system\src\main\java\com\employee\system\controller\EmployeeController.java
 C:\TestProject\system\src\main\java\com\employee\system\controller\KPIController.java
 C:\TestProject\system\src\main\java\com\employee\system\controller\LeaveController.java
@@ -9,6 +10,7 @@ C:\TestProject\system\src\main\java\com\employee\system\controller\RatingScaleCo
 C:\TestProject\system\src\main\java\com\employee\system\controller\SalaryController.java
 C:\TestProject\system\src\main\java\com\employee\system\controller\SelfAssessmentController.java
 C:\TestProject\system\src\main\java\com\employee\system\dto\AttendanceDTO.java
+C:\TestProject\system\src\main\java\com\employee\system\dto\DocumentDTO.java
 C:\TestProject\system\src\main\java\com\employee\system\dto\EmployeeDTO.java
 C:\TestProject\system\src\main\java\com\employee\system\dto\KPIDTO.java
 C:\TestProject\system\src\main\java\com\employee\system\dto\LeaveBalanceDTO.java
@@ -20,6 +22,7 @@ C:\TestProject\system\src\main\java\com\employee\system\dto\RatingScaleDTO.java
 C:\TestProject\system\src\main\java\com\employee\system\dto\SalaryDTO.java
 C:\TestProject\system\src\main\java\com\employee\system\dto\SelfAssessmentDTO.java
 C:\TestProject\system\src\main\java\com\employee\system\entity\Attendance.java
+C:\TestProject\system\src\main\java\com\employee\system\entity\Document.java
 C:\TestProject\system\src\main\java\com\employee\system\entity\Employee.java
 C:\TestProject\system\src\main\java\com\employee\system\entity\Holiday.java
 C:\TestProject\system\src\main\java\com\employee\system\entity\KPI.java
@@ -33,6 +36,7 @@ C:\TestProject\system\src\main\java\com\employee\system\entity\SelfAssessment.ja
 C:\TestProject\system\src\main\java\com\employee\system\exception\ErrorResponse.java
 C:\TestProject\system\src\main\java\com\employee\system\exception\GlobalExceptionHandler.java
 C:\TestProject\system\src\main\java\com\employee\system\repository\AttendanceRepository.java
+C:\TestProject\system\src\main\java\com\employee\system\repository\DocumentRepository.java
 C:\TestProject\system\src\main\java\com\employee\system\repository\EmployeeRepository.java
 C:\TestProject\system\src\main\java\com\employee\system\repository\HolidayRepository.java
 C:\TestProject\system\src\main\java\com\employee\system\repository\KPIRepository.java
@@ -46,6 +50,7 @@ C:\TestProject\system\src\main\java\com\employee\system\repository\SelfAssessmen
 C:\TestProject\system\src\main\java\com\employee\system\response\ApiResponse.java
 C:\TestProject\system\src\main\java\com\employee\system\service\AttendanceService.java
 C:\TestProject\system\src\main\java\com\employee\system\service\AttendanceSummary.java
+C:\TestProject\system\src\main\java\com\employee\system\service\DocumentService.java
 C:\TestProject\system\src\main\java\com\employee\system\service\EmployeeService.java
 C:\TestProject\system\src\main\java\com\employee\system\service\KPIService.java
 C:\TestProject\system\src\main\java\com\employee\system\service\LeaveService.java

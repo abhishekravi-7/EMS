@@ -2,6 +2,7 @@ com\employee\system\entity\RatingScale.class
 com\employee\system\response\ApiResponse.class
 com\employee\system\dto\SalaryDTO.class
 com\employee\system\controller\ManagerFeedbackController.class
+com\employee\system\entity\Document.class
 com\employee\system\dto\LeaveDTO.class
 com\employee\system\service\RatingScaleService.class
 com\employee\system\controller\LeaveController.class
@@ -33,6 +34,7 @@ com\employee\system\controller\AttendanceController.class
 com\employee\system\service\KPIService.class
 com\employee\system\controller\SelfAssessmentController.class
 com\employee\system\entity\Salary.class
+com\employee\system\dto\DocumentDTO.class
 com\employee\system\dto\KPIDTO.class
 com\employee\system\repository\PerformanceReviewRepository.class
 com\employee\system\repository\EmployeeRepository.class
@@ -40,6 +42,7 @@ com\employee\system\service\AttendanceSummary.class
 com\employee\system\controller\SalaryController.class
 com\employee\system\entity\Holiday.class
 com\employee\system\repository\LeaveRepository.class
+com\employee\system\repository\DocumentRepository.class
 com\employee\system\repository\ManagerFeedbackRepository.class
 com\employee\system\dto\AttendanceDTO.class
 com\employee\system\dto\EmployeeDTO.class
@@ -53,7 +56,9 @@ com\employee\system\controller\EmployeeController.class
 com\employee\system\entity\Leave.class
 com\employee\system\service\ManagerFeedbackService.class
 com\employee\system\entity\KPI.class
+com\employee\system\controller\DocumentController.class
 com\employee\system\entity\ManagerFeedback.class
 com\employee\system\repository\SelfAssessmentRepository.class
 com\employee\system\dto\ManagerFeedbackDTO.class
 com\employee\system\exception\GlobalExceptionHandler.class
+com\employee\system\service\DocumentService.class
