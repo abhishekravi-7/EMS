@@ -1,126 +1,89 @@
 package com.employee.system.service;
 
-import com.employee.system.dto.SelfAssessmentDTO;
-import com.employee.system.entity.Employee;
-import com.employee.system.entity.SelfAssessment;
-import com.employee.system.repository.EmployeeRepository;
-import com.employee.system.repository.SelfAssessmentRepository;
+import com.employee.system.dto.RatingScaleDTO;
+import com.employee.system.entity.RatingScale;
+import com.employee.system.repository.RatingScaleRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDate;
 import java.util.List;
 import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 @Transactional
-public class SelfAssessmentService {
-    
-    private final SelfAssessmentRepository assessmentRepository;
-    private final EmployeeRepository employeeRepository;
-    
-    public SelfAssessmentDTO createAssessment(SelfAssessmentDTO assessmentDTO) {
-        Employee employee = employeeRepository.findById(assessmentDTO.getEmployeeId())
-            .orElseThrow(() -> new RuntimeException("Employee not found with id: " + assessmentDTO.getEmployeeId()));
-        
-        SelfAssessment assessment = new SelfAssessment();
-        assessment.setEmployee(employee);
-        assessment.setAssessmentPeriod(assessmentDTO.getAssessmentPeriod());
-        assessment.setAssessmentDate(assessmentDTO.getAssessmentDate() != null ? assessmentDTO.getAssessmentDate() : LocalDate.now());
-        assessment.setSelfRating(assessmentDTO.getSelfRating());
-        assessment.setTechnicalSkillsRating(assessmentDTO.getTechnicalSkillsRating());
-        assessment.setBehavioralRating(assessmentDTO.getBehavioralRating());
-        assessment.setLeadershipRating(assessmentDTO.getLeadershipRating());
-        assessment.setTeamworkRating(assessmentDTO.getTeamworkRating());
-        assessment.setAccomplishments(assessmentDTO.getAccomplishments());
-        assessment.setStrengthsIdentified(assessmentDTO.getStrengthsIdentified());
-        assessment.setImprovementAreas(assessmentDTO.getImprovementAreas());
-        assessment.setCareerGoals(assessmentDTO.getCareerGoals());
-        assessment.setSupportRequired(assessmentDTO.getSupportRequired());
-        assessment.setStatus(assessmentDTO.getStatus() != null ? assessmentDTO.getStatus() : "DRAFT");
-        
-        SelfAssessment savedAssessment = assessmentRepository.save(assessment);
-        return convertToDTO(savedAssessment);
+public class RatingScaleService {
+
+    private final RatingScaleRepository ratingScaleRepository;
+
+    public RatingScaleDTO getRatingScaleById(Long id) {
+        RatingScale rs = ratingScaleRepository.findById(id)
+            .orElseThrow(() -> new RuntimeException("Rating scale not found with id: " + id));
+        return toDTO(rs);
     }
-    
-    public SelfAssessmentDTO getAssessmentById(Long id) {
-        SelfAssessment assessment = assessmentRepository.findById(id)
-            .orElseThrow(() -> new RuntimeException("Self assessment not found with id: " + id));
-        return convertToDTO(assessment);
+
+    public RatingScaleDTO getRatingScaleByValue(Integer value) {
+        RatingScale rs = ratingScaleRepository.findByRatingValue(value)
+            .orElseThrow(() -> new RuntimeException("Rating scale not found with value: " + value));
+        return toDTO(rs);
     }
-    
-    public List<SelfAssessmentDTO> getAssessmentsByEmployee(Long employeeId) {
-        Employee employee = employeeRepository.findById(employeeId)
-            .orElseThrow(() -> new RuntimeException("Employee not found with id: " + employeeId));
-        
-        return assessmentRepository.findByEmployee(employee)
-            .stream()
-            .map(this::convertToDTO)
+
+    public List<RatingScaleDTO> getAllActiveRatingScales() {
+        return ratingScaleRepository.findAllActive().stream()
+            .map(this::toDTO)
             .collect(Collectors.toList());
     }
-    
-    public List<SelfAssessmentDTO> getAssessmentsByPeriod(String period) {
-        return assessmentRepository.findByAssessmentPeriod(period)
-            .stream()
-            .map(this::convertToDTO)
+
+    public List<RatingScaleDTO> getAllRatingScales() {
+        return ratingScaleRepository.findAll().stream()
+            .map(this::toDTO)
             .collect(Collectors.toList());
     }
-    
-    public List<SelfAssessmentDTO> getAssessmentsByStatus(String status) {
-        return assessmentRepository.findByStatus(status)
-            .stream()
-            .map(this::convertToDTO)
-            .collect(Collectors.toList());
+
+    public RatingScaleDTO createRatingScale(RatingScaleDTO dto) {
+        RatingScale rs = new RatingScale();
+        rs.setRatingValue(dto.getRatingValue());
+        rs.setRatingLabel(dto.getRatingLabel());
+        rs.setRatingDescription(dto.getRatingDescription());
+        rs.setColorCode(dto.getColorCode());
+        rs.setMinimumScore(dto.getMinimumScore());
+        rs.setMaximumScore(dto.getMaximumScore());
+        rs.setIsActive(dto.getIsActive() != null ? dto.getIsActive() : true);
+        RatingScale saved = ratingScaleRepository.save(rs);
+        return toDTO(saved);
     }
-    
-    public SelfAssessmentDTO updateAssessment(Long id, SelfAssessmentDTO assessmentDTO) {
-        SelfAssessment assessment = assessmentRepository.findById(id)
-            .orElseThrow(() -> new RuntimeException("Self assessment not found with id: " + id));
-        
-        assessment.setSelfRating(assessmentDTO.getSelfRating());
-        assessment.setTechnicalSkillsRating(assessmentDTO.getTechnicalSkillsRating());
-        assessment.setBehavioralRating(assessmentDTO.getBehavioralRating());
-        assessment.setLeadershipRating(assessmentDTO.getLeadershipRating());
-        assessment.setTeamworkRating(assessmentDTO.getTeamworkRating());
-        assessment.setAccomplishments(assessmentDTO.getAccomplishments());
-        assessment.setStrengthsIdentified(assessmentDTO.getStrengthsIdentified());
-        assessment.setImprovementAreas(assessmentDTO.getImprovementAreas());
-        assessment.setCareerGoals(assessmentDTO.getCareerGoals());
-        assessment.setSupportRequired(assessmentDTO.getSupportRequired());
-        assessment.setStatus(assessmentDTO.getStatus());
-        
-        SelfAssessment updatedAssessment = assessmentRepository.save(assessment);
-        return convertToDTO(updatedAssessment);
+
+    public RatingScaleDTO updateRatingScale(Long id, RatingScaleDTO dto) {
+        RatingScale rs = ratingScaleRepository.findById(id)
+            .orElseThrow(() -> new RuntimeException("Rating scale not found with id: " + id));
+        rs.setRatingValue(dto.getRatingValue());
+        rs.setRatingLabel(dto.getRatingLabel());
+        rs.setRatingDescription(dto.getRatingDescription());
+        rs.setColorCode(dto.getColorCode());
+        rs.setMinimumScore(dto.getMinimumScore());
+        rs.setMaximumScore(dto.getMaximumScore());
+        rs.setIsActive(dto.getIsActive());
+        RatingScale updated = ratingScaleRepository.save(rs);
+        return toDTO(updated);
     }
-    
-    public void deleteAssessment(Long id) {
-        SelfAssessment assessment = assessmentRepository.findById(id)
-            .orElseThrow(() -> new RuntimeException("Self assessment not found with id: " + id));
-        assessmentRepository.delete(assessment);
+
+    public void deleteRatingScale(Long id) {
+        RatingScale rs = ratingScaleRepository.findById(id)
+            .orElseThrow(() -> new RuntimeException("Rating scale not found with id: " + id));
+        ratingScaleRepository.delete(rs);
     }
-    
-    private SelfAssessmentDTO convertToDTO(SelfAssessment assessment) {
-        SelfAssessmentDTO dto = new SelfAssessmentDTO();
-        dto.setId(assessment.getId());
-        dto.setEmployeeId(assessment.getEmployee().getId());
-        dto.setEmployeeName(assessment.getEmployee().getFirstName() + " " + assessment.getEmployee().getLastName());
-        dto.setAssessmentPeriod(assessment.getAssessmentPeriod());
-        dto.setAssessmentDate(assessment.getAssessmentDate());
-        dto.setSelfRating(assessment.getSelfRating());
-        dto.setTechnicalSkillsRating(assessment.getTechnicalSkillsRating());
-        dto.setBehavioralRating(assessment.getBehavioralRating());
-        dto.setLeadershipRating(assessment.getLeadershipRating());
-        dto.setTeamworkRating(assessment.getTeamworkRating());
-        dto.setAccomplishments(assessment.getAccomplishments());
-        dto.setStrengthsIdentified(assessment.getStrengthsIdentified());
-        dto.setImprovementAreas(assessment.getImprovementAreas());
-        dto.setCareerGoals(assessment.getCareerGoals());
-        dto.setSupportRequired(assessment.getSupportRequired());
-        dto.setStatus(assessment.getStatus());
-        dto.setCreatedAt(assessment.getCreatedAt());
-        dto.setUpdatedAt(assessment.getUpdatedAt());
+
+    private RatingScaleDTO toDTO(RatingScale rs) {
+        RatingScaleDTO dto = new RatingScaleDTO();
+        dto.setId(rs.getId());
+        dto.setRatingValue(rs.getRatingValue());
+        dto.setRatingLabel(rs.getRatingLabel());
+        dto.setRatingDescription(rs.getRatingDescription());
+        dto.setColorCode(rs.getColorCode());
+        dto.setMinimumScore(rs.getMinimumScore());
+        dto.setMaximumScore(rs.getMaximumScore());
+        dto.setIsActive(rs.getIsActive());
         return dto;
     }
 }
