@@ -374,22 +374,24 @@ export function ResultReportView({
     );
   };
 
-  const renderSonarFindingSection = (
-    sectionKey: Exclude<SonarFindingFilter, "all">,
-    title: string,
-    count: number,
-    details: Array<SonarIssueDetail | SonarHotspotDetail>,
-    accentColor: string,
-    emptyMessage: string
-  ) => {
+  const renderSonarFindingSection = (section: {
+    key: Exclude<SonarFindingFilter, "all">;
+    title: string;
+    count: number;
+    details: Array<SonarIssueDetail | SonarHotspotDetail>;
+    accentColor: string;
+    emptyMessage: string;
+  }) => {
+    const { key: sectionKey, title, count, details, accentColor, emptyMessage } = section;
+    const safeDetails = Array.isArray(details) ? details : [];
     const visibleCount = visibleSonarFindingCounts[sectionKey] ?? SONAR_FINDINGS_PAGE_SIZE;
-    const visibleItems = details.slice(0, visibleCount);
-    const remainingCount = Math.max(details.length - visibleItems.length, 0);
+    const visibleItems = safeDetails.slice(0, visibleCount);
+    const remainingCount = Math.max(safeDetails.length - visibleItems.length, 0);
     const loadNextSonarFindings = () => {
       if (remainingCount <= 0) return;
       setVisibleSonarFindingCounts((current) => ({
         ...current,
-        [sectionKey]: Math.min((current[sectionKey] ?? SONAR_FINDINGS_PAGE_SIZE) + SONAR_FINDINGS_PAGE_SIZE, details.length),
+        [sectionKey]: Math.min((current[sectionKey] ?? SONAR_FINDINGS_PAGE_SIZE) + SONAR_FINDINGS_PAGE_SIZE, safeDetails.length),
       }));
     };
 
@@ -409,12 +411,12 @@ export function ResultReportView({
             </span>
           </div>
           <div style={styles.sonarFindingSectionDescription}>
-            {details.length > 0
-              ? `Showing ${visibleItems.length} of ${details.length} detailed ${title.toLowerCase()}.`
+            {safeDetails.length > 0
+              ? `Showing ${visibleItems.length} of ${safeDetails.length} detailed ${title.toLowerCase()}.`
               : emptyMessage}
           </div>
         </div>
-        {details.length > 0 ? (
+        {safeDetails.length > 0 ? (
           <>
             <div
               style={styles.sonarFindingsList}
@@ -429,7 +431,7 @@ export function ResultReportView({
             >
               {visibleItems.map((issue, index) => renderSonarIssueCard(issue, index, title, accentColor))}
             </div>
-            {details.length > SONAR_FINDINGS_PAGE_SIZE && (
+            {safeDetails.length > SONAR_FINDINGS_PAGE_SIZE && (
               <div style={styles.sonarFindingNote}>
                 Scroll inside this section to review the loaded findings. When you reach the bottom, the next set loads automatically.
               </div>
@@ -1203,6 +1205,63 @@ export function ResultReportView({
               apiEndpointsValidated={migrationJob?.api_endpoints_validated}
               apiEndpointsWorking={migrationJob?.api_endpoints_working}
             />
+
+            {runSonar ? (
+              <MigrationSonarSection
+                styles={styles}
+                migrationJob={migrationJob}
+                isOpen={reportAccordionState.sonar}
+                onToggle={() => toggleReportAccordion("sonar")}
+                sonarDetailsAvailable={sonarDetailsAvailable}
+                sonarTotalFindings={sonarTotalFindings}
+                sonarFindingFilter={sonarFindingFilter}
+                setSonarFindingFilter={setSonarFindingFilter}
+                codeSmellSeverityFilter={codeSmellSeverityFilter}
+                setCodeSmellSeverityFilter={setCodeSmellSeverityFilter}
+                codeSmellSeverityCounts={codeSmellSeverityCounts}
+                sonarCategoryCards={sonarCategoryCards}
+                visibleSonarSections={visibleSonarSections}
+                renderSonarFindingSection={renderSonarFindingSection}
+              />
+            ) : (
+              <div style={styles.reportSection}>
+                <h3 style={styles.reportTitle}>SonarQube Code Quality & Coverage</h3>
+                <div style={{ padding: "20px", background: "#f8fafc", borderRadius: "12px", border: "1px solid #e2e8f0", color: "#64748b", textAlign: "center" }}>
+                  SonarQube analysis was not executed.
+                </div>
+              </div>
+            )}
+
+            {runFossa ? (
+              <MigrationFossaSection
+                styles={styles}
+                migrationJob={migrationJob}
+                isOpen={reportAccordionState.fossa}
+                onToggle={() => toggleReportAccordion("fossa")}
+                fossaLoading={fossaLoading}
+                effectiveFossa={effectiveFossa}
+                fossaPolicyStatus={fossaPolicyStatus}
+                fossaScanModeLabel={fossaScanModeLabel}
+                fossaIsRealScan={fossaIsRealScan}
+                fossaAnalysisUrl={fossaAnalysisUrl}
+                fossaErrorMessage={fossaErrorMessage}
+                fossaEnrichmentErrorMessage={fossaEnrichmentErrorMessage}
+                fossaDetailsAvailable={fossaDetailsAvailable}
+                fossaIssueCount={fossaIssueCount}
+                fossaStatusColor={fossaStatusColor}
+                fossaLicenseIssueCount={fossaLicenseIssueCount}
+                fossaVulnerabilityTotal={fossaVulnerabilityTotal}
+                fossaOutdatedCount={fossaOutdatedCount}
+                fossaSeverityCounts={fossaSeverityCounts}
+              />
+            ) : (
+              <div style={styles.reportSection}>
+                <h3 style={styles.reportTitle}>FOSSA License & Dependency Scan</h3>
+                <div style={{ padding: "20px", background: "#f8fafc", borderRadius: "12px", border: "1px solid #e2e8f0", color: "#64748b", textAlign: "center" }}>
+                  FOSSA analysis was not executed.
+                </div>
+              </div>
+            )}
 
             <MigrationLogSection
               styles={styles}

@@ -6,7 +6,7 @@ original (non-versioned) paths so the existing frontend calls
 ``/api/java-version-recommendation``) keep working unchanged. Authentication
 (``/api/auth/signup``, ``/api/auth/login``, ...) is unversioned for the same
 reason — it's a login endpoint, not part of the migration-stage API.
-"""
+"""  
 
 from fastapi import APIRouter
 

@@ -71,6 +71,25 @@ class RepoCreator:
                 logger.info("Target repo %s/%s already exists; reusing it.", profile.owner, repo_name)
                 return self._created_repo_from_response(profile, repo_name, existing.data)
 
+        # Log diagnostic info (never log the token value itself)
+        gh_message = ""
+        if isinstance(response.data, dict):
+            gh_message = str(response.data.get("message", ""))
+            errors = response.data.get("errors", [])
+            if errors:
+                gh_message += f" | errors: {errors}"
+        logger.error(
+            "GitHub repo creation failed | status=%s | owner=%s | repo=%s | is_org=%s "
+            "| token_present=%s | token_len=%d | github_message=%r",
+            response.status_code,
+            profile.owner,
+            repo_name,
+            profile.is_org,
+            bool(token),
+            len(token),
+            gh_message,
+        )
+
         raise PushFailedError(self._error_message(response.status_code, response.data))
 
     @staticmethod
@@ -92,11 +111,25 @@ class RepoCreator:
         if isinstance(data, dict):
             detail = str(data.get("message", ""))
         if status_code == 401:
-            return "Target GitHub token is invalid. Check GITHUB_TARGET_TOKEN."
+            return (
+                "Target GitHub token is invalid or expired (HTTP 401). "
+                "Regenerate GITHUB_TARGET_TOKEN at github.com/settings/tokens "
+                "with 'repo' scope, then restart the backend."
+            )
         if status_code == 403:
-            return "Target token lacks permission to create repositories in this owner."
+            return (
+                "Target token lacks permission to create repositories (HTTP 403). "
+                "Ensure the token has 'repo' scope and — if Javaapex is an org — "
+                "that the token is approved for that organization (SSO / third-party access)."
+            )
         if status_code == 404:
-            return "Target owner not found, or the token cannot access it."
+            return (
+                "Target owner not found, or the token cannot access it (HTTP 404). "
+                f"Verify GITHUB_TARGET_OWNER='{data.get('message', 'Javaapex') if isinstance(data, dict) else 'Javaapex'}' "
+                "exists and the token has access to it."
+            )
         if status_code == 422 and "already exists" in detail.lower():
             return "A repository with this name already exists under the target owner."
-        return f"Could not create the target repository ({status_code})."
+        if detail:
+            return f"Could not create the target repository (HTTP {status_code}): {detail}"
+        return f"Could not create the target repository (HTTP {status_code})."

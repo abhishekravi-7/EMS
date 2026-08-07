@@ -591,182 +591,611 @@ export function MigrationSonarSection({
   visibleSonarSections,
   renderSonarFindingSection,
 }: MigrationSonarSectionProps) {
+  const [searchQuery, setSearchQuery] = React.useState("");
+  const [severityFilter, setSeverityFilter] = React.useState<string>("all");
+  const [statusFilter, setStatusFilter] = React.useState<string>("all");
+  const [sortOption, setSortOption] = React.useState<string>("severity");
+  const [pageSize, setPageSize] = React.useState<number>(10);
+  const [categoryPages, setCategoryPages] = React.useState<Record<string, number>>({
+    bugs: 1,
+    vulnerabilities: 1,
+    code_smells: 1,
+    security_hotspots: 1,
+  });
+  const [accordionState, setAccordionState] = React.useState<Record<string, boolean>>({
+    bugs: true,
+    vulnerabilities: true,
+    code_smells: true,
+    security_hotspots: true,
+  });
+  const [expandedCards, setExpandedCards] = React.useState<Record<string, boolean>>({});
+  const [copiedNotification, setCopiedNotification] = React.useState<string | null>(null);
+
+  const sonarReport = migrationJob?.sonar_report as any;
+
+  const rawBugs = React.useMemo(() => sonarReport?.bug_details || [], [sonarReport]);
+  const rawVulnerabilities = React.useMemo(() => sonarReport?.vulnerability_details || [], [sonarReport]);
+  const rawCodeSmells = React.useMemo(() => sonarReport?.code_smell_details || [], [sonarReport]);
+  const rawHotspots = React.useMemo(() => sonarReport?.security_hotspot_details || [], [sonarReport]);
+
+  const allIssuesList = React.useMemo(() => {
+    return sonarReport?.all_issues || [...rawBugs, ...rawVulnerabilities, ...rawCodeSmells];
+  }, [sonarReport, rawBugs, rawVulnerabilities, rawCodeSmells]);
+
+  const severityBreakdown = React.useMemo(() => {
+    const counts = { blocker: 0, critical: 0, major: 0, minor: 0, info: 0 };
+    allIssuesList.forEach((item: any) => {
+      const sev = (item?.severity || "").toLowerCase();
+      if (sev.includes("block")) counts.blocker++;
+      else if (sev.includes("crit")) counts.critical++;
+      else if (sev.includes("maj")) counts.major++;
+      else if (sev.includes("min")) counts.minor++;
+      else if (sev.includes("info")) counts.info++;
+    });
+    return counts;
+  }, [allIssuesList]);
+
+  const showToast = React.useCallback((msg: string) => {
+    setCopiedNotification(msg);
+    setTimeout(() => setCopiedNotification(null), 2500);
+  }, []);
+
+  const copyToClipboard = React.useCallback((text: string, label: string) => {
+    navigator.clipboard.writeText(text);
+    showToast(`Copied ${label} to clipboard!`);
+  }, [showToast]);
+
+  const getPackageName = (filePath: string) => {
+    if (!filePath) return "default";
+    const normalized = filePath.replace(/\\/g, "/");
+    const javaIdx = normalized.indexOf("src/main/java/");
+    if (javaIdx !== -1) {
+      const pkgPath = normalized.substring(javaIdx + 14);
+      const lastSlash = pkgPath.lastIndexOf("/");
+      if (lastSlash !== -1) {
+        return pkgPath.substring(0, lastSlash).replace(/\//g, ".");
+      }
+    }
+    const parts = normalized.split("/");
+    return parts.length > 1 ? parts.slice(0, -1).join(".") : "default";
+  };
+
+  const getSeverityScore = (sev: string | undefined) => {
+    const s = (sev || "").toUpperCase();
+    if (s === "BLOCKER") return 5;
+    if (s === "CRITICAL") return 4;
+    if (s === "MAJOR") return 3;
+    if (s === "MINOR") return 2;
+    if (s === "INFO") return 1;
+    return 0;
+  };
+
+  const processCategoryItems = React.useCallback(
+    (items: any[]) => {
+      let result = [...items];
+
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase().trim();
+        result = result.filter((item) => {
+          const msg = (item?.message || "").toLowerCase();
+          const rule = (item?.rule || "").toLowerCase();
+          const comp = (item?.component || item?.file_path || "").toLowerCase();
+          const pkg = getPackageName(comp).toLowerCase();
+          return msg.includes(q) || rule.includes(q) || comp.includes(q) || pkg.includes(q);
+        });
+      }
+
+      if (severityFilter !== "all") {
+        result = result.filter((item) => (item?.severity || "").toUpperCase() === severityFilter);
+      }
+
+      if (statusFilter !== "all") {
+        result = result.filter((item) => (item?.status || "").toUpperCase() === statusFilter);
+      }
+
+      result.sort((a, b) => {
+        if (sortOption === "severity") {
+          return getSeverityScore(b?.severity) - getSeverityScore(a?.severity);
+        }
+        if (sortOption === "effort") {
+          return (b?.effort || "").localeCompare(a?.effort || "");
+        }
+        if (sortOption === "rule") {
+          return (a?.rule || "").localeCompare(b?.rule || "");
+        }
+        if (sortOption === "file") {
+          return (a?.component || a?.file_path || "").localeCompare(b?.component || b?.file_path || "");
+        }
+        if (sortOption === "date") {
+          return (b?.update_date || b?.creation_date || "").localeCompare(a?.update_date || a?.creation_date || "");
+        }
+        return 0;
+      });
+
+      return result;
+    },
+    [searchQuery, severityFilter, statusFilter, sortOption]
+  );
+
+  const filteredBugs = React.useMemo(() => processCategoryItems(rawBugs), [rawBugs, processCategoryItems]);
+  const filteredVulnerabilities = React.useMemo(() => processCategoryItems(rawVulnerabilities), [rawVulnerabilities, processCategoryItems]);
+  const filteredCodeSmells = React.useMemo(() => processCategoryItems(rawCodeSmells), [rawCodeSmells, processCategoryItems]);
+  const filteredHotspots = React.useMemo(() => processCategoryItems(rawHotspots), [rawHotspots, processCategoryItems]);
+
+  const handleExportCsv = React.useCallback(() => {
+    const headers = ["Key", "Type", "Severity", "Rule", "Message", "File", "Line", "Status", "Effort"];
+    const rows = allIssuesList.map((i: any) => [
+      `"${i?.key || ""}"`,
+      `"${i?.type || ""}"`,
+      `"${i?.severity || ""}"`,
+      `"${i?.rule || ""}"`,
+      `"${(i?.message || "").replace(/"/g, '""')}"`,
+      `"${i?.component || i?.file_path || ""}"`,
+      `"${i?.line || i?.line_number || ""}"`,
+      `"${i?.status || ""}"`,
+      `"${i?.effort || ""}"`,
+    ]);
+    const csvStr = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+    const blob = new Blob([csvStr], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `sonar_report_${migrationJob?.job_id || "migration"}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    showToast("Sonar CSV exported successfully!");
+  }, [allIssuesList, migrationJob?.job_id, showToast]);
+
+  const handleExportJson = React.useCallback(() => {
+    const dataStr = JSON.stringify(sonarReport || migrationJob, null, 2);
+    const blob = new Blob([dataStr], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `sonar_report_${migrationJob?.job_id || "migration"}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+    showToast("Sonar JSON exported successfully!");
+  }, [sonarReport, migrationJob, showToast]);
+
+  const toggleAccordion = (cat: string) => {
+    setAccordionState((prev) => ({ ...prev, [cat]: !prev[cat] }));
+  };
+
+  const toggleExpandCard = (key: string) => {
+    setExpandedCards((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const renderIssueCard = (item: any, catKey: string, index: number) => {
+    const cardId = item?.key || `${catKey}-${index}`;
+    const isExpanded = Boolean(expandedCards[cardId]);
+    const filePath = item?.component || item?.file_path || "Unknown File";
+    const lineNo = item?.line || item?.line_number || null;
+    const ruleId = item?.rule || "sonar:finding";
+    const message = item?.message || "No description provided.";
+    const severity = (item?.severity || "MAJOR").toUpperCase();
+    const status = (item?.status || "OPEN").toUpperCase();
+    const effort = item?.effort || null;
+    const pkgName = getPackageName(filePath);
+
+    let sevBg = "#fef2f2";
+    let sevColor = "#991b1b";
+    let sevBorder = "#fecaca";
+    if (severity === "BLOCKER") {
+      sevBg = "#450a0a"; sevColor = "#ffffff"; sevBorder = "#7f1d1d";
+    } else if (severity === "CRITICAL") {
+      sevBg = "#ef4444"; sevColor = "#ffffff"; sevBorder = "#dc2626";
+    } else if (severity === "MAJOR") {
+      sevBg = "#fff7ed"; sevColor = "#c2410c"; sevBorder = "#ffedd5";
+    } else if (severity === "MINOR") {
+      sevBg = "#fefce8"; sevColor = "#854d0e"; sevBorder = "#fef08a";
+    } else if (severity === "INFO") {
+      sevBg = "#eff6ff"; sevColor = "#1d4ed8"; sevBorder = "#bfdbfe";
+    }
+
+    return (
+      <div
+        key={cardId}
+        style={{
+          background: "#ffffff",
+          borderRadius: 12,
+          border: "1px solid #e2e8f0",
+          padding: "16px 20px",
+          marginBottom: 12,
+          boxShadow: "0 2px 8px rgba(15, 23, 42, 0.04)",
+          transition: "all 0.2s ease",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ flex: 1, minWidth: 260 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#0f172a", marginBottom: 6, lineHeight: 1.4 }}>
+              {message}
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+              <span style={{ padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: 800, background: sevBg, color: sevColor, border: `1px solid ${sevBorder}` }}>
+                {severity}
+              </span>
+              <span style={{ padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: 700, background: "#f1f5f9", color: "#334155", border: "1px solid #cbd5e1" }}>
+                {status}
+              </span>
+              <span style={{ padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: 600, background: "#f8fafc", color: "#2563eb", border: "1px solid #dbeafe", fontFamily: "monospace" }}>
+                {ruleId}
+              </span>
+              {effort && (
+                <span style={{ fontSize: 11, color: "#64748b", fontWeight: 600 }}>
+                  ⏱ Effort: {effort}
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <button
+              type="button"
+              onClick={() => copyToClipboard(`[${ruleId}] ${message} - ${filePath}:${lineNo || 1}`, "Issue Summary")}
+              style={{
+                padding: "6px 12px",
+                borderRadius: 8,
+                border: "1px solid #cbd5e1",
+                background: "#ffffff",
+                color: "#475569",
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+              }}
+            >
+              📋 Copy Issue
+            </button>
+            <button
+              type="button"
+              onClick={() => toggleExpandCard(cardId)}
+              style={{
+                padding: "6px 12px",
+                borderRadius: 8,
+                border: "1px solid #3b82f6",
+                background: isExpanded ? "#eff6ff" : "#ffffff",
+                color: "#2563eb",
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              {isExpanded ? "Hide Details ▲" : "Show Details ▼"}
+            </button>
+          </div>
+        </div>
+
+        <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px dashed #f1f5f9", display: "flex", flexWrap: "wrap", gap: 16, fontSize: 12, color: "#64748b" }}>
+          <div>
+            <strong style={{ color: "#334155" }}>File: </strong>
+            <button
+              type="button"
+              onClick={() => copyToClipboard(filePath, "File Path")}
+              style={{ background: "none", border: "none", padding: 0, color: "#2563eb", cursor: "pointer", fontWeight: 600, textDecoration: "underline" }}
+              title="Click to copy file path"
+            >
+              {filePath} {lineNo ? `:${lineNo}` : ""}
+            </button>
+          </div>
+          <div><strong style={{ color: "#334155" }}>Package: </strong><code>{pkgName}</code></div>
+          {item?.author && <div><strong style={{ color: "#334155" }}>Author: </strong>{item.author}</div>}
+        </div>
+
+        {isExpanded && (
+          <div style={{ marginTop: 12, padding: 14, background: "#f8fafc", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13, color: "#334155" }}>
+            <div style={{ fontWeight: 700, color: "#0f172a", marginBottom: 6 }}>Sonar Rule Description & Remediation Guidelines</div>
+            <div style={{ marginBottom: 8, lineHeight: 1.5 }}>
+              This finding was flagged under rule <code>{ruleId}</code>. Inspect code around line {lineNo || 1} in <code>{filePath}</code> to resolve the debt.
+            </div>
+            <div style={{ padding: "8px 12px", background: "#ffffff", borderRadius: 6, border: "1px solid #cbd5e1", fontFamily: "monospace", fontSize: 12, color: "#1e293b" }}>
+              // Remediation Check: Verify inputs, handle exceptions, and adhere to Java {migrationJob?.target_java_version || "21"} standard APIs.
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderCategoryAccordion = (catKey: string, title: string, items: any[], accentColor: string, iconStr: string) => {
+    const isCatOpen = Boolean(accordionState[catKey]);
+    const currentPage = categoryPages[catKey] || 1;
+    const totalPages = Math.ceil(items.length / pageSize) || 1;
+    const paginatedItems = items.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
+    return (
+      <div key={catKey} style={{ background: "#ffffff", borderRadius: 14, border: `1px solid ${accentColor}33`, marginBottom: 20, overflow: "hidden", boxShadow: "0 4px 16px rgba(15, 23, 42, 0.04)" }}>
+        <button
+          type="button"
+          onClick={() => toggleAccordion(catKey)}
+          style={{
+            width: "100%",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            padding: "16px 24px",
+            background: `linear-gradient(90deg, ${accentColor}0a 0%, #ffffff 100%)`,
+            border: "none",
+            borderBottom: isCatOpen ? `1px solid ${accentColor}22` : "none",
+            cursor: "pointer",
+            textAlign: "left",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <span style={{ fontSize: 18 }}>{iconStr}</span>
+            <span style={{ fontSize: 16, fontWeight: 700, color: "#0f172a" }}>{title}</span>
+            <span style={{ padding: "3px 10px", borderRadius: 999, fontSize: 12, fontWeight: 800, background: `${accentColor}18`, color: accentColor, border: `1px solid ${accentColor}33` }}>
+              {items.length}
+            </span>
+          </div>
+          <span style={{ fontSize: 14, fontWeight: 700, color: "#64748b" }}>{isCatOpen ? "Collapse ▲" : "Expand ▼"}</span>
+        </button>
+
+        {isCatOpen && (
+          <div style={{ padding: "20px 24px" }}>
+            {items.length === 0 ? (
+              <div style={{ padding: 24, textAlign: "center", background: "#f8fafc", borderRadius: 10, color: "#64748b", fontSize: 14 }}>
+                No findings match the current search or filters for {title}.
+              </div>
+            ) : (
+              <>
+                <div>{paginatedItems.map((item, idx) => renderIssueCard(item, catKey, idx))}</div>
+                {totalPages > 1 && (
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16, paddingTop: 12, borderTop: "1px solid #e2e8f0", flexWrap: "wrap", gap: 12 }}>
+                    <div style={{ fontSize: 13, color: "#64748b" }}>
+                      Showing {(currentPage - 1) * pageSize + 1} - {Math.min(currentPage * pageSize, items.length)} of {items.length} findings
+                    </div>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <button
+                        type="button"
+                        disabled={currentPage === 1}
+                        onClick={() => setCategoryPages((prev) => ({ ...prev, [catKey]: Math.max(1, prev[catKey] - 1) }))}
+                        style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid #cbd5e1", background: currentPage === 1 ? "#f1f5f9" : "#ffffff", color: currentPage === 1 ? "#94a3b8" : "#334155", cursor: currentPage === 1 ? "not-allowed" : "pointer", fontSize: 12, fontWeight: 600 }}
+                      >
+                        ◄ Previous
+                      </button>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: "#334155", padding: "0 8px" }}>
+                        Page {currentPage} of {totalPages}
+                      </span>
+                      <button
+                        type="button"
+                        disabled={currentPage === totalPages}
+                        onClick={() => setCategoryPages((prev) => ({ ...prev, [catKey]: Math.min(totalPages, prev[catKey] + 1) }))}
+                        style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid #cbd5e1", background: currentPage === totalPages ? "#f1f5f9" : "#ffffff", color: currentPage === totalPages ? "#94a3b8" : "#334155", cursor: currentPage === totalPages ? "not-allowed" : "pointer", fontSize: 12, fontWeight: 600 }}
+                      >
+                        Next ►
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const qgStatus = migrationJob?.sonar_quality_gate || "N/A";
+  const coverageVal = migrationJob?.sonar_coverage ?? 0;
+  const bugsCount = migrationJob?.sonar_bugs ?? 0;
+  const vulnCount = migrationJob?.sonar_vulnerabilities ?? 0;
+  const codeSmellsCount = migrationJob?.sonar_code_smells ?? 0;
+  const hotspotsCount = migrationJob?.sonar_security_hotspots ?? 0;
+  const totalFindingsCount = sonarTotalFindings || (bugsCount + vulnCount + codeSmellsCount + hotspotsCount);
+
   return (
-    <div style={{ ...styles.reportSection, ...styles.sonarSectionShell }}>
+    <div style={{ ...styles.reportSection, background: "#f8fafc", borderRadius: 16, padding: 24, border: "1px solid #e2e8f0" }}>
+      {copiedNotification && (
+        <div style={{ position: "fixed", bottom: 24, right: 24, background: "#0f172a", color: "#ffffff", padding: "12px 20px", borderRadius: 10, boxShadow: "0 10px 25px rgba(0,0,0,0.2)", zIndex: 9999, fontSize: 13, fontWeight: 600 }}>
+          ✓ {copiedNotification}
+        </div>
+      )}
+
       <button type="button" style={styles.reportAccordionToggle} onClick={onToggle}>
         <div>
-          <h3 style={{ ...styles.reportTitle, marginBottom: 6, paddingBottom: 0, borderBottom: "none" }}>
-            SonarQube Code Quality & Coverage
+          <h3 style={{ ...styles.reportTitle, marginBottom: 4, borderBottom: "none" }}>
+            SonarQube Enterprise Code Quality & Security Dashboard
           </h3>
           <div style={styles.sonarSectionSubtitle}>
-            Premium scan summary for engineering review, modernization planning, and security triage.
+            Continuous inspection report for Java migration quality gate, security vulnerabilities, and code debt.
           </div>
         </div>
         <span style={styles.reportAccordionIcon}>{isOpen ? "▾" : "▸"}</span>
       </button>
+
       {isOpen && (
-        <>
-          {migrationJob.sonar_error_message && (
-            <div style={{ background: "#fff7ed", border: "1px solid #fdba74", color: "#9a3412", borderRadius: 14, padding: "14px 16px", marginBottom: 16 }}>
-              {migrationJob.sonar_error_message}
+        <div style={{ marginTop: 20 }}>
+          {migrationJob?.sonar_error_message && (
+            <div style={{ background: "#fff7ed", border: "1px solid #fdba74", color: "#9a3412", borderRadius: 12, padding: "14px 18px", marginBottom: 20 }}>
+              <strong>Sonar Analysis Notice:</strong> {migrationJob.sonar_error_message}
             </div>
           )}
 
-          <div style={styles.sonarActionRow}>
-            <span style={{ padding: "8px 12px", borderRadius: 999, background: "#eff6ff", color: "#1d4ed8", fontSize: 12, fontWeight: 700 }}>
-              Scan Mode: {migrationJob.sonar_scan_mode || (migrationJob.sonar_quality_gate ? "real" : "N/A")}
-            </span>
-            <span style={{ padding: "8px 12px", borderRadius: 999, background: migrationJob.sonar_real_scan ? "#dcfce7" : "#fef3c7", color: migrationJob.sonar_real_scan ? "#166534" : "#92400e", fontSize: 12, fontWeight: 700 }}>
-              {migrationJob.sonar_real_scan ? "Real Sonar Scan" : "Non-real Result"}
-            </span>
-            {migrationJob.sonar_analysis_url && (
-              <a href={migrationJob.sonar_analysis_url} target="_blank" rel="noopener noreferrer" style={{ padding: "8px 12px", borderRadius: 999, background: "#f8fafc", color: "#2563eb", fontSize: 12, fontWeight: 700, textDecoration: "none", border: "1px solid #dbe5f3" }}>
-                View in SonarCloud
-              </a>
-            )}
-          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, marginBottom: 24, padding: "14px 20px", background: "#ffffff", borderRadius: 12, border: "1px solid #e2e8f0" }}>
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              <span style={{ padding: "6px 12px", borderRadius: 999, background: "#eff6ff", color: "#1d4ed8", fontSize: 12, fontWeight: 700 }}>
+                Scan Mode: {migrationJob?.sonar_scan_mode || "real"}
+              </span>
+              <span style={{ padding: "6px 12px", borderRadius: 999, background: migrationJob?.sonar_real_scan ? "#dcfce7" : "#fef3c7", color: migrationJob?.sonar_real_scan ? "#166534" : "#92400e", fontSize: 12, fontWeight: 700 }}>
+                {migrationJob?.sonar_real_scan ? "Real Scan Executed" : "Result Recorded"}
+              </span>
+            </div>
 
-          <div style={styles.sonarHeroPanel}>
-            <div style={styles.sonarHeroHeader}>
-              <div style={{ flex: 1, minWidth: 280 }}>
-                <div style={styles.sonarHeroEyebrow}>Scan Overview</div>
-                <div style={styles.sonarHeroTitle}>
-                  {migrationJob.sonar_quality_gate === "UNAVAILABLE" && migrationJob.sonar_error_message
-                    ? "Sonar analysis was unavailable because the project could not be compiled."
-                    : sonarTotalFindings > 0
-                      ? `${sonarTotalFindings} Sonar findings need Review and Remediation`
-                      : "No major Sonar findings detected"}
-                </div>
-              </div>
-              <div style={styles.sonarHeroMetaGrid}>
-                <div style={styles.sonarHeroMiniCard}>
-                  <div style={styles.sonarHeroMiniLabel}>Quality Gate</div>
-                  <span style={{ ...styles.gateStatus, backgroundColor: migrationJob.sonar_quality_gate === "PASSED" ? "#22c55e" : migrationJob.sonar_quality_gate === "UNAVAILABLE" || (migrationJob.sonar_quality_gate || "N/A") === "N/A" ? "#f59e0b" : "#ef4444", padding: "10px 18px", fontSize: 13 }}>
-                    {migrationJob.sonar_quality_gate || "N/A"}
-                  </span>
-                </div>
-                <div style={styles.sonarHeroMiniCard}>
-                  <div style={styles.sonarHeroMiniLabel}>Coverage</div>
-                  <div style={styles.coverageMeter}>
-                    <div style={styles.coverageCircle}>
-                      <span style={styles.coveragePercent}>{migrationJob.sonar_coverage}%</span>
-                      <span style={styles.coverageLabel}>Coverage</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              {migrationJob?.sonar_analysis_url && (
+                <a
+                  href={migrationJob.sonar_analysis_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ padding: "8px 16px", borderRadius: 8, background: "#2563eb", color: "#ffffff", fontSize: 13, fontWeight: 700, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 6 }}
+                >
+                  🔗 Open Sonar Dashboard
+                </a>
+              )}
+              <button type="button" onClick={handleExportCsv} style={{ padding: "8px 14px", borderRadius: 8, background: "#ffffff", border: "1px solid #cbd5e1", color: "#334155", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                📥 Export CSV
+              </button>
+              <button type="button" onClick={handleExportJson} style={{ padding: "8px 14px", borderRadius: 8, background: "#ffffff", border: "1px solid #cbd5e1", color: "#334155", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                📄 Export JSON
+              </button>
             </div>
           </div>
 
-          {(sonarDetailsAvailable || migrationJob.sonar_real_scan) && (
-            <div style={styles.sonarFindingsPanel}>
-              <div style={styles.sonarFindingsPanelIntro}>
-                <div>
-                  <div style={styles.sonarFindingsPanelEyebrow}>Issue Explorer</div>
-                  <div style={styles.sonarFindingsPanelTitle}>Detailed Sonar Findings</div>
-                  <div style={styles.sonarFindingsPanelSubtitle}>
-                    Filter by category to inspect the exact findings returned by Sonar.
-                  </div>
-                </div>
-                <div style={styles.sonarFindingsPanelSummaryBadge}>
-                  {sonarTotalFindings} total findings
-                </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 16, marginBottom: 24 }}>
+            <div style={{ background: "#ffffff", borderRadius: 14, padding: "18px 20px", border: "1px solid #e2e8f0", boxShadow: "0 2px 10px rgba(0,0,0,0.03)" }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 6 }}>Quality Gate</div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: qgStatus === "PASSED" ? "#16a34a" : qgStatus === "FAILED" ? "#dc2626" : "#d97706" }}>
+                {qgStatus}
               </div>
-              <div style={styles.sonarFilterBar}>
-                <span style={styles.sonarFilterLabel}>
-                  Showing: {sonarFindingFilter === "all" ? "All findings" : sonarFindingFilter.replace("_", " ").toUpperCase()}
-                </span>
-                {(sonarFindingFilter !== "all" || codeSmellSeverityFilter !== "all") && (
+              <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>Gate Status</div>
+            </div>
+
+            <div style={{ background: "#ffffff", borderRadius: 14, padding: "18px 20px", border: "1px solid #e2e8f0", boxShadow: "0 2px 10px rgba(0,0,0,0.03)" }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 6 }}>Coverage</div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: "#16a34a" }}>
+                {coverageVal}%
+              </div>
+              <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>Unit Test Coverage</div>
+            </div>
+
+            <div style={{ background: "#ffffff", borderRadius: 14, padding: "18px 20px", border: "1px solid #e2e8f0", boxShadow: "0 2px 10px rgba(0,0,0,0.03)" }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#2563eb", textTransform: "uppercase", marginBottom: 6 }}>Bugs</div>
+              <div style={{ fontSize: 26, fontWeight: 800, color: "#2563eb" }}>{bugsCount}</div>
+              <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>Correctness Issues</div>
+            </div>
+
+            <div style={{ background: "#ffffff", borderRadius: 14, padding: "18px 20px", border: "1px solid #e2e8f0", boxShadow: "0 2px 10px rgba(0,0,0,0.03)" }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#dc2626", textTransform: "uppercase", marginBottom: 6 }}>Vulnerabilities</div>
+              <div style={{ fontSize: 26, fontWeight: 800, color: "#dc2626" }}>{vulnCount}</div>
+              <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>Security Flaws</div>
+            </div>
+
+            <div style={{ background: "#ffffff", borderRadius: 14, padding: "18px 20px", border: "1px solid #e2e8f0", boxShadow: "0 2px 10px rgba(0,0,0,0.03)" }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#d97706", textTransform: "uppercase", marginBottom: 6 }}>Code Smells</div>
+              <div style={{ fontSize: 26, fontWeight: 800, color: "#d97706" }}>{codeSmellsCount}</div>
+              <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>Maintainability Debt</div>
+            </div>
+
+            <div style={{ background: "#ffffff", borderRadius: 14, padding: "18px 20px", border: "1px solid #e2e8f0", boxShadow: "0 2px 10px rgba(0,0,0,0.03)" }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#0d9488", textTransform: "uppercase", marginBottom: 6 }}>Security Hotspots</div>
+              <div style={{ fontSize: 26, fontWeight: 800, color: "#0d9488" }}>{hotspotsCount}</div>
+              <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>Manual Review Needs</div>
+            </div>
+
+            <div style={{ background: "#ffffff", borderRadius: 14, padding: "18px 20px", border: "1px solid #e2e8f0", boxShadow: "0 2px 10px rgba(0,0,0,0.03)" }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#7c3aed", textTransform: "uppercase", marginBottom: 6 }}>Total Findings</div>
+              <div style={{ fontSize: 26, fontWeight: 800, color: "#7c3aed" }}>{totalFindingsCount}</div>
+              <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>Combined Items</div>
+            </div>
+          </div>
+
+          <div style={{ background: "#ffffff", borderRadius: 14, padding: 20, border: "1px solid #e2e8f0", marginBottom: 24 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#334155", marginBottom: 12 }}>Issue Distribution Analysis</div>
+            <div style={{ height: 12, borderRadius: 999, background: "#f1f5f9", display: "flex", overflow: "hidden", marginBottom: 14 }}>
+              {totalFindingsCount > 0 ? (
+                <>
+                  <div style={{ width: `${(bugsCount / totalFindingsCount) * 100}%`, background: "#2563eb" }} title={`Bugs: ${bugsCount}`} />
+                  <div style={{ width: `${(vulnCount / totalFindingsCount) * 100}%`, background: "#dc2626" }} title={`Vulnerabilities: ${vulnCount}`} />
+                  <div style={{ width: `${(codeSmellsCount / totalFindingsCount) * 100}%`, background: "#d97706" }} title={`Code Smells: ${codeSmellsCount}`} />
+                  <div style={{ width: `${(hotspotsCount / totalFindingsCount) * 100}%`, background: "#0d9488" }} title={`Hotspots: ${hotspotsCount}`} />
+                </>
+              ) : (
+                <div style={{ width: "100%", background: "#22c55e" }} />
+              )}
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 16, fontSize: 12, color: "#64748b" }}>
+              <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 10, height: 10, borderRadius: "50%", background: "#2563eb" }} /> Bugs ({bugsCount})</span>
+              <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 10, height: 10, borderRadius: "50%", background: "#dc2626" }} /> Vulnerabilities ({vulnCount})</span>
+              <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 10, height: 10, borderRadius: "50%", background: "#d97706" }} /> Code Smells ({codeSmellsCount})</span>
+              <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 10, height: 10, borderRadius: "50%", background: "#0d9488" }} /> Security Hotspots ({hotspotsCount})</span>
+            </div>
+
+            <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1px dashed #e2e8f0", display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: "#475569" }}>Severity Breakdown:</span>
+              <span style={{ padding: "3px 10px", borderRadius: 6, fontSize: 11, fontWeight: 700, background: "#450a0a", color: "#ffffff" }}>Blocker ({severityBreakdown.blocker})</span>
+              <span style={{ padding: "3px 10px", borderRadius: 6, fontSize: 11, fontWeight: 700, background: "#ef4444", color: "#ffffff" }}>Critical ({severityBreakdown.critical})</span>
+              <span style={{ padding: "3px 10px", borderRadius: 6, fontSize: 11, fontWeight: 700, background: "#fff7ed", color: "#c2410c", border: "1px solid #ffedd5" }}>Major ({severityBreakdown.major})</span>
+              <span style={{ padding: "3px 10px", borderRadius: 6, fontSize: 11, fontWeight: 700, background: "#fefce8", color: "#854d0e", border: "1px solid #fef08a" }}>Minor ({severityBreakdown.minor})</span>
+              <span style={{ padding: "3px 10px", borderRadius: 6, fontSize: 11, fontWeight: 700, background: "#eff6ff", color: "#1d4ed8", border: "1px solid #bfdbfe" }}>Info ({severityBreakdown.info})</span>
+            </div>
+          </div>
+
+          <div style={{ background: "#ffffff", borderRadius: 14, padding: 20, border: "1px solid #e2e8f0", marginBottom: 24, boxShadow: "0 2px 10px rgba(0,0,0,0.03)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 16, marginBottom: 16 }}>
+              <div style={{ flex: 1, minWidth: 260 }}>
+                <input
+                  type="text"
+                  placeholder="🔍 Search findings by message, rule ID, file path, package name..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  style={{ width: "100%", padding: "10px 16px", borderRadius: 10, border: "1px solid #cbd5e1", fontSize: 13, color: "#0f172a", outline: "none" }}
+                />
+              </div>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                <select value={severityFilter} onChange={(e) => setSeverityFilter(e.target.value)} style={{ padding: "9px 12px", borderRadius: 8, border: "1px solid #cbd5e1", fontSize: 12, fontWeight: 600, color: "#334155", background: "#ffffff" }}>
+                  <option value="all">All Severities</option>
+                  <option value="BLOCKER">Blocker</option>
+                  <option value="CRITICAL">Critical</option>
+                  <option value="MAJOR">Major</option>
+                  <option value="MINOR">Minor</option>
+                  <option value="INFO">Info</option>
+                </select>
+
+                <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ padding: "9px 12px", borderRadius: 8, border: "1px solid #cbd5e1", fontSize: 12, fontWeight: 600, color: "#334155", background: "#ffffff" }}>
+                  <option value="all">All Statuses</option>
+                  <option value="OPEN">Open</option>
+                  <option value="CONFIRMED">Confirmed</option>
+                  <option value="RESOLVED">Resolved</option>
+                  <option value="CLOSED">Closed</option>
+                </select>
+
+                <select value={sortOption} onChange={(e) => setSortOption(e.target.value)} style={{ padding: "9px 12px", borderRadius: 8, border: "1px solid #cbd5e1", fontSize: 12, fontWeight: 600, color: "#334155", background: "#ffffff" }}>
+                  <option value="severity">Sort: Severity (High → Low)</option>
+                  <option value="effort">Sort: Effort</option>
+                  <option value="rule">Sort: Rule ID</option>
+                  <option value="file">Sort: File Name</option>
+                  <option value="date">Sort: Updated Date</option>
+                </select>
+
+                <select value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))} style={{ padding: "9px 12px", borderRadius: 8, border: "1px solid #cbd5e1", fontSize: 12, fontWeight: 600, color: "#334155", background: "#ffffff" }}>
+                  <option value={10}>10 per page</option>
+                  <option value={25}>25 per page</option>
+                  <option value={50}>50 per page</option>
+                </select>
+
+                {(searchQuery || severityFilter !== "all" || statusFilter !== "all") && (
                   <button
                     type="button"
-                    style={styles.sonarFilterClearButton}
-                    onClick={() => {
-                      setSonarFindingFilter("all");
-                      setCodeSmellSeverityFilter("all");
-                    }}
+                    onClick={() => { setSearchQuery(""); setSeverityFilter("all"); setStatusFilter("all"); }}
+                    style={{ padding: "9px 14px", borderRadius: 8, border: "1px solid #fda4af", background: "#fff1f2", color: "#e11d48", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
                   >
-                    Clear Filters
+                    Reset Filters
                   </button>
                 )}
               </div>
-              {sonarFindingFilter === "code_smells" && (
-                <div style={styles.sonarSeverityFilterRow}>
-                  {[
-                    { key: "all", label: "All", count: migrationJob.sonar_code_smells },
-                    { key: "low", label: "Low", count: codeSmellSeverityCounts.low },
-                    { key: "medium", label: "Medium", count: codeSmellSeverityCounts.medium },
-                    { key: "high", label: "High", count: codeSmellSeverityCounts.high },
-                    { key: "blocker", label: "Blocker", count: codeSmellSeverityCounts.blocker },
-                  ].map((item) => (
-                    <button
-                      key={item.key}
-                      type="button"
-                      style={{
-                        ...styles.sonarSeverityFilterButton,
-                        ...(codeSmellSeverityFilter === item.key ? styles.sonarSeverityFilterButtonActive : {}),
-                      }}
-                      onClick={() => setCodeSmellSeverityFilter(item.key as CodeSmellSeverityFilter)}
-                    >
-                      {item.label} ({item.count})
-                    </button>
-                  ))}
-                </div>
-              )}
-              <div style={styles.sonarCategoryCardGrid}>
-                {sonarCategoryCards.map((card) => {
-                  const isActive = sonarFindingFilter === card.key;
-                  const isIdle = sonarFindingFilter !== "all" && !isActive;
-                  return (
-                    <button
-                      key={card.key}
-                      type="button"
-                      style={{
-                        ...styles.sonarCategoryCard,
-                        background: isActive ? `${card.accent}12` : card.surface,
-                        borderColor: isActive ? `${card.accent}66` : card.tint,
-                        boxShadow: isActive ? `0 16px 34px ${card.accent}18` : "0 10px 26px rgba(15, 23, 42, 0.06)",
-                        opacity: isIdle ? 0.7 : 1,
-                      }}
-                      onClick={() => setSonarFindingFilter((current) => (current === card.key ? "all" : card.key))}
-                    >
-                      <div style={styles.sonarCategoryCardTopRow}>
-                        <div
-                          style={{
-                            ...styles.sonarCategoryIconBadge,
-                            color: card.accent,
-                            background: `${card.accent}12`,
-                            borderColor: `${card.accent}2f`,
-                          }}
-                        >
-                          {card.icon}
-                        </div>
-                        <div
-                          style={{
-                            ...styles.sonarCategoryStatusBadge,
-                            color: card.accent,
-                            background: `${card.accent}12`,
-                          }}
-                        >
-                          {isActive ? "SELECTED" : "FILTER"}
-                        </div>
-                      </div>
-                      <div style={{ ...styles.sonarCategoryCardValue, color: card.count > 0 ? card.accent : "#16a34a" }}>
-                        {card.count}
-                      </div>
-                      <div style={styles.sonarCategoryCardLabel}>{card.label}</div>
-                      <div style={styles.sonarCategoryCardNote}>{card.note}</div>
-                    </button>
-                  );
-                })}
-              </div>
-              {visibleSonarSections.map((section) => (
-                <React.Fragment key={section.key}>
-                  {renderSonarFindingSection(section)}
-                </React.Fragment>
-              ))}
             </div>
-          )}
-        </>
+
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", fontSize: 12 }}>
+              <button type="button" onClick={() => setAccordionState({ bugs: true, vulnerabilities: true, code_smells: true, security_hotspots: true })} style={{ background: "none", border: "none", color: "#2563eb", cursor: "pointer", fontWeight: 600 }}>
+                Expand All Sections
+              </button>
+              <span style={{ color: "#cbd5e1" }}>|</span>
+              <button type="button" onClick={() => setAccordionState({ bugs: false, vulnerabilities: false, code_smells: false, security_hotspots: false })} style={{ background: "none", border: "none", color: "#2563eb", cursor: "pointer", fontWeight: 600 }}>
+                Collapse All Sections
+              </button>
+            </div>
+          </div>
+
+          <div>
+            {renderCategoryAccordion("bugs", "Bugs", filteredBugs, "#2563eb", "🐛")}
+            {renderCategoryAccordion("vulnerabilities", "Vulnerabilities", filteredVulnerabilities, "#dc2626", "🛡️")}
+            {renderCategoryAccordion("code_smells", "Code Smells", filteredCodeSmells, "#d97706", "☣️")}
+            {renderCategoryAccordion("security_hotspots", "Security Hotspots", filteredHotspots, "#0d9488", "🔥")}
+          </div>
+        </div>
       )}
     </div>
   );

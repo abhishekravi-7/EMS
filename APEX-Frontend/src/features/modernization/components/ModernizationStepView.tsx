@@ -235,63 +235,59 @@ export function ModernizationStepView({
           display: "flex",
           flexDirection: "column",
           gap: 12,
-          opacity: 0.65,
-          pointerEvents: "none",
-          userSelect: "none",
         }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <span style={{ fontSize: 18, color: "#64748b" }}>🛡️</span>
               <span style={{ fontWeight: 700, fontSize: 15, color: "#64748b" }}>Quality Gates</span>
             </div>
-            <span style={{
-              fontSize: 9, fontWeight: 700, color: "#64748b",
-              background: "#e2e8f0", padding: "3px 8px", borderRadius: 6,
-              textTransform: "uppercase", letterSpacing: 0.5,
-            }}>DISABLED</span>
           </div>
           <div style={{ display: "flex", gap: 10 }}>
             <div
+              onClick={() => setRunSonar(!runSonar)}
               style={{
                 flex: 1, padding: "10px 12px", borderRadius: 10,
-                border: "1px solid #cbd5e1",
-                background: "#f1f5f9",
-                cursor: "not-allowed",
+                border: `2px solid ${runSonar ? "#22c55e" : "#cbd5e1"}`,
+                background: runSonar ? "#f0fdf4" : "#f1f5f9",
+                cursor: "pointer",
+                transition: "all 0.15s ease",
               }}
             >
-              <div style={{ fontWeight: 700, fontSize: 12, color: "#64748b", marginBottom: 2 }}>
-                <FaSearch style={{ marginRight: 6, fontSize: 10, color: "#94a3b8" }} />
+              <div style={{ fontWeight: 700, fontSize: 12, color: runSonar ? "#166534" : "#64748b", marginBottom: 2 }}>
+                <FaSearch style={{ marginRight: 6, fontSize: 10, color: runSonar ? "#166534" : "#94a3b8" }} />
                 SonarQube
               </div>
-              <div style={{ fontSize: 10, color: "#94a3b8", lineHeight: 1.4 }}>
+              <div style={{ fontSize: 10, color: runSonar ? "#15803d" : "#94a3b8", lineHeight: 1.4 }}>
                 Static analysis for bug and vulnerability detection.
               </div>
               <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 4 }}>
-                <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#94a3b8" }} />
-                <span style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8" }}>
-                  INACTIVE
+                <span style={{ width: 6, height: 6, borderRadius: "50%", background: runSonar ? "#22c55e" : "#94a3b8" }} />
+                <span style={{ fontSize: 10, fontWeight: 700, color: runSonar ? "#166534" : "#94a3b8" }}>
+                  {runSonar ? "ACTIVE" : "INACTIVE"}
                 </span>
               </div>
             </div>
             <div
+              onClick={() => setRunFossa(!runFossa)}
               style={{
                 flex: 1, padding: "10px 12px", borderRadius: 10,
-                border: "1px solid #cbd5e1",
-                background: "#f1f5f9",
-                cursor: "not-allowed",
+                border: `2px solid ${runFossa ? "#22c55e" : "#cbd5e1"}`,
+                background: runFossa ? "#f0fdf4" : "#f1f5f9",
+                cursor: "pointer",
+                transition: "all 0.15s ease",
               }}
             >
-              <div style={{ fontWeight: 700, fontSize: 12, color: "#64748b", marginBottom: 2 }}>
-                <FaShieldAlt style={{ marginRight: 6, fontSize: 10, color: "#94a3b8" }} />
+              <div style={{ fontWeight: 700, fontSize: 12, color: runFossa ? "#166534" : "#64748b", marginBottom: 2 }}>
+                <FaShieldAlt style={{ marginRight: 6, fontSize: 10, color: runFossa ? "#166534" : "#94a3b8" }} />
                 FOSSA
               </div>
-              <div style={{ fontSize: 10, color: "#94a3b8", lineHeight: 1.4 }}>
+              <div style={{ fontSize: 10, color: runFossa ? "#15803d" : "#94a3b8", lineHeight: 1.4 }}>
                 Open-source license compliance and security.
               </div>
               <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 4 }}>
-                <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#94a3b8" }} />
-                <span style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8" }}>
-                  INACTIVE
+                <span style={{ width: 6, height: 6, borderRadius: "50%", background: runFossa ? "#22c55e" : "#94a3b8" }} />
+                <span style={{ fontSize: 10, fontWeight: 700, color: runFossa ? "#166534" : "#94a3b8" }}>
+                  {runFossa ? "ACTIVE" : "INACTIVE"}
                 </span>
               </div>
             </div>

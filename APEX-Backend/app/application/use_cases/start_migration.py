@@ -651,48 +651,71 @@ class StartMigrationUseCase:
         )
         store.append_logs(["===== QUALITY GATES ====="])
 
-        project_name = str(report.get("targetRepo") or report.get("sourceRepoUrl") or job_id)
-        result = self._quality_gate_runner.run(
-            project_dir,
-            job_id=job_id,
-            project_name=project_name,
-            run_sonar=run_sonar,
-            run_fossa=run_fossa,
-        )
-
-        updates: dict[str, Any] = {}
-        if result.sonar:
-            updates.update(
-                sonar_quality_gate=result.sonar.quality_gate,
-                sonar_bugs=result.sonar.bugs,
-                sonar_vulnerabilities=result.sonar.vulnerabilities,
-                sonar_code_smells=result.sonar.code_smells,
-                sonar_coverage=result.sonar.coverage,
-                sonar_duplications=result.sonar.duplications,
-                sonar_security_hotspots=result.sonar.security_hotspots,
-                sonar_scan_mode=result.sonar.scan_mode,
-                sonar_real_scan=result.sonar.real_scan,
-                sonar_analysis_url=result.sonar.analysis_url,
-                sonar_error_message=result.sonar.error_message,
-                sonar_report=result.sonar.report,
-            )
-        if result.fossa:
-            updates.update(
-                fossa_policy_status=result.fossa.policy_status,
-                fossa_total_dependencies=result.fossa.total_dependencies,
-                fossa_license_issues=result.fossa.license_issues,
-                fossa_vulnerabilities=result.fossa.vulnerabilities,
-                fossa_outdated_dependencies=result.fossa.outdated_dependencies,
-                fossa_scan_mode=result.fossa.scan_mode,
-                fossa_real_scan=result.fossa.real_scan,
-                fossa_analysis_url=result.fossa.analysis_url,
-                fossa_error_message=result.fossa.error_message,
-                fossa_report=result.fossa.report,
+        try:
+            project_name = str(report.get("targetRepo") or report.get("sourceRepoUrl") or job_id)
+            result = self._quality_gate_runner.run(
+                project_dir,
+                job_id=job_id,
+                project_name=project_name,
+                run_sonar=run_sonar,
+                run_fossa=run_fossa,
             )
 
-        if updates:
-            store.update(**updates)
-        store.append_logs(result.log_lines)
+            updates: dict[str, Any] = {}
+            if result.sonar:
+                updates.update(
+                    sonar_quality_gate=result.sonar.quality_gate,
+                    sonar_bugs=result.sonar.bugs,
+                    sonar_vulnerabilities=result.sonar.vulnerabilities,
+                    sonar_code_smells=result.sonar.code_smells,
+                    sonar_coverage=result.sonar.coverage,
+                    sonar_duplications=result.sonar.duplications,
+                    sonar_security_hotspots=result.sonar.security_hotspots,
+                    sonar_scan_mode=result.sonar.scan_mode,
+                    sonar_real_scan=result.sonar.real_scan,
+                    sonar_analysis_url=result.sonar.analysis_url,
+                    sonar_error_message=result.sonar.error_message,
+                    sonar_report=result.sonar.report,
+                )
+            if result.fossa:
+                updates.update(
+                    fossa_policy_status=result.fossa.policy_status,
+                    fossa_total_dependencies=result.fossa.total_dependencies,
+                    fossa_license_issues=result.fossa.license_issues,
+                    fossa_vulnerabilities=result.fossa.vulnerabilities,
+                    fossa_outdated_dependencies=result.fossa.outdated_dependencies,
+                    fossa_scan_mode=result.fossa.scan_mode,
+                    fossa_real_scan=result.fossa.real_scan,
+                    fossa_analysis_url=result.fossa.analysis_url,
+                    fossa_error_message=result.fossa.error_message,
+                    fossa_report=result.fossa.report,
+                )
+
+            if updates:
+                store.update(**updates)
+            store.append_logs(result.log_lines)
+
+        except Exception as qg_exc:  # noqa: BLE001
+            # Quality gate failures (including unexpected parser errors) must NEVER fail the migration.
+            # Log the problem and record it in the report, then continue normally.
+            logger.exception(
+                "Quality gate scan encountered an unexpected error for job %s — migration continues.",
+                job_id,
+            )
+            err_msg = f"Quality gate scan error (non-fatal): {qg_exc}"
+            store.append_logs([err_msg])
+            # Persist the error so it is visible in the UI report
+            fossa_err_updates: dict[str, Any] = {}
+            if run_fossa:
+                fossa_err_updates["fossa_error_message"] = err_msg
+                fossa_err_updates["fossa_scan_mode"] = "error"
+                fossa_err_updates["fossa_policy_status"] = "UNAVAILABLE"
+            if run_sonar:
+                fossa_err_updates["sonar_error_message"] = err_msg
+                fossa_err_updates["sonar_scan_mode"] = "error"
+            if fossa_err_updates:
+                store.update(**fossa_err_updates)
+
 
     @staticmethod
     def _should_include_jakarta(report: dict[str, Any]) -> bool:
