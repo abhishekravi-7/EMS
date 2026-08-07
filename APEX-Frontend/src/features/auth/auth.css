@@ -1,0 +1,538 @@
+/* ── Java APEX - Pixel-Perfect Auth Page Styles ── */
+
+.apex-auth-page {
+  min-height: 100vh;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  background-color: #ffffff;
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color: #0f172a;
+  box-sizing: border-box;
+}
+
+.apex-auth-page * {
+  box-sizing: border-box;
+}
+
+/* ── Top Bar Header ── */
+.apex-auth-topbar {
+  height: 64px;
+  padding: 0 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #f1f5f9;
+  background: #ffffff;
+  z-index: 10;
+  flex-shrink: 0;
+}
+
+.apex-auth-topbar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.apex-auth-logo-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #2563eb, #7c3aed);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  box-shadow: 0 4px 10px rgba(37, 99, 235, 0.22);
+}
+
+.apex-auth-logo-text {
+  font-size: 20px;
+  letter-spacing: -0.02em;
+}
+
+.apex-auth-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.apex-auth-back-btn:hover {
+  color: #2563eb;
+}
+
+/* ── Main Layout Body ── */
+.apex-auth-main {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 40px;
+  background: #f8fafc;
+}
+
+.apex-auth-container {
+  width: 100%;
+  max-width: 1120px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 40px;
+  align-items: center;
+  margin: 0 auto;
+}
+
+/* ── Sign In Left Hero Card (Light Ice Blue Gradient) ── */
+.apex-auth-hero-card--signin {
+  background: linear-gradient(180deg, #f0f7ff 0%, #e6f0fa 50%, #f4f8fc 100%);
+  border-radius: 24px;
+  padding: 40px 36px;
+  border: 1px solid #dbeafe;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.03);
+  position: relative;
+  overflow: hidden;
+}
+
+/* ── Sign Up Left Hero Card (Dark Blue Gradient) ── */
+.apex-auth-hero-card--signup {
+  background: linear-gradient(180deg, #091a48 0%, #0d2875 40%, #153bb5 75%, #1a44cc 100%);
+  border-radius: 24px;
+  padding: 40px 36px;
+  color: #ffffff;
+  box-shadow: 0 20px 50px rgba(13, 40, 117, 0.25);
+  position: relative;
+  overflow: hidden;
+}
+
+.apex-auth-hero-content {
+  width: 100%;
+}
+
+.apex-auth-hero-title {
+  font-size: 34px;
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  margin: 0 0 10px 0;
+  color: #0f172a;
+}
+
+.apex-auth-hero-sub {
+  font-size: 14px;
+  line-height: 1.5;
+  color: #475569;
+  margin-bottom: 28px;
+}
+
+/* ── Feature List Items ── */
+.apex-auth-features {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin-bottom: 24px;
+}
+
+.apex-auth-feature-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.apex-auth-feature-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background: #dbeafe;
+  border: 1px solid #bfdbfe;
+  color: #2563eb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.08);
+}
+
+.apex-auth-feature-icon--dark {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #60a5fa;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.apex-auth-feature-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 2px;
+}
+
+.apex-auth-feature-desc {
+  font-size: 12px;
+  color: #64748b;
+  line-height: 1.4;
+}
+
+/* ── Graphic Container ── */
+.apex-3d-graphic-wrap {
+  width: 100%;
+  margin: 10px 0;
+}
+
+.apex-auth-security-note {
+  margin-top: 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #475569;
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(4px);
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid #dbeafe;
+}
+
+/* ── Right Auth Card ── */
+.apex-auth-card-wrap {
+  display: flex;
+  justify-content: center;
+}
+
+.apex-auth-card {
+  width: 100%;
+  max-width: 440px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 24px;
+  padding: 40px 36px;
+  box-shadow: 0 12px 36px rgba(15, 23, 42, 0.04);
+}
+
+.apex-form-header {
+  margin-bottom: 22px;
+}
+
+.apex-form-title {
+  font-size: 22px;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0 0 6px 0;
+  letter-spacing: -0.02em;
+}
+
+.apex-form-subtitle {
+  font-size: 13px;
+  color: #64748b;
+  margin: 0;
+}
+
+/* Form Controls */
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.auth-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.auth-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #334155;
+}
+
+.auth-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.auth-input-left-icon {
+  position: absolute;
+  left: 14px;
+  display: flex;
+  align-items: center;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.auth-input {
+  width: 100%;
+  height: 44px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: 1px solid #cbd5e1;
+  font-size: 13px;
+  color: #0f172a;
+  background: #ffffff;
+  transition: all 0.2s ease;
+}
+
+.auth-input--with-icon {
+  padding-left: 40px;
+}
+
+.auth-input:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  outline: none;
+}
+
+.auth-input--error {
+  border-color: #ef4444;
+}
+
+.auth-toggle-visibility {
+  position: absolute;
+  right: 12px;
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.auth-toggle-visibility:hover {
+  color: #2563eb;
+}
+
+.auth-error-text {
+  font-size: 11px;
+  font-weight: 600;
+  color: #dc2626;
+  margin-top: 1px;
+}
+
+.auth-notice--error {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 14px;
+}
+
+.auth-link-forgot {
+  background: none;
+  border: none;
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.auth-link-forgot:hover {
+  text-decoration: underline;
+}
+
+/* Password Strength Indicator Bar */
+.apex-password-strength-wrap {
+  margin-top: 6px;
+}
+
+.apex-strength-bars {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.apex-strength-bar {
+  flex: 1;
+  height: 3px;
+  border-radius: 2px;
+  background: #e2e8f0;
+  transition: all 0.2s ease;
+}
+
+.apex-strength-label {
+  font-size: 11px;
+  color: #64748b;
+  font-weight: 600;
+}
+
+/* Checkbox */
+.auth-terms-checkbox-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.auth-terms-checkbox-wrap input {
+  width: 15px;
+  height: 15px;
+  accent-color: #2563eb;
+  cursor: pointer;
+}
+
+.auth-terms-checkbox-wrap a {
+  color: #2563eb;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.auth-terms-checkbox-wrap a:hover {
+  text-decoration: underline;
+}
+
+/* Primary CTA Button */
+.apex-btn-auth-primary {
+  width: 100%;
+  height: 46px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 700;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.28);
+  transition: all 0.2s ease;
+  margin-top: 4px;
+}
+
+.apex-btn-auth-primary:hover {
+  background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
+  box-shadow: 0 6px 18px rgba(37, 99, 235, 0.38);
+}
+
+.apex-btn-auth-primary:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+/* Divider & Social Stack */
+.auth-divider {
+  text-align: center;
+  font-size: 12px;
+  color: #94a3b8;
+  margin: 18px 0 14px 0;
+  position: relative;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 28%;
+  height: 1px;
+  background: #e2e8f0;
+}
+
+.auth-divider::before { left: 0; }
+.auth-divider::after { right: 0; }
+
+.auth-social-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.auth-social-btn {
+  width: 100%;
+  height: 42px;
+  border-radius: 10px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  transition: all 0.15s ease;
+}
+
+.auth-social-btn:hover {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+
+.auth-footer-note {
+  text-align: center;
+  font-size: 13px;
+  color: #64748b;
+  margin-top: 20px;
+  margin-bottom: 0;
+}
+
+.apex-auth-switch-link {
+  color: #2563eb;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.apex-auth-switch-link:hover {
+  text-decoration: underline;
+}
+
+/* ── Footer ── */
+.apex-auth-footer {
+  height: 56px;
+  padding: 0 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid #e2e8f0;
+  background: #ffffff;
+  font-size: 12px;
+  color: #64748b;
+  z-index: 10;
+  flex-shrink: 0;
+}
+
+.apex-auth-footer-links {
+  display: flex;
+  gap: 20px;
+}
+
+.apex-auth-footer-link {
+  color: #64748b;
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.apex-auth-footer-link:hover {
+  color: #2563eb;
+}
+
+/* ── Responsive ── */
+@media (max-width: 900px) {
+  .apex-auth-container {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+  .apex-auth-hero-card {
+    display: none;
+  }
+  .apex-auth-main {
+    padding: 24px 16px;
+  }
+}

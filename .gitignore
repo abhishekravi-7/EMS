@@ -1,0 +1,63 @@
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editors and tooling
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Python backend
+**/__pycache__/
+**/*.py[cod]
+**/*.egg-info/
+**/.venv/
+**/venv/
+**/env/
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+
+# Environment files
+**/.env
+**/.env.*
+
+# Backend runtime and storage
+APEX-Backend/storage/migration-jobs/*
+!APEX-Backend/storage/migration-jobs/.gitkeep
+APEX-Backend/storage/.gradle-cache/
+APEX-Backend/storage/support-tickets/**
+APEX-Backend/storage/vector-store/**
+
+# Node / frontend
+APEX-Frontend/node_modules/
+APEX-Frontend/dist/
+APEX-Frontend/dist-ssr/
+APEX-Frontend/.vite/
+APEX-Frontend/.next/
+APEX-Frontend/.nuxt/
+APEX-Frontend/.parcel-cache/
+APEX-Frontend/.cache/
+APEX-Frontend/coverage/
+APEX-Frontend/.eslintcache
+APEX-Frontend/.stylelintcache
+APEX-Frontend/*.tsbuildinfo
+APEX-Frontend/.npm/
+APEX-Frontend/.pnpm-store/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Test and build outputs
+build/
+target/
+
+# Temporary files
+.tmp/
+.tmp
+*.tmp
