@@ -20,3 +20,8 @@ storage/.gradle-cache/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+
+APEX-Backend/storage/vector-store/.lock
+
+# Runtime vector store
+storage/vector-store/
