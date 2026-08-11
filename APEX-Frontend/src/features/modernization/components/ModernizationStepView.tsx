@@ -8,6 +8,7 @@ import {
 } from "react-icons/fa";
 import { wizardStyles as styles } from "@/shared/components/wizard/wizardStyles";
 import { renderWizardIconBadge, renderBackButtonLabel } from "@/shared/components/wizard";
+import { WIZARD_JOB_ID_KEY, readPersistedValue } from "@/shared/utils/migrationWizardStorage";
 import type { RepoAnalysis, RepoInfo } from "@/shared/types/domain";
 import { getFileContent } from "@/features/discovery/services/discoveryService";
 import { getLocalProjectFileContent } from "@/features/connect/services/connectService";
@@ -17,6 +18,7 @@ import {
   type FunctionalTestScopePreview,
 } from "../services/modernizationService";
 import type { useModernizationState } from "../hooks/useModernizationState";
+import { ExistingTestCasesPanel } from "./ExistingTestCasesPanel";
 
 const LLM_PROVIDERS = [
   { value: "groq", label: "Groq (Recommended — Llama 3.3 70B Fast)" },
@@ -164,6 +166,8 @@ export function ModernizationStepView({
 
   const apiEndpointCount = repoAnalysis?.api_endpoints?.length ?? 0;
   void apiEndpointCount;
+
+  const jobId = readPersistedValue(WIZARD_JOB_ID_KEY);
 
   return (
     <div style={styles.card}>
@@ -359,6 +363,9 @@ export function ModernizationStepView({
             </div>
           )}
         </div>
+
+        {/* Existing Test Cases Discovery & Execution */}
+        <ExistingTestCasesPanel jobId={jobId} repoAnalysis={repoAnalysis} />
 
         <div style={{ borderTop: "1px solid #e2e8f0", paddingTop: 24 }}>
           <p style={{
