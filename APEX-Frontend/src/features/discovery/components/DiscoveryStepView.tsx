@@ -327,7 +327,7 @@ export function DiscoveryStepView({
                         />
                       )}
 
-                      {repoAnalysis && (
+                      {/* {repoAnalysis && (
                         <MicroserviceAssessment
                           repoAnalysis={repoAnalysis as RepoAnalysis}
                           microserviceResult={microserviceResult}
@@ -340,7 +340,7 @@ export function DiscoveryStepView({
                           setShowFolderStructure={setShowFolderStructure}
                           styles={styles}
                         />
-                      )}
+                      )} */}
 
                       {repoAnalysis && (
                         <DiscoveryTechnicalSpecificationCard
