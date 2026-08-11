@@ -118,7 +118,7 @@ def upsert(vectors: list[list[float]], payloads: list[dict[str, Any]], ids: list
     client.upsert(collection_name=settings.qdrant_collection, points=points)
 
 
-def search(query_vector: list[float], repository_url: str, top_k: int) -> list[dict[str, Any]]:
+def search(query_vector: list[float], repository_url: str, top_k: int, job_id: str | None = None) -> list[dict[str, Any]]:
     """Return the top-K payloads for a repository, ranked by similarity."""
     from qdrant_client import models
     from app.infrastructure.rag.repo_index_locator import normalize_repository_url
@@ -128,16 +128,26 @@ def search(query_vector: list[float], repository_url: str, top_k: int) -> list[d
     existing = {c.name for c in client.get_collections().collections}
     if settings.qdrant_collection not in existing:
         return []
+
+    must_conditions = [
+        models.FieldCondition(
+            key="repository_url",
+            match=models.MatchValue(value=repository_url),
+        )
+    ]
+    if job_id:
+        must_conditions.append(
+            models.FieldCondition(
+                key="job_id",
+                match=models.MatchValue(value=job_id),
+            )
+        )
+
     response = client.query_points(
         collection_name=settings.qdrant_collection,
         query=query_vector,
         query_filter=models.Filter(
-            must=[
-                models.FieldCondition(
-                    key="repository_url",
-                    match=models.MatchValue(value=repository_url),
-                )
-            ]
+            must=must_conditions
         ),
         limit=top_k,
         with_payload=True,

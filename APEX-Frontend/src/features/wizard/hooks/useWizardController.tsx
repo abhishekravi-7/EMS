@@ -1115,14 +1115,14 @@ export function useWizardController() {
     setDependencyRiskFilter("all");
   }, [repoAnalysis?.dependencies]);
 
-  const migrationApproachOptions: Array<{
+  const migrationApproachOptions = useMemo<Array<{
     value: MigrationApproachValue;
     label: string;
     desc: string;
     tooltip: string;
     icon: React.ReactNode;
     color: string;
-  }> = [
+  }>>(() => [
     {
       value: "fork",
       label: "Create New Repository",
@@ -1147,7 +1147,7 @@ export function useWizardController() {
       icon: <FaFolderOpen />,
       color: "#2563eb",
     },
-  ];
+  ], []);
 
   const documentPrefetchKeyRef = useRef<string>("");
   const documentPrefetchPromiseRef = useRef<Promise<PrefetchedBrdDocument | null> | null>(null);

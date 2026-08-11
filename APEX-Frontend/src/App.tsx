@@ -2,6 +2,7 @@ import { lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import AppShell from "@/app/shell/AppShell";
 import { AuthProvider } from "@/shared/context/AuthProvider";
+import { ChatbotProvider } from "@/shared/context/ChatbotContext";
 import "./App.css";
 
 const MigrationWizardPage = lazy(() => import("@/features/wizard/pages/MigrationWizardPage"));
@@ -12,8 +13,9 @@ const SignInPage = lazy(() => import("@/features/auth/pages/SignInPage"));
 export default function App() {
   return (
     <AuthProvider>
-      <BrowserRouter>
-        <AppShell>
+      <ChatbotProvider>
+        <BrowserRouter>
+          <AppShell>
           <Suspense
             fallback={
               <div
@@ -38,8 +40,9 @@ export default function App() {
               <Route path="/*" element={<MigrationWizardPage />} />
             </Routes>
           </Suspense>
-        </AppShell>
-      </BrowserRouter>
+          </AppShell>
+        </BrowserRouter>
+      </ChatbotProvider>
     </AuthProvider>
   );
 }
