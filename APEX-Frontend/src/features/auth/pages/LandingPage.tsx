@@ -333,7 +333,6 @@ const LandingPage: React.FC = () => {
           <div className="apex-section-header">
             <div className="apex-section-badge">HOW IT WORKS</div>
             <h2 className="apex-section-title">A simple AI-driven workflow</h2>
-            <p className="apex-section-subtitle">From repository to modernization in minutes.</p>
           </div>
 
           <div className="apex-workflow-grid">
@@ -399,7 +398,7 @@ const LandingPage: React.FC = () => {
                 </button> */}
               </div>
 
-              {/* Dark UI Mockup Window */}
+              {/* Light UI Mockup Window */}
               <div className="apex-mockup-window">
                 <div className="apex-mockup-header">
                   <div className="apex-mockup-brand">
@@ -473,9 +472,9 @@ const LandingPage: React.FC = () => {
                           <span className="apex-donut-lbl">Overall Coverage</span>
                         </div>
                       </div>
-                      <div style={{ marginTop: 12, display: "flex", gap: 12, fontSize: 10, color: "#94a3b8" }}>
-                        <div><strong style={{ color: "#fff" }}>12,843</strong> Lines Covered</div>
-                        <div><strong style={{ color: "#fff" }}>1,248</strong> Tests Generated</div>
+                      <div style={{ marginTop: 12, display: "flex", gap: 12, fontSize: 10, color: "#64748b" }}>
+                        <div><strong style={{ color: "#0f172a" }}>12,843</strong> Lines Covered</div>
+                        <div><strong style={{ color: "#0f172a" }}>1,248</strong> Tests Generated</div>
                       </div>
                     </div>
                   </div>
