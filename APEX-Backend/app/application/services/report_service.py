@@ -82,6 +82,8 @@ _ZERO_ANALYSIS = {
     "fossa_policy_status": None,
     "fossa_total_dependencies": 0,
     "fossa_license_issues": 0,
+    "fossa_denied_license_issues": 0,
+    "fossa_flagged_license_issues": 0,
     "fossa_vulnerabilities": 0,
     "fossa_outdated_dependencies": 0,
     "fossa_scan_mode": None,

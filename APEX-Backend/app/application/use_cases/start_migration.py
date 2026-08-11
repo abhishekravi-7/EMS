@@ -682,6 +682,8 @@ class StartMigrationUseCase:
                     fossa_policy_status=result.fossa.policy_status,
                     fossa_total_dependencies=result.fossa.total_dependencies,
                     fossa_license_issues=result.fossa.license_issues,
+                    fossa_denied_license_issues=result.fossa.denied_license_issues,
+                    fossa_flagged_license_issues=result.fossa.flagged_license_issues,
                     fossa_vulnerabilities=result.fossa.vulnerabilities,
                     fossa_outdated_dependencies=result.fossa.outdated_dependencies,
                     fossa_scan_mode=result.fossa.scan_mode,

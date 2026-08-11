@@ -167,19 +167,19 @@ const LandingPage: React.FC = () => {
             </div>
 
             <ul className="apex-nav-links">
-              {/* <li><a href="#features" className="apex-nav-link">Features ▾</a></li>
-              <li><a href="#solutions" className="apex-nav-link">Solutions ▾</a></li> */}
-              {/* <li><a href="#pricing" className="apex-nav-link">Pricing</a></li>
+              <li><a href="#features" className="apex-nav-link">Features ▾</a></li>
+              <li><a href="#solutions" className="apex-nav-link">Solutions ▾</a></li>
+              <li><a href="#pricing" className="apex-nav-link">Pricing</a></li>
               <li><a href="#docs" className="apex-nav-link">Docs</a></li>
-              <li><a href="#resources" className="apex-nav-link">Resources ▾</a></li> */}
+              <li><a href="#resources" className="apex-nav-link">Resources ▾</a></li>
             </ul>
 
             <div className="apex-nav-actions">
-              {/* <a href="https://github.com" target="_blank" rel="noreferrer" className="apex-github-badge">
+              <a href="https://github.com" target="_blank" rel="noreferrer" className="apex-github-badge">
                 <FaGithub style={{ fontSize: 14 }} />
                 <span>GitHub</span>
                 <span style={{ opacity: 0.6, fontSize: 11 }}>★ 1.2k</span>
-              </a> */}
+              </a>
               <button type="button" className="apex-btn-signin" onClick={handleSignIn}>
                 Sign In
               </button>
@@ -220,11 +220,11 @@ const LandingPage: React.FC = () => {
                 </button>
               </div>
 
-              {/* <div className="apex-trust-badges">
+              <div className="apex-trust-badges">
                 <span className="apex-trust-badge-item">✓ No credit card required</span>
                 <span className="apex-trust-badge-item">✓ Trusted by developers</span>
                 <span className="apex-trust-badge-item">✓ SOC2 Ready</span>
-              </div> */}
+              </div>
             </div>
 
             {/* Interactive Hero Flow Diagram */}
@@ -391,9 +391,9 @@ const LandingPage: React.FC = () => {
                 <p className="apex-dashboard-left-desc">
                   Track migration progress, test coverage, vulnerabilities and quality metrics in real-time.
                 </p>
-                {/* <button type="button" className="apex-btn-primary" style={{ padding: "12px 24px" }} onClick={handleExploreDashboard}>
+                <button type="button" className="apex-btn-primary" style={{ padding: "12px 24px" }} onClick={handleExploreDashboard}>
                   Explore Dashboard <FaArrowRight style={{ fontSize: 12 }} />
-                </button> */}
+                </button>
               </div>
 
               {/* Dark UI Mockup Window */}
@@ -511,7 +511,7 @@ const LandingPage: React.FC = () => {
       </section>
 
       {/* ── Testimonials ── */}
-      {/* <section className="apex-section" style={{ background: "#f8fafc" }}>
+      <section className="apex-section" style={{ background: "#f8fafc" }}>
         <div className="apex-container">
           <div className="apex-section-header">
             <div className="apex-section-badge">TRUSTED BY DEVELOPERS</div>
@@ -556,10 +556,10 @@ const LandingPage: React.FC = () => {
             ))}
           </div>
         </div>
-      </section> */}
+      </section>
 
       {/* ── CTA Banner ── */}
-      {/* <section className="apex-container">
+      <section className="apex-container">
         <div className="apex-cta-banner">
           <div className="apex-cta-left">
             <div className="apex-cta-icon-wrap">🚀</div>
@@ -577,7 +577,7 @@ const LandingPage: React.FC = () => {
             </button>
           </div>
         </div>
-      </section> */}
+      </section>
 
       {/* ── Footer ── */}
       <footer className="apex-footer-wrap">
