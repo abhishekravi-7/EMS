@@ -369,9 +369,9 @@ const LandingPage: React.FC = () => {
                   <p className="apex-feature-card-desc">{feat.desc}</p>
                 </div>
                 <div>
-                  <span className="apex-feature-link" onClick={handleStartFree}>
+                  {/* <span className="apex-feature-link" onClick={handleStartFree}>
                     Learn more <FaChevronRight style={{ fontSize: 10 }} />
-                  </span>
+                  </span> */}
                 </div>
               </div>
             ))}

@@ -22,7 +22,7 @@ export default function Header({ showBackButton = false, onBackToHome }: HeaderP
     logoContainer: {
       display: "flex",
       alignItems: "center",
-      gap: 8,
+      
       cursor: "pointer",
     },
     logoText: {
