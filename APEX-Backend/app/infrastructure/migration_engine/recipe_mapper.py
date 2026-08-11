@@ -1,10 +1,10 @@
-"""Catalog-backed OpenRewrite recipe selection.
+"""Catalog-backed migration recipe selection.
 
-Builds a *declarative* OpenRewrite recipe (a ``recipeList`` of recipe class
+Builds a *declarative* migration recipe (a ``recipeList`` of recipe class
 names and/or ``{recipe: {options}}`` entries) instead of a flat CSV of
-zero-argument recipe names. This is what lets OpenRewrite itself resolve
+zero-argument recipe names. This is what lets the migration engine itself resolve
 version numbers at run time -- ``UpgradeJavaVersion.version`` is always the
-user's exact selected target, and dependency/plugin bumps use OpenRewrite's
+user's exact selected target, and dependency/plugin bumps use the engine's
 own dynamic version-pattern tokens (``latest.release``/``latest.patch``)
 rather than a version we pinned in code or JSON.
 """
@@ -54,7 +54,7 @@ class RecipePlan:
         return _DECLARATIVE_RECIPE_NAME
 
     def to_declarative_yaml(self) -> str:
-        """Render this plan as a standalone OpenRewrite declarative recipe.
+        """Render this plan as a standalone declarative migration recipe.
 
         Written to a temp file and passed to the Maven/Gradle runners via
         ``rewrite.configLocation`` / ``rewrite.configFile`` so parameterized
@@ -84,7 +84,7 @@ def recipe_entry_name(entry: RecipeEntry) -> str:
 
 
 def load_catalog() -> dict[str, Any]:
-    """Load the OpenRewrite recipe catalog (shared with the diagnostician)."""
+    """Load the migration recipe catalog (shared with the diagnostician)."""
     return RecipeMapper._load_catalog()
 
 
@@ -216,7 +216,7 @@ class RecipeMapper:
     @staticmethod
     def _load_catalog() -> dict[str, Any]:
         try:
-            return json.loads(settings.openrewrite_recipe_catalog_path.read_text(encoding="utf-8"))
+            return json.loads(settings.migration_recipe_catalog_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return {}
 
@@ -245,7 +245,7 @@ class RecipeMapper:
         use_jakarta_line = include_jakarta or (target is not None and target >= jakarta_min_target)
         candidates = ladder.get("jakarta" if use_jakarta_line else "legacy") or []
         # Newest-first list in the catalog; the first entry is the highest
-        # available recipe for that line -- OpenRewrite's own recipe chains
+        # available recipe for that line -- the engine's own recipe chains
         # from whatever Spring Boot version the project currently declares.
         return str(candidates[0]) if candidates else None
 

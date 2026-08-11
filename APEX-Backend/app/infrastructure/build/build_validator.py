@@ -1,4 +1,4 @@
-"""Validates that the migrated project still builds (post-OpenRewrite).
+"""Validates that the migrated project still builds after migration.
 
 Runs a Maven/Gradle build with tests skipped and reports BUILD SUCCESS/FAILED.
 Read-only with respect to source; it only produces build output (target/, build/).
@@ -82,7 +82,7 @@ class BuildValidator:
             return BuildResult(success=False, tool="gradle",
                                error_lines=["Gradle (wrapper or system) was not found."])
         command = [gradle, *settings.build_gradle_args_list]
-        # Cap the JDK to what the (possibly OpenRewrite-upgraded) wrapper's own
+        # Cap the JDK to what the (possibly preflight-upgraded) wrapper's own
         # Gradle version supports -- an old Gradle launched under a too-new
         # JDK crashes during its own build-script analysis (e.g. "Unsupported
         # class file major version") before the project's code ever compiles.
@@ -108,7 +108,7 @@ class BuildValidator:
         env = build_tool_env(target_major)
 
         # Keep Gradle's downloaded distributions/native services out of the
-        # user's default home and out of migrated-repo, matching rewrite runs.
+        # user's default home and out of migrated-repo, matching migration runs.
         # GRADLE_USER_HOME is shared across jobs (see gradle_runner.py) so the
         # distribution zip is downloaded once and reused instead of every job
         # re-fetching it and risking a network timeout.

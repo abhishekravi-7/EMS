@@ -29,7 +29,7 @@ class AppendLogsSanitizationTests(unittest.TestCase):
         for line in raw_lines:
             self.assertIn(line, raw_on_disk)
 
-        # User-facing report: sanitized, no OpenRewrite internals.
+        # User-facing report: sanitized, no migration-engine internals.
         report = self.store.read()
         assert report is not None
         log_lines = report["logLines"]

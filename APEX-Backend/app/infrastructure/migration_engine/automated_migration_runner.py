@@ -1,10 +1,10 @@
 """Orchestrates the actual code migration on the migrated-repo.
 
 Resolves the project directory, builds the (declarative, dynamically
-parameterized) OpenRewrite recipe plan, and dispatches to the Maven or Gradle
+parameterized migration recipe plan, and dispatches to the Maven or Gradle
 runner. If the build tool itself isn't available in this environment, that
 limitation is reported plainly rather than papered over with a hand-written
-fallback -- every actual content change comes from an OpenRewrite recipe.
+fallback -- every actual content change comes from a migration recipe.
 Never touches original-repo.
 """
 
@@ -87,7 +87,7 @@ class MigrationRunResult:
     used_fallback: bool = False
     tool_unavailable: bool = False
     # True when the build tool failed while evaluating/compiling the project
-    # itself, before any OpenRewrite recipe ran -- a project-level build
+    # itself, before any migration recipe ran -- a project-level build
     # configuration/plugin incompatibility, not something recipe selection
     # could have prevented or fixed.
     pre_recipe_failure: bool = False

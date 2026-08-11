@@ -2,9 +2,8 @@
 
 The platform runs an automated migration engine under the hood, but that must
 never be exposed to end users. This module redacts the tool name and its recipe
-coordinates (e.g. ``org.openrewrite.java.migrate.UpgradeToJava21``) from any
-text that could reach a user — chatbot context/answers, generated docs, API
-payloads.
+coordinates from any text that could reach a user — chatbot context/answers,
+generated docs, API payloads.
 
 Pure and dependency-free: input string in, sanitized string out.
 """
@@ -16,10 +15,10 @@ from collections.abc import AsyncIterator
 
 _ENGINE_NAME = "the Java APEX migration engine"
 
-# Recipe coordinates: dotted identifiers under the org.openrewrite namespace.
+# Recipe coordinates: dotted identifiers under the recipe-engine namespace.
 _COORDINATE_RE = re.compile(r"\borg\.openrewrite\.[\w.$]+", re.IGNORECASE)
-# The tool name itself, however spaced/hyphenated ("open rewrite", etc.).
-_TOOL_RE = re.compile(r"\bopen[\s-]?rewrite\b", re.IGNORECASE)
+# The migration tool name itself, however spaced/hyphenated.
+_MIGRATION_TOOL_RE = re.compile(r"\bopen[\s-]?rewrite\b", re.IGNORECASE)
 
 # Safety cap: if a single unbroken token grows past this without any whitespace,
 # flush it anyway so a pathological no-space stream can't buffer forever.
@@ -31,7 +30,7 @@ def sanitize(text: str) -> str:
     if not text:
         return text
     text = _COORDINATE_RE.sub("an automated migration transformation", text)
-    return _TOOL_RE.sub(_ENGINE_NAME, text)
+    return _MIGRATION_TOOL_RE.sub(_ENGINE_NAME, text)
 
 
 async def sanitize_stream(chunks: AsyncIterator[str]) -> AsyncIterator[str]:

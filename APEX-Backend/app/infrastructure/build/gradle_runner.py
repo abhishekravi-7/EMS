@@ -1,6 +1,6 @@
-"""Runs OpenRewrite on a Gradle project via an init script + ``rewriteRun``.
+"""Runs the migration engine on a Gradle project via an init script + ``rewriteRun``.
 
-The init script applies the OpenRewrite Gradle plugin, points it at a
+The init script applies the migration-engine Gradle plugin, points it at a
 generated declarative recipe YAML (``rewrite.configFile``), and activates that
 single composite recipe -- without modifying the project's build files. This
 lets parameterized recipes (exact Java version, dependency GAVs, dynamic
@@ -8,7 +8,7 @@ version patterns) run without hardcoding any version number in this codebase.
 Prefers the project's ``gradlew`` wrapper (respects the project's Gradle
 version); falls back to a system ``gradle``.
 
-Gradle support is best-effort: if the OpenRewrite Gradle plugin is incompatible
+Gradle support is best-effort: if the migration-engine Gradle plugin is incompatible
 with the project's Gradle version, the run fails and is reported as such.
 """
 
@@ -113,7 +113,7 @@ class GradleRewriteRunner:
         runtime_major = gradle_runtime_major(project_dir, target_major)
         env = build_tool_env(runtime_major)
 
-        # Keep Gradle/OpenRewrite caches out of the user's home directory and
+        # Keep Gradle/migration caches out of the user's home directory and
         # out of migrated-repo (repo_pusher commits everything under it).
         # GRADLE_USER_HOME is shared across all jobs (not per-job) so the
         # Gradle distribution zip and dependency/plugin caches are downloaded
@@ -157,7 +157,7 @@ initscript {{
         mavenCentral()
     }}
     dependencies {{
-        classpath("org.openrewrite:plugin:{settings.openrewrite_gradle_plugin_version}")
+        classpath("org.openrewrite:plugin:{settings.migration_gradle_plugin_version}")
     }}
 }}
 

@@ -3,7 +3,7 @@
 Matches build error lines against the catalog's ``errorSignalRecipes`` (data,
 not per-framework Python conditionals), so the retry loop in
 ``StartMigrationUseCase`` can identify a probable root cause and expand the
-OpenRewrite recipe plan instead of giving up after a single attempt. Pure
+migration recipe plan instead of giving up after a single attempt. Pure
 function -- no I/O, no subprocess calls.
 """
 

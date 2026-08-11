@@ -29,7 +29,7 @@ class PomSanitizer:
     # BOM defines "lombok.version" even though lombok's own <dependency>
     # entry omits an explicit version). An annotationProcessorPaths <path>
     # left without <version> fails Maven's own dependency resolution
-    # ("version can neither be null, empty nor blank") before OpenRewrite's
+    # ("version can neither be null, empty nor blank") before migration's
     # recipe task ever runs, so this has to be repaired ahead of the build.
     _PROCESSOR_VERSION_PROPERTIES = {
         ("org.projectlombok", "lombok"): "${lombok.version}",
@@ -49,7 +49,7 @@ class PomSanitizer:
     # (which this pipeline always does for its pre-recipe compile check, since
     # it runs under the migration's target JDK, not the project's original
     # one) inherits that profile and fails dependency resolution before
-    # OpenRewrite ever runs. Fixed upstream in 6.0.13.Final (correct
+    # migration ever runs. Fixed upstream in 6.0.13.Final (correct
     # "javafx-base" coordinate, provided scope); pinning to the last 6.0.x
     # patch sidesteps the bug without changing behavior for the project.
     _AFFECTED_SPRING_BOOT_PARENT_VERSION_PREFIX = "2.0."

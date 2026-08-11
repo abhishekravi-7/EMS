@@ -1,7 +1,7 @@
 """Diffs the original repo against the migrated repo to report what changed.
 
 Read-only: only inspects file bytes/text on both trees, never modifies either.
-Used after OpenRewrite/build-config modernization runs so the migration report
+Used after migration/build-config modernization runs so the migration report
 can state exactly which files, imports, and source lines were touched.
 """
 
