@@ -1,9 +1,10 @@
 """Strip internal migration-tooling identifiers from user-facing text.
 
-The platform runs OpenRewrite under the hood, but that must never be exposed to
-end users. This module redacts the tool name and its recipe coordinates (e.g.
-``org.openrewrite.java.migrate.UpgradeToJava21``) from any text that could reach
-a user — chatbot context/answers, generated docs, API payloads.
+The platform runs an automated migration engine under the hood, but that must
+never be exposed to end users. This module redacts the tool name and its recipe
+coordinates (e.g. ``org.openrewrite.java.migrate.UpgradeToJava21``) from any
+text that could reach a user — chatbot context/answers, generated docs, API
+payloads.
 
 Pure and dependency-free: input string in, sanitized string out.
 """
@@ -13,11 +14,11 @@ from __future__ import annotations
 import re
 from collections.abc import AsyncIterator
 
-_ENGINE_NAME = "the JavaApex migration engine"
+_ENGINE_NAME = "the Java APEX migration engine"
 
 # Recipe coordinates: dotted identifiers under the org.openrewrite namespace.
 _COORDINATE_RE = re.compile(r"\borg\.openrewrite\.[\w.$]+", re.IGNORECASE)
-# The tool name itself, however spaced/hyphenated ("OpenRewrite", "open rewrite").
+# The tool name itself, however spaced/hyphenated ("open rewrite", etc.).
 _TOOL_RE = re.compile(r"\bopen[\s-]?rewrite\b", re.IGNORECASE)
 
 # Safety cap: if a single unbroken token grows past this without any whitespace,
@@ -26,7 +27,7 @@ _MAX_BUFFER = 2000
 
 
 def sanitize(text: str) -> str:
-    """Redact OpenRewrite tool name and recipe coordinates from ``text``."""
+    """Redact the migration engine name and recipe coordinates from ``text``."""
     if not text:
         return text
     text = _COORDINATE_RE.sub("an automated migration transformation", text)

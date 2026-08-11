@@ -39,7 +39,7 @@ class MigrationReportStore:
         (never served by any API). Only the sanitized, user-facing versions
         (see ``migration_log_sanitizer``) are stored in ``logLines`` -- the
         field every polling/API/report consumer reads from -- so raw
-        OpenRewrite/Maven/Gradle internals never reach the Migration Log UI.
+        migration-engine/Maven/Gradle internals never reach the Migration Log UI.
         """
         if not lines:
             return

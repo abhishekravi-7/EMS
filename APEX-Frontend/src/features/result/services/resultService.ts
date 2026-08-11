@@ -229,7 +229,7 @@ export interface MigrationResult {
   errors_fixed: number;
   warnings_fixed: number;
   dependency_count?: number;
-  // --- migration engine report fields (OpenRewrite recipe selection, dependency/import changes) ---
+  // --- migration engine report fields (recipe selection, dependency/import changes) ---
   recipes_executed?: string[];
   recipe_selection_reasons?: string[];
   build_modernization?: string[];
@@ -328,7 +328,7 @@ export interface MigrationJobSummary {
 }
 
 // Start migration
-// Start Migration (Step 4) — OpenRewrite migration + publish to Javaapex.
+// Start Migration (Step 4) — migration engine run + publish to Javaapex.
 // Runs under the layered backend at /api/v1/migration/{jobId}/... and reuses the
 // Connect jobId so all stages share one workspace.
 export async function startMigration(jobId: string, request: MigrationRequest): Promise<MigrationResult> {

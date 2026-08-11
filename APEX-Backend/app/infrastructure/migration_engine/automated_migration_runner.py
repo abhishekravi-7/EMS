@@ -219,7 +219,7 @@ class AutomatedMigrationRunner:
                 continue
 
             logger.info(
-                "OpenRewrite phase %s (%s) recipes=%s in %s",
+                "Migration phase %s (%s) recipes=%s in %s",
                 phase.id,
                 build_tool,
                 ", ".join(plan.active_recipes),
@@ -266,7 +266,7 @@ class AutomatedMigrationRunner:
                 })
                 final_result.log_lines.extend(result.log_lines)
                 final_result.log_lines.append(
-                    f"Skipped optional phase '{phase.label}' because OpenRewrite failed: {reason}"
+                    f"Skipped optional phase '{phase.label}' because the migration engine failed: {reason}"
                 )
                 final_result.error_lines.extend(result.error_lines)
                 continue
@@ -292,7 +292,7 @@ class AutomatedMigrationRunner:
                 "Project is already compatible with the selected target Java "
                 "version. No import or source code changes were required."
                 if final_result.already_compatible
-                else "No applicable OpenRewrite recipes for the selected target."
+                else "No applicable migration recipes for the selected target."
             )
         else:
             upgrades, final_result.spring_boot_version_after = self._diff_dependency_upgrades(
@@ -314,14 +314,14 @@ class AutomatedMigrationRunner:
             # environment limitation rather than a migration failure. No
             # source or build-file changes are fabricated here.
             result.log_lines.append(
-                f"OpenRewrite could not run: {build_tool.title()} tooling was "
+                f"The migration engine could not run: {build_tool.title()} tooling was "
                 "not found in this environment. No source or build "
                 "configuration changes were made; install/configure "
                 f"{build_tool.title()} to complete this migration."
             )
         elif not result.success and result.pre_recipe_failure:
             # The build failed while evaluating/compiling the project itself
-            # (see the build error above), before OpenRewrite's own recipe
+            # (see the build error above), before the migration engine's own recipe
             # task ever ran. No recipe selection could have prevented this --
             # it is a project-level build configuration or plugin
             # incompatibility (e.g. a dependency/plugin that cannot resolve
@@ -329,7 +329,7 @@ class AutomatedMigrationRunner:
             # manual fix in the source repository.
             result.log_lines.append(
                 f"{build_tool.title()} failed while evaluating/compiling the "
-                "project itself -- before any OpenRewrite recipe ran. This is "
+                "project itself -- before any migration recipe ran. This is "
                 "a project-level build configuration or plugin incompatibility "
                 "(see the build error above), not something a migration "
                 "recipe can fix automatically; it typically requires a manual "
@@ -470,7 +470,7 @@ class AutomatedMigrationRunner:
             text = str(line).strip()
             if text:
                 return text
-        return "OpenRewrite phase failed. See logs for details."
+        return "Migration phase failed. See logs for details."
 
     @staticmethod
     def _checkpoint(project_dir: Path) -> GitCheckpoint | None:
@@ -566,10 +566,11 @@ class AutomatedMigrationRunner:
     def _diff_dependency_upgrades(
         self, project_dir: Path, pre_versions: dict[str, str | None]
     ) -> tuple[list[DependencyUpgrade], str | None]:
-        """Observe what OpenRewrite actually changed by re-reading the build
-        file after the run, rather than predicting it beforehand -- dependency
-        version numbers are resolved by OpenRewrite itself (``latest.release``
-        / ``latest.patch``), never by this codebase. Also surfaces the
+        """Observe what the migration engine actually changed by re-reading the
+        build file after the run, rather than predicting it beforehand --
+        dependency version numbers are resolved by the engine itself
+        (``latest.release`` / ``latest.patch``), never by this codebase. Also
+        surfaces the
         post-migration Spring Boot version off the same re-analysis, so a
         second ``ProjectAnalyzer.analyze`` call isn't needed just for that.
         """
@@ -643,7 +644,7 @@ class AutomatedMigrationRunner:
         so this method never changes recipe selection; it only decides
         whether that (unconditional) behavior should be attributed to an
         explicit user request, or reported as not supported for a legacy
-        (non-Boot) Spring Framework project, where OpenRewrite has no
+        (non-Boot) Spring Framework project, where the migration engine has no
         automated bootstrapping recipe upstream.
         """
         normalized = {str(item).strip().lower() for item in requested}
@@ -654,13 +655,13 @@ class AutomatedMigrationRunner:
         if "spring-boot" in framework_set:
             return True, True, (
                 "Detected an existing Spring Boot application; applying "
-                "OpenRewrite's Spring Boot upgrade ladder toward a version "
-                "compatible with the selected target Java version."
+                "the migration engine's Spring Boot upgrade ladder toward a "
+                "version compatible with the selected target Java version."
             )
         if "spring-framework" in framework_set:
             return True, False, (
                 "Legacy Spring Framework (non-Boot) to Spring Boot conversion "
-                "is not yet supported: OpenRewrite has no automated recipe "
+                "is not yet supported: the migration engine has no automated recipe "
                 "for bootstrapping a plain Spring Framework project into "
                 "Spring Boot (removing web.xml, converting XML bean "
                 "configuration, adding an embedded server, etc.). No changes "

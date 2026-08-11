@@ -166,26 +166,26 @@ const LandingPage: React.FC = () => {
               </div>
             </div>
 
-            <ul className="apex-nav-links">
+            {/* <ul className="apex-nav-links">
               <li><a href="#features" className="apex-nav-link">Features ▾</a></li>
               <li><a href="#solutions" className="apex-nav-link">Solutions ▾</a></li>
               <li><a href="#pricing" className="apex-nav-link">Pricing</a></li>
               <li><a href="#docs" className="apex-nav-link">Docs</a></li>
               <li><a href="#resources" className="apex-nav-link">Resources ▾</a></li>
-            </ul>
+            </ul> */}
 
             <div className="apex-nav-actions">
-              <a href="https://github.com" target="_blank" rel="noreferrer" className="apex-github-badge">
+              {/* <a href="https://github.com" target="_blank" rel="noreferrer" className="apex-github-badge">
                 <FaGithub style={{ fontSize: 14 }} />
                 <span>GitHub</span>
                 <span style={{ opacity: 0.6, fontSize: 11 }}>★ 1.2k</span>
-              </a>
-              <button type="button" className="apex-btn-signin" onClick={handleSignIn}>
+              </a> */}
+              {/* <button type="button" className="apex-btn-signin" onClick={handleSignIn}>
                 Sign In
               </button>
               <button type="button" className="apex-btn-primary" onClick={handleStartFree}>
                 Start Free
-              </button>
+              </button> */}
             </div>
           </nav>
         </div>
@@ -212,19 +212,22 @@ const LandingPage: React.FC = () => {
               </p>
 
               <div className="apex-hero-cta-group">
-                <button type="button" className="apex-btn-primary" style={{ padding: "14px 28px", fontSize: 15 }} onClick={handleStartFree}>
-                  Start Free <FaArrowRight style={{ fontSize: 13 }} />
+                <button type="button" className="apex-btn-primary" style={{ padding: "14px 28px", fontSize: 15 }} onClick={handleSignIn}>
+                  Sign In <FaArrowRight style={{ fontSize: 13 }} />
                 </button>
-                <button type="button" className="apex-btn-secondary" style={{ padding: "14px 24px", fontSize: 15 }} onClick={() => navigate("/discovery")}>
+                {/* <button type="button" className="apex-btn-secondary" style={{ padding: "14px 24px", fontSize: 15 }} onClick={() => navigate("/discovery")}>
                   Watch Demo <FaPlay style={{ fontSize: 11, color: "#2563eb" }} />
+                </button> */}
+                 <button type="button" className="apex-btn-secondary" style={{ padding: "14px 24px", fontSize: 15 }} onClick={handleExploreDashboard}>
+                  Sign Up
                 </button>
               </div>
 
-              <div className="apex-trust-badges">
+              {/* <div className="apex-trust-badges">
                 <span className="apex-trust-badge-item">✓ No credit card required</span>
                 <span className="apex-trust-badge-item">✓ Trusted by developers</span>
                 <span className="apex-trust-badge-item">✓ SOC2 Ready</span>
-              </div>
+              </div> */}
             </div>
 
             {/* Interactive Hero Flow Diagram */}
@@ -310,7 +313,7 @@ const LandingPage: React.FC = () => {
       </section>
 
       {/* ── Logo Cloud ── */}
-      <section className="apex-logo-cloud-wrap">
+      {/* <section className="apex-logo-cloud-wrap">
         <div className="apex-container">
           <div className="apex-logo-cloud-title">Trusted by modern engineering teams</div>
           <div className="apex-logo-cloud-grid">
@@ -322,7 +325,7 @@ const LandingPage: React.FC = () => {
             ))}
           </div>
         </div>
-      </section>
+      </section> */}
 
       {/* ── How It Works ── */}
       <section className="apex-section" id="how-it-works">
@@ -330,7 +333,6 @@ const LandingPage: React.FC = () => {
           <div className="apex-section-header">
             <div className="apex-section-badge">HOW IT WORKS</div>
             <h2 className="apex-section-title">A simple AI-driven workflow</h2>
-            <p className="apex-section-subtitle">From repository to modernization in minutes.</p>
           </div>
 
           <div className="apex-workflow-grid">
@@ -367,9 +369,9 @@ const LandingPage: React.FC = () => {
                   <p className="apex-feature-card-desc">{feat.desc}</p>
                 </div>
                 <div>
-                  <span className="apex-feature-link" onClick={handleStartFree}>
+                  {/* <span className="apex-feature-link" onClick={handleStartFree}>
                     Learn more <FaChevronRight style={{ fontSize: 10 }} />
-                  </span>
+                  </span> */}
                 </div>
               </div>
             ))}
@@ -391,12 +393,12 @@ const LandingPage: React.FC = () => {
                 <p className="apex-dashboard-left-desc">
                   Track migration progress, test coverage, vulnerabilities and quality metrics in real-time.
                 </p>
-                <button type="button" className="apex-btn-primary" style={{ padding: "12px 24px" }} onClick={handleExploreDashboard}>
+                {/* <button type="button" className="apex-btn-primary" style={{ padding: "12px 24px" }} onClick={handleExploreDashboard}>
                   Explore Dashboard <FaArrowRight style={{ fontSize: 12 }} />
-                </button>
+                </button> */}
               </div>
 
-              {/* Dark UI Mockup Window */}
+              {/* Light UI Mockup Window */}
               <div className="apex-mockup-window">
                 <div className="apex-mockup-header">
                   <div className="apex-mockup-brand">
@@ -470,9 +472,9 @@ const LandingPage: React.FC = () => {
                           <span className="apex-donut-lbl">Overall Coverage</span>
                         </div>
                       </div>
-                      <div style={{ marginTop: 12, display: "flex", gap: 12, fontSize: 10, color: "#94a3b8" }}>
-                        <div><strong style={{ color: "#fff" }}>12,843</strong> Lines Covered</div>
-                        <div><strong style={{ color: "#fff" }}>1,248</strong> Tests Generated</div>
+                      <div style={{ marginTop: 12, display: "flex", gap: 12, fontSize: 10, color: "#64748b" }}>
+                        <div><strong style={{ color: "#0f172a" }}>12,843</strong> Lines Covered</div>
+                        <div><strong style={{ color: "#0f172a" }}>1,248</strong> Tests Generated</div>
                       </div>
                     </div>
                   </div>
@@ -511,7 +513,7 @@ const LandingPage: React.FC = () => {
       </section>
 
       {/* ── Testimonials ── */}
-      <section className="apex-section" style={{ background: "#f8fafc" }}>
+      {/* <section className="apex-section" style={{ background: "#f8fafc" }}>
         <div className="apex-container">
           <div className="apex-section-header">
             <div className="apex-section-badge">TRUSTED BY DEVELOPERS</div>
@@ -556,10 +558,10 @@ const LandingPage: React.FC = () => {
             ))}
           </div>
         </div>
-      </section>
+      </section> */}
 
       {/* ── CTA Banner ── */}
-      <section className="apex-container">
+      {/* <section className="apex-container">
         <div className="apex-cta-banner">
           <div className="apex-cta-left">
             <div className="apex-cta-icon-wrap">🚀</div>
@@ -577,10 +579,10 @@ const LandingPage: React.FC = () => {
             </button>
           </div>
         </div>
-      </section>
+      </section> */}
 
       {/* ── Footer ── */}
-      <footer className="apex-footer-wrap">
+      {/* <footer className="apex-footer-wrap">
         <div className="apex-container">
           <div className="apex-footer-grid">
             <div>
@@ -643,7 +645,7 @@ const LandingPage: React.FC = () => {
             © {new Date().getFullYear()} Java APEX. All rights reserved.
           </div>
         </div>
-      </footer>
+      </footer> */}
     </div>
   );
 };

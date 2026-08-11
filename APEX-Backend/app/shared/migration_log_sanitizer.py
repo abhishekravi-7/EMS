@@ -2,17 +2,17 @@
 
 Every migration log line, recipe name, and progress message that reaches an
 API response, the WebSocket/polling layer, a downloadable report, or the
-Migration Log UI passes through this module first. It strips OpenRewrite
-package/recipe names, Maven/Gradle plugin internals, absolute workspace
-paths, temporary file names, and credentials, and replaces the resulting
-technical noise with short, professional progress messages.
+Migration Log UI passes through this module first. It strips migration-engine
+package/recipe names, Maven/Gradle plugin internals, absolute workspace paths,
+temporary file names, and credentials, and replaces the resulting technical
+noise with short, professional progress messages.
 
-Nothing here disables or reduces backend logging: callers are expected to
-keep writing the original, unsanitized text to their own log file /
-``logging`` output for developer troubleshooting (see
-``MigrationReportStore.append_logs``), and only pass the *sanitized* result
-to anything the user can see. This is the one place that mapping lives, so
-no other module should hand-roll its own OpenRewrite-stripping regex.
+Nothing here disables or reduces backend logging: callers are expected to keep
+writing the original, unsanitized text to their own log file / ``logging``
+output for developer troubleshooting (see ``MigrationReportStore.append_logs``),
+and only pass the *sanitized* result to anything the user can see. This is the
+one place that mapping lives, so no other module should hand-roll its own
+migration-tool redaction regex.
 """
 
 from __future__ import annotations
@@ -75,7 +75,7 @@ _BARE_IDENTIFIER = re.compile(r"^[\w.$]+$")
 
 
 def humanize_recipe_name(entry: str) -> str:
-    """Turn one OpenRewrite recipe reference into a short, friendly label.
+    """Turn one recipe reference into a short, friendly label.
 
     Works generically off the class-name shape rather than a per-recipe
     lookup for every case, so it never needs updating for a new Java
@@ -198,7 +198,7 @@ def _is_noise(line: str) -> bool:
 
 # --------------------------------------------------------------------------- #
 # Error simplification — errors are never hidden, only reworded so the
-# underlying OpenRewrite/Maven/Gradle exception class isn't exposed.
+# underlying migration/Maven/Gradle exception class isn't exposed.
 # --------------------------------------------------------------------------- #
 
 _KNOWN_ERROR_MAPPINGS: list[tuple[re.Pattern, str]] = [
@@ -231,17 +231,17 @@ def _simplify_error(line: str) -> str:
 
 
 # --------------------------------------------------------------------------- #
-# Generic fallback cleanup — for anything not covered by a specific rule
-# above (build-modernization notes, diagnostician reasons, unmapped tool
-# output). Strips recipe class names / the OpenRewrite brand word / secrets
-# / paths, but otherwise preserves the sentence.
+# Generic fallback cleanup — for anything not covered by a specific rule above
+# (build-modernization notes, diagnostician reasons, unmapped tool output).
+# Strips recipe class names / the migration brand word / secrets / paths, but
+# otherwise preserves the sentence.
 # --------------------------------------------------------------------------- #
 
 def _generic_clean(line: str) -> str:
     text = _redact(line)
     text = _replace_recipe_refs(text)
-    # "OpenRewrite" reads naturally as "migration" in the sentences this
-    # brand word actually shows up in ("OpenRewrite recipe(s)/plugin/failed/
+    # "open rewrite" reads naturally as "migration" in the sentences this
+    # brand word actually shows up in ("open rewrite recipe(s)/plugin/failed/
     # could not run" -> "migration recipe(s)/plugin/failed/could not run").
     text = _OPENREWRITE_WORD.sub("migration", text)
     text = re.sub(r"^\[(INFO|WARN|WARNING|DEBUG)]\s*", "", text, flags=re.IGNORECASE)

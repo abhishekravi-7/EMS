@@ -37,7 +37,7 @@ class RepoCreator:
         owner: str | None = None,
         host: str | None = None,
         private: bool = False,
-        description: str = "Migrated with OpenRewrite by Java APEX",
+        description: str = "Migrated with the Java APEX migration engine",
     ) -> CreatedRepo:
         token = (settings.github_target_token or "").strip()
         if not token:

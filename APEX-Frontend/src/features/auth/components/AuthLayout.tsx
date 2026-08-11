@@ -165,7 +165,7 @@ const AuthLayout: React.FC<AuthLayoutProps> = ({ mode, children }) => {
           </div>
           <div className="apex-auth-logo-text">
             <span style={{ color: "#0f172a", fontWeight: 800 }}>Java </span>
-            <span style={{ color: "#2563eb", fontWeight: 900, fontStyle: "italic" }}>APEX</span>
+            <span style={{ color: "#2563eb", fontWeight: 800 }}>APEX</span>
           </div>
         </div>
 
