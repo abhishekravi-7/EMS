@@ -44,10 +44,43 @@ class IndexRepositoryUseCase:
         # dependency upgrades) when a migration report exists for this job, so
         # the chatbot can answer questions about what the migration changed.
         job_id = str(report.get("jobId") or "").strip()
+        
+        from app.infrastructure.workspace.workspace_paths import WorkspacePaths
+        from pathlib import Path
+        
         if job_id:
+            paths = WorkspacePaths(job_id)
             migration_report = repo_index_locator.find_migration_report_by_job_id(job_id)
             if migration_report:
                 chunks = chunks + chunker.build_migration_chunks(migration_report)
+                
+            # Crawl and index files from original-repo (before)
+            original_dir = paths.original_repo_dir
+            if original_dir.exists() and original_dir.is_dir():
+                chunks.extend(_crawl_repo_files(original_dir, "before"))
+                
+            # Crawl and index files from migrated-repo (after)
+            migrated_dir = paths.migrated_repo_dir
+            if migrated_dir.exists() and migrated_dir.is_dir():
+                chunks.extend(_crawl_repo_files(migrated_dir, "after"))
+                
+            # Index log files
+            logs_dir = paths.logs_dir
+            if logs_dir.exists() and logs_dir.is_dir():
+                for log_file in logs_dir.glob("*.log"):
+                    try:
+                        log_content = log_file.read_text(encoding="utf-8", errors="ignore")
+                        if log_content.strip():
+                            chunks.extend(
+                                chunker.chunk_text_file(
+                                    log_content, 
+                                    log_file.name, 
+                                    version="both", 
+                                    chunk_type="log_file"
+                                )
+                            )
+                    except Exception:
+                        pass
 
         texts = [c.text for c in chunks]
         vectors = embedder.embed_documents(texts)
@@ -66,9 +99,14 @@ class IndexRepositoryUseCase:
         payloads = []
         ids = []
         for index, chunk in enumerate(chunks):
-            payloads.append(
-                {**base_metadata, "chunk_type": chunk.chunk_type, "text": chunk.text}
-            )
+            payload = {
+                **base_metadata,
+                "chunk_type": chunk.chunk_type,
+                "text": chunk.text,
+            }
+            if chunk.metadata:
+                payload.update(chunk.metadata)
+            payloads.append(payload)
             ids.append(vector_store.point_id(repo_url, chunk.chunk_type, index))
 
         # Replace any previous index for this repository.
@@ -110,3 +148,46 @@ def _primary_framework(report: dict[str, Any]) -> str | None:
         return "spring-boot"
     frameworks = report.get("frameworks") or []
     return str(frameworks[0]) if frameworks else None
+
+
+def _crawl_repo_files(repo_path: Path, version: str) -> list[chunker.KnowledgeChunk]:
+    if not repo_path.exists() or not repo_path.is_dir():
+        return []
+        
+    chunks = []
+    ignored_names = {".git", "node_modules", ".venv", "target", "build", ".settings", ".metadata", "bin", "gradle"}
+    
+    # Iterate through all files in the repository path
+    for path in repo_path.rglob("*"):
+        if not path.is_file():
+            continue
+        # Skip if any parent directory is ignored
+        try:
+            parts = path.relative_to(repo_path).parts
+        except ValueError:
+            continue
+        if any(p in ignored_names for p in parts[:-1]):
+            continue
+            
+        file_name = path.name
+        file_path_rel = "/".join(parts)  # use forward slashes consistently
+        
+        try:
+            content = path.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            continue
+            
+        if not content.strip():
+            continue
+            
+        if file_name.endswith(".java"):
+            file_chunks = chunker.chunk_java_file(content, file_path_rel, version)
+            chunks.extend(file_chunks)
+        elif file_name in ("pom.xml", "build.gradle") or file_name.endswith(".properties") or file_name.endswith(".yml") or file_name.endswith(".yaml"):
+            file_chunks = chunker.chunk_text_file(content, file_path_rel, version, chunk_type="configuration")
+            chunks.extend(file_chunks)
+        elif file_name.lower().startswith("readme") or file_name.endswith(".md"):
+            file_chunks = chunker.chunk_text_file(content, file_path_rel, version, chunk_type="documentation")
+            chunks.extend(file_chunks)
+            
+    return chunks

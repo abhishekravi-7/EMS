@@ -5,6 +5,7 @@ import { DocsPanel } from "@/features/docs";
 import { SupportPanel } from "@/features/support";
 import { Button } from "@/shared/components/ui";
 import { useAuth } from "@/shared/context/AuthContext";
+import FloatingChatbot from "@/shared/components/chatbot/FloatingChatbot";
 import "./AppShell.css";
 
 const shellStyles: { [key: string]: React.CSSProperties } = {
@@ -268,6 +269,7 @@ const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         onClose={() => setActivePanel(null)}
         onNavigateToDocs={() => setActivePanel("docs")}
       />
+      <FloatingChatbot />
     </div>
   );
 };

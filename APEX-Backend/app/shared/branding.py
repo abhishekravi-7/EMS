@@ -23,7 +23,7 @@ _TOOL_RE = re.compile(r"\bopen[\s-]?rewrite\b", re.IGNORECASE)
 
 # Safety cap: if a single unbroken token grows past this without any whitespace,
 # flush it anyway so a pathological no-space stream can't buffer forever.
-_MAX_BUFFER = 2000
+_MAX_BUFFER = 500
 
 
 def sanitize(text: str) -> str:
