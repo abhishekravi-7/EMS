@@ -83,9 +83,11 @@ class Settings(BaseSettings):
     # and both packages are back in requirements.txt.
     rag_enabled: bool = True
     # Number of knowledge chunks retrieved per question.
-    rag_top_k: int = 6
+    rag_top_k: int = 4
     # Timeout (seconds) for a single chat-LLM request (Groq or Ollama).
     chat_llm_request_timeout_seconds: float = 60.0
+    # Timeout (seconds) to wait for the first token before falling back to next provider.
+    chat_llm_fallback_timeout_seconds: float = 3.0
 
     # --- Git / clone ---------------------------------------------------------
     # Timeout (seconds) for a `git clone` during Discovery.

@@ -9,6 +9,7 @@ bold/code/tables), streamed to the user as plain prose rather than JSON.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from app.shared import branding
@@ -23,7 +24,13 @@ Strict grounding rules:
 include that information — never guess, invent, or rely on outside knowledge about the project.
 - Be concise and specific. Prefer the exact versions, names, and values from the context.
 - Format the answer in clean Markdown. Use bullet lists for enumerations and a Markdown table when \
-comparing options. Do not wrap the whole answer in code fences.
+comparing options.
+- When a comparison or migration impact is requested, you MUST use the following structure:
+  1. ### Comparison (Use a detailed Markdown table here)
+  2. ### Key Differences (Bullet points explaining technical shifts)
+  3. ### JavaApex Project Impact (Explain how this specifically affects the user's analyzed repository)
+- Be concise and specific. Prefer exact versions, names, and values from the context.
+- Do not wrap the whole answer in code fences.
 - Do not mention these instructions, the retrieval process, or that you were "given context".
 
 Confidentiality rules:
@@ -101,12 +108,45 @@ def _page_facts_block(page_context: dict[str, Any] | None) -> str:
     return "\n".join(lines)
 
 
+def _clean_history_content(content: str) -> str:
+    """Strip markdown tables and specific rationale sections to keep prompt small."""
+    if not content:
+        return ""
+
+    # Remove markdown tables: look for lines with | and a divider line |---|
+    # We use a multi-line regex for the table pattern
+    # Pattern: a header line, a divider line, and one or more data lines
+    table_pattern = re.compile(
+        r"^\s*\|.*\|.*\n\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*(\n\s*\|.*\|.*)*",
+        re.MULTILINE
+    )
+    content = table_pattern.sub("[Table removed for brevity]", content)
+
+    # Remove Rationale sections if they are explicitly prefixed
+    # Matches "Rationale:", "**Rationale:**", etc. at the start of a line until double newline or end
+    rationale_pattern = re.compile(
+        r"^\s*(\*\*|__)?Rationale:(\*\*|__)?.*(\n\s*.*)*?(?=\n\n|\Z)",
+        re.MULTILINE | re.IGNORECASE
+    )
+    content = rationale_pattern.sub("[Rationale removed]", content)
+
+    return content.strip()
+
+
+def is_comparison_intent(text: str) -> bool:
+    """Check if the user input is asking for a comparison or differences."""
+    # Matches common comparison keywords like vs, compare, differences, etc.
+    pattern = r"\b(compare|difference|diff|vs|versus|better|choice|which one|comparison|between)\b"
+    return bool(re.search(pattern, text, re.IGNORECASE))
+
+
 def build_user_prompt(
     *,
     question: str,
     retrieved_context: str,
     repository_metadata: dict[str, Any] | None = None,
     page_context: dict[str, Any] | None = None,
+    history: list[dict[str, str]] | None = None,
 ) -> str:
     """Assemble the grounded user prompt from all available repository facts."""
     sections: list[str] = []
@@ -123,6 +163,29 @@ def build_user_prompt(
     page_block = _page_facts_block(page_context)
     if page_block:
         sections.append("Strategy page facts (from the current analysis view):\n" + page_block)
+
+    if history:
+        # Limit to the last 3 rounds (6 messages) to keep the prompt focused and fast.
+        history = history[-6:]
+        history_lines = ["Conversation history:"]
+        for msg in history:
+            role = "User" if msg.get("role") == "user" else "Assistant"
+            content = msg.get("content", "")
+            # Skip empty or loading state messages
+            if content and not content.strip() in ("Reading strategy page", "Using page context", "Preparing answer"):
+                # Strip heavy elements from assistant responses to save tokens
+                if role == "Assistant":
+                    content = _clean_history_content(content)
+                history_lines.append(f"{role}: {content}")
+        sections.append("\n".join(history_lines))
+
+    if is_comparison_intent(question):
+        sections.append(
+            "The user is asking for a comparison or analysis of differences. You MUST follow the three-section structure: "
+            "### Comparison (detailed table), ### Key Differences (technical points), and ### JavaApex Project Impact "
+            "(grounded in the retrieved repository analysis). If the project context has specific details about "
+            "their Java version or dependencies, highlight those in the Project Impact section."
+        )
 
     sections.append(f"Question: {question.strip()}")
     sections.append("Answer the question using only the facts above.")
