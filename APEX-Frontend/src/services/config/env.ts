@@ -15,3 +15,7 @@ export const APP_BASE_URL = (configuredApiUrl || runtimeOrigin).replace(/\/+$/, 
 export const API_BASE_URL = `${APP_BASE_URL}/api`;
 export const GITHUB_AUTH_LOGIN_URL = `${API_BASE_URL}/auth/github/login`;
 export const GOOGLE_AUTH_LOGIN_URL = `${API_BASE_URL}/auth/google/login`;
+
+// LLM Token Tracing Dashboard (accessible via Usage button)
+export const TOKEN_TRACING_DASHBOARD_URL =
+  import.meta.env?.VITE_TOKEN_TRACING_DASHBOARD_URL || "http://localhost:8765/";

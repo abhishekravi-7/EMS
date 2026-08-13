@@ -21,12 +21,15 @@ export const ChatbotProvider: React.FC<{ children: ReactNode }> = ({ children })
   const setContext = useCallback((newState: Partial<ChatbotState>) => {
     setState((prev) => {
       // Avoid unnecessary updates if the values are identical.
-      // For objects like strategyContext, we use JSON stringify to compare content, not just reference.
       const hasChange = Object.entries(newState).some(([key, value]) => {
+        const prevValue = prev[key as keyof ChatbotState];
+        if (value === prevValue) return false;
+
+        // Deep comparison for objects using JSON.stringify
         if (value && typeof value === "object") {
-          return JSON.stringify(prev[key as keyof ChatbotState]) !== JSON.stringify(value);
+          return JSON.stringify(prevValue) !== JSON.stringify(value);
         }
-        return prev[key as keyof ChatbotState] !== value;
+        return prevValue !== value;
       });
 
       if (!hasChange) return prev;

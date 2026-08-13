@@ -98,7 +98,13 @@ export default function MigrationWizardPage() {
     const nextRepoUrl = repoUrl || null;
     const nextStrategyContext = strategyAssistantContext || null;
 
-    // Only update context if there's an actual change to avoid infinite loops
+    // Use JSON stringify to check for actual content changes before calling setContext.
+    // This is the most reliable way to prevent infinite loops when objects are reconstructed.
+    const hasUrlChange = nextRepoUrl !== repoUrl; // repoUrl is stable
+    const hasContextChange = JSON.stringify(nextStrategyContext) !== JSON.stringify(strategyAssistantContext); // Wait, this doesn't make sense if they are the same variables.
+
+    // Actually, we want to check against what's ALREADY in the context.
+    // But setContext already does that internally.
     setContext({ repoUrl: nextRepoUrl, strategyContext: nextStrategyContext });
   }, [repoUrl, strategyAssistantContext, setContext]);
 

@@ -1,0 +1,71 @@
+services:
+  # 1. JavaAPEX Backend (FastAPI)
+  backend:
+    build:
+      context: ./APEX-Backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+psycopg://apex_user:apex_pass@db:5432/java_apex_db
+      - LLM_1=${LLM_1:-} # Hugging Face Token
+      - LLM_2=${LLM_2:-} # Groq API Key
+      - RAG_ENABLED=true
+    volumes:
+      - ./APEX-Backend/storage:/app/storage
+      - ./APEX-Backend/logs:/app/logs
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # 2. JavaAPEX Frontend (React/Vite)
+  frontend:
+    build:
+      context: ./APEX-Frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5173:80"
+    environment:
+      - VITE_API_URL=http://localhost:8000
+      - VITE_TOKEN_TRACING_DASHBOARD_URL=http://localhost:8765/
+    depends_on:
+      - backend
+
+  # 3. Token Tracing Dashboard
+  tracing-dashboard:
+    image: python:3.12-slim-bookworm
+    working_dir: /app
+    volumes:
+      - ./APEX-Backend:/app
+    ports:
+      - "8765:8765"
+    command: >
+      sh -c "pip install -e . && python -m token_tracing.dashboard --jsonl logs/llm_usage.jsonl --port 8765"
+
+  # 4. Database (PostgreSQL)
+  db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=apex_user
+      - POSTGRES_PASSWORD=apex_pass
+      - POSTGRES_DB=java_apex_db
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U apex_user -d java_apex_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - apex_db_data:/var/lib/postgresql/data
+
+  # 5. Qdrant Vector Store (Optional, defaults to embedded but better as service)
+  # qdrant:
+  #   image: qdrant/qdrant:latest
+  #   ports:
+  #     - "6333:6333"
+  #   volumes:
+  #     - ./APEX-Backend/storage/vector-store:/qdrant/storage
+
+volumes:
+  apex_db_data:
