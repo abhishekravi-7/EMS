@@ -175,6 +175,7 @@ export default function MigrationWizardPage() {
         {step === 4 && (
           <ModernizationPage>
             <ModernizationStepView
+              jobId={connectState.jobId}
               modernization={modernizationState}
               repoAnalysis={repoAnalysis}
               selectedRepo={selectedRepo}

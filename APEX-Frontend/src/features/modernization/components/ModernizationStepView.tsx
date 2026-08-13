@@ -1,11 +1,41 @@
-import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
+import React, { useEffect, useState, useRef, useMemo, type Dispatch, type SetStateAction } from "react";
 import {
   FaFileAlt,
   FaRocket,
   FaSearch,
   FaShieldAlt,
   FaVial,
+  FaPlay,
+  FaStop,
+  FaSpinner,
+  FaTerminal,
+  FaCheckCircle,
+  FaTimesCircle,
+  FaExclamationTriangle,
+  FaClock,
+  FaBolt,
+  FaStepForward,
+  FaBullseye,
+  FaList,
+  FaFolder,
+  FaBox,
+  FaInfoCircle,
 } from "react-icons/fa";
+import {
+  scanExistingTests,
+  runExistingTests,
+  getExistingTestsStatus,
+  stopExistingTests,
+  resetExistingTests,
+  type ExistingTestStatusResponse,
+} from "../services/existingTestService";
+import { ExistingTestCasesPanel } from "./ExistingTestCasesPanel";
+import { ExistingTestCoverage } from "./ExistingTestCoverage";
+import { ExistingTestAnalytics } from "./ExistingTestAnalytics";
+import { ExistingTestTable } from "./ExistingTestTable";
+import { ExistingTestLogs } from "./ExistingTestLogs";
+import { ExistingTestValidationReport } from "./ExistingTestValidationReport";
+import { TestReportsModal } from "./TestReportsModal";
 import { wizardStyles as styles } from "@/shared/components/wizard/wizardStyles";
 import { renderWizardIconBadge, renderBackButtonLabel } from "@/shared/components/wizard";
 import { WIZARD_JOB_ID_KEY, readPersistedValue } from "@/shared/utils/migrationWizardStorage";
@@ -49,6 +79,7 @@ export interface FunctionalTestingTool {
 }
 
 interface ModernizationStepViewProps {
+  jobId: string;
   modernization: ReturnType<typeof useModernizationState>;
   repoAnalysis: RepoAnalysis | null;
   selectedRepo: RepoInfo | null;
@@ -69,6 +100,7 @@ interface ModernizationStepViewProps {
 }
 
 export function ModernizationStepView({
+  jobId,
   modernization,
   repoAnalysis,
   selectedRepo,
@@ -98,6 +130,279 @@ export function ModernizationStepView({
   } = modernization;
   const { isLocalRepoRef, extractLocalRepoPath } = repoUtils;
 
+  // --- Existing Test execution states replicated from Prova ---
+  const [isRunningExisting, setIsRunningExisting] = useState(false);
+  const [existingTotal, setExistingTotal] = useState<number | null>(null);
+  const [existingFramework, setExistingFramework] = useState<string | null>(null);
+  const [discoveredTests, setDiscoveredTests] = useState<any[]>([]);
+  const [existingElapsedTime, setExistingElapsedTime] = useState(0);
+  const [existingLogs, setExistingLogs] = useState<{ ts: string; msg: string; level: string }[]>([]);
+  const [existingExecResult, setExistingExecResult] = useState<any | null>(null);
+  const [showExistingLogs, setShowExistingLogs] = useState(false);
+  const [showValidationReport, setShowValidationReport] = useState(false);
+  const [validationFilter, setValidationFilter] = useState("ALL");
+  const [validationSearch, setValidationSearch] = useState("");
+  const [expandedFailures, setExpandedFailures] = useState<Record<number, boolean>>({});
+  const [showTestDetailModal, setShowTestDetailModal] = useState(false);
+  const [testDetailReport, setTestDetailReport] = useState<{
+    name: string;
+    suite: string;
+    status: string;
+    url?: string | null;
+    type?: string;
+    screenshotUrl?: string | null;
+    videoUrl?: string | null;
+    traceUrl?: string | null;
+    apiEvidence?: any;
+    error?: string | null;
+    errorCode?: string | null;
+  } | null>(null);
+
+  const existingLogRef = useRef<HTMLDivElement | null>(null);
+  const existingPollRef = useRef<any>(null);
+
+  // Live timer for existing test execution / analysis
+  useEffect(() => {
+    let timer: any = null;
+    if (isRunningExisting) {
+      setExistingElapsedTime(0);
+      const startTime = Date.now();
+      timer = setInterval(() => {
+        setExistingElapsedTime(Math.floor((Date.now() - startTime) / 1000));
+      }, 1000);
+    } else {
+      setExistingElapsedTime(0);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [isRunningExisting]);
+
+  const formatElapsedTime = (totalSecs: number) => {
+    const mins = Math.floor((totalSecs || 0) / 60);
+    const secs = (totalSecs || 0) % 60;
+    return `${String(mins).padStart(2, '0')}m ${String(secs).padStart(2, '0')}s`;
+  };
+
+  const executedTestLogsCount = existingLogs.filter(log =>
+    /^\[\d+\/\d+\]/.test(log.msg || "")
+  ).length;
+
+  const testProgressPercent = (existingTotal && existingTotal - 1 > 0)
+    ? Math.min(100, Math.round((executedTestLogsCount / existingTotal) * 100))
+    : (isRunningExisting ? 10 : 0);
+
+  const activeTestResults = useMemo(() => {
+    if (existingExecResult?.test_results && existingExecResult.test_results.length > 0 && !isRunningExisting) {
+      return existingExecResult.test_results;
+    }
+
+    if (discoveredTests.length === 0) return [];
+
+    const completedResults = existingExecResult?.test_results || [];
+    const completedMap = new Map();
+    completedResults.forEach((r: any) => {
+      const key = `${r.suite || ""}:${r.test_name || ""}`;
+      completedMap.set(key, r);
+    });
+
+    let foundRunning = false;
+    return discoveredTests.map((t: any, idx: number) => {
+      const testName = t.name || t.methodname || `testMethod${idx}`;
+      const testSuite = t.classname || t.file?.split("/").pop() || "TestSuite";
+      const key = `${testSuite}:${testName}`;
+
+      if (completedMap.has(key)) {
+        return completedMap.get(key);
+      }
+
+      if (isRunningExisting) {
+        if (!foundRunning) {
+          foundRunning = true;
+          return {
+            test_name: testName,
+            suite: testSuite,
+            status: "RUNNING",
+            duration: "Running...",
+            file: t.file || `${testSuite}.java`,
+            type: t.type || existingFramework || "JUnit",
+            failure_message: null,
+          };
+        } else {
+          return {
+            test_name: testName,
+            suite: testSuite,
+            status: "PENDING",
+            duration: "--",
+            file: t.file || `${testSuite}.java`,
+            type: t.type || existingFramework || "JUnit",
+            failure_message: null,
+          };
+        }
+      }
+
+      return {
+        test_name: testName,
+        suite: testSuite,
+        status: "PENDING",
+        duration: "--",
+        file: t.file || `${testSuite}.java`,
+        type: t.type || existingFramework || "JUnit",
+        failure_message: null,
+      };
+    });
+  }, [discoveredTests, existingExecResult, isRunningExisting, existingFramework]);
+
+  // Auto-scroll live log box
+  useEffect(() => {
+    if (existingLogRef.current) {
+      existingLogRef.current.scrollTop = existingLogRef.current.scrollHeight;
+    }
+  }, [existingLogs]);
+
+  // Scan on mount or jobId changes
+  useEffect(() => {
+    if (!jobId) return;
+
+    const loadState = async () => {
+      try {
+        const status = await getExistingTestsStatus(jobId).catch(() => null);
+        if (status && status.status !== "IDLE" && status.status !== "STOPPED") {
+          if (status.logs) setExistingLogs(status.logs);
+          if (status.result) {
+            setExistingExecResult(status.result);
+            if (status.result.metrics?.total != null) setExistingTotal(status.result.metrics.total);
+            if (status.result.metrics?.type) setExistingFramework(status.result.metrics.type);
+          }
+          if (status.status === "RUNNING" || status.status === "IN_PROGRESS") {
+            setIsRunningExisting(true);
+            setShowExistingLogs(true);
+            if (existingPollRef.current) clearInterval(existingPollRef.current);
+            existingPollRef.current = setInterval(async () => {
+              try {
+                const liveStatus = await getExistingTestsStatus(jobId);
+                if (liveStatus.logs) setExistingLogs(liveStatus.logs);
+                if (liveStatus.result) {
+                  setExistingExecResult(liveStatus.result);
+                  if (liveStatus.result.metrics?.total != null) setExistingTotal(liveStatus.result.metrics.total);
+                  if (liveStatus.result.metrics?.type) setExistingFramework(liveStatus.result.metrics.type);
+                }
+                if (liveStatus.status === "COMPLETED" || liveStatus.status === "FAILED" || liveStatus.status === "ERROR" || liveStatus.status === "STOPPED") {
+                  clearInterval(existingPollRef.current);
+                  setIsRunningExisting(false);
+                  setTimeout(() => setShowExistingLogs(false), 2000);
+                }
+              } catch (e) {
+                console.error(e);
+              }
+            }, 800);
+          } else {
+            setIsRunningExisting(false);
+            setShowExistingLogs(false);
+          }
+        } else {
+          setExistingTotal(null);
+          setExistingFramework(null);
+          setExistingExecResult(null);
+          setExistingLogs([]);
+          setShowExistingLogs(false);
+          setIsRunningExisting(false);
+          if (existingPollRef.current) clearInterval(existingPollRef.current);
+          
+          scanExistingTests(jobId)
+            .then(data => {
+              const total = data.total ?? 0;
+              setExistingTotal(total);
+              setExistingFramework(data.framework || null);
+              setDiscoveredTests(data.test_cases || []);
+            })
+            .catch(() => {
+              setExistingTotal(0);
+            });
+        }
+      } catch (err) {
+        console.error("Failed to load existing tests status:", err);
+      }
+    };
+    
+    loadState();
+
+    return () => {
+      if (existingPollRef.current) clearInterval(existingPollRef.current);
+    };
+  }, [jobId]);
+
+  const handleStopExistingTests = async () => {
+    if (!jobId) return;
+    try {
+      await stopExistingTests(jobId);
+      if (existingPollRef.current) clearInterval(existingPollRef.current);
+      setIsRunningExisting(false);
+      const finalStatus = await getExistingTestsStatus(jobId).catch(() => ({}) as any);
+      if (finalStatus.logs) setExistingLogs(finalStatus.logs);
+    } catch (err) {
+      console.error('Failed to stop existing tests:', err);
+    }
+  };
+
+  const handleRunExistingTests = async (selection: any[] = []) => {
+    if (!jobId || isRunningExisting) return;
+
+    setIsRunningExisting(true);
+    setExistingExecResult(null);
+    setExistingLogs([]);
+    setShowExistingLogs(true);
+
+    if (existingPollRef.current) clearInterval(existingPollRef.current);
+    existingPollRef.current = setInterval(async () => {
+      try {
+        const status = await getExistingTestsStatus(jobId);
+        if (status.logs) {
+          setExistingLogs(status.logs);
+        }
+        if (status.result) {
+          setExistingExecResult(status.result);
+          if (status.result.metrics?.total != null)
+            setExistingTotal(status.result.metrics.total);
+          if (status.result.metrics?.type)
+            setExistingFramework(status.result.metrics.type);
+        }
+        if (
+          status.status === "COMPLETED" ||
+          status.status === "FAILED" ||
+          status.status === "ERROR" ||
+          status.status === "STOPPED"
+        ) {
+          clearInterval(existingPollRef.current);
+          setIsRunningExisting(false);
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }, 800);
+
+    try {
+      const res = await runExistingTests(jobId, selection);
+      if (res?.status === 'RUNNING' || res?.started === true) {
+        return;
+      }
+      clearInterval(existingPollRef.current);
+      const finalStatus = await getExistingTestsStatus(jobId).catch(() => ({}) as any);
+      if (finalStatus.logs) setExistingLogs(finalStatus.logs);
+      if (res?.metrics?.total != null) setExistingTotal(res.metrics.total);
+      if (res?.metrics?.type) setExistingFramework(res.metrics.type);
+      setTimeout(() => setShowExistingLogs(false), 2000);
+      if (res) {
+        setExistingExecResult(res);
+      }
+    } catch (err) {
+      clearInterval(existingPollRef.current);
+      console.error('Failed to execute existing tests:', err);
+      setShowExistingLogs(false);
+      setIsRunningExisting(false);
+    }
+  };
+
   const [selectedTestToolFilter, setSelectedTestToolFilter] = useState<string | null>(null);
   const [viewingTestFile, setViewingTestFile] = useState<{ name: string; path: string; content: string } | null>(null);
   const [testFileLoading, setTestFileLoading] = useState(false);
@@ -107,6 +412,7 @@ export function ModernizationStepView({
   const [scopePreview, setScopePreview] = useState<FunctionalTestScopePreview | null>(null);
   const [scopePreviewLoading, setScopePreviewLoading] = useState(false);
   const [scopePreviewError, setScopePreviewError] = useState<string | null>(null);
+
 
   // Fetch LLM-generated tool recommendation passages once when this step mounts
   useEffect(() => {
@@ -364,8 +670,119 @@ export function ModernizationStepView({
           )}
         </div>
 
+
         {/* Existing Test Cases Discovery & Execution */}
         <ExistingTestCasesPanel jobId={jobId} repoAnalysis={repoAnalysis} />
+
+
+        {/* Existing Test Cases Browser (only before execution) */}
+        {discoveredTests.length > 0 && !existingExecResult && !isRunningExisting && (
+          <ExistingTestCasesPanel
+            jobId={jobId}
+            discoveredTests={discoveredTests}
+            framework={existingFramework || "JUnit"}
+            onRunAll={() => handleRunExistingTests()}
+            onRunSelected={() => handleRunExistingTests()}
+            isRunning={isRunningExisting}
+          />
+        )}
+
+        {/* RUNNING STATE: SHOW ONLY EXECUTION PROGRESS & LIVE EXECUTION LOGS */}
+        {isRunningExisting && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 24, marginTop: 24 }}>
+            {/* Header + Progress Bar */}
+            <div style={{
+              padding: "20px 24px",
+              borderRadius: 14,
+              border: "1px solid #e2e8f0",
+              background: "#fff",
+            }}>
+              <h3 style={{ fontSize: 16, fontWeight: 800, color: "#0f172a", margin: "0 0 12px 0" }}>
+                Existing Test Cases
+              </h3>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: "#475569", display: "flex", alignItems: "center", gap: 6 }}>
+                  <FaSpinner className="animate-spin" style={{ color: "#2563eb" }} /> Test execution in progress ({formatElapsedTime(existingElapsedTime)})...
+                </span>
+                <span style={{ fontSize: 11, fontFamily: "monospace", fontWeight: 700, color: "#64748b" }}>
+                  {executedTestLogsCount} / {existingTotal || discoveredTests.length} ({testProgressPercent}%)
+                </span>
+              </div>
+              <div style={{ width: "100%", height: 8, background: "#e2e8f0", borderRadius: 999, overflow: "hidden" }}>
+                <div style={{ height: "100%", background: "linear-gradient(90deg, #2563eb, #3b82f6)", width: `${testProgressPercent}%`, transition: "width 0.3s ease" }} />
+              </div>
+            </div>
+
+            {/* LIVE EXECUTION LOGS */}
+            <ExistingTestLogs logs={existingLogs} />
+          </div>
+        )}
+
+        {/* COMPLETED STATE: SHOW ANALYTICS, COVERAGE, AND VALIDATION REPORT */}
+        {!isRunningExisting && existingExecResult && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 24, marginTop: 24 }}>
+            {/* 1. TOP ANALYTICS AREA (Suite Composition & Risk Coverage) */}
+            <ExistingTestAnalytics
+              metrics={existingExecResult.metrics || {}}
+              fileBreakdown={existingExecResult.file_breakdown || []}
+              frameworkInfo={existingExecResult.framework_info}
+            />
+
+            {/* 2. EXISTING TEST COVERAGE (8 Metric Cards) */}
+            <ExistingTestCoverage
+              metrics={existingExecResult.metrics || {}}
+              frameworkInfo={existingExecResult.framework_info}
+              onRunAll={() => handleRunExistingTests()}
+              onOpenReport={() => setShowValidationReport(true)}
+            />
+
+            {/* 3. EXISTING TESTS VALIDATION REPORT CARD */}
+            {existingExecResult.test_results && existingExecResult.test_results.length > 0 && (
+              <div style={{
+                background: "#fff",
+                borderRadius: 20,
+                border: "1px solid #e2e8f0",
+                padding: "24px",
+                boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.05)"
+              }}>
+                <ExistingTestTable
+                  title="Existing Tests Validation Report"
+                  testResults={existingExecResult.test_results}
+                  fileBreakdown={existingExecResult.file_breakdown || []}
+                  frameworkInfo={existingExecResult.framework_info}
+                  logs={existingLogs}
+                  onSelectTest={(t: any) => {
+                    setTestDetailReport({
+                      testId: t.test_id || t.testId || `${t.suite}#${t.test_name}`,
+                      executionId: t.execution_id || t.executionId || jobId,
+                      name: t.test_name,
+                      suite: t.suite,
+                      status: t.status,
+                      duration: t.duration,
+                      file: t.file,
+                      url: t.report_url,
+                      type: t.type,
+                      testType: t.test_type || t.testType,
+                      framework: t.framework || existingExecResult?.framework_info?.build_tool || existingExecResult?.framework_info?.detected_framework,
+                      screenshotUrl: t.screenshot_url,
+                      videoUrl: t.video_url,
+                      traceUrl: t.trace_url,
+                      apiEvidence: t.api_evidence,
+                      error: t.failure_message || t.details?.error,
+                      errorCode: t.status === "FAILED" ? "TEST_FAILED" : t.status === "ERROR" ? "BUILD_ERROR" : t.status === "NOT_EXECUTED" ? "NOT_EXECUTED" : undefined,
+                      stackTrace: t.stack_trace || t.details?.stackTrace,
+                      stdout: t.stdout || t.details?.stdout,
+                      stderr: t.stderr || t.details?.stderr,
+                    });
+                    setShowTestDetailModal(true);
+                  }}
+                />
+              </div>
+            )}
+          </div>
+        )}
+
+        {/*
 
         <div style={{ borderTop: "1px solid #e2e8f0", paddingTop: 24 }}>
           <p style={{
@@ -760,6 +1177,7 @@ export function ModernizationStepView({
             );
           })()}
         </div>
+        */}
       </div>
 
       {repoAnalysis?.functional_test_files && repoAnalysis.functional_test_files.count > 0 && (
@@ -843,6 +1261,8 @@ export function ModernizationStepView({
           </div>
         </div>
       )}
+
+      {/*
 
       <div style={{
         background: "#fff",
@@ -1102,6 +1522,72 @@ export function ModernizationStepView({
           </div>
         )}
       </div>
+      */}
+
+
+      {/* Test Validation Report Modal */}
+      {showValidationReport && existingExecResult && (
+        <ExistingTestValidationReport
+          metrics={existingExecResult.metrics || {}}
+          frameworkInfo={existingExecResult.framework_info}
+          testResults={existingExecResult.test_results || []}
+          fileBreakdown={existingExecResult.file_breakdown || []}
+          logs={existingLogs}
+          onClose={() => setShowValidationReport(false)}
+          onSelectTest={(t: any) => {
+            setTestDetailReport({
+              testId: t.test_id || t.testId || `${t.suite}#${t.test_name}`,
+              executionId: t.execution_id || t.executionId || jobId,
+              name: t.test_name,
+              suite: t.suite,
+              status: t.status,
+              duration: t.duration,
+              file: t.file,
+              url: t.report_url,
+              type: t.type,
+              testType: t.test_type || t.testType,
+              framework: t.framework || existingExecResult?.framework_info?.build_tool || existingExecResult?.framework_info?.detected_framework,
+              screenshotUrl: t.screenshot_url,
+              videoUrl: t.video_url,
+              traceUrl: t.trace_url,
+              apiEvidence: t.api_evidence,
+              error: t.failure_message || t.details?.error,
+              errorCode: t.status === "FAILED" ? "TEST_FAILED" : t.status === "ERROR" ? "BUILD_ERROR" : t.status === "NOT_EXECUTED" ? "NOT_EXECUTED" : undefined,
+              stackTrace: t.stack_trace || t.details?.stackTrace,
+              stdout: t.stdout || t.details?.stdout,
+              stderr: t.stderr || t.details?.stderr,
+            });
+            setShowTestDetailModal(true);
+          }}
+        />
+      )}
+
+      <TestReportsModal
+        isOpen={showTestDetailModal}
+        onClose={() => setShowTestDetailModal(false)}
+        data={testDetailReport ? {
+          testId: testDetailReport.testId,
+          executionId: testDetailReport.executionId,
+          title: testDetailReport.name,
+          spec: testDetailReport.suite,
+          status: testDetailReport.status,
+          duration: testDetailReport.duration,
+          file: testDetailReport.file,
+          url: testDetailReport.url,
+          error: testDetailReport.error,
+          errorCode: testDetailReport.errorCode,
+          type: testDetailReport.type,
+          testType: testDetailReport.testType,
+          framework: testDetailReport.framework,
+          stackTrace: testDetailReport.stackTrace,
+          stdout: testDetailReport.stdout,
+          stderr: testDetailReport.stderr,
+          screenshotUrl: testDetailReport.screenshotUrl,
+          videoUrl: testDetailReport.videoUrl,
+          traceUrl: testDetailReport.traceUrl,
+          apiEvidence: testDetailReport.apiEvidence,
+        } : null}
+      />
 
       <div style={styles.btnRow}>
         <button style={styles.secondaryBtn} onClick={onBack}>{renderBackButtonLabel()}</button>
