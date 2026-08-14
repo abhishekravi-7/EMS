@@ -12,6 +12,7 @@ from fastapi import Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.application.services.auth_service import AuthService
+from app.core.context import user_id_ctx, job_id_ctx
 from app.core.exceptions import NotAuthenticatedError
 from app.infrastructure.persistence.database import get_db
 from app.infrastructure.persistence.migration_ownership_repository import get_job_owner_user_id
@@ -31,7 +32,9 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
     """
     raw_token = request.cookies.get(ACCESS_TOKEN_COOKIE_NAME)
     try:
-        return AuthService(db).get_user_from_access_token(raw_token)
+        user = AuthService(db).get_user_from_access_token(raw_token)
+        user_id_ctx.set(user.id)
+        return user
     except NotAuthenticatedError as exc:
         raise HTTPException(status_code=401, detail=exc.message) from exc
 
@@ -58,6 +61,7 @@ def verify_job_ownership(db: Session, job_id: str, current_user: User) -> None:
             status_code=403,
             detail={"code": "FORBIDDEN", "message": "You do not have access to this migration job."},
         )
+    job_id_ctx.set(job_id)
 
 """Shared FastAPI dependencies for the API layer."""
 

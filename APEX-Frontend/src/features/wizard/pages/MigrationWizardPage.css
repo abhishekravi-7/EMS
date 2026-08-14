@@ -1133,3 +1133,19 @@
   background: linear-gradient(180deg, #6366f1, #8b5cf6);
   border-radius: 4px;
 }
+
+/* Responsive layout for Existing Test Cases panel */
+@media (max-width: 1024px) {
+  .test-cases-layout {
+    grid-template-columns: 45% 1fr !important;
+    gap: 16px !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .test-cases-layout {
+    grid-template-columns: 1fr !important;
+    gap: 20px !important;
+  }
+}
+

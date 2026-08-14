@@ -120,6 +120,7 @@ def build_summary(report: dict[str, Any]) -> dict[str, Any]:
         "has_test_pipeline": False,
         "has_sonar_report": bool(report.get("sonar_report")),
         "has_fossa_report": bool(report.get("fossa_report")),
+        "sonar_report": report.get("sonar_report"),
         "has_testcase_doc": False,
         "has_clone_path": True,
     }
@@ -132,7 +133,6 @@ def build_result(report: dict[str, Any]) -> dict[str, Any]:
     return {
         **core,
         **_analysis(report),
-        "dependencies": [],
         "migration_log": log_lines,
         "issues": [],
         "file_diffs": [],

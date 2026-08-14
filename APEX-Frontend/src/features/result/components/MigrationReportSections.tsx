@@ -613,14 +613,44 @@ export function MigrationSonarSection({
 
   const sonarReport = migrationJob?.sonar_report as any;
 
-  const rawBugs = React.useMemo(() => sonarReport?.bug_details || [], [sonarReport]);
-  const rawVulnerabilities = React.useMemo(() => sonarReport?.vulnerability_details || [], [sonarReport]);
-  const rawCodeSmells = React.useMemo(() => sonarReport?.code_smell_details || [], [sonarReport]);
-  const rawHotspots = React.useMemo(() => sonarReport?.security_hotspot_details || [], [sonarReport]);
-
   const allIssuesList = React.useMemo(() => {
-    return sonarReport?.all_issues || [...rawBugs, ...rawVulnerabilities, ...rawCodeSmells];
-  }, [sonarReport, rawBugs, rawVulnerabilities, rawCodeSmells]);
+    if (sonarReport?.all_issues && Array.isArray(sonarReport.all_issues) && sonarReport.all_issues.length > 0) {
+      return sonarReport.all_issues;
+    }
+    const b = sonarReport?.bug_details || sonarReport?.bugs || [];
+    const v = sonarReport?.vulnerability_details || sonarReport?.vulnerabilities || [];
+    const cs = sonarReport?.code_smell_details || sonarReport?.code_smells || [];
+    const h = sonarReport?.security_hotspot_details || sonarReport?.security_hotspots || [];
+    return [...b, ...v, ...cs, ...h];
+  }, [sonarReport]);
+
+  const rawBugs = React.useMemo(() => {
+    if (sonarReport?.bug_details?.length) return sonarReport.bug_details;
+    if (sonarReport?.bugs?.length) return sonarReport.bugs;
+    return allIssuesList.filter((i: any) => String(i?.type || "").toUpperCase().includes("BUG"));
+  }, [sonarReport, allIssuesList]);
+
+  const rawVulnerabilities = React.useMemo(() => {
+    if (sonarReport?.vulnerability_details?.length) return sonarReport.vulnerability_details;
+    if (sonarReport?.vulnerabilities?.length) return sonarReport.vulnerabilities;
+    return allIssuesList.filter((i: any) => String(i?.type || "").toUpperCase().includes("VULNERAB"));
+  }, [sonarReport, allIssuesList]);
+
+  const rawCodeSmells = React.useMemo(() => {
+    if (sonarReport?.code_smell_details?.length) return sonarReport.code_smell_details;
+    if (sonarReport?.code_smells?.length) return sonarReport.code_smells;
+    return allIssuesList.filter((i: any) => {
+      const t = String(i?.type || "").toUpperCase();
+      return t.includes("SMELL") || (!t.includes("BUG") && !t.includes("VULNERAB") && !t.includes("HOTSPOT"));
+    });
+  }, [sonarReport, allIssuesList]);
+
+  const rawHotspots = React.useMemo(() => {
+    if (sonarReport?.security_hotspot_details?.length) return sonarReport.security_hotspot_details;
+    if (sonarReport?.security_hotspots?.length) return sonarReport.security_hotspots;
+    if (sonarReport?.hotspots?.length) return sonarReport.hotspots;
+    return allIssuesList.filter((i: any) => String(i?.type || "").toUpperCase().includes("HOTSPOT"));
+  }, [sonarReport, allIssuesList]);
 
   const severityBreakdown = React.useMemo(() => {
     const counts = { blocker: 0, critical: 0, major: 0, minor: 0, info: 0 };
@@ -1047,7 +1077,7 @@ export function MigrationSonarSection({
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 16, marginBottom: 24 }}>
             <div style={{ background: "#ffffff", borderRadius: 14, padding: "18px 20px", border: "1px solid #e2e8f0", boxShadow: "0 2px 10px rgba(0,0,0,0.03)" }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 6 }}>Quality Gate</div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: qgStatus === "PASSED" ? "#16a34a" : qgStatus === "FAILED" ? "#dc2626" : "#d97706" }}>
+              <div style={{ fontSize: 22, fontWeight: 800, color: (qgStatus === "PASSED" || qgStatus === "OK") ? "#16a34a" : (qgStatus === "FAILED" || qgStatus === "ERROR") ? "#dc2626" : "#d97706" }}>
                 {qgStatus}
               </div>
               <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>Gate Status</div>

@@ -49,9 +49,14 @@ class GenerateProjectDocumentationUseCase:
         strategy = self._build_strategy_section(job_id, config_report)
         has_repository_analysis = self._has_repository_analysis(discovery_report)
 
+        project_name = connect_report.get("repoName")
+        modules = discovery_report.get("modules") or []
+        if not modules and project_name:
+            modules = [project_name]
+
         return ProjectDocsResponse(
             job_id=job_id,
-            project_name=connect_report.get("repoName"),
+            project_name=project_name,
             repo_url=connect_report.get("repoUrl"),
             has_repository_analysis=has_repository_analysis,
             detected_java_version=discovery_report.get("currentJavaVersion"),
@@ -60,7 +65,7 @@ class GenerateProjectDocumentationUseCase:
             project_type=discovery_report.get("projectType"),
             frameworks=discovery_report.get("frameworks") or [],
             dependencies=discovery_report.get("dependencies") or [],
-            modules=discovery_report.get("modules") or [],
+            modules=modules,
             frontend=frontend if isinstance(frontend, dict) else None,
             generated_at=datetime.now(timezone.utc).isoformat(),
             strategy=strategy,
@@ -152,6 +157,9 @@ class GenerateProjectDocumentationUseCase:
           ("Build Status", strategy.build_status or "Unknown"),
           ("Build Success", "Yes" if strategy.build_success else "No"),
       ])}
+
+      {f'<h3>Applied Modernization</h3>{self._list_or_empty(strategy.build_modernization)}' if strategy.build_modernization else ''}
+
       <h2>Dependency Changes</h2>
       {self._list_or_empty(strategy.dependency_upgrades)}
       <h2>Source Code Changes</h2>

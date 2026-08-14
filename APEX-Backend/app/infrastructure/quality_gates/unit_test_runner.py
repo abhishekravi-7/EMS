@@ -16,31 +16,70 @@ class UnitTestRunner:
         *,
         build_tool: str = "maven",
         target_class_name: str | None = None,
+        target_class_names: list[str] | None = None,
     ) -> UnitTestSuiteResult:
         build_tool_clean = (build_tool or "maven").lower()
 
+        # Combine both target arguments for backward compatibility
+        targets = []
+        if target_class_name:
+            targets.append(target_class_name)
+        if target_class_names:
+            for n in target_class_names:
+                if n not in targets:
+                    targets.append(n)
+
+        import os
+        is_windows = os.name == "nt"
+
         if build_tool_clean == "gradle":
-            executable = resolve_executable("gradle") or "gradle"
-            if (project_dir / "gradlew").exists() or (project_dir / "gradlew.bat").exists():
-                executable = "./gradlew.bat" if (project_dir / "gradlew.bat").exists() else "./gradlew"
+            # Gradle Wrapper Check
+            gradlew_bat = project_dir / "gradlew.bat"
+            gradlew_sh = project_dir / "gradlew"
+            if is_windows and gradlew_bat.exists():
+                executable = str(gradlew_bat.resolve())
+            elif not is_windows and gradlew_sh.exists():
+                executable = str(gradlew_sh.resolve())
+            else:
+                executable = resolve_executable("gradle")
+                if not executable:
+                    executable = "gradle.bat" if is_windows else "gradle"
             cmd = [executable, "test"]
-            if target_class_name:
-                cmd.extend(["--tests", f"*{target_class_name}*"])
+            if targets:
+                for name in targets:
+                    cmd.extend(["--tests", f"*{name}*"])
         else:
-            executable = resolve_executable("mvn") or "mvn"
+            # Maven Wrapper Check
+            mvnw_cmd = project_dir / "mvnw.cmd"
+            mvnw_sh = project_dir / "mvnw"
+            if is_windows and mvnw_cmd.exists():
+                executable = str(mvnw_cmd.resolve())
+            elif not is_windows and mvnw_sh.exists():
+                executable = str(mvnw_sh.resolve())
+            else:
+                executable = resolve_executable("mvn")
+                if not executable:
+                    executable = "mvn.cmd" if is_windows else "mvn"
             cmd = [executable, "test", "-DfailIfNoTests=false"]
-            if target_class_name:
-                cmd.append(f"-Dtest=*{target_class_name}*")
+            if targets:
+                cmd.append(f"-Dtest={','.join([f'*{n}*' for n in targets])}")
+            # Prova also adds surefire-report:report for Maven
+            cmd.append("surefire-report:report")
 
-        res = run_command(cmd, cwd=project_dir)
-
-
-        # Locate XML report directory
+        # Locate XML report directory and clean stale XML reports from previous runs to prevent leaking results
         reports_dir = (
             project_dir / "target" / "surefire-reports"
             if build_tool_clean == "maven"
             else project_dir / "build" / "test-results" / "test"
         )
+        if reports_dir.exists() and reports_dir.is_dir():
+            try:
+                for xml_file in reports_dir.glob("TEST-*.xml"):
+                    xml_file.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+        res = run_command(cmd, cwd=project_dir, timeout=600)
 
         return self.parse_junit_reports(
             reports_dir=reports_dir,
@@ -56,6 +95,7 @@ class UnitTestRunner:
         raw_stderr: str = "",
         exit_code: int = 0,
     ) -> UnitTestSuiteResult:
+        import re
         existing_details: list[TestExecutionDetail] = []
         generated_details: list[TestExecutionDetail] = []
 
@@ -73,48 +113,69 @@ class UnitTestRunner:
                 except Exception:
                     continue
 
-                for tc in root.findall("testcase"):
-                    total_count += 1
-                    method_name = tc.get("name", "unknown")
-                    class_name = tc.get("classname", "unknown")
-                    time_sec = float(tc.get("time", "0.0"))
+                # Support both <testsuite> and <testsuites> roots (Prova approach)
+                testsuites = []
+                if root.tag == "testsuites":
+                    testsuites = root.findall("testsuite")
+                elif root.tag == "testsuite":
+                    testsuites = [root]
+                else:
+                    # Fallback to direct search if tags don't match
+                    testsuites = [root]
 
-                    failure = tc.find("failure")
-                    error = tc.find("error")
-                    skipped = tc.find("skipped")
+                for suite in testsuites:
+                    for tc in suite.findall("testcase"):
+                        total_count += 1
+                        method_name = tc.get("name", "unknown")
+                        class_name = tc.get("classname", "unknown")
+                        time_sec = float(tc.get("time", "0.0"))
 
-                    if failure is not None or error is not None:
-                        failed_count += 1
-                        node = failure if failure is not None else error
-                        detail = TestExecutionDetail(
-                            test_class=class_name,
-                            test_method=method_name,
-                            status="FAILED",
-                            execution_time_seconds=time_sec,
-                            error_message=node.get("message") if node is not None else "Test failed",
-                            stack_trace=node.text if node is not None else None,
-                        )
-                    elif skipped is not None:
-                        skipped_count += 1
-                        detail = TestExecutionDetail(
-                            test_class=class_name,
-                            test_method=method_name,
-                            status="SKIPPED",
-                            execution_time_seconds=time_sec,
-                        )
-                    else:
-                        passed_count += 1
-                        detail = TestExecutionDetail(
-                            test_class=class_name,
-                            test_method=method_name,
-                            status="PASSED",
-                            execution_time_seconds=time_sec,
-                        )
+                        failure = tc.find("failure")
+                        error = tc.find("error")
+                        skipped = tc.find("skipped")
 
-                    if "LLMTest" in class_name or "LLM" in method_name:
-                        generated_details.append(detail)
-                    else:
-                        existing_details.append(detail)
+                        if failure is not None or error is not None:
+                            failed_count += 1
+                            node = failure if failure is not None else error
+                            detail = TestExecutionDetail(
+                                test_class=class_name,
+                                test_method=method_name,
+                                status="FAILED",
+                                execution_time_seconds=time_sec,
+                                error_message=node.get("message") if node is not None else "Test failed",
+                                stack_trace=node.text if node is not None else None,
+                            )
+                        elif skipped is not None:
+                            skipped_count += 1
+                            detail = TestExecutionDetail(
+                                test_class=class_name,
+                                test_method=method_name,
+                                status="SKIPPED",
+                                execution_time_seconds=time_sec,
+                            )
+                        else:
+                            passed_count += 1
+                            detail = TestExecutionDetail(
+                                test_class=class_name,
+                                test_method=method_name,
+                                status="PASSED",
+                                execution_time_seconds=time_sec,
+                            )
+
+                        if "LLMTest" in class_name or "LLM" in method_name:
+                            generated_details.append(detail)
+                        else:
+                            existing_details.append(detail)
+
+        # Prova approach: Fallback to regex on console output if no XML results
+        if total_count == 0 and (raw_stdout or raw_stderr):
+            combined_output = raw_stdout + "\n" + raw_stderr
+            pass_match = re.search(r'Tests run:\s*(\d+),\s*Failures:\s*(\d+),\s*Errors:\s*(\d+),\s*Skipped:\s*(\d+)', combined_output)
+            if pass_match:
+                total_count = int(pass_match.group(1))
+                failed_count = int(pass_match.group(2)) + int(pass_match.group(3))
+                skipped_count = int(pass_match.group(4))
+                passed_count = total_count - failed_count - skipped_count
 
         raw_logs = [line for line in (raw_stdout + "\n" + raw_stderr).splitlines() if line.strip()]
 
@@ -125,5 +186,5 @@ class UnitTestRunner:
             skipped=skipped_count,
             existing_test_results=existing_details,
             generated_test_results=generated_details,
-            raw_logs=raw_logs[:200],  # cap log lines to prevent bloat
+            raw_logs=raw_logs[:500],
         )
