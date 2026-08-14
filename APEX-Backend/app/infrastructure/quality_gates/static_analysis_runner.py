@@ -469,16 +469,33 @@ class StaticAnalysisRunner:
         page_size = 500
         max_pages = 20  # Limit to 10,000 issues max
 
+        query_param_name = "componentKeys"
         while page <= max_pages:
             try:
                 params = {
-                    "componentKeys": project_key,
+                    query_param_name: project_key,
                     "ps": page_size,
                     "p": page,
                 }
                 path = "/api/issues/search?" + urllib.parse.urlencode(params)
                 payload = self._get_json(host_url + path, token)
                 raw_issues = payload.get("issues") or []
+
+                if not raw_issues and page == 1:
+                    for alt_param in ("components", "projects", "projectKeys"):
+                        try:
+                            alt_path = f"/api/issues/search?{alt_param}={urllib.parse.quote(project_key)}&ps={page_size}&p=1"
+                            alt_payload = self._get_json(host_url + alt_path, token)
+                            alt_issues = alt_payload.get("issues") or []
+                            if alt_issues:
+                                raw_issues = alt_issues
+                                payload = alt_payload
+                                query_param_name = alt_param
+                                logger.info("Found %d SonarQube issues using query param '%s'", len(raw_issues), alt_param)
+                                break
+                        except Exception as alt_exc:
+                            logger.debug("Alternative issue search with %s notice: %s", alt_param, alt_exc)
+
                 if not raw_issues:
                     break
 
@@ -507,14 +524,16 @@ class StaticAnalysisRunner:
                     all_issues.append(item)
 
                     itype = str(issue.get("type") or "").upper()
-                    if itype == "BUG":
+                    if "BUG" in itype:
                         bug_details.append(item)
-                    elif itype == "VULNERABILITY":
+                    elif "VULNERAB" in itype:
                         vulnerability_details.append(item)
-                    elif itype == "CODE_SMELL":
+                    elif "SMELL" in itype:
                         code_smell_details.append(item)
-                    elif itype == "SECURITY_HOTSPOT":
+                    elif "HOTSPOT" in itype:
                         security_hotspot_details.append(item)
+                    else:
+                        code_smell_details.append(item)
 
                 total = int((payload.get("paging") or {}).get("total") or payload.get("total") or 0)
                 if page * page_size >= total or len(raw_issues) < page_size:
@@ -526,30 +545,40 @@ class StaticAnalysisRunner:
 
         # Check dedicated hotspots API if needed
         if not security_hotspot_details:
-            try:
-                h_path = "/api/hotspots/search?" + urllib.parse.urlencode({"projectKey": project_key, "ps": 500, "p": 1})
-                h_payload = self._get_json(host_url + h_path, token)
-                for hotspot in h_payload.get("hotspots") or []:
-                    comp = str(hotspot.get("component") or "")
-                    file_path = comp.split(":", 1)[1] if ":" in comp else comp
-                    item = {
-                        "key": hotspot.get("key"),
-                        "component": file_path,
-                        "file_path": file_path,
-                        "line": hotspot.get("line"),
-                        "line_number": hotspot.get("line"),
-                        "message": hotspot.get("message"),
-                        "rule": hotspot.get("ruleKey") or hotspot.get("rule"),
-                        "status": hotspot.get("status"),
-                        "security_category": hotspot.get("securityCategory"),
-                        "vulnerability_probability": hotspot.get("vulnerabilityProbability"),
-                        "author": hotspot.get("author"),
-                        "creation_date": hotspot.get("creationDate"),
-                        "update_date": hotspot.get("updateDate"),
-                    }
-                    security_hotspot_details.append(item)
-            except Exception as exc:
-                logger.debug("Note: SonarQube hotspots API search notice: %s", exc)
+            for h_param in ("projectKey", "project", "component", "componentKeys"):
+                try:
+                    h_path = f"/api/hotspots/search?{h_param}={urllib.parse.quote(project_key)}&ps=500&p=1"
+                    h_payload = self._get_json(host_url + h_path, token)
+                    hotspots_list = h_payload.get("hotspots") or []
+                    if hotspots_list:
+                        logger.info("Found %d SonarQube hotspots using query param '%s'", len(hotspots_list), h_param)
+                        for hotspot in hotspots_list:
+                            comp = str(hotspot.get("component") or "")
+                            file_path = comp.split(":", 1)[1] if ":" in comp else comp
+                            item = {
+                                "key": hotspot.get("key"),
+                                "type": "SECURITY_HOTSPOT",
+                                "severity": hotspot.get("vulnerabilityProbability") or hotspot.get("severity") or "MEDIUM",
+                                "rule": hotspot.get("ruleKey") or hotspot.get("rule") or "security:hotspot",
+                                "message": hotspot.get("message") or "Security hotspot requires manual review",
+                                "component": file_path,
+                                "file_path": file_path,
+                                "line": hotspot.get("line"),
+                                "line_number": hotspot.get("line"),
+                                "status": hotspot.get("status") or "TO_REVIEW",
+                                "resolution": hotspot.get("resolution"),
+                                "effort": hotspot.get("effort"),
+                                "author": hotspot.get("author"),
+                                "creation_date": hotspot.get("creationDate"),
+                                "update_date": hotspot.get("updateDate"),
+                                "security_category": hotspot.get("securityCategory"),
+                                "vulnerability_probability": hotspot.get("vulnerabilityProbability"),
+                            }
+                            security_hotspot_details.append(item)
+                            all_issues.append(item)
+                        break
+                except Exception as exc:
+                    logger.debug("Hotspot search with %s notice: %s", h_param, exc)
 
         return {
             "bug_details": bug_details,
@@ -585,7 +614,13 @@ class StaticAnalysisRunner:
             gate = self._get_json(host_url + path, token)
             status = (gate.get("projectStatus") or {}).get("status")
             if status:
-                data["quality_gate"] = status
+                status_upper = str(status).upper()
+                if status_upper in ("OK", "PASSED"):
+                    data["quality_gate"] = "PASSED"
+                elif status_upper in ("ERROR", "FAILED"):
+                    data["quality_gate"] = "FAILED"
+                else:
+                    data["quality_gate"] = status_upper
         except Exception as exc:  # noqa: BLE001
             logger.warning("Unable to read SonarQube quality gate: %s", exc)
 
@@ -633,6 +668,11 @@ class StaticAnalysisRunner:
             payload = self._get_json(host_url + path, token)
             for measure in (payload.get("component") or {}).get("measures") or []:
                 data["measures"][measure.get("metric")] = float(measure.get("value") or 0)
+
+            # Fallback issue counts from measures if counts are still zero
+            for metric in ("bugs", "vulnerabilities", "code_smells", "security_hotspots"):
+                if not data["issues"].get(metric) and data["measures"].get(metric):
+                    data["issues"][metric] = int(data["measures"][metric])
         except Exception as exc:  # noqa: BLE001
             logger.warning("Unable to read SonarQube measure metrics: %s", exc)
 
