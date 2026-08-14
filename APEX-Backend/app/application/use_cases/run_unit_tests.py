@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+from sqlalchemy.orm import Session
+
 from app.application.use_cases.validate_unit_tests import ValidateUnitTestSuiteUseCase
+from app.application.services.llm_token_tracing_service import LLMTokenTracingService
 from app.core.exceptions import APEXError
 from app.infrastructure.analyzers.junit4_to_5_converter import JUnit4To5Modernizer
 from app.infrastructure.analyzers.junit_analyzer import JavaASTAnalyzer
+from app.infrastructure.llm.chat_llm import ChatLLM
 from app.infrastructure.llm.junit_generator import JUnitLLMGenerator
 from app.infrastructure.quality_gates.unit_test_runner import UnitTestRunner
 from app.infrastructure.workspace.workspace_paths import WorkspacePaths
@@ -46,7 +50,7 @@ class RunUnitTestSuiteUseCase:
 
         return self._analyzer.analyze_files(source_path=source_path, test_path=test_path)
 
-    async def execute(self, req: UnitTestGenerateAndRunRequest) -> UnitTestSuiteResult:
+    async def execute(self, req: UnitTestGenerateAndRunRequest, db: Session | None = None) -> UnitTestSuiteResult:
         project_dir = self._resolve_project_dir(job_id=req.job_id, project_dir_str=req.project_dir)
 
         source_path = project_dir / req.relative_source_path
@@ -57,85 +61,110 @@ class RunUnitTestSuiteUseCase:
         if test_path and not test_path.exists():
             test_path = None
 
-        # Step 1: AST Analysis
-        analysis = self._analyzer.analyze_files(source_path=source_path, test_path=test_path)
-        source_code = source_path.read_text(encoding="utf-8", errors="replace")
-        existing_test_code = (
-            test_path.read_text(encoding="utf-8", errors="replace") if test_path else None
-        )
+        # Wrap generator's ChatLLM with tracing if DB is available
+        original_chat = self._generator._chat_llm
+        if db:
+            tracing_chat = LLMTokenTracingService(
+                chat_llm=original_chat,
+                db=db,
+                job_id=req.job_id,
+                endpoint="junit_generation"
+            )
+            self._generator._chat_llm = tracing_chat
+            # Also wrap critic agent's ChatLLM
+            self._validator._critic_agent._chat_llm = LLMTokenTracingService(
+                chat_llm=original_chat,
+                db=db,
+                job_id=req.job_id,
+                endpoint="junit_critic"
+            )
 
-        # Step 2: LLM Generation
-        generated_code = await self._generator.generate_test_class(
-            source_code=source_code,
-            existing_test_code=existing_test_code,
-            package_name=analysis.package_name,
-            target_class_name=analysis.target_class,
-            java_version=req.java_version,
-            junit_version="JUnit 5",
-            spring_boot_version=req.spring_boot_version,
-            uncovered_methods=analysis.uncovered_methods,
-        )
+        try:
+            # Step 1: AST Analysis
+            analysis = self._analyzer.analyze_files(source_path=source_path, test_path=test_path)
+            source_code = source_path.read_text(encoding="utf-8", errors="replace")
+            existing_test_code = (
+                test_path.read_text(encoding="utf-8", errors="replace") if test_path else None
+            )
 
-        # Step 3: Multi-Agent Validation (AST Smell Detector + Critic Agent)
-        validation_report = None
-        if req.enable_validation_agent:
-            validation_report = await self._validator.validate(
+            # Step 2: LLM Generation
+            generated_code = await self._generator.generate_test_class(
                 source_code=source_code,
-                test_code=generated_code,
+                existing_test_code=existing_test_code,
+                package_name=analysis.package_name,
                 target_class_name=analysis.target_class,
+                java_version=req.java_version,
+                junit_version="JUnit 5",
+                spring_boot_version=req.spring_boot_version,
+                uncovered_methods=analysis.uncovered_methods,
             )
 
-        # Step 4: Write generated test file to src/test/java/
-        generated_file_path = self._generator.write_generated_test_file(
-            project_dir=project_dir,
-            package_name=analysis.package_name,
-            target_class_name=analysis.target_class,
-            generated_code=generated_code,
-        )
-
-        # Step 5: Sandbox Test Execution with Reflection Loop
-        max_retries = max(1, req.max_reflection_retries)
-        last_result: UnitTestSuiteResult | None = None
-
-        for attempt in range(max_retries):
-            run_result = self._runner.run(
-                project_dir=project_dir,
-                build_tool=req.build_tool,
-                target_class_name=analysis.target_class,
-            )
-            run_result.generated_code = generated_code
-            run_result.generated_test_file_path = str(generated_file_path.relative_to(project_dir))
-            run_result.validation_report = validation_report
-            last_result = run_result
-
-            # Check if any generated tests failed
-            generated_failures = [
-                d for d in run_result.generated_test_results if d.status == "FAILED"
-            ]
-
-            if not generated_failures:
-                # Tests passed cleanly or compilation succeeded
-                break
-
-            # Reflection correction loop
-            if attempt < max_retries - 1:
-                error_logs = "\n".join(
-                    [
-                        f"{f.test_method}: {f.error_message or ''}\n{f.stack_trace or ''}"
-                        for f in generated_failures
-                    ]
-                )
-                if not error_logs and run_result.raw_logs:
-                    error_logs = "\n".join(run_result.raw_logs[:50])
-
-                corrected_code = await self._generator.correct_failed_test_class(
+            # Step 3: Multi-Agent Validation (AST Smell Detector + Critic Agent)
+            validation_report = None
+            if req.enable_validation_agent:
+                validation_report = await self._validator.validate(
                     source_code=source_code,
-                    failed_test_code=generated_code,
-                    error_log=error_logs,
+                    test_code=generated_code,
+                    target_class_name=analysis.target_class,
+                    db=db,
+                    job_id=req.job_id
+                )
+
+            # Step 4: Write generated test file to src/test/java/
+            generated_file_path = self._generator.write_generated_test_file(
+                project_dir=project_dir,
+                package_name=analysis.package_name,
+                target_class_name=analysis.target_class,
+                generated_code=generated_code,
+            )
+
+            # Step 5: Sandbox Test Execution with Reflection Loop
+            max_retries = max(1, req.max_reflection_retries)
+            last_result: UnitTestSuiteResult | None = None
+
+            for attempt in range(max_retries):
+                run_result = self._runner.run(
+                    project_dir=project_dir,
+                    build_tool=req.build_tool,
                     target_class_name=analysis.target_class,
                 )
+                run_result.generated_code = generated_code
+                run_result.generated_test_file_path = str(generated_file_path.relative_to(project_dir))
+                run_result.validation_report = validation_report
+                last_result = run_result
 
-        return last_result or UnitTestSuiteResult()
+                # Check if any generated tests failed
+                generated_failures = [
+                    d for d in run_result.generated_test_results if d.status == "FAILED"
+                ]
+
+                if not generated_failures:
+                    # Tests passed cleanly or compilation succeeded
+                    break
+
+                # Reflection correction loop
+                if attempt < max_retries - 1:
+                    error_logs = "\n".join(
+                        [
+                            f"{f.test_method}: {f.error_message or ''}\n{f.stack_trace or ''}"
+                            for f in generated_failures
+                        ]
+                    )
+                    if not error_logs and run_result.raw_logs:
+                        error_logs = "\n".join(run_result.raw_logs[:50])
+
+                    corrected_code = await self._generator.correct_failed_test_class(
+                        source_code=source_code,
+                        failed_test_code=generated_code,
+                        error_log=error_logs,
+                        target_class_name=analysis.target_class,
+                    )
+
+            return last_result or UnitTestSuiteResult()
+        finally:
+            if db:
+                self._generator._chat_llm = original_chat
+                self._validator._critic_agent._chat_llm = original_chat
 
     def discover_target_classes(self, project_dir: Path) -> list[Path]:
         main_java = project_dir / "src" / "main" / "java"
@@ -163,45 +192,60 @@ class RunUnitTestSuiteUseCase:
         filtered = [f for f in (services + logic + others) if is_concrete_class(f)]
         return filtered[:10]
 
-    async def execute_project_suite(self, req: UnitTestGenerateAndRunRequest) -> UnitTestSuiteResult:
+    async def execute_project_suite(self, req: UnitTestGenerateAndRunRequest, db: Session | None = None) -> UnitTestSuiteResult:
         project_dir = self._resolve_project_dir(job_id=req.job_id, project_dir_str=req.project_dir)
 
-        # Convert pre-existing JUnit 4 tests to JUnit 5
-        self._modernizer.convert_project_tests(project_dir)
+        # Wrap generator's ChatLLM with tracing if DB is available
+        original_chat = self._generator._chat_llm
+        if db:
+            tracing_chat = LLMTokenTracingService(
+                chat_llm=original_chat,
+                db=db,
+                job_id=req.job_id,
+                endpoint="junit_generation_batch"
+            )
+            self._generator._chat_llm = tracing_chat
 
-        target_files = self.discover_target_classes(project_dir)
+        try:
+            # Convert pre-existing JUnit 4 tests to JUnit 5
+            self._modernizer.convert_project_tests(project_dir)
 
-        if not target_files:
-            return self._runner.run(project_dir=project_dir, build_tool=req.build_tool)
+            target_files = self.discover_target_classes(project_dir)
 
-        for target_file in target_files:
-            try:
-                analysis = self._analyzer.analyze_files(source_path=target_file)
-                source_code = target_file.read_text(encoding="utf-8", errors="replace")
+            if not target_files:
+                return self._runner.run(project_dir=project_dir, build_tool=req.build_tool)
 
+            for target_file in target_files:
                 try:
-                    generated_code = await self._generator.generate_test_class(
-                        source_code=source_code,
+                    analysis = self._analyzer.analyze_files(source_path=target_file)
+                    source_code = target_file.read_text(encoding="utf-8", errors="replace")
+
+                    try:
+                        generated_code = await self._generator.generate_test_class(
+                            source_code=source_code,
+                            package_name=analysis.package_name,
+                            target_class_name=analysis.target_class,
+                            java_version=req.java_version,
+                            junit_version="JUnit 5",
+                            spring_boot_version=req.spring_boot_version,
+                            uncovered_methods=analysis.uncovered_methods,
+                        )
+                    except Exception:
+                        generated_code = self._generate_ast_fallback_test(analysis)
+
+                    self._generator.write_generated_test_file(
+                        project_dir=project_dir,
                         package_name=analysis.package_name,
                         target_class_name=analysis.target_class,
-                        java_version=req.java_version,
-                        junit_version="JUnit 5",
-                        spring_boot_version=req.spring_boot_version,
-                        uncovered_methods=analysis.uncovered_methods,
+                        generated_code=generated_code,
                     )
                 except Exception:
-                    generated_code = self._generate_ast_fallback_test(analysis)
+                    continue
 
-                self._generator.write_generated_test_file(
-                    project_dir=project_dir,
-                    package_name=analysis.package_name,
-                    target_class_name=analysis.target_class,
-                    generated_code=generated_code,
-                )
-            except Exception:
-                continue
-
-        return self._runner.run(project_dir=project_dir, build_tool=req.build_tool)
+            return self._runner.run(project_dir=project_dir, build_tool=req.build_tool)
+        finally:
+            if db:
+                self._generator._chat_llm = original_chat
 
     def _generate_ast_fallback_test(self, analysis: UnitTestAnalysisResponse) -> str:
         package_name = analysis.package_name or "com.example"

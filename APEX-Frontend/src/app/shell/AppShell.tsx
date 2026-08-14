@@ -5,6 +5,7 @@ import { DocsPanel } from "@/features/docs";
 import { SupportPanel } from "@/features/support";
 import { Button } from "@/shared/components/ui";
 import { useAuth } from "@/shared/context/AuthContext";
+import { TOKEN_TRACING_DASHBOARD_URL } from "@/services/config/env";
 import FloatingChatbot from "@/shared/components/chatbot/FloatingChatbot";
 import "./AppShell.css";
 
@@ -132,6 +133,20 @@ const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             </svg>
             Docs
           </button>
+
+          <button
+            type="button"
+            className="ui-nav-button"
+            onClick={() => window.open(TOKEN_TRACING_DASHBOARD_URL, "_blank")}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="20" x2="18" y2="10"></line>
+              <line x1="12" y1="20" x2="12" y2="4"></line>
+              <line x1="6" y1="20" x2="6" y2="14"></line>
+            </svg>
+            Usage
+          </button>
+
           <button
             type="button"
             className="ui-nav-button"
@@ -143,6 +158,7 @@ const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             </svg>
             Support
           </button>
+
           <div className="app-shell-nav-divider" />
 
           {isAuthenticated ? (

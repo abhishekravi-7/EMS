@@ -13,13 +13,17 @@ option rather than trusted blindly.
 from __future__ import annotations
 
 import re
+import time
+from sqlalchemy.orm import Session
 
 from app.core.exceptions import InvalidJavaVersionError, LLMResponseInvalidError
+from app.core.context import user_id_ctx
 from app.infrastructure.llm.huggingface_client import HuggingFaceClient
 from app.infrastructure.llm.prompt_templates import (
     JAVA_VERSION_RECOMMENDATION_SYSTEM_PROMPT,
     build_java_version_recommendation_prompt,
 )
+from app.infrastructure.persistence.models import User
 from app.schemas.java_version_schema import JavaVersionRecommendationRequest
 
 # Canonical, LTS-first release ladder. Matches the frontend's dropdown/LTS set
@@ -49,7 +53,12 @@ class RecommendJavaVersionUseCase:
     def __init__(self, llm_client: HuggingFaceClient | None = None) -> None:
         self._llm = llm_client or HuggingFaceClient()
 
-    async def execute(self, request: JavaVersionRecommendationRequest) -> dict:
+    async def execute(
+        self,
+        request: JavaVersionRecommendationRequest,
+        db: Session | None = None,
+        current_user: User | None = None,
+    ) -> dict:
         source_major = _parse_major_version(request.source_java_version)
         allowed_targets, already_at_latest = _allowed_targets(source_major)
 
@@ -65,8 +74,16 @@ class RecommendJavaVersionUseCase:
             already_at_latest=already_at_latest,
         )
 
-        raw = await self._llm.chat_json(system_prompt, user_prompt)
-        return self._sanitize(raw, allowed_targets, already_at_latest)
+        user_token = None
+        if current_user:
+            user_token = user_id_ctx.set(current_user.id)
+
+        try:
+            raw = await self._llm.chat_json(system_prompt, user_prompt)
+            return self._sanitize(raw, allowed_targets, already_at_latest)
+        finally:
+            if user_token:
+                user_id_ctx.reset(user_token)
 
     @staticmethod
     def _sanitize(raw: dict, allowed_targets: list[str], already_at_latest: bool) -> dict:

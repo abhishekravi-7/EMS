@@ -57,6 +57,7 @@ class GroqClient:
         self._base_url = (base_url or settings.groq_base_url).rstrip("/")
         self._model = model or settings.groq_model
         self._timeout = timeout or settings.chat_llm_request_timeout_seconds
+        self.last_usage: tuple[int, int, int, int] | None = None
 
     @property
     def is_configured(self) -> bool:
@@ -67,6 +68,7 @@ class GroqClient:
         if not self._api_key:
             raise ChatLLMNotConfiguredError()
 
+        self.last_usage = None
         payload = {
             "model": self._model,
             "messages": [
@@ -75,6 +77,7 @@ class GroqClient:
             ],
             "temperature": 0.2,
             "stream": True,
+            "stream_options": {"include_usage": True},
         }
         headers = {
             "Authorization": f"Bearer {self._api_key}",
@@ -121,7 +124,9 @@ class GroqClient:
                                 f"Groq API returned HTTP {response.status_code}."
                             )
                         async for line in response.aiter_lines():
-                            delta = _parse_sse_delta(line)
+                            delta, usage = _parse_sse_line(line)
+                            if usage:
+                                self.last_usage = usage
                             if delta:
                                 yield delta
                 # Successful response, exit retry loop
@@ -141,16 +146,29 @@ class GroqClient:
 
 
 
-def _parse_sse_delta(line: str) -> str | None:
-    """Extract the incremental content from one OpenAI-style SSE line."""
+def _parse_sse_line(line: str) -> tuple[str | None, tuple[int, int, int, int] | None]:
+    """Extract incremental content and usage from one OpenAI-style SSE line."""
     line = line.strip()
     if not line or not line.startswith("data:"):
-        return None
+        return None, None
     data = line[len("data:"):].strip()
     if not data or data == "[DONE]":
-        return None
+        return None, None
     try:
         chunk = json.loads(data)
-        return chunk["choices"][0]["delta"].get("content") or None
+
+        # Extract usage even if choices is missing (common in final chunk)
+        usage_obj = chunk.get("usage")
+        usage = None
+        if usage_obj:
+            prompt = usage_obj.get("prompt_tokens", 0)
+            completion = usage_obj.get("completion_tokens", 0)
+            total = usage_obj.get("total_tokens", prompt + completion)
+            usage = (prompt, completion, total, 0)
+
+        choices = chunk.get("choices", [])
+        delta = choices[0].get("delta", {}).get("content") if choices else None
+
+        return delta, usage
     except (ValueError, KeyError, IndexError, TypeError):
-        return None
+        return None, None

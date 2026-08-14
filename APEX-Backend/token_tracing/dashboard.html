@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Token Usage Dashboard</title>
+<style>
+  :root {
+    --bg: #f5f6fa; --surface: #ffffff; --border: #e6e8f0;
+    --text: #1a1f36; --text-muted: #697386; --accent: #7c3aed; --accent-bg: #f5f3ff;
+    --success: #10b981; --error: #ef4444; --warning: #f59e0b;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
+
+  .container { max-width: 1600px; margin: 0 auto; padding: 24px; }
+
+  header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; }
+  .title-group h1 { margin: 0; font-size: 24px; font-weight: 800; display: flex; align-items: center; gap: 10px; }
+  .title-group h1 i { color: var(--accent); display: flex; }
+  .title-group p { margin: 4px 0 0; color: var(--text-muted); font-size: 14px; }
+
+  .actions { display: flex; gap: 12px; }
+  button {
+    display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--surface); color: var(--text);
+    font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.1s;
+  }
+  button:hover { background: var(--bg); border-color: var(--text-muted); }
+  button.primary { background: var(--accent); color: white; border-color: var(--accent); }
+  button.primary:hover { opacity: 0.9; }
+
+  .kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 16px; margin-bottom: 24px; }
+  .kpi-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; display: flex; align-items: center; gap: 16px; }
+  .kpi-icon { width: 44px; height: 44px; border-radius: 10px; background: var(--bg); display: flex; align-items: center; justify-content: center; color: var(--accent); }
+  .kpi-content { flex: 1; }
+  .kpi-label { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .kpi-value { font-size: 20px; font-weight: 800; margin: 2px 0; }
+  .kpi-sub { font-size: 11px; color: var(--text-muted); }
+
+  .filters { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; }
+  .filter-item { display: flex; flex-direction: column; gap: 4px; }
+  .filter-item label { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; }
+  select { height: 36px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); min-width: 160px; font-size: 13px; }
+  .checkbox-group { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; margin-top: 16px; }
+
+  .grids { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px; }
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .panel-header { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+  .panel-header h2 { margin: 0; font-size: 14px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+  .panel-header .count { font-size: 11px; color: var(--text-muted); font-weight: 400; }
+
+  .health-list { padding: 8px 0; }
+  .health-row { padding: 10px 16px; border-bottom: 1px solid var(--border); }
+  .health-row:last-child { border-bottom: none; }
+  .health-meta { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+  .health-name { font-size: 13px; font-weight: 700; color: var(--text); }
+  .health-stats { font-size: 12px; color: var(--text-muted); }
+  .health-bar { height: 4px; background: var(--bg); border-radius: 2px; overflow: hidden; margin-top: 8px; }
+  .health-fill { height: 100%; background: var(--accent); transition: width 0.3s; }
+  .error-text { font-size: 11px; color: var(--error); font-weight: 600; margin-top: 4px; }
+
+  .table-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; padding: 12px 16px; background: var(--bg); font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; border-bottom: 1px solid var(--border); }
+  td { padding: 14px 16px; border-bottom: 1px solid var(--border); font-size: 13px; }
+  tr:last-child td { border-bottom: none; }
+
+  .mono { font-family: var(--mono); font-size: 12px; }
+  .num { text-align: right; font-family: var(--mono); }
+
+  .status-pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 6px; font-size: 10px; font-weight: 800; text-transform: uppercase; }
+  .status-pill.ok { background: #dcfce7; color: var(--success); }
+  .status-pill.err { background: #fee2e2; color: var(--error); }
+  .status-pill.retry { background: #fef3c7; color: var(--warning); }
+
+  .footer-info { display: flex; justify-content: flex-end; padding: 12px 16px; font-size: 11px; color: var(--text-muted); }
+
+  /* Icons */
+  .icon-calls::before { content: '📊'; }
+  .icon-tokens::before { content: '⚙️'; }
+  .icon-cost::before { content: '💰'; }
+  .icon-latency::before { content: '⚡'; }
+  .icon-errors::before { content: '⚠️'; }
+  .icon-cache::before { content: '🔋'; }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <header>
+    <div class="title-group">
+      <h1><i><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg></i> Token Usage</h1>
+      <p>Live LLM token, cost and latency traces for every AI call made by PROVA.</p>
+    </div>
+    <div class="actions">
+      <button id="btn-auto-refresh"><i>🔄</i> Auto-refresh</button>
+      <button id="btn-refresh"><i>🔃</i> Refresh</button>
+      <button class="primary" onclick="window.open('/', '_blank')"><i>🚀</i> Standalone Dashboard</button>
+    </div>
+  </header>
+
+  <section class="kpis">
+    <div class="kpi-card">
+      <div class="kpi-icon icon-calls"></div>
+      <div class="kpi-content">
+        <div class="kpi-label">Total Calls</div>
+        <div class="kpi-value" id="v-calls">—</div>
+        <div class="kpi-sub" id="s-calls">...</div>
+      </div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-icon icon-tokens"></div>
+      <div class="kpi-content">
+        <div class="kpi-label">Total Tokens</div>
+        <div class="kpi-value" id="v-tokens">—</div>
+        <div class="kpi-sub" id="s-tokens">...</div>
+      </div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-icon icon-cost"></div>
+      <div class="kpi-content">
+        <div class="kpi-label">Est. Cost</div>
+        <div class="kpi-value" id="v-cost">—</div>
+        <div class="kpi-sub" id="s-cost">...</div>
+      </div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-icon icon-latency"></div>
+      <div class="kpi-content">
+        <div class="kpi-label">Avg Latency</div>
+        <div class="kpi-value" id="v-lat">—</div>
+        <div class="kpi-sub" id="s-lat">...</div>
+      </div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-icon icon-errors"></div>
+      <div class="kpi-content">
+        <div class="kpi-label">Error Rate</div>
+        <div class="kpi-value" id="v-err">—</div>
+        <div class="kpi-sub" id="s-err">...</div>
+      </div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-icon icon-cache"></div>
+      <div class="kpi-content">
+        <div class="kpi-label">Cache Hit Rate</div>
+        <div class="kpi-value" id="v-cache">—</div>
+        <div class="kpi-sub" id="s-cache">Prompt-prefix cache</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="filters">
+    <div class="filter-item">
+      <label>Provider</label>
+      <select id="f-provider"><option value="">All providers</option></select>
+    </div>
+    <div class="filter-item">
+      <label>Workflow / Endpoint</label>
+      <select id="f-endpoint"><option value="">All endpoints</option></select>
+    </div>
+    <div class="filter-item">
+      <label>Model</label>
+      <select id="f-model"><option value="">All models</option></select>
+    </div>
+    <label class="checkbox-group"><input type="checkbox" id="f-error"> Errors only</label>
+    <div style="flex:1"></div>
+    <div class="kpi-sub" id="f-info">Showing newest ...</div>
+  </section>
+
+  <div class="grids">
+    <div class="panel">
+      <div class="panel-header">
+        <h2><i>📊</i> Cost by Model</h2>
+        <span class="count" id="count-models">0 entries</span>
+      </div>
+      <div class="health-list" id="list-models"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-header">
+        <h2><i>⚡</i> Cost by Workflow</h2>
+        <span class="count" id="count-endpoints">0 entries</span>
+      </div>
+      <div class="health-list" id="list-endpoints"></div>
+    </div>
+  </div>
+
+  <div class="table-panel">
+    <div class="panel-header">
+      <h2><i>🕒</i> Recent Calls</h2>
+      <span class="count" id="count-records">... shown - newest first</span>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Provider</th>
+          <th>Model</th>
+          <th>Workflow</th>
+          <th class="num">Tokens (In/Out)</th>
+          <th class="num">Cost</th>
+          <th class="num">Latency</th>
+          <th style="width:100px">Status</th>
+        </tr>
+      </thead>
+      <tbody id="records-body"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+const API_BASE = window.TOKEN_TRACING_API || "";
+const state = { model: "", endpoint: "", provider: "", errorOnly: false, autoRefresh: true };
+let autoTimer = null;
+
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+const fmtNum = (n) => (n == null ? "—" : Number(n).toLocaleString());
+const fmtMoney = (n) => (n == null || isNaN(n) ? "—" : "$" + Number(n).toFixed(4));
+const fmtCompact = (n) => {
+  if (n == null) return "—";
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + "k";
+  return String(n);
+};
+const fmtPct = (n) => (n == null ? "—" : (n * 100).toFixed(1) + "%");
+const fmtDur = (ms) => ms == null ? "—" : ms >= 1000 ? (ms / 1000).toFixed(2) + "s" : Math.round(ms) + "ms";
+
+function renderSummary(s) {
+  $('#v-calls').textContent = fmtNum(s.total_calls);
+  $('#s-calls').textContent = s.last_record_at ? "Last: " + new Date(s.last_record_at).toLocaleString() : "No data";
+
+  $('#v-tokens').textContent = fmtNum(s.total_tokens);
+  $('#s-tokens').textContent = `${fmtCompact(s.total_input_tokens)} in - ${fmtCompact(s.total_output_tokens)} out`;
+
+  $('#v-cost').textContent = fmtMoney(s.total_cost_usd);
+  $('#s-cost').textContent = `${s.total_cached_tokens || 0} cached tokens - 0 unpriced`; // Mocking unpriced
+
+  $('#v-lat').textContent = fmtDur(s.avg_duration_ms);
+  $('#s-lat').textContent = `p95: ${fmtDur(s.p95_duration_ms)}`;
+
+  $('#v-err').textContent = fmtPct(s.error_rate);
+  $('#s-err').textContent = `${s.error_calls} failed calls`;
+
+  $('#v-cache').textContent = fmtPct(s.cache_hit_rate);
+}
+
+function renderHealth(container, rows, maxCost) {
+  container.innerHTML = rows.map(r => {
+    const errRate = r.calls ? r.errors / r.calls : 0;
+    const width = maxCost > 0 ? (r.cost_usd / maxCost) * 100 : 0;
+
+    return `<div class="health-row">
+      <div class="health-meta">
+        <span class="health-name">${esc(r.name)}</span>
+        <span class="health-stats">${fmtNum(r.calls)} calls - ${fmtCompact(r.total_tokens)} tok - ${fmtMoney(r.cost_usd)}</span>
+      </div>
+      <div class="health-bar"><div class="health-fill" style="width: ${Math.max(2, width)}%"></div></div>
+      ${r.errors ? `<div class="error-text">${r.errors} errors</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function renderRecords(list) {
+  const body = $('#records-body');
+  if (!list.length) {
+    body.innerHTML = '<tr><td colspan="8" style="text-align:center; padding: 40px">No records found.</td></tr>';
+    return;
+  }
+
+  body.innerHTML = list.map(r => {
+    const ts = new Date(r.timestamp);
+    const when = ts.toLocaleString();
+    const isErr = !!r.error;
+    const isRetry = r.is_retry;
+
+    return `<tr>
+      <td class="mono muted">${when}</td>
+      <td class="mono"><b>${esc(r.provider)}</b></td>
+      <td class="mono">${esc(r.model)}</td>
+      <td class="mono muted">${esc(r.endpoint || "—")}</td>
+      <td class="num mono">${fmtNum(r.input_tokens)} / ${fmtNum(r.output_tokens)}</td>
+      <td class="num">${fmtMoney(r.estimated_cost_usd)}</td>
+      <td class="num">${fmtDur(r.duration_ms)}</td>
+      <td>
+        ${isErr ? '<span class="status-pill err"><i>🚫</i> Error</span>' :
+          (isRetry ? '<span class="status-pill retry"><i>🔄</i> Retry</span>' :
+           '<span class="status-pill ok"><i>✨</i> OK</span>')}
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function refresh() {
+  const p = new URLSearchParams();
+  if (state.model) p.set("model", state.model);
+  if (state.endpoint) p.set("endpoint", state.endpoint);
+  if (state.provider) p.set("provider", state.provider);
+  if (state.errorOnly) p.set("error", "1");
+  p.set("limit", 100);
+  const query = p.toString();
+
+  try {
+    const [summary, records] = await Promise.all([
+      fetch(`${API_BASE}/api/summary?${query}`).then(r => r.json()),
+      fetch(`${API_BASE}/api/records?${query}`).then(r => r.json())
+    ]);
+
+    renderSummary(summary);
+
+    const maxCost = Math.max(0.0001, ...summary.per_model.map(m => m.cost_usd), ...summary.per_endpoint.map(e => e.cost_usd));
+    renderHealth($('#list-models'), summary.per_model, maxCost);
+    renderHealth($('#list-endpoints'), summary.per_endpoint, maxCost);
+    $('#count-models').textContent = `${summary.per_model.length} entries`;
+    $('#count-endpoints').textContent = `${summary.per_endpoint.length} entries`;
+
+    renderRecords(records.records);
+    $('#count-records').textContent = `${records.records.length} shown - newest first`;
+    $('#f-info').textContent = `Showing newest ${records.records.length} of ${summary.total_calls} calls`;
+
+    // Populate selects once
+    if ($('#f-model').options.length <= 1) {
+      const fill = (id, items) => {
+        const el = $(`#f-${id}`);
+        const current = el.value;
+        el.innerHTML = `<option value="">All ${id}s</option>` + items.map(it => `<option value="${esc(it.name)}">${esc(it.name)}</option>`).join('');
+        el.value = current;
+      };
+      fill('model', summary.per_model);
+      fill('endpoint', summary.per_endpoint);
+      fill('provider', summary.per_provider);
+    }
+  } catch (e) {
+    console.error("Refresh failed", e);
+  }
+}
+
+$('#btn-refresh').onclick = refresh;
+$('#f-model').onchange = (e) => { state.model = e.target.value; refresh(); };
+$('#f-endpoint').onchange = (e) => { state.endpoint = e.target.value; refresh(); };
+$('#f-provider').onchange = (e) => { state.provider = e.target.value; refresh(); };
+$('#f-error').onchange = (e) => { state.errorOnly = e.target.checked; refresh(); };
+
+$('#btn-auto-refresh').onclick = () => {
+  state.autoRefresh = !state.autoRefresh;
+  $('#btn-auto-refresh').classList.toggle('primary', state.autoRefresh);
+  if (state.autoRefresh) autoTimer = setInterval(refresh, 5000);
+  else clearInterval(autoTimer);
+};
+
+autoTimer = setInterval(refresh, 5000);
+$('#btn-auto-refresh').classList.add('primary');
+refresh();
+</script>
+</body>
+</html>

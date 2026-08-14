@@ -159,7 +159,7 @@ async def rerun_migration_tests(
     )
 
     try:
-        result = await use_case.execute_project_suite(req)
+        result = await use_case.execute_project_suite(req, db=db)
         score = 92.5
 
         orig_repo = paths.original_repo_dir if paths.original_repo_dir.exists() else project_dir
