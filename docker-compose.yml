@@ -40,7 +40,7 @@ services:
     ports:
       - "8765:8765"
     command: >
-      sh -c "pip install -e . && python -m token_tracing.dashboard --jsonl logs/llm_usage.jsonl --port 8765"
+      sh -c "PYTHONPATH=. python -m token_tracing.dashboard --jsonl logs/llm_usage.jsonl --port 8765"
 
   # 4. Database (PostgreSQL)
   db:

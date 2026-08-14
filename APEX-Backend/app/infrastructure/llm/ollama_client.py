@@ -111,6 +111,7 @@ class OllamaClient:
         self._base_url = (base_url or settings.ollama_base_url).rstrip("/")
         self._model = model or settings.ollama_model
         self._timeout = timeout or settings.chat_llm_request_timeout_seconds
+        self.last_usage: tuple[int, int, int, int] | None = None
 
     @property
     def is_configured(self) -> bool:
@@ -170,6 +171,7 @@ class OllamaClient:
 
     async def _stream_ollama_internal(self, system_prompt: str, user_prompt: str) -> AsyncIterator[str]:
         """Original Ollama streaming logic."""
+        self.last_usage = None
         payload = {
             "model": self._model,
             "messages": [
@@ -203,7 +205,9 @@ class OllamaClient:
                         "Please check that the model is installed and Ollama is running."
                     )
                 async for line in response.aiter_lines():
-                    delta = _parse_ndjson_delta(line)
+                    delta, usage = _parse_ndjson_line(line)
+                    if usage:
+                        self.last_usage = usage
                     if delta:
                         yield delta
         except (OllamaModelNotFoundError, OllamaTimeoutError, OllamaUnavailableError, ChatLLMServiceError):
@@ -217,16 +221,25 @@ class OllamaClient:
             raise OllamaUnavailableError(self._base_url, self._model, cause=exc) from exc
 
 
-def _parse_ndjson_delta(line: str) -> str | None:
-    """Extract the content delta from one Ollama NDJSON line."""
+def _parse_ndjson_line(line: str) -> tuple[str | None, tuple[int, int, int, int] | None]:
+    """Extract the content delta and usage from one Ollama NDJSON line."""
     line = line.strip()
     if not line:
-        return None
+        return None, None
     try:
         obj = json.loads(line)
+        delta = (obj.get("message") or {}).get("content")
+
+        usage = None
+        if obj.get("done"):
+            prompt = obj.get("prompt_eval_count", 0)
+            completion = obj.get("eval_count", 0)
+            total = prompt + completion
+            usage = (prompt, completion, total, 0)
+
+        return delta, usage
     except ValueError:
-        return None
-    return (obj.get("message") or {}).get("content") or None
+        return None, None
 
 
 def _parse_sse_delta(line: str) -> str | None:

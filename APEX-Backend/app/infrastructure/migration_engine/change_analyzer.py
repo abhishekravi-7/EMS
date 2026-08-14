@@ -33,7 +33,7 @@ class SourceChange:
     lines_changed: int
 
     def to_dict(self) -> dict[str, object]:
-        return {"file": self.file, "linesChanged": self.lines_changed}
+        return {"file": self.file, "lines_changed": self.lines_changed}
 
 
 @dataclass(frozen=True)

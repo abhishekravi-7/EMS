@@ -22,6 +22,7 @@ from app.application.use_cases.index_repository import (
 )
 from app.core.exceptions import RepositoryNotIndexedError
 from app.infrastructure.llm.chat_llm import ChatLLM
+from app.application.services.llm_token_tracing_service import LLMTokenTracingService
 from app.infrastructure.persistence.models import User
 from app.infrastructure.rag import prompt_builder, retriever, repo_index_locator
 from app.shared import branding
@@ -34,9 +35,13 @@ class PreparedAnswer:
     system_prompt: str
     user_prompt: str
     repository_metadata: dict[str, Any]
+    db: Session  # Database session for token tracing
+    user_id: int | None = None  # User ID for token tracing
+    job_id: str | None = None  # Job ID for token tracing
+    repository_url: str | None = None  # Repository URL for token tracing
     retrieved_chunk_types: list[str] = field(default_factory=list)
     retrieved_chunks: list[dict[str, Any]] = field(default_factory=list)
-    chat: ChatLLM = field(default_factory=ChatLLM)
+    chat: ChatLLM | LLMTokenTracingService = field(default_factory=ChatLLM)
 
 
 class AnswerRepoQuestionUseCase:
@@ -82,12 +87,25 @@ class AnswerRepoQuestionUseCase:
             logger.info("[AnswerUseCase] Conversational intent detected, skipping RAG retrieval.")
             repository_metadata = _metadata_from([], page_context, repo_url)
 
+            tracing_chat = LLMTokenTracingService(
+                chat_llm=ChatLLM(),
+                db=db,
+                user_id=current_user.id,
+                job_id=job_id,
+                repository_url=repo_url,
+            )
+
             # Simple prompt for greetings that doesn't require repository context
             return PreparedAnswer(
                 system_prompt='You are "JavaApex Assistant", a helpful expert assistant for a Java migration platform. Greet the user politely, acknowledge their message, and offer to help with questions about their repository analysis or migration strategy. Be concise.',
                 user_prompt=f"User says: {question.strip()}",
                 repository_metadata=repository_metadata,
+                db=db,
+                user_id=current_user.id,
+                job_id=job_id,
+                repository_url=repo_url,
                 retrieved_chunk_types=["intent:conversational"],
+                chat=tracing_chat,
             )
 
         retrieval_start = time.time()
@@ -126,12 +144,25 @@ class AnswerRepoQuestionUseCase:
 
         logger.info("[AnswerUseCase] Total preparation completed in %.2fms", (time.time() - start_time) * 1000)
 
+        tracing_chat = LLMTokenTracingService(
+            chat_llm=ChatLLM(),
+            db=db,
+            user_id=current_user.id,
+            job_id=job_id,
+            repository_url=repo_url,
+        )
+
         return PreparedAnswer(
             system_prompt=prompt_builder.SYSTEM_PROMPT,
             user_prompt=user_prompt,
             repository_metadata=repository_metadata,
+            db=db,
+            user_id=current_user.id,
+            job_id=job_id,
+            repository_url=repo_url,
             retrieved_chunk_types=[str(c.get("chunk_type")) for c in result.chunks],
             retrieved_chunks=result.chunks,
+            chat=tracing_chat,
         )
 
     async def stream(self, prepared: PreparedAnswer) -> AsyncIterator[str]:
@@ -142,7 +173,9 @@ class AnswerRepoQuestionUseCase:
         echoes one from its own knowledge.
         """
         raw_deltas = prepared.chat.stream_chat(
-            prepared.system_prompt, prepared.user_prompt
+            prepared.system_prompt,
+            prepared.user_prompt,
+            endpoint="chatbot_rag"
         )
         async for delta in branding.sanitize_stream(raw_deltas):
             yield delta

@@ -80,6 +80,7 @@ RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt
 
 # -- Application ------------------------------------------------------------ #
+COPY token_tracing ./token_tracing
 COPY app ./app
 
 # Writable job workspace. On Render's free tier this is EPHEMERAL -- it is wiped

@@ -42,6 +42,7 @@ class JUnitLLMGenerator:
         async for chunk in self._chat_llm.stream_chat(
             system_prompt=JUNIT_GENERATOR_SYSTEM_PROMPT,
             user_prompt=prompt,
+            endpoint="junit_generation",
         ):
             response_text += chunk
 
@@ -65,6 +66,7 @@ class JUnitLLMGenerator:
         async for chunk in self._chat_llm.stream_chat(
             system_prompt=JUNIT_GENERATOR_SYSTEM_PROMPT,
             user_prompt=prompt,
+            endpoint="junit_correction",
         ):
             response_text += chunk
 

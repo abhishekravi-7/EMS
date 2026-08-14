@@ -3,380 +3,359 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Token Tracing Dashboard</title>
+<title>Token Usage Dashboard</title>
 <style>
   :root {
-    --bg: #ffffff; --panel: #f6f8fa; --panel2: #eaeef2; --border: #d0d7de;
-    --text: #1f2328; --muted: #59636e; --accent: #0969da; --green: #1a7f37;
-    --red: #cf222e; --yellow: #9a6700; --violet: #8250df;
+    --bg: #f5f6fa; --surface: #ffffff; --border: #e6e8f0;
+    --text: #1a1f36; --text-muted: #697386; --accent: #7c3aed; --accent-bg: #f5f3ff;
+    --success: #10b981; --error: #ef4444; --warning: #f59e0b;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   }
   * { box-sizing: border-box; }
-  html, body { margin: 0; }
-  body {
-    background: var(--bg); color: var(--text);
-    font: 14px/1.5 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  }
-  header {
-    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-    padding: 14px 20px; border-bottom: 1px solid var(--border);
-    background: var(--panel); position: sticky; top: 0; z-index: 10;
-  }
-  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
-  header h1 span { color: var(--accent); }
-  .spacer { flex: 1; }
-  .badge {
-    font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
-    background: rgba(26, 127, 55, .08); color: var(--green);
-    border: 1px solid rgba(26, 127, 55, .25);
-  }
-  .badge.off { background: rgba(89, 99, 110, .08); color: var(--muted); border-color: var(--border); }
-  button, select, input[type="checkbox"] { cursor: pointer; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
+
+  .container { max-width: 1600px; margin: 0 auto; padding: 24px; }
+
+  header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; }
+  .title-group h1 { margin: 0; font-size: 24px; font-weight: 800; display: flex; align-items: center; gap: 10px; }
+  .title-group h1 i { color: var(--accent); display: flex; }
+  .title-group p { margin: 4px 0 0; color: var(--text-muted); font-size: 14px; }
+
+  .actions { display: flex; gap: 12px; }
   button {
-    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
-    border-radius: 6px; padding: 5px 12px; font-size: 13px;
+    display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--surface); color: var(--text);
+    font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.1s;
   }
-  button:hover { border-color: var(--accent); }
-  main { padding: 20px; max-width: 1200px; margin: 0 auto; }
-  .cards {
-    display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-    gap: 12px; margin-bottom: 16px;
-  }
-  .card {
-    background: var(--panel); border: 1px solid var(--border);
-    border-radius: 8px; padding: 12px 14px;
-  }
-  .card .label { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
-  .card .value { font-size: 22px; font-weight: 700; margin-top: 4px; font-variant-numeric: tabular-nums; }
-  .card .sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
-  .card.warn .value { color: var(--red); }
-  .card.ok .value { color: var(--green); }
-  .panel {
-    background: var(--panel); border: 1px solid var(--border);
-    border-radius: 8px; margin-bottom: 16px; overflow: hidden;
-  }
-  .panel h2 {
-    margin: 0; padding: 10px 14px; font-size: 13px; font-weight: 600;
-    border-bottom: 1px solid var(--border); background: var(--panel2);
-  }
-  .filters { display: flex; gap: 10px; flex-wrap: wrap; padding: 12px 14px; align-items: center; }
-  .filters label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
-  .filters select {
-    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
-    border-radius: 6px; padding: 4px 8px; font-size: 13px; max-width: 220px;
-  }
-  .filters .row { display: flex; align-items: center; gap: 6px; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th, td { text-align: left; padding: 7px 14px; border-bottom: 1px solid var(--border); }
-  th {
-    font-size: 11px; text-transform: uppercase; letter-spacing: .05em;
-    color: var(--muted); font-weight: 600; background: var(--panel);
-    position: sticky; top: 53px;
-  }
-  tbody tr:hover { background: var(--panel2); }
-  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
-  .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; }
-  .muted { color: var(--muted); }
-  .pill {
-    display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 8px;
-    border-radius: 999px; border: 1px solid var(--border);
-  }
-  .pill.ok { color: var(--green); border-color: rgba(26,127,55,.3); }
-  .pill.err { color: var(--red); border-color: rgba(207,34,46,.3); }
-  .pill.warn { color: var(--yellow); border-color: rgba(154,103,0,.3); }
-  .pill.mut { color: var(--muted); }
-  .bar { height: 6px; border-radius: 3px; background: var(--panel2); min-width: 60px; }
-  .bar > i {
-    display: block; height: 100%; border-radius: 3px; background: var(--violet);
-  }
-  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-  @media (max-width: 900px) { .grid2 { grid-template-columns: 1fr; } }
-  .empty { padding: 24px; text-align: center; color: var(--muted); }
-  .empty code { color: var(--accent); }
-  .err-banner {
-    display: none; margin: 0 0 16px; padding: 10px 14px; border-radius: 8px;
-    background: rgba(207, 34, 46, .08); border: 1px solid rgba(207, 34, 46, .3);
-    color: var(--red); font-size: 13px;
-  }
-  footer { padding: 16px 20px 24px; text-align: center; color: var(--muted); font-size: 12px; }
-  .endpoint-cell { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  button:hover { background: var(--bg); border-color: var(--text-muted); }
+  button.primary { background: var(--accent); color: white; border-color: var(--accent); }
+  button.primary:hover { opacity: 0.9; }
+
+  .kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 16px; margin-bottom: 24px; }
+  .kpi-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; display: flex; align-items: center; gap: 16px; }
+  .kpi-icon { width: 44px; height: 44px; border-radius: 10px; background: var(--bg); display: flex; align-items: center; justify-content: center; color: var(--accent); }
+  .kpi-content { flex: 1; }
+  .kpi-label { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .kpi-value { font-size: 20px; font-weight: 800; margin: 2px 0; }
+  .kpi-sub { font-size: 11px; color: var(--text-muted); }
+
+  .filters { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; }
+  .filter-item { display: flex; flex-direction: column; gap: 4px; }
+  .filter-item label { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; }
+  select { height: 36px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); min-width: 160px; font-size: 13px; }
+  .checkbox-group { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; margin-top: 16px; }
+
+  .grids { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px; }
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .panel-header { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+  .panel-header h2 { margin: 0; font-size: 14px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+  .panel-header .count { font-size: 11px; color: var(--text-muted); font-weight: 400; }
+
+  .health-list { padding: 8px 0; }
+  .health-row { padding: 10px 16px; border-bottom: 1px solid var(--border); }
+  .health-row:last-child { border-bottom: none; }
+  .health-meta { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+  .health-name { font-size: 13px; font-weight: 700; color: var(--text); }
+  .health-stats { font-size: 12px; color: var(--text-muted); }
+  .health-bar { height: 4px; background: var(--bg); border-radius: 2px; overflow: hidden; margin-top: 8px; }
+  .health-fill { height: 100%; background: var(--accent); transition: width 0.3s; }
+  .error-text { font-size: 11px; color: var(--error); font-weight: 600; margin-top: 4px; }
+
+  .table-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; padding: 12px 16px; background: var(--bg); font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; border-bottom: 1px solid var(--border); }
+  td { padding: 14px 16px; border-bottom: 1px solid var(--border); font-size: 13px; }
+  tr:last-child td { border-bottom: none; }
+
+  .mono { font-family: var(--mono); font-size: 12px; }
+  .num { text-align: right; font-family: var(--mono); }
+
+  .status-pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 6px; font-size: 10px; font-weight: 800; text-transform: uppercase; }
+  .status-pill.ok { background: #dcfce7; color: var(--success); }
+  .status-pill.err { background: #fee2e2; color: var(--error); }
+  .status-pill.retry { background: #fef3c7; color: var(--warning); }
+
+  .footer-info { display: flex; justify-content: flex-end; padding: 12px 16px; font-size: 11px; color: var(--text-muted); }
+
+  /* Icons */
+  .icon-calls::before { content: '📊'; }
+  .icon-tokens::before { content: '⚙️'; }
+  .icon-cost::before { content: '💰'; }
+  .icon-latency::before { content: '⚡'; }
+  .icon-errors::before { content: '⚠️'; }
+  .icon-cache::before { content: '🔋'; }
 </style>
 </head>
 <body>
 
-<header>
-  <h1>Token Tracing <span>Dashboard</span></h1>
-  <span class="badge" id="live-badge">live · 5s</span>
-  <div class="spacer"></div>
-  <label class="row"><input type="checkbox" id="auto" checked> auto-refresh</label>
-  <button id="refresh">Refresh</button>
-</header>
+<div class="container">
+  <header>
+    <div class="title-group">
+      <h1><i><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg></i> Token Usage</h1>
+      <p>Live LLM token, cost and latency traces for every AI call made by PROVA.</p>
+    </div>
+    <div class="actions">
+      <button id="btn-auto-refresh"><i>🔄</i> Auto-refresh</button>
+      <button id="btn-refresh"><i>🔃</i> Refresh</button>
+      <button class="primary" onclick="window.open('/', '_blank')"><i>🚀</i> Standalone Dashboard</button>
+    </div>
+  </header>
 
-<main>
-  <div class="err-banner" id="err-banner"></div>
-
-  <section class="cards">
-    <div class="card"><div class="label">Calls</div><div class="value" id="c-calls">—</div><div class="sub" id="c-calls-sub"></div></div>
-    <div class="card"><div class="label">Est. cost</div><div class="value" id="c-cost">—</div><div class="sub">USD, est.</div></div>
-    <div class="card"><div class="label">Tokens</div><div class="value" id="c-tokens">—</div><div class="sub" id="c-tokens-sub"></div></div>
-    <div class="card"><div class="label">Cache hit rate</div><div class="value" id="c-cache">—</div><div class="sub">prompt-prefix</div></div>
-    <div class="card"><div class="label">Avg latency</div><div class="value" id="c-lat">—</div><div class="sub" id="c-lat-sub"></div></div>
-    <div class="card" id="err-card"><div class="label">Errors</div><div class="value" id="c-err">—</div><div class="sub" id="c-err-sub"></div></div>
-  </section>
-
-  <section class="panel">
-    <h2>Filters</h2>
-    <div class="filters">
-      <label>Model
-        <select id="f-model"><option value="">all</option></select>
-      </label>
-      <label>Endpoint
-        <select id="f-endpoint"><option value="">all</option></select>
-      </label>
-      <label>Provider
-        <select id="f-provider"><option value="">all</option></select>
-      </label>
-      <label><input type="checkbox" id="f-error"> errors only</label>
-      <label>Show
-        <select id="f-limit">
-          <option value="25">25</option>
-          <option value="50">50</option>
-          <option value="100" selected>100</option>
-          <option value="250">250</option>
-        </select>
-      </label>
+  <section class="kpis">
+    <div class="kpi-card">
+      <div class="kpi-icon icon-calls"></div>
+      <div class="kpi-content">
+        <div class="kpi-label">Total Calls</div>
+        <div class="kpi-value" id="v-calls">—</div>
+        <div class="kpi-sub" id="s-calls">...</div>
+      </div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-icon icon-tokens"></div>
+      <div class="kpi-content">
+        <div class="kpi-label">Total Tokens</div>
+        <div class="kpi-value" id="v-tokens">—</div>
+        <div class="kpi-sub" id="s-tokens">...</div>
+      </div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-icon icon-cost"></div>
+      <div class="kpi-content">
+        <div class="kpi-label">Est. Cost</div>
+        <div class="kpi-value" id="v-cost">—</div>
+        <div class="kpi-sub" id="s-cost">...</div>
+      </div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-icon icon-latency"></div>
+      <div class="kpi-content">
+        <div class="kpi-label">Avg Latency</div>
+        <div class="kpi-value" id="v-lat">—</div>
+        <div class="kpi-sub" id="s-lat">...</div>
+      </div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-icon icon-errors"></div>
+      <div class="kpi-content">
+        <div class="kpi-label">Error Rate</div>
+        <div class="kpi-value" id="v-err">—</div>
+        <div class="kpi-sub" id="s-err">...</div>
+      </div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-icon icon-cache"></div>
+      <div class="kpi-content">
+        <div class="kpi-label">Cache Hit Rate</div>
+        <div class="kpi-value" id="v-cache">—</div>
+        <div class="kpi-sub" id="s-cache">Prompt-prefix cache</div>
+      </div>
     </div>
   </section>
 
-  <div class="grid2">
-    <section class="panel">
-      <h2>By model</h2>
-      <div id="by-model"></div>
-    </section>
-    <section class="panel">
-      <h2>By endpoint</h2>
-      <div id="by-endpoint"></div>
-    </section>
+  <section class="filters">
+    <div class="filter-item">
+      <label>Provider</label>
+      <select id="f-provider"><option value="">All providers</option></select>
+    </div>
+    <div class="filter-item">
+      <label>Workflow / Endpoint</label>
+      <select id="f-endpoint"><option value="">All endpoints</option></select>
+    </div>
+    <div class="filter-item">
+      <label>Model</label>
+      <select id="f-model"><option value="">All models</option></select>
+    </div>
+    <label class="checkbox-group"><input type="checkbox" id="f-error"> Errors only</label>
+    <div style="flex:1"></div>
+    <div class="kpi-sub" id="f-info">Showing newest ...</div>
+  </section>
+
+  <div class="grids">
+    <div class="panel">
+      <div class="panel-header">
+        <h2><i>📊</i> Cost by Model</h2>
+        <span class="count" id="count-models">0 entries</span>
+      </div>
+      <div class="health-list" id="list-models"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-header">
+        <h2><i>⚡</i> Cost by Workflow</h2>
+        <span class="count" id="count-endpoints">0 entries</span>
+      </div>
+      <div class="health-list" id="list-endpoints"></div>
+    </div>
   </div>
 
-  <section class="panel">
-    <h2>Recent calls</h2>
-    <div id="records"></div>
-  </section>
-</main>
-
-<footer>
-  Data from <span class="mono">/api/records</span> and <span class="mono">/api/summary</span> —
-  served by <span class="mono">token_tracing.dashboard</span> (stdlib only).
-</footer>
+  <div class="table-panel">
+    <div class="panel-header">
+      <h2><i>🕒</i> Recent Calls</h2>
+      <span class="count" id="count-records">... shown - newest first</span>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Provider</th>
+          <th>Model</th>
+          <th>Workflow</th>
+          <th class="num">Tokens (In/Out)</th>
+          <th class="num">Cost</th>
+          <th class="num">Latency</th>
+          <th style="width:100px">Status</th>
+        </tr>
+      </thead>
+      <tbody id="records-body"></tbody>
+    </table>
+  </div>
+</div>
 
 <script>
 "use strict";
 
-// Point this at the dashboard server when this page is embedded in another
-// app (e.g. dropped into Vite's public/ or Angular's assets/). Set the API
-// base before this script runs:
-//   window.TOKEN_TRACING_API = "http://localhost:8765";
 const API_BASE = window.TOKEN_TRACING_API || "";
-
-const state = { model: "", endpoint: "", provider: "", errorOnly: false, limit: 100 };
+const state = { model: "", endpoint: "", provider: "", errorOnly: false, autoRefresh: true };
 let autoTimer = null;
 
-const $ = (sel) => document.querySelector(sel);
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
 const fmtNum = (n) => (n == null ? "—" : Number(n).toLocaleString());
 const fmtMoney = (n) => (n == null || isNaN(n) ? "—" : "$" + Number(n).toFixed(4));
 const fmtCompact = (n) => {
   if (n == null) return "—";
-  if (n >= 1e9) return (n / 1e9).toFixed(1) + "B";
   if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
   if (n >= 1e3) return (n / 1e3).toFixed(1) + "k";
   return String(n);
 };
 const fmtPct = (n) => (n == null ? "—" : (n * 100).toFixed(1) + "%");
-const fmtDur = (ms) =>
-  ms == null ? "—" : ms >= 1000 ? (ms / 1000).toFixed(2) + "s" : Math.round(ms) + "ms";
+const fmtDur = (ms) => ms == null ? "—" : ms >= 1000 ? (ms / 1000).toFixed(2) + "s" : Math.round(ms) + "ms";
 
-function esc(s) {
-  return String(s == null ? "" : s)
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+function renderSummary(s) {
+  $('#v-calls').textContent = fmtNum(s.total_calls);
+  $('#s-calls').textContent = s.last_record_at ? "Last: " + new Date(s.last_record_at).toLocaleString() : "No data";
+
+  $('#v-tokens').textContent = fmtNum(s.total_tokens);
+  $('#s-tokens').textContent = `${fmtCompact(s.total_input_tokens)} in - ${fmtCompact(s.total_output_tokens)} out`;
+
+  $('#v-cost').textContent = fmtMoney(s.total_cost_usd);
+  $('#s-cost').textContent = `${s.total_cached_tokens || 0} cached tokens - 0 unpriced`; // Mocking unpriced
+
+  $('#v-lat').textContent = fmtDur(s.avg_duration_ms);
+  $('#s-lat').textContent = `p95: ${fmtDur(s.p95_duration_ms)}`;
+
+  $('#v-err').textContent = fmtPct(s.error_rate);
+  $('#s-err').textContent = `${s.error_calls} failed calls`;
+
+  $('#v-cache').textContent = fmtPct(s.cache_hit_rate);
 }
 
-async function getJSON(url) {
-  const resp = await fetch(API_BASE + url);
-  if (!resp.ok) throw new Error(resp.status + " " + resp.statusText);
-  return resp.json();
+function renderHealth(container, rows, maxCost) {
+  container.innerHTML = rows.map(r => {
+    const errRate = r.calls ? r.errors / r.calls : 0;
+    const width = maxCost > 0 ? (r.cost_usd / maxCost) * 100 : 0;
+
+    return `<div class="health-row">
+      <div class="health-meta">
+        <span class="health-name">${esc(r.name)}</span>
+        <span class="health-stats">${fmtNum(r.calls)} calls - ${fmtCompact(r.total_tokens)} tok - ${fmtMoney(r.cost_usd)}</span>
+      </div>
+      <div class="health-bar"><div class="health-fill" style="width: ${Math.max(2, width)}%"></div></div>
+      ${r.errors ? `<div class="error-text">${r.errors} errors</div>` : ''}
+    </div>`;
+  }).join('');
 }
 
-function params() {
+function renderRecords(list) {
+  const body = $('#records-body');
+  if (!list.length) {
+    body.innerHTML = '<tr><td colspan="8" style="text-align:center; padding: 40px">No records found.</td></tr>';
+    return;
+  }
+
+  body.innerHTML = list.map(r => {
+    const ts = new Date(r.timestamp);
+    const when = ts.toLocaleString();
+    const isErr = !!r.error;
+    const isRetry = r.is_retry;
+
+    return `<tr>
+      <td class="mono muted">${when}</td>
+      <td class="mono"><b>${esc(r.provider)}</b></td>
+      <td class="mono">${esc(r.model)}</td>
+      <td class="mono muted">${esc(r.endpoint || "—")}</td>
+      <td class="num mono">${fmtNum(r.input_tokens)} / ${fmtNum(r.output_tokens)}</td>
+      <td class="num">${fmtMoney(r.estimated_cost_usd)}</td>
+      <td class="num">${fmtDur(r.duration_ms)}</td>
+      <td>
+        ${isErr ? '<span class="status-pill err"><i>🚫</i> Error</span>' :
+          (isRetry ? '<span class="status-pill retry"><i>🔄</i> Retry</span>' :
+           '<span class="status-pill ok"><i>✨</i> OK</span>')}
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function refresh() {
   const p = new URLSearchParams();
   if (state.model) p.set("model", state.model);
   if (state.endpoint) p.set("endpoint", state.endpoint);
   if (state.provider) p.set("provider", state.provider);
   if (state.errorOnly) p.set("error", "1");
-  p.set("limit", state.limit);
-  return p.toString();
-}
+  p.set("limit", 100);
+  const query = p.toString();
 
-function fillSelect(sel, items, key, current) {
-  const value = current || "";
-  sel.innerHTML = '<option value="">all</option>' + items
-    .map((it) => `<option value="${esc(it[key])}">${esc(it[key])}</option>`)
-    .join("");
-  sel.value = value;
-}
-
-function setBadge(on) {
-  const b = $("#live-badge");
-  b.textContent = on ? "live · 5s" : "paused";
-  b.classList.toggle("off", !on);
-}
-
-function showError(msg) {
-  const b = $("#err-banner");
-  b.textContent = msg;
-  b.style.display = "block";
-}
-
-function clearError() {
-  $("#err-banner").style.display = "none";
-}
-
-// ── Summary cards ─────────────────────────────────────────────────────────────
-function renderSummary(s) {
-  $("#c-calls").textContent = fmtNum(s.total_calls);
-  $("#c-calls-sub").textContent = s.last_record_at
-    ? "last: " + new Date(s.last_record_at).toLocaleTimeString()
-    : "no data yet";
-  $("#c-cost").textContent = fmtMoney(s.total_cost_usd);
-  $("#c-tokens").textContent = fmtCompact(s.total_tokens);
-  $("#c-tokens-sub").textContent =
-    fmtCompact(s.total_input_tokens) + " in / " + fmtCompact(s.total_output_tokens) + " out"
-    + (s.total_cached_tokens ? " / " + fmtCompact(s.total_cached_tokens) + " cached" : "");
-  $("#c-cache").textContent = fmtPct(s.cache_hit_rate);
-  $("#c-lat").textContent = fmtDur(s.avg_duration_ms);
-  $("#c-lat-sub").textContent = "p95 " + fmtDur(s.p95_duration_ms);
-  $("#c-err").textContent = fmtNum(s.error_calls);
-  $("#c-err-sub").textContent = fmtPct(s.error_rate);
-  const errCard = $("#err-card");
-  errCard.classList.toggle("warn", s.error_calls > 0);
-}
-
-function renderBreakdown(el, rows, maxCost) {
-  if (!rows.length) {
-    el.innerHTML = '<div class="empty">No matching records.</div>';
-    return;
-  }
-  el.innerHTML =
-    "<table><thead><tr>" +
-    "<th>Name</th><th class='num'>Calls</th><th class='num'>Tokens</th>" +
-    "<th class='num'>Errors</th><th class='num'>Cost</th><th>Share</th>" +
-    "</tr></thead><tbody>" +
-    rows.map((r) => {
-      const width = maxCost > 0 ? Math.max(2, (r.cost_usd / maxCost) * 100) : 0;
-      return "<tr>" +
-        `<td class='mono'>${esc(r.name)}</td>` +
-        `<td class='num'>${fmtNum(r.calls)}</td>` +
-        `<td class='num'>${fmtCompact(r.total_tokens)}</td>` +
-        `<td class='num'>${r.errors ? '<span class="pill err">' + r.errors + "</span>" : "—"}</td>` +
-        `<td class='num'>${fmtMoney(r.cost_usd)}</td>` +
-        `<td><div class='bar'><i style='width:${width}%'></i></div></td>` +
-        "</tr>";
-    }).join("") +
-    "</tbody></table>";
-}
-
-// ── Records table ─────────────────────────────────────────────────────────────
-function statusPills(r) {
-  const pills = [];
-  if (r.error) pills.push(`<span class="pill err" title="${esc(r.error)}">error</span>`);
-  if (r.truncated) pills.push('<span class="pill warn">truncated</span>');
-  if (r.is_retry) pills.push('<span class="pill mut">retry</span>');
-  if (r.cache_hit) pills.push('<span class="pill mut">cache</span>');
-  if (r.prompt_cache_hit) pills.push('<span class="pill ok">prompt-cache</span>');
-  if (!pills.length) pills.push('<span class="pill ok">ok</span>');
-  return pills.join(" ");
-}
-
-function renderRecords(list) {
-  if (!list.length) {
-    $("#records").innerHTML =
-      '<div class="empty">No records yet. Point the server at a JSONL log ' +
-      "(e.g. <code>--jsonl logs/llm_usage.jsonl</code>) and run some LLM calls.</div>";
-    return;
-  }
-  $("#records").innerHTML =
-    "<table><thead><tr>" +
-    "<th>Time</th><th>Model</th><th>Endpoint</th><th>Provider</th>" +
-    "<th class='num'>In / Out / Cached</th><th class='num'>Cost</th>" +
-    "<th class='num'>Latency</th><th>Status</th>" +
-    "</tr></thead><tbody>" +
-    list.map((r) => {
-      const ts = r.timestamp ? new Date(r.timestamp) : null;
-      const when = ts && !isNaN(ts) ? ts.toLocaleTimeString() : "—";
-      const title = ts && !isNaN(ts) ? ts.toLocaleString() : esc(r.timestamp || "");
-      return "<tr>" +
-        `<td class='mono' title='${title}'>${when}</td>` +
-        `<td class='mono'>${esc(r.model || "—")}</td>` +
-        `<td class='mono endpoint-cell' title='${esc(r.endpoint || "")}'>${esc(r.endpoint || "—")}</td>` +
-        `<td class='mono'>${esc(r.provider || "—")}</td>` +
-        `<td class='num mono' title='${fmtNum(r.input_tokens)} in / ${fmtNum(r.output_tokens)} out / ${fmtNum(r.cached_tokens)} cached'>` +
-        `${fmtCompact(r.input_tokens)} / ${fmtCompact(r.output_tokens)} / ${fmtCompact(r.cached_tokens)}</td>` +
-        `<td class='num'>${fmtMoney(r.estimated_cost_usd)}</td>` +
-        `<td class='num'>${fmtDur(r.duration_ms)}</td>` +
-        `<td>${statusPills(r)}</td>` +
-        "</tr>";
-    }).join("") +
-    "</tbody></table>";
-}
-
-// ── Loaders ───────────────────────────────────────────────────────────────────
-async function loadSummary() {
-  const s = await getJSON("/api/summary?" + params());
-  renderSummary(s);
-  fillSelect($("#f-model"), s.per_model, "name", state.model);
-  fillSelect($("#f-endpoint"), s.per_endpoint, "name", state.endpoint);
-  fillSelect($("#f-provider"), s.per_provider, "name", state.provider);
-  const maxCost = Math.max(0.000001, ...s.per_model.map((r) => r.cost_usd));
-  renderBreakdown($("#by-model"), s.per_model, maxCost);
-  const maxEp = Math.max(0.000001, ...s.per_endpoint.map((r) => r.cost_usd));
-  renderBreakdown($("#by-endpoint"), s.per_endpoint, maxEp);
-}
-
-async function loadRecords() {
-  const d = await getJSON("/api/records?" + params());
-  renderRecords(d.records);
-}
-
-async function refresh() {
   try {
-    await Promise.all([loadSummary(), loadRecords()]);
-    clearError();
+    const [summary, records] = await Promise.all([
+      fetch(`${API_BASE}/api/summary?${query}`).then(r => r.json()),
+      fetch(`${API_BASE}/api/records?${query}`).then(r => r.json())
+    ]);
+
+    renderSummary(summary);
+
+    const maxCost = Math.max(0.0001, ...summary.per_model.map(m => m.cost_usd), ...summary.per_endpoint.map(e => e.cost_usd));
+    renderHealth($('#list-models'), summary.per_model, maxCost);
+    renderHealth($('#list-endpoints'), summary.per_endpoint, maxCost);
+    $('#count-models').textContent = `${summary.per_model.length} entries`;
+    $('#count-endpoints').textContent = `${summary.per_endpoint.length} entries`;
+
+    renderRecords(records.records);
+    $('#count-records').textContent = `${records.records.length} shown - newest first`;
+    $('#f-info').textContent = `Showing newest ${records.records.length} of ${summary.total_calls} calls`;
+
+    // Populate selects once
+    if ($('#f-model').options.length <= 1) {
+      const fill = (id, items) => {
+        const el = $(`#f-${id}`);
+        const current = el.value;
+        el.innerHTML = `<option value="">All ${id}s</option>` + items.map(it => `<option value="${esc(it.name)}">${esc(it.name)}</option>`).join('');
+        el.value = current;
+      };
+      fill('model', summary.per_model);
+      fill('endpoint', summary.per_endpoint);
+      fill('provider', summary.per_provider);
+    }
   } catch (e) {
-    showError("Could not reach the dashboard API (" + e.message +
-      "). Start it with: python -m token_tracing.dashboard --jsonl llm_usage.jsonl");
+    console.error("Refresh failed", e);
   }
 }
 
-// ── Wiring ────────────────────────────────────────────────────────────────────
-$("#refresh").addEventListener("click", refresh);
-$("#f-model").addEventListener("change", (e) => { state.model = e.target.value; refresh(); });
-$("#f-endpoint").addEventListener("change", (e) => { state.endpoint = e.target.value; refresh(); });
-$("#f-provider").addEventListener("change", (e) => { state.provider = e.target.value; refresh(); });
-$("#f-error").addEventListener("change", (e) => { state.errorOnly = e.target.checked; refresh(); });
-$("#f-limit").addEventListener("change", (e) => { state.limit = Number(e.target.value); refresh(); });
-$("#auto").addEventListener("change", (e) => {
-  if (e.target.checked) {
-    autoTimer = setInterval(refresh, 5000);
-    setBadge(true);
-  } else {
-    clearInterval(autoTimer);
-    autoTimer = null;
-    setBadge(false);
-  }
-});
+$('#btn-refresh').onclick = refresh;
+$('#f-model').onchange = (e) => { state.model = e.target.value; refresh(); };
+$('#f-endpoint').onchange = (e) => { state.endpoint = e.target.value; refresh(); };
+$('#f-provider').onchange = (e) => { state.provider = e.target.value; refresh(); };
+$('#f-error').onchange = (e) => { state.errorOnly = e.target.checked; refresh(); };
+
+$('#btn-auto-refresh').onclick = () => {
+  state.autoRefresh = !state.autoRefresh;
+  $('#btn-auto-refresh').classList.toggle('primary', state.autoRefresh);
+  if (state.autoRefresh) autoTimer = setInterval(refresh, 5000);
+  else clearInterval(autoTimer);
+};
 
 autoTimer = setInterval(refresh, 5000);
-setBadge(true);
+$('#btn-auto-refresh').classList.add('primary');
 refresh();
 </script>
 </body>

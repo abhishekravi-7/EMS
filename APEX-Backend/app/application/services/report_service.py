@@ -132,7 +132,6 @@ def build_result(report: dict[str, Any]) -> dict[str, Any]:
     return {
         **core,
         **_analysis(report),
-        "dependencies": [],
         "migration_log": log_lines,
         "issues": [],
         "file_diffs": [],
