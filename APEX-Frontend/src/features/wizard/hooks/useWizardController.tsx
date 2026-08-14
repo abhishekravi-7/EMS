@@ -182,6 +182,7 @@ const mergeMigrationSummaryIntoJob = (
   sonar_real_scan: summary.sonar_real_scan,
   sonar_analysis_url: summary.sonar_analysis_url ?? null,
   sonar_error_message: summary.sonar_error_message ?? null,
+  sonar_report: (summary as any).sonar_report ?? previous?.sonar_report ?? null,
   fossa_policy_status: summary.fossa_policy_status ?? null,
   fossa_total_dependencies: summary.fossa_total_dependencies,
   fossa_license_issues: summary.fossa_license_issues,

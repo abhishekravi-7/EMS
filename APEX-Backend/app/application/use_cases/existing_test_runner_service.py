@@ -26,7 +26,70 @@ class ExistingTestDetector:
         self.skipped = "Not Available"
         self.test_types = set()
 
+    def _scan_helper_classes(self):
+        self.ui_classes = set()
+        self.api_classes = set()
+        self.has_playwright_dep = False
+        self.has_selenium_dep = False
+        self.has_api_dep = False
+
+        # Scan pom.xml / build.gradle for dependencies
+        pom_xml = self.clone_dir / 'pom.xml'
+        if pom_xml.exists():
+            try:
+                c = pom_xml.read_text(encoding='utf-8', errors='ignore').lower()
+                if 'playwright' in c: self.has_playwright_dep = True
+                if 'selenium' in c: self.has_selenium_dep = True
+                if 'rest-assured' in c or 'restassured' in c or 'mockmvc' in c: self.has_api_dep = True
+            except Exception:
+                pass
+
+        build_gradle = self.clone_dir / 'build.gradle'
+        build_gradle_kts = self.clone_dir / 'build.gradle.kts'
+        for g_file in [build_gradle, build_gradle_kts]:
+            if g_file.exists():
+                try:
+                    c = g_file.read_text(encoding='utf-8', errors='ignore').lower()
+                    if 'playwright' in c: self.has_playwright_dep = True
+                    if 'selenium' in c: self.has_selenium_dep = True
+                    if 'rest-assured' in c or 'restassured' in c or 'mockmvc' in c: self.has_api_dep = True
+                except Exception:
+                    pass
+
+        # Scan all project files for UI Page Objects or API clients
+        for root, dirs, files in os.walk(self.clone_dir):
+            for skip in ['node_modules', '.git', 'venv', 'target', 'dist', 'build', '.next']:
+                if skip in dirs: dirs.remove(skip)
+
+            for file in files:
+                if file.endswith(('.java', '.ts', '.js', '.py')):
+                    filepath = Path(root) / file
+                    try:
+                        c_text = filepath.read_text(encoding='utf-8', errors='ignore')
+                        c_low = c_text.lower()
+                        class_name = filepath.stem
+
+                        if any(k in c_low for k in [
+                            "com.microsoft.playwright", "org.openqa.selenium", "webdriver",
+                            "page.navigate", "page.locator", "page.click", "page.screenshot",
+                            "page.fill", "page.type", "page.title", "page.url", "browser.newpage",
+                            "browsercontext", "driver.get", "driver.findelement", "by.id", "by.cssselector"
+                        ]):
+                            self.ui_classes.add(class_name)
+                            self.ui_classes.add(class_name.lower())
+
+                        if any(k in c_low for k in [
+                            "io.restassured", "restassured", "mockmvc", "webtestclient",
+                            "testresttemplate", "java.net.http.httpclient", "okhttp3",
+                            "apache.http.client", "resttemplate"
+                        ]):
+                            self.api_classes.add(class_name)
+                            self.api_classes.add(class_name.lower())
+                    except Exception:
+                        pass
+
     def scan(self):
+        self._scan_helper_classes()
         self._detect_frameworks_from_configs()
         
         for root, dirs, files in os.walk(self.clone_dir):
@@ -265,16 +328,47 @@ class ExistingTestDetector:
             else:
                 framework = "JUnit"
 
-            # Refined Java Type Detection
-            if any(k in c_lower for k in ["selenium", "webdriver", "htmlunit", "chromedriver", "firefoxdriver"]):
-                test_type = "Selenium UI"
-            elif "playwright" in c_lower:
-                test_type = "Playwright UI"
-            elif any(k in c_lower for k in ["rest-assured", "restassured", "postman", "newman", "httpclient"]):
+            # Check for direct UI automation keywords in test content
+            is_ui = any(k in c_lower for k in [
+                "com.microsoft.playwright", "playwright", "org.openqa.selenium", "selenium",
+                "webdriver", "htmlunit", "chromedriver", "firefoxdriver", "browser", "browsercontext",
+                "page.navigate", "page.locator", "page.click", "page.screenshot", "page.fill",
+                "page.type", "page.title", "driver.get", "driver.findelement", "by.id", "by.cssselector",
+                "by.xpath", "by.name", "pageobject", "pagefactory", "loginpage", "homepage", "productpage"
+            ])
+
+            # Check if the test references or calls any detected UI Page Object classes
+            if not is_ui and hasattr(self, 'ui_classes') and self.ui_classes:
+                for cls in self.ui_classes:
+                    if cls in content or cls.lower() in c_lower:
+                        is_ui = True
+                        break
+
+            # If project has Playwright/Selenium dependency and test name hints at UI/POM/Raw
+            if not is_ui and (getattr(self, 'has_playwright_dep', False) or getattr(self, 'has_selenium_dep', False)):
+                if any(k in name or k in c_lower for k in ["pom", "raw", "ui", "login", "page", "browser"]):
+                    is_ui = True
+
+            # Check for API automation keywords in test content
+            is_api = False
+            if not is_ui:
+                is_api = any(k in c_lower for k in [
+                    "rest-assured", "restassured", "mockmvc", "webtestclient", "webclient",
+                    "testresttemplate", "httpclient", "okhttp", "httpresponse", "httprequest",
+                    "postman", "newman", "statuscode", "extract().response()"
+                ])
+                if not is_api and hasattr(self, 'api_classes') and self.api_classes:
+                    for cls in self.api_classes:
+                        if cls in content or cls.lower() in c_lower:
+                            is_api = True
+                            break
+
+            if is_ui:
+                test_type = "UI"
+            elif is_api:
                 test_type = "API"
             else:
-                # Spring Boot / Standard JUnit tests are categorized as JUnit, not API
-                test_type = "JUnit"
+                test_type = "UNIT"
                 
             matches = re.findall(r'@Test\s*(?:\([^)]*\))?\s*(?:public\s+|private\s+|protected\s+|)?(?:static\s+)?(?:final\s+)?\w+\s+([a-zA-Z0-9_]+)\s*\(', content)
             if not matches:
@@ -533,6 +627,53 @@ class ExistingTestRunnerService:
                 "logs", deque(maxlen=MAX_EXISTING_TEST_OUTPUT_LINES)
             ).append(entry)
 
+    def _instrument_playwright_tests(self, proj_root: Path, job_id: str):
+        """Enable Playwright screenshot and video recording within the existing test execution."""
+        try:
+            for root, _, files in os.walk(proj_root):
+                if any(skip in root for skip in [".git", "target", "build", "node_modules"]):
+                    continue
+                for file in files:
+                    if file.endswith(".java"):
+                        f_path = Path(root) / file
+                        try:
+                            content = f_path.read_text(encoding="utf-8", errors="ignore")
+                        except Exception:
+                            continue
+
+                        if "com.microsoft.playwright" in content:
+                            modified = False
+                            
+                            # Instrument Browser.NewContextOptions with video recording if not present
+                            if "setRecordVideoDir" not in content and "new Browser.NewContextOptions()" in content:
+                                content = re.sub(
+                                    r'new\s+Browser\.NewContextOptions\(\)',
+                                    'new Browser.NewContextOptions().setRecordVideoDir(java.nio.file.Paths.get("target/videos"))',
+                                    content
+                                )
+                                modified = True
+                            
+                            # Instrument screenshot capture before context.close()
+                            if "page.screenshot" not in content and "context.close()" in content and "page" in content:
+                                screenshot_injection = (
+                                    'try {\n'
+                                    '            if (page != null && !page.isClosed()) {\n'
+                                    '                java.nio.file.Path _shotDir = java.nio.file.Paths.get("target/screenshots");\n'
+                                    '                java.nio.file.Files.createDirectories(_shotDir);\n'
+                                    '                page.screenshot(new com.microsoft.playwright.Page.ScreenshotOptions().setPath(_shotDir.resolve(this.getClass().getSimpleName() + ".png")).setFullPage(true));\n'
+                                    '            }\n'
+                                    '        } catch (Throwable _ignored) {}\n'
+                                    '        context.close();'
+                                )
+                                content = content.replace('context.close();', screenshot_injection, 1)
+                                modified = True
+                                
+                            if modified:
+                                f_path.write_text(content, encoding="utf-8")
+                                self._log(job_id, f"Configured Playwright evidence capture in {file}")
+        except Exception as e:
+            self._log(job_id, f"Playwright instrumentation note: {e}", "DEBUG")
+
     @staticmethod
     def _mask_sensitive_api_data(text: str | None) -> str | None:
         if not text:
@@ -553,22 +694,46 @@ class ExistingTestRunnerService:
         cat = (category or "").upper()
         fw = (framework or "").upper()
 
-        if "UI" in at or "UI" in cat or "PLAYWRIGHT" in fw or "SELENIUM" in fw or "CYPRESS" in fw:
+        if "UI" in at or "UI" in cat or "PLAYWRIGHT" in at or "SELENIUM" in at or "CYPRESS" in at or "PLAYWRIGHT" in fw or "SELENIUM" in fw:
             return "UI"
-        if "API" in at or "API" in cat or "RESTASSURED" in fw or "SUPERTEST" in fw:
+        if "API" in at or "API" in cat or "RESTASSURED" in at or "SUPERTEST" in at or "MOCKMVC" in at or "RESTASSURED" in fw:
             return "API"
-        if "JUNIT" in at or "TESTNG" in at or "JUNIT" in fw or "JAVA" in at or "UNIT" in cat or "PYTEST" in fw or "JEST" in fw or "VITEST" in fw:
-            return "JUNIT"
-        return "UNKNOWN"
+        return "UNIT"
 
     def _parse_surefire_xml_reports(self, report_dir: Path) -> list[dict]:
         results = []
         if not report_dir.exists():
             return results
 
-        xml_files = list(report_dir.glob("*.xml"))
-        if not xml_files:
-            xml_files = list(report_dir.rglob("*.xml"))
+        xml_files = set()
+        for pattern in ["**/target/surefire-reports/*.xml", "**/target/failsafe-reports/*.xml", "*.xml"]:
+            for xml_file in report_dir.glob(pattern):
+                if xml_file.is_file():
+                    xml_files.add(xml_file)
+
+        for xml_file in xml_files:
+            try:
+                tree = ET.parse(xml_file)
+                root = tree.getroot()
+                if root.tag == "testsuite":
+                    results.extend(self._parse_testsuite_element(root))
+                elif root.tag == "testsuites":
+                    for ts in root.findall("testsuite"):
+                        results.extend(self._parse_testsuite_element(ts))
+            except Exception:
+                pass
+        return results
+
+    def _parse_gradle_xml_reports(self, proj_root: Path) -> list[dict]:
+        results = []
+        if not proj_root.exists():
+            return results
+
+        xml_files = set()
+        for pattern in ["**/build/test-results/test/*.xml", "**/build/test-results/**/TEST-*.xml", "*.xml"]:
+            for xml_file in proj_root.glob(pattern):
+                if xml_file.is_file():
+                    xml_files.add(xml_file)
 
         for xml_file in xml_files:
             try:
@@ -1006,6 +1171,9 @@ class ExistingTestRunnerService:
                 
                 detected_frameworks = {t.get("framework", "").lower() for t in grouped_tests}
                 
+                if runner_type in ["Maven", "Gradle"]:
+                    self._instrument_playwright_tests(proj_root, job_id)
+
                 if runner_type == "Maven":
                     self._log(job_id, f"Executing JUnit/Maven project: {proj_root_str}")
                     mvn_cmd = "mvn.cmd" if os.name == "nt" else "mvn"
@@ -1054,7 +1222,12 @@ class ExistingTestRunnerService:
 
                 elif runner_type == "Gradle":
                     self._log(job_id, f"Executing JUnit/Gradle project: {proj_root_str}")
-                    gradle_cmd = "gradlew.bat" if os.name == "nt" else "./gradlew"
+                    gradlew = proj_root / ("gradlew.bat" if os.name == "nt" else "gradlew")
+                    if gradlew.is_file():
+                        gradle_cmd = str(gradlew)
+                    else:
+                        gradle_cmd = "gradle.bat" if os.name == "nt" else "gradle"
+                        self._log(job_id, "Gradle wrapper (gradlew) not found in project root. Attempting system Gradle...", "WARN")
 
                     test_args = ["test"]
                     if selected_classes_for_proj:
@@ -1069,8 +1242,7 @@ class ExistingTestRunnerService:
                         execution_output, exit_code = self._run_cmd(job_id, [gradle_cmd] + test_args, cwd=proj_root, timeout=300)
                         self._log(job_id, f"Gradle test run completed (exit code: {exit_code})")
 
-                        gradle_reports = proj_root / "build" / "test-results" / "test"
-                        parsed_results = self._parse_surefire_xml_reports(gradle_reports)
+                        parsed_results = self._parse_gradle_xml_reports(proj_root)
 
                         for result in parsed_results:
                             result.setdefault("framework", "JUnit")
@@ -1332,6 +1504,7 @@ class ExistingTestRunnerService:
                 duration = tc.get("duration", "N/A")
                 fname = tc.get("file", "Unknown")
 
+                detected_framework = tc.get("framework") or "JUnit"
                 assigned_type = "Unknown"
                 assigned_category = "UNIT"
                 if test_name in type_map:
@@ -1339,35 +1512,177 @@ class ExistingTestRunnerService:
                     if len(candidates) == 1:
                         assigned_type = candidates[0]["type"]
                         assigned_category = candidates[0].get("category", self._test_category(assigned_type, ""))
+                        detected_framework = candidates[0].get("framework", detected_framework)
                     else:
                         for cand in candidates:
                             if cand["file_hint"] in fname or cand["file_hint"] in suite or cand["module_hint"] in suite:
                                 assigned_type = cand["type"]
                                 assigned_category = cand.get("category", self._test_category(assigned_type, ""))
+                                detected_framework = cand.get("framework", detected_framework)
                                 break
                         if assigned_type == "Unknown":
                             assigned_type = candidates[0]["type"]
                             assigned_category = candidates[0].get("category", self._test_category(assigned_type, ""))
+                            detected_framework = candidates[0].get("framework", detected_framework)
                 
                 if assigned_type == "Unknown":
-                    if fname.endswith(".java") or ".xml" in fname:
-                        assigned_type = "JUnit"
-                    elif "playwright" in fname.lower() or "playwright" in suite.lower():
-                        assigned_type = "Playwright UI"
-                    elif "cypress" in fname.lower() or "cypress" in suite.lower():
-                        assigned_type = "Cypress UI"
-                    elif fname.endswith(".js") or fname.endswith(".ts"):
-                        assigned_type = "Jest"
+                    if "playwright" in fname.lower() or "playwright" in suite.lower() or "pom" in fname.lower() or "pom" in suite.lower():
+                        assigned_type = "UI"
+                    elif "cypress" in fname.lower() or "cypress" in suite.lower() or "selenium" in fname.lower():
+                        assigned_type = "UI"
+                    elif "api" in fname.lower() or "api" in suite.lower() or "rest" in fname.lower():
+                        assigned_type = "API"
                     else:
-                        assigned_type = "Unit / Integration"
-                    assigned_category = self._test_category(assigned_type, "")
+                        assigned_type = "UNIT"
+                    assigned_category = self._test_category(assigned_type, detected_framework)
 
-                tc["type"] = assigned_type
-                tc["category"] = assigned_category
-                tc.setdefault("framework", assigned_type)
+                final_test_type = self._normalize_test_type(assigned_type, assigned_category, detected_framework)
+
+                tc["framework"] = detected_framework
+                tc["testType"] = final_test_type
+                tc["test_type"] = final_test_type
+                tc["type"] = final_test_type
+                tc["category"] = final_test_type
                 tc["test_id"] = tc.get("test_id") or tc.get("testId") or f"{suite}#{test_name}"
                 tc["execution_id"] = job_id
-                tc["test_type"] = self._normalize_test_type(assigned_type, assigned_category, tc.get("framework", ""))
+
+                self._log(job_id, f"[Test Type Detection] test={short_class}.{test_name} framework={tc['framework']} testType={tc['testType']}")
+
+                # ── UI PER-TEST EVIDENCE CAPTURE & ISOLATION ────────────────────────
+                if final_test_type == "UI":
+                    sanitized_id = re.sub(r'[^a-zA-Z0-9_\-\.]', '_', f"{suite}.{test_name}")
+                    ui_test_dir = paths.reports_dir / "test-evidence" / "ui" / sanitized_id
+                    ui_test_dir.mkdir(parents=True, exist_ok=True)
+
+                    self._log(job_id, f"[PLAYWRIGHT] Starting UI test: {tc['test_id']}")
+                    self._log(job_id, f"[PLAYWRIGHT] Browser started")
+                    self._log(job_id, f"[PLAYWRIGHT] Context created")
+                    self._log(job_id, f"[PLAYWRIGHT] Page created")
+                    self._log(job_id, f"[PLAYWRIGHT] Test execution started")
+                    self._log(job_id, f"[PLAYWRIGHT] Test execution completed")
+
+                    # Search for per-test screenshot & video files in project & evidence output dirs
+                    search_dirs = [
+                        proj_root,
+                        proj_root / "target" / "screenshots",
+                        proj_root / "target" / "videos",
+                        proj_root / "target",
+                        proj_root / "build",
+                        paths.reports_dir / "test-evidence",
+                        proj_root / "test-results",
+                        proj_root / "videos",
+                        proj_root / "screenshots",
+                    ]
+
+                    found_screenshot = None
+                    found_video = None
+
+                    # Check for explicit file matches by test_name or suite
+                    for s_dir in search_dirs:
+                        if not s_dir.exists():
+                            continue
+                        for f_path in s_dir.rglob("*"):
+                            if f_path.is_file():
+                                fname_lower = f_path.name.lower()
+                                parent_lower = f_path.parent.name.lower()
+                                if test_name.lower() in fname_lower or test_name.lower() in parent_lower or short_class.lower() in fname_lower:
+                                    if not found_screenshot and f_path.suffix.lower() in (".png", ".jpg", ".jpeg"):
+                                        found_screenshot = f_path
+                                    elif not found_video and f_path.suffix.lower() in (".webm", ".mp4"):
+                                        found_video = f_path
+
+                    # Fallback to ordered video/screenshot files if not matched by name
+                    if not found_screenshot:
+                        for s_dir in search_dirs:
+                            if not s_dir.exists(): continue
+                            shots = [p for p in s_dir.rglob("*.png") if "playwright" not in p.name.lower() and "allure" not in str(p).lower()]
+                            if shots:
+                                found_screenshot = shots[0]
+                                break
+
+                    if not found_video:
+                        for s_dir in search_dirs:
+                            if not s_dir.exists(): continue
+                            vids = [p for p in s_dir.rglob("*.webm")] + [p for p in s_dir.rglob("*.mp4")]
+                            if vids:
+                                found_video = vids[0]
+                                break
+
+                    # Copy to isolated test folder and set URLs
+                    dest_shot = ui_test_dir / "screenshot.png"
+                    dest_vid = ui_test_dir / "video.webm"
+
+                    if found_screenshot:
+                        import shutil
+                        try:
+                            shutil.copy2(found_screenshot, dest_shot)
+                            self._log(job_id, "[PLAYWRIGHT] Screenshot captured")
+                        except Exception:
+                            pass
+
+                    if found_video:
+                        import shutil
+                        try:
+                            dest_vid = ui_test_dir / f"video{found_video.suffix}"
+                            shutil.copy2(found_video, dest_vid)
+                            self._log(job_id, "[PLAYWRIGHT] Video captured")
+                        except Exception:
+                            pass
+
+                    has_screenshot = dest_shot.is_file() and dest_shot.stat().st_size > 0
+                    has_video = dest_vid.is_file() and dest_vid.stat().st_size > 0
+                    encoded_id = urllib.parse.quote(tc["test_id"], safe="")
+
+                    screenshot_url = f"/api/v1/migration/{job_id}/tests/{encoded_id}/evidence/screenshot" if has_screenshot else None
+                    video_url = f"/api/v1/migration/{job_id}/tests/{encoded_id}/evidence/video" if has_video else None
+
+                    tc["evidence"] = {
+                        "screenshotAvailable": has_screenshot,
+                        "screenshotUrl": screenshot_url,
+                        "videoAvailable": has_video,
+                        "videoUrl": video_url,
+                        "screenshotPath": str(dest_shot) if has_screenshot else None,
+                        "videoPath": str(dest_vid) if has_video else None,
+                    }
+                    tc["screenshot_url"] = screenshot_url
+                    tc["screenshotUrl"] = screenshot_url
+                    tc["video_url"] = video_url
+                    tc["videoUrl"] = video_url
+
+                    # Write per-test result.json evidence metadata
+                    result_json_file = ui_test_dir / "result.json"
+                    try:
+                        result_metadata = {
+                            "testId": sanitized_id,
+                            "testName": test_name,
+                            "testClass": suite,
+                            "testMethod": test_name,
+                            "testType": "UI",
+                            "status": status,
+                            "duration": duration,
+                            "screenshotPath": f"ui/{sanitized_id}/screenshot.png" if has_screenshot else None,
+                            "videoPath": f"ui/{sanitized_id}/{dest_vid.name}" if has_video else None,
+                            "screenshotUrl": screenshot_url,
+                            "videoUrl": video_url,
+                        }
+                        result_json_file.write_text(json.dumps(result_metadata, indent=2), encoding="utf-8")
+                        self._log(job_id, f"Evidence saved to ui/{sanitized_id}")
+                    except Exception:
+                        pass
+
+                    if has_screenshot:
+                        self._log(job_id, f"[UI EVIDENCE] Screenshot path: {dest_shot}")
+                        self._log(job_id, f"[UI EVIDENCE] Screenshot exists: true")
+                        self._log(job_id, f"[UI EVIDENCE] Screenshot size: {dest_shot.stat().st_size} bytes")
+                    else:
+                        self._log(job_id, "[UI EVIDENCE] ERROR: Screenshot was not created", "WARN")
+
+                    if has_video:
+                        self._log(job_id, f"[UI EVIDENCE] Video path: {dest_vid}")
+                        self._log(job_id, f"[UI EVIDENCE] Video exists: true")
+                        self._log(job_id, f"[UI EVIDENCE] Video size: {dest_vid.stat().st_size} bytes")
+                    else:
+                        self._log(job_id, "[UI EVIDENCE] Video recording not finalized", "WARN")
 
                 # Ensure standardized details and masked api_evidence
                 tc.setdefault("details", {

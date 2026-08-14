@@ -209,11 +209,13 @@ export function ResultReportView({
   void testSummaryReportDate;
   void migrationJavaVersion;
 
-  const sonarReport = (migrationJob?.sonar_report ?? null) as SonarReport | null;
-  const sonarBugDetails = sonarReport?.bug_details ?? [];
-  const sonarVulnerabilityDetails = sonarReport?.vulnerability_details ?? [];
-  const sonarCodeSmellDetails = sonarReport?.code_smell_details ?? [];
-  const sonarHotspotDetails = sonarReport?.security_hotspot_details ?? [];
+  const sonarReport = (migrationJob?.sonar_report ?? null) as any;
+  const allSonarIssues = (sonarReport?.all_issues ?? []) as any[];
+  const sonarBugDetails = (sonarReport?.bug_details?.length ? sonarReport.bug_details : sonarReport?.bugs?.length ? sonarReport.bugs : allSonarIssues.filter((i) => String(i?.type || "").toUpperCase().includes("BUG"))) as SonarIssueDetail[];
+  const sonarVulnerabilityDetails = (sonarReport?.vulnerability_details?.length ? sonarReport.vulnerability_details : sonarReport?.vulnerabilities?.length ? sonarReport.vulnerabilities : allSonarIssues.filter((i) => String(i?.type || "").toUpperCase().includes("VULNERAB"))) as SonarIssueDetail[];
+  const sonarCodeSmellDetails = (sonarReport?.code_smell_details?.length ? sonarReport.code_smell_details : sonarReport?.code_smells?.length ? sonarReport.code_smells : allSonarIssues.filter((i) => { const t = String(i?.type || "").toUpperCase(); return t.includes("SMELL") || (!t.includes("BUG") && !t.includes("VULNERAB") && !t.includes("HOTSPOT")); })) as SonarIssueDetail[];
+  const sonarHotspotDetails = (sonarReport?.security_hotspot_details?.length ? sonarReport.security_hotspot_details : sonarReport?.security_hotspots?.length ? sonarReport.security_hotspots : sonarReport?.hotspots?.length ? sonarReport.hotspots : allSonarIssues.filter((i) => String(i?.type || "").toUpperCase().includes("HOTSPOT"))) as SonarHotspotDetail[];
+
   const codeSmellSeverityCounts = sonarCodeSmellDetails.reduce(
     (acc, issue) => {
       acc[getCodeSmellSeverityBucket(issue.severity)] += 1;
@@ -231,15 +233,15 @@ export function ResultReportView({
     sonarCodeSmellDetails.length > 0 ||
     sonarHotspotDetails.length > 0;
   const sonarTotalFindings =
-    (migrationJob?.sonar_vulnerabilities ?? 0) +
-    (migrationJob?.sonar_code_smells ?? 0) +
-    (migrationJob?.sonar_bugs ?? 0) +
-    (migrationJob?.sonar_security_hotspots ?? 0);
+    Math.max(migrationJob?.sonar_vulnerabilities ?? 0, sonarVulnerabilityDetails.length) +
+    Math.max(migrationJob?.sonar_code_smells ?? 0, sonarCodeSmellDetails.length) +
+    Math.max(migrationJob?.sonar_bugs ?? 0, sonarBugDetails.length) +
+    Math.max(migrationJob?.sonar_security_hotspots ?? 0, sonarHotspotDetails.length);
   const sonarCategoryCards = [
     {
       key: "bugs" as const,
       label: "Bugs",
-      count: migrationJob?.sonar_bugs ?? 0,
+      count: Math.max(migrationJob?.sonar_bugs ?? 0, sonarBugDetails.length),
       accent: "#2563eb",
       note: "Correctness issues",
       icon: <FaCode />,
@@ -249,7 +251,7 @@ export function ResultReportView({
     {
       key: "vulnerabilities" as const,
       label: "Vulnerabilities",
-      count: migrationJob?.sonar_vulnerabilities ?? 0,
+      count: Math.max(migrationJob?.sonar_vulnerabilities ?? 0, sonarVulnerabilityDetails.length),
       accent: "#ef4444",
       note: "Security defects",
       icon: <FaExclamationTriangle />,
@@ -259,7 +261,7 @@ export function ResultReportView({
     {
       key: "code_smells" as const,
       label: "Code Smells",
-      count: migrationJob?.sonar_code_smells ?? 0,
+      count: Math.max(migrationJob?.sonar_code_smells ?? 0, sonarCodeSmellDetails.length),
       accent: "#f59e0b",
       note: "Maintainability debt",
       icon: <FaTools />,
@@ -269,7 +271,7 @@ export function ResultReportView({
     {
       key: "security_hotspots" as const,
       label: "Security Hotspots",
-      count: migrationJob?.sonar_security_hotspots ?? 0,
+      count: Math.max(migrationJob?.sonar_security_hotspots ?? 0, sonarHotspotDetails.length),
       accent: "#14b8a6",
       note: "Needs manual review",
       icon: <FaShieldAlt />,
@@ -281,22 +283,22 @@ export function ResultReportView({
     {
       key: "vulnerabilities" as const,
       title: "Vulnerabilities",
-      count: migrationJob?.sonar_vulnerabilities ?? 0,
+      count: Math.max(migrationJob?.sonar_vulnerabilities ?? 0, sonarVulnerabilityDetails.length),
       details: sonarVulnerabilityDetails as Array<SonarIssueDetail | SonarHotspotDetail>,
       accentColor: "#dc2626",
       emptyMessage:
-        (migrationJob?.sonar_vulnerabilities ?? 0) > 0
+        Math.max(migrationJob?.sonar_vulnerabilities ?? 0, sonarVulnerabilityDetails.length) > 0
           ? "Summary count is available, but detailed vulnerability items were not returned by the current Sonar API response."
           : "No vulnerability findings were reported.",
     },
     {
       key: "code_smells" as const,
       title: "Code Smells",
-      count: migrationJob?.sonar_code_smells ?? 0,
+      count: Math.max(migrationJob?.sonar_code_smells ?? 0, sonarCodeSmellDetails.length),
       details: filteredCodeSmellDetails as Array<SonarIssueDetail | SonarHotspotDetail>,
       accentColor: "#d97706",
       emptyMessage:
-        (migrationJob?.sonar_code_smells ?? 0) > 0
+        Math.max(migrationJob?.sonar_code_smells ?? 0, sonarCodeSmellDetails.length) > 0
           ? codeSmellSeverityFilter === "all"
             ? "Summary count is available, but detailed code smell items were not returned by the current Sonar API response."
             : "No code smell findings match the selected severity filter."
@@ -305,22 +307,22 @@ export function ResultReportView({
     {
       key: "security_hotspots" as const,
       title: "Security Hotspots",
-      count: migrationJob?.sonar_security_hotspots ?? 0,
+      count: Math.max(migrationJob?.sonar_security_hotspots ?? 0, sonarHotspotDetails.length),
       details: sonarHotspotDetails as Array<SonarIssueDetail | SonarHotspotDetail>,
       accentColor: "#b45309",
       emptyMessage:
-        (migrationJob?.sonar_security_hotspots ?? 0) > 0
+        Math.max(migrationJob?.sonar_security_hotspots ?? 0, sonarHotspotDetails.length) > 0
           ? "Summary count is available, but detailed hotspot items were not returned by the current Sonar API response."
           : "No security hotspot findings were reported.",
     },
     {
       key: "bugs" as const,
       title: "Bugs",
-      count: migrationJob?.sonar_bugs ?? 0,
+      count: Math.max(migrationJob?.sonar_bugs ?? 0, sonarBugDetails.length),
       details: sonarBugDetails as Array<SonarIssueDetail | SonarHotspotDetail>,
       accentColor: "#2563eb",
       emptyMessage:
-        (migrationJob?.sonar_bugs ?? 0) > 0
+        Math.max(migrationJob?.sonar_bugs ?? 0, sonarBugDetails.length) > 0
           ? "Summary count is available, but detailed bug items were not returned by the current Sonar API response."
           : "No bug findings were reported.",
     },
@@ -1206,7 +1208,7 @@ export function ResultReportView({
               apiEndpointsWorking={migrationJob?.api_endpoints_working}
             />
 
-            {runSonar ? (
+            {runSonar || Boolean(migrationJob?.sonar_quality_gate || migrationJob?.sonar_analysis_url || migrationJob?.sonar_scan_mode || migrationJob?.sonar_report) ? (
               <MigrationSonarSection
                 styles={styles}
                 migrationJob={migrationJob}

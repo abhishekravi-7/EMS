@@ -38,7 +38,6 @@ import { ExistingTestValidationReport } from "./ExistingTestValidationReport";
 import { TestReportsModal } from "./TestReportsModal";
 import { wizardStyles as styles } from "@/shared/components/wizard/wizardStyles";
 import { renderWizardIconBadge, renderBackButtonLabel } from "@/shared/components/wizard";
-import { WIZARD_JOB_ID_KEY, readPersistedValue } from "@/shared/utils/migrationWizardStorage";
 import type { RepoAnalysis, RepoInfo } from "@/shared/types/domain";
 import { getFileContent } from "@/features/discovery/services/discoveryService";
 import { getLocalProjectFileContent } from "@/features/connect/services/connectService";
@@ -48,7 +47,6 @@ import {
   type FunctionalTestScopePreview,
 } from "../services/modernizationService";
 import type { useModernizationState } from "../hooks/useModernizationState";
-import { ExistingTestCasesPanel } from "./ExistingTestCasesPanel";
 
 const LLM_PROVIDERS = [
   { value: "groq", label: "Groq (Recommended — Llama 3.3 70B Fast)" },
@@ -473,8 +471,6 @@ export function ModernizationStepView({
   const apiEndpointCount = repoAnalysis?.api_endpoints?.length ?? 0;
   void apiEndpointCount;
 
-  const jobId = readPersistedValue(WIZARD_JOB_ID_KEY);
-
   return (
     <div style={styles.card}>
       <div style={styles.stepHeader}>
@@ -670,11 +666,6 @@ export function ModernizationStepView({
           )}
         </div>
 
-
-        {/* Existing Test Cases Discovery & Execution */}
-        <ExistingTestCasesPanel jobId={jobId} repoAnalysis={repoAnalysis} />
-
-
         {/* Existing Test Cases Browser (only before execution) */}
         {discoveredTests.length > 0 && !existingExecResult && !isRunningExisting && (
           <ExistingTestCasesPanel
@@ -752,27 +743,37 @@ export function ModernizationStepView({
                   frameworkInfo={existingExecResult.framework_info}
                   logs={existingLogs}
                   onSelectTest={(t: any) => {
+                    const scUrl = t.screenshot_url || t.screenshotUrl || t.evidence?.screenshotUrl || null;
+                    const vidUrl = t.video_url || t.videoUrl || t.evidence?.videoUrl || null;
                     setTestDetailReport({
                       testId: t.test_id || t.testId || `${t.suite}#${t.test_name}`,
                       executionId: t.execution_id || t.executionId || jobId,
-                      name: t.test_name,
-                      suite: t.suite,
+                      title: t.test_name || t.name || t.title,
+                      name: t.test_name || t.name || t.title,
+                      spec: t.suite || t.spec || t.file,
+                      suite: t.suite || t.spec || t.file,
                       status: t.status,
-                      duration: t.duration,
+                      duration: t.duration || "0.0s",
                       file: t.file,
                       url: t.report_url,
-                      type: t.type,
-                      testType: t.test_type || t.testType,
-                      framework: t.framework || existingExecResult?.framework_info?.build_tool || existingExecResult?.framework_info?.detected_framework,
-                      screenshotUrl: t.screenshot_url,
-                      videoUrl: t.video_url,
+                      type: t.type || "JUnit",
+                      testType: t.test_type || t.testType || (t.category === "UI" ? "UI" : t.category === "API" ? "API" : "UNIT"),
+                      framework: t.framework || existingExecResult?.framework_info?.build_tool || existingExecResult?.framework_info?.detected_framework || "JUnit",
+                      screenshotUrl: scUrl,
+                      videoUrl: vidUrl,
+                      evidence: t.evidence || {
+                        screenshotAvailable: !!scUrl,
+                        screenshotUrl: scUrl,
+                        videoAvailable: !!vidUrl,
+                        videoUrl: vidUrl,
+                      },
                       traceUrl: t.trace_url,
                       apiEvidence: t.api_evidence,
-                      error: t.failure_message || t.details?.error,
+                      error: t.failure_message || t.details?.error || t.error || null,
                       errorCode: t.status === "FAILED" ? "TEST_FAILED" : t.status === "ERROR" ? "BUILD_ERROR" : t.status === "NOT_EXECUTED" ? "NOT_EXECUTED" : undefined,
-                      stackTrace: t.stack_trace || t.details?.stackTrace,
-                      stdout: t.stdout || t.details?.stdout,
-                      stderr: t.stderr || t.details?.stderr,
+                      stackTrace: t.stack_trace || t.details?.stackTrace || t.stackTrace || null,
+                      stdout: t.stdout || t.details?.stdout || null,
+                      stderr: t.stderr || t.details?.stderr || null,
                     });
                     setShowTestDetailModal(true);
                   }}
@@ -783,7 +784,6 @@ export function ModernizationStepView({
         )}
 
         {/*
-
         <div style={{ borderTop: "1px solid #e2e8f0", paddingTop: 24 }}>
           <p style={{
             fontSize: 13, color: "#64748b", marginBottom: 20,

@@ -1,16 +1,36 @@
 import React, { useState, useMemo } from "react";
 import { FaCheckCircle, FaTimesCircle, FaExclamationTriangle, FaSearch } from "react-icons/fa";
 import { ExistingTestLogs } from "./ExistingTestLogs";
+import { FaDownload } from "react-icons/fa";
 
-interface TestResult {
+export interface TestResult {
+  testId?: string;
+  test_id?: string;
+  executionId?: string;
+  execution_id?: string;
   test_name: string;
+  name?: string;
+  title?: string;
   suite: string;
+  spec?: string;
   status: "PASSED" | "FAILED" | "SKIPPED" | "ERROR" | "NOT_EXECUTED" | "RUNNING" | "PENDING";
   duration: string;
   file: string;
-  type?: string;
-  test_type?: string;
+  error?: string | null;
   failure_message?: string | null;
+  type?: string;
+  testType?: string;
+  test_type?: string;
+  framework?: string;
+  stackTrace?: string | null;
+  stack_trace?: string | null;
+  stdout?: string | null;
+  stderr?: string | null;
+  report_url?: string | null;
+  screenshot_url?: string | null;
+  video_url?: string | null;
+  trace_url?: string | null;
+  api_evidence?: any;
 }
 
 interface FileSummary {
@@ -124,7 +144,31 @@ export function ExistingTestTable({
               Comprehensive execution metrics across discovered test suites
             </p>
           </div>
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+            <button
+              onClick={() => {
+                const sampleJobId = (testResults[0] as any)?.execution_id || (testResults[0] as any)?.executionId;
+                if (sampleJobId) {
+                  window.open(`/api/v1/migration/${sampleJobId}/tests/report/download`, "_blank");
+                }
+              }}
+              style={{
+                padding: "8px 14px",
+                background: "#f8fafc",
+                border: "1px solid #cbd5e1",
+                borderRadius: 8,
+                fontSize: 11,
+                fontWeight: 700,
+                color: "#1e293b",
+                cursor: "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+              }}
+              title="Download full existing tests validation report"
+            >
+              <FaDownload size={11} color="#3b82f6" /> Download Full Test Report
+            </button>
             <div style={{ textAlign: "right" }}>
               <div style={{ fontSize: 17, fontWeight: 900, color: counts.failed > 0 ? "#dc2626" : "#16a34a" }}>
                 {passRateVal}{passRateVal !== "N/A" ? "%" : ""}
@@ -291,7 +335,8 @@ export function ExistingTestTable({
                     const badgeColor = isRunning ? "#1d4ed8" : isPending ? "#64748b" : isPassed ? "#15803d" : isSkipped ? "#b45309" : isNotExecuted ? "#475569" : "#b91c1c";
                     const badgeBg = isRunning ? "#eff6ff" : isPending ? "#f8fafc" : isPassed ? "#dcfce7" : isSkipped ? "#fef3c7" : isNotExecuted ? "#f1f5f9" : "#fde8e8";
                     const displayStatus = isRunning ? "RUNNING" : isPending ? "PENDING" : isNotExecuted ? "NOT EXECUTED" : isPassed ? "✓ PASSED" : isSkipped ? "○ SKIPPED" : t.status === "ERROR" ? "! ERROR" : "✕ FAILED";
-                    const testTypeDisplay = t.test_type || t.type || "JUnit";
+                    const rawType = (t.testType || t.test_type || (t.type === "UI" || t.type === "API" || t.type === "UNIT" ? t.type : "") || (t.category === "UI" ? "UI" : t.category === "API" ? "API" : "") || "UNIT").toUpperCase();
+                    const testTypeDisplay = rawType.includes("UI") ? "UI" : rawType.includes("API") ? "API" : "UNIT";
 
                     // Generate clean descriptions
                     const desc = isRunning
@@ -366,10 +411,10 @@ export function ExistingTestTable({
                               fontWeight: 800,
                               padding: "1.5px 5.5px",
                               borderRadius: 4,
-                              background: testTypeDisplay.toLowerCase().includes("ui") ? "#eff6ff" : testTypeDisplay.toLowerCase().includes("api") ? "#f0fdf4" : "#f1f5f9",
-                              color: testTypeDisplay.toLowerCase().includes("ui") ? "#2563eb" : testTypeDisplay.toLowerCase().includes("api") ? "#16a34a" : "#475569",
-                              border: `1px solid ${testTypeDisplay.toLowerCase().includes("ui") ? "#dbeafe" : testTypeDisplay.toLowerCase().includes("api") ? "#dcfce7" : "#e2e8f0"}`,
-                              textTransform: "uppercase",
+                              background: testTypeDisplay === "UI" ? "#eff6ff" : testTypeDisplay === "API" ? "#f0fdf4" : "#f1f5f9",
+                              color: testTypeDisplay === "UI" ? "#2563eb" : testTypeDisplay === "API" ? "#16a34a" : "#475569",
+                              border: `1px solid ${testTypeDisplay === "UI" ? "#dbeafe" : testTypeDisplay === "API" ? "#dcfce7" : "#e2e8f0"}`,
+                              letterSpacing: "0.04em",
                             }}
                           >
                             {testTypeDisplay}
