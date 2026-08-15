@@ -35,7 +35,6 @@ class ValidateUnitTestSuiteUseCase:
                 chat_llm=original_chat,
                 db=db,
                 job_id=job_id,
-                endpoint="junit_critic"
             )
             self._critic_agent._chat_llm = tracing_chat
 

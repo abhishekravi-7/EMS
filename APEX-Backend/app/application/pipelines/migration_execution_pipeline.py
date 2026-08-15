@@ -7,6 +7,7 @@ migration in a background thread, and exposes read accessors for polling
 
 from __future__ import annotations
 
+from contextvars import copy_context
 import threading
 from typing import Any
 
@@ -21,13 +22,20 @@ class MigrationExecutionPipeline:
     def __init__(self, use_case: StartMigrationUseCase | None = None) -> None:
         self._use_case = use_case or StartMigrationUseCase()
 
-    def start(self, job_id: str, request: dict[str, Any] | None) -> dict[str, Any]:
+    def start(
+        self,
+        job_id: str,
+        request: dict[str, Any] | None,
+        *,
+        current_user_id: int | None = None,
+    ) -> dict[str, Any]:
         """Validate + queue, launch the background run, return the initial result."""
         report = self._use_case.prepare(job_id, request)
+        context = copy_context()
 
         thread = threading.Thread(
-            target=self._use_case.run,
-            args=(job_id,),
+            target=context.run,
+            args=(self._use_case.run, job_id, current_user_id),
             name=f"migration-{job_id}",
             daemon=True,
         )

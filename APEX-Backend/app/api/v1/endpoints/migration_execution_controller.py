@@ -49,7 +49,7 @@ async def start_migration(
     verify_job_ownership(db, job_id, current_user)
     request = payload.model_dump() if payload else None
     try:
-        result = _pipeline.start(job_id, request)
+        result = _pipeline.start(job_id, request, current_user_id=current_user.id)
     except (MigrationConfigError, MigrationExecutionError) as exc:
         return JSONResponse(
             status_code=exc.http_status,
