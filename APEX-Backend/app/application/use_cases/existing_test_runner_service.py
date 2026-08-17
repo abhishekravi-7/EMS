@@ -589,18 +589,45 @@ class ExistingTestRunnerService:
 
     def scan_total(self, job_id: str) -> dict:
         paths = WorkspacePaths(job_id)
-        project_dir = paths.original_repo_dir
+        project_dir = paths.migrated_repo_dir
         if not project_dir.exists():
-            return {"total": 0, "framework": "Not Detected", "test_cases": []}
+            project_dir = paths.original_repo_dir
+        if not project_dir.exists():
+            return {
+                "testCasesFound": 0,
+                "status": "NO_TESTS_FOUND",
+                "message": "No existing test cases found in the repository.",
+                "tests": [],
+                "total": 0,
+                "framework": "Not Detected",
+                "test_cases": []
+            }
         detector = ExistingTestDetector(project_dir)
         detection = detector.scan()
         metrics = detection.get("metrics", {})
         details = detection.get("details", {})
         frameworks = details.get("frameworks", [])
+        test_cases = details.get("testCases", [])
+        total = metrics.get("total", 0)
+
+        if total == 0 or len(test_cases) == 0:
+            return {
+                "testCasesFound": 0,
+                "status": "NO_TESTS_FOUND",
+                "message": "No existing test cases found in the repository.",
+                "tests": [],
+                "total": 0,
+                "framework": "Not Detected",
+                "test_cases": []
+            }
         return {
-            "total": metrics.get("total", 0),
+            "testCasesFound": total,
+            "status": "READY",
+            "message": f"Found {total} existing test cases.",
+            "tests": test_cases,
+            "total": total,
             "framework": ", ".join(frameworks) if frameworks else "Not Detected",
-            "test_cases": details.get("testCases", [])
+            "test_cases": test_cases
         }
 
     def get_status(self, job_id: str) -> dict:
@@ -748,6 +775,84 @@ class ExistingTestRunnerService:
                 pass
         return results
 
+    @staticmethod
+    def _classify_error_and_root_cause(
+        raw_status: str,
+        failure_text: str | None,
+        stack_trace: str | None,
+        stdout: str | None,
+        stderr: str | None
+    ) -> tuple[str, str, str, str | None, str | None]:
+        """
+        Classifies errors and extracts true root cause without letting secondary cleanup errors
+        (e.g., 'Eyes not open', 'Session already closed', 'NullPointerException in tearDown')
+        override or mask the primary root cause (e.g., 'HTTP 401 Unauthorized').
+        
+        Returns:
+            (status, error_category, error_code, root_cause, clean_failure_message)
+        """
+        if raw_status in ("PASSED", "SKIPPED", "NOT_EXECUTED"):
+            return raw_status, "", "", None, failure_text
+
+        combined_text = "\n".join(filter(None, [failure_text, stack_trace, stderr, stdout]))
+        combined_lower = combined_text.lower()
+
+        # 1. Applitools Eyes & External Dependency Authentication Failure
+        is_applitools = any(k in combined_lower for k in ["applitools", "eyesapi.applitools.com", "eyesexception", "eyes.open", "eyes.close"])
+        is_http_401 = "401" in combined_text and ("unauthorized" in combined_lower or "eyesapi" in combined_lower or "http" in combined_lower)
+        is_auth_error = is_http_401 or any(k in combined_lower for k in [
+            "401 unauthorized", "http 401", "invalid api key", "missing api key", "applitools_api_key",
+            "403 forbidden", "407 proxy authentication", "bad credentials", "oauth2authenticationexception"
+        ])
+
+        if is_applitools and (is_auth_error or "401" in combined_text):
+            root_cause = "Applitools Eyes returned HTTP 401 Unauthorized during Eyes.open()"
+            clean_msg = "com.applitools.eyes.EyesException: HTTP 401 Unauthorized https://eyesapi.applitools.com/api/sessions/renderinfo"
+            if "eyesapi.applitools.com" in combined_text:
+                for line in combined_text.splitlines():
+                    if "401" in line or "eyesapi" in line:
+                        clean_msg = line.strip()
+                        break
+            return "ERROR", "External Dependency / Authentication", "EXTERNAL_DEPENDENCY_AUTH", root_cause, clean_msg
+
+        if is_auth_error:
+            root_cause = "External service authentication failed (HTTP 401/403 or Invalid Credentials)"
+            return "ERROR", "External Dependency / Authentication", "EXTERNAL_DEPENDENCY_AUTH", root_cause, failure_text
+
+        # 2. External Service Connection / Availability Failure
+        if any(k in combined_lower for k in [
+            "connectexception", "httphostconnectexception", "unknownhostexception", "noroutetohostexception",
+            "sockettimeoutexception", "connection refused", "502 bad gateway", "503 service unavailable", "504 gateway timeout"
+        ]):
+            root_cause = "Failed to connect to external service endpoint (Connection refused or Timeout)"
+            return "ERROR", "External Dependency / Connection", "EXTERNAL_SERVICE_ERROR", root_cause, failure_text
+
+        # 3. Environment & Configuration Failure
+        if any(k in combined_lower for k in [
+            "playwrightexception: executable doesn't exist", "driver not found", "chromedriver", "geckodriver",
+            "display not set", "bindexception", "address already in use"
+        ]):
+            root_cause = "Environment / Configuration issue: missing browser executable or port conflict"
+            return "ERROR", "Environment / Configuration", "ENVIRONMENT_CONFIG_ERROR", root_cause, failure_text
+
+        # 4. Missing Dependency / ClassNotFound
+        if any(k in combined_lower for k in ["classnotfoundexception", "noclassdeffounderror", "nosuchmethoderror", "unsatisfiedlinkerror"]):
+            root_cause = "Missing dependency or bytecode incompatible library"
+            return "ERROR", "Missing Dependency", "MISSING_DEPENDENCY", root_cause, failure_text
+
+        # 5. Assertion / Test Failure
+        is_assertion = any(k in combined_lower for k in [
+            "assertionerror", "assertionfailederror", "comparisonfailure", "opentest4j.assertionfailederror",
+            "expected:", "but was:", "assertion failed"
+        ])
+        if raw_status == "FAILED" or is_assertion:
+            root_cause = failure_text or "Assertion failed"
+            return "FAILED", "Assertion Failure", "ASSERTION_FAILED", root_cause, failure_text
+
+        # 6. General Test Execution Error
+        root_cause = failure_text or "Test threw an unhandled exception during execution"
+        return "ERROR", "Test Execution Error", "EXECUTION_ERROR", root_cause, failure_text
+
     def _parse_testsuite_element(self, ts_el: ET.Element) -> list[dict]:
         results = []
         suite_sys_out = ts_el.findtext("system-out")
@@ -768,11 +873,11 @@ class ExistingTestRunnerService:
             error = tc.find("error")
             skipped = tc.find("skipped")
 
-            status = "PASSED"
+            raw_status = "PASSED"
             failure_text = None
             stack_trace = None
             if failure is not None:
-                status = "FAILED"
+                raw_status = "FAILED"
                 msg_attr = failure.get("message")
                 type_attr = failure.get("type")
                 body_text = (failure.text or "").strip()
@@ -781,7 +886,7 @@ class ExistingTestRunnerService:
                     failure_text = f"{type_attr}: {failure_text}"
                 stack_trace = body_text or failure_text
             elif error is not None:
-                status = "FAILED"
+                raw_status = "ERROR"
                 msg_attr = error.get("message")
                 type_attr = error.get("type")
                 body_text = (error.text or "").strip()
@@ -790,22 +895,34 @@ class ExistingTestRunnerService:
                     failure_text = f"{type_attr}: {failure_text}"
                 stack_trace = body_text or failure_text
             elif skipped is not None:
-                status = "SKIPPED"
+                raw_status = "SKIPPED"
 
             tc_sys_out = tc.findtext("system-out") or suite_sys_out
             tc_sys_err = tc.findtext("system-err") or suite_sys_err
             file_name = classname.replace(".", "/") + ".java"
 
+            resolved_status, err_cat, err_code, root_cause, clean_msg = self._classify_error_and_root_cause(
+                raw_status, failure_text, stack_trace, tc_sys_out, tc_sys_err
+            )
+
             results.append({
                 "test_name": name,
                 "suite": classname,
-                "status": status,
+                "status": resolved_status,
                 "duration": duration_str,
-                "failure_message": failure_text,
+                "failure_message": clean_msg or failure_text,
                 "stack_trace": stack_trace,
                 "stdout": (tc_sys_out or "").strip() or None,
                 "stderr": (tc_sys_err or "").strip() or None,
-                "file": file_name
+                "file": file_name,
+                "error_category": err_cat,
+                "errorCategory": err_cat,
+                "error_code": err_code,
+                "errorCode": err_code,
+                "root_cause": root_cause,
+                "rootCause": root_cause,
+                "apex_execution": "Started successfully",
+                "apexExecution": "Started successfully",
             })
         return results
 
@@ -1083,7 +1200,7 @@ class ExistingTestRunnerService:
         if not project_dir.exists():
             project_dir = paths.original_repo_dir
 
-        self._log(job_id, f"Scanning repository at {project_dir.name} for existing test files...")
+        self._log(job_id, "Scanning repository for existing test files...")
         detector = ExistingTestDetector(project_dir)
         detection = detector.scan()
         metrics = detection.get("metrics", {})
@@ -1093,6 +1210,53 @@ class ExistingTestRunnerService:
         frameworks = details.get("frameworks", [])
         framework_type = ", ".join(frameworks) if frameworks else "JUnit"
         test_cases = details.get("testCases", [])
+
+        # If zero tests found in the entire repository, skip all test runner executions
+        if total_tests == 0 or len(test_cases) == 0:
+            self._log(job_id, "No existing test cases found.")
+            self._log(job_id, "Skipping test execution because no existing tests were detected.")
+
+            no_tests_result = {
+                "status": "NO_TESTS_FOUND",
+                "executed": False,
+                "testCasesFound": 0,
+                "message": "No existing test cases found in the repository.",
+                "tests": [],
+                "metrics": {
+                    "total": 0,
+                    "executed": 0,
+                    "passed": 0,
+                    "failed": 0,
+                    "skipped": 0,
+                    "not_executed": 0,
+                    "duration": "0.00s",
+                    "pass_percentage": "N/A",
+                    "type": "Not Detected",
+                    "build_tool": None,
+                    "existing_coverage": "N/A",
+                    "execution_status": "NO_TESTS_FOUND",
+                    "compilation_error": None,
+                },
+                "framework_info": {
+                    "detected_framework": "Not Detected",
+                    "build_tool": None,
+                    "test_source_dir": "src/test/java"
+                },
+                "test_results": [],
+                "file_breakdown": [],
+                "report_availability": {
+                    "surefire": {"available": False, "report_url": None, "label": "JUnit (Maven Surefire Report)"},
+                    "playwright": {"available": False, "report_url": None, "label": "Playwright Report"},
+                    "allure": {"available": False, "report_url": None, "label": "Selenium (Allure Report)"},
+                }
+            }
+            with self._lock:
+                state = self._state.setdefault(job_id, {})
+                state["status"] = "NO_TESTS_FOUND"
+                state["executed"] = True
+                state["result"] = no_tests_result
+
+            return no_tests_result
 
         # If selection provided, filter the tests to be executed
         if test_selection:
@@ -1636,6 +1800,15 @@ class ExistingTestRunnerService:
                     screenshot_url = f"/api/v1/migration/{job_id}/tests/{encoded_id}/evidence/screenshot" if has_screenshot else None
                     video_url = f"/api/v1/migration/{job_id}/tests/{encoded_id}/evidence/video" if has_video else None
 
+                    unavailable_reason = None
+                    if not has_screenshot and not has_video:
+                        if status == "ERROR":
+                            unavailable_reason = "Screenshot/video unavailable because test initialization failed"
+                        elif status == "FAILED":
+                            unavailable_reason = "Screenshot/video unavailable: test failed before evidence capture"
+                        else:
+                            unavailable_reason = "Screenshot/video evidence unavailable for this test"
+
                     tc["evidence"] = {
                         "screenshotAvailable": has_screenshot,
                         "screenshotUrl": screenshot_url,
@@ -1643,7 +1816,10 @@ class ExistingTestRunnerService:
                         "videoUrl": video_url,
                         "screenshotPath": str(dest_shot) if has_screenshot else None,
                         "videoPath": str(dest_vid) if has_video else None,
+                        "unavailableReason": unavailable_reason,
                     }
+                    tc["unavailable_reason"] = unavailable_reason
+                    tc["unavailableReason"] = unavailable_reason
                     tc["screenshot_url"] = screenshot_url
                     tc["screenshotUrl"] = screenshot_url
                     tc["video_url"] = video_url
@@ -1664,6 +1840,7 @@ class ExistingTestRunnerService:
                             "videoPath": f"ui/{sanitized_id}/{dest_vid.name}" if has_video else None,
                             "screenshotUrl": screenshot_url,
                             "videoUrl": video_url,
+                            "unavailableReason": unavailable_reason,
                         }
                         result_json_file.write_text(json.dumps(result_metadata, indent=2), encoding="utf-8")
                         self._log(job_id, f"Evidence saved to ui/{sanitized_id}")
@@ -1675,21 +1852,28 @@ class ExistingTestRunnerService:
                         self._log(job_id, f"[UI EVIDENCE] Screenshot exists: true")
                         self._log(job_id, f"[UI EVIDENCE] Screenshot size: {dest_shot.stat().st_size} bytes")
                     else:
-                        self._log(job_id, "[UI EVIDENCE] ERROR: Screenshot was not created", "WARN")
+                        if status == "ERROR":
+                            self._log(job_id, "[UI EVIDENCE] Screenshot/video unavailable because test initialization failed", "INFO")
+                        else:
+                            self._log(job_id, "[UI EVIDENCE] Screenshot unavailable for this execution", "INFO")
 
                     if has_video:
                         self._log(job_id, f"[UI EVIDENCE] Video path: {dest_vid}")
                         self._log(job_id, f"[UI EVIDENCE] Video exists: true")
                         self._log(job_id, f"[UI EVIDENCE] Video size: {dest_vid.stat().st_size} bytes")
                     else:
-                        self._log(job_id, "[UI EVIDENCE] Video recording not finalized", "WARN")
+                        if status != "ERROR":
+                            self._log(job_id, "[UI EVIDENCE] Video recording not finalized", "INFO")
 
                 # Ensure standardized details and masked api_evidence
                 tc.setdefault("details", {
                     "stdout": tc.get("stdout"),
                     "stderr": tc.get("stderr"),
                     "error": tc.get("failure_message"),
-                    "stackTrace": tc.get("stack_trace")
+                    "stackTrace": tc.get("stack_trace"),
+                    "errorCategory": tc.get("error_category"),
+                    "rootCause": tc.get("root_cause"),
+                    "apexExecution": tc.get("apex_execution", "Started successfully")
                 })
 
                 if tc.get("api_evidence") and isinstance(tc["api_evidence"], dict):
@@ -1699,6 +1883,8 @@ class ExistingTestRunnerService:
 
                 if status == "NOT_EXECUTED":
                     self._log(job_id, f"  [{icon}] {short_class}.{test_name} [N/A]", "WARN")
+                elif status == "ERROR":
+                    self._log(job_id, f"  [! ERROR] {short_class}.{test_name} [{duration}] - {tc.get('error_category', 'Execution Error')}: {tc.get('root_cause', tc.get('failure_message', ''))}", "ERROR")
                 else:
                     self._log(job_id, f"  [{icon}] {short_class}.{test_name} [{duration}]", level)
 

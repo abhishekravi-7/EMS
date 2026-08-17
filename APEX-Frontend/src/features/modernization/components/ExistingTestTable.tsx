@@ -1,7 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { FaCheckCircle, FaTimesCircle, FaExclamationTriangle, FaSearch } from "react-icons/fa";
 import { ExistingTestLogs } from "./ExistingTestLogs";
-import { FaDownload } from "react-icons/fa";
 
 export interface TestResult {
   testId?: string;
@@ -18,10 +17,21 @@ export interface TestResult {
   file: string;
   error?: string | null;
   failure_message?: string | null;
+  error_category?: string | null;
+  errorCategory?: string | null;
+  error_code?: string | null;
+  errorCode?: string | null;
+  root_cause?: string | null;
+  rootCause?: string | null;
+  apex_execution?: string | null;
+  apexExecution?: string | null;
+  unavailable_reason?: string | null;
+  unavailableReason?: string | null;
   type?: string;
   testType?: string;
   test_type?: string;
   framework?: string;
+  engine?: string;
   stackTrace?: string | null;
   stack_trace?: string | null;
   stdout?: string | null;
@@ -31,6 +41,7 @@ export interface TestResult {
   video_url?: string | null;
   trace_url?: string | null;
   api_evidence?: any;
+  evidence?: any;
 }
 
 interface FileSummary {
@@ -122,6 +133,47 @@ export function ExistingTestTable({
   const hasFailed = counts.failed > 0;
   const hasNotExecuted = counts.not_executed > 0;
 
+  if (testResults.length === 0) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+        <div style={{
+          padding: "48px 32px",
+          textAlign: "center",
+          background: "#f8fafc",
+          borderRadius: 16,
+          border: "1px solid #e2e8f0",
+        }}>
+          <div style={{ fontSize: 11, fontWeight: 800, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>
+            Existing Tests Validation Report
+          </div>
+          <h3 style={{ fontSize: 18, fontWeight: 800, color: "#0f172a", margin: "0 0 8px 0" }}>
+            No Existing Test Cases Found
+          </h3>
+          <p style={{ fontSize: 13, color: "#64748b", maxWidth: 440, margin: "0 auto 16px auto", lineHeight: 1.5 }}>
+            No existing test cases were detected in this repository. Test execution was skipped.
+          </p>
+          <div style={{
+            display: "inline-flex",
+            gap: 16,
+            padding: "8px 18px",
+            background: "#fff",
+            borderRadius: 8,
+            border: "1px solid #e2e8f0",
+            fontSize: 11,
+            fontWeight: 700,
+            color: "#475569"
+          }}>
+            <span>Total Tests: <strong style={{ color: "#0f172a" }}>0</strong></span>
+            <span>Passed: <strong style={{ color: "#16a34a" }}>0</strong></span>
+            <span>Failed: <strong style={{ color: "#dc2626" }}>0</strong></span>
+            <span>Skipped: <strong style={{ color: "#d97706" }}>0</strong></span>
+            <span>Not Executed: <strong style={{ color: "#64748b" }}>0</strong></span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
       
@@ -145,30 +197,6 @@ export function ExistingTestTable({
             </p>
           </div>
           <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-            <button
-              onClick={() => {
-                const sampleJobId = (testResults[0] as any)?.execution_id || (testResults[0] as any)?.executionId;
-                if (sampleJobId) {
-                  window.open(`/api/v1/migration/${sampleJobId}/tests/report/download`, "_blank");
-                }
-              }}
-              style={{
-                padding: "8px 14px",
-                background: "#f8fafc",
-                border: "1px solid #cbd5e1",
-                borderRadius: 8,
-                fontSize: 11,
-                fontWeight: 700,
-                color: "#1e293b",
-                cursor: "pointer",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-              }}
-              title="Download full existing tests validation report"
-            >
-              <FaDownload size={11} color="#3b82f6" /> Download Full Test Report
-            </button>
             <div style={{ textAlign: "right" }}>
               <div style={{ fontSize: 17, fontWeight: 900, color: counts.failed > 0 ? "#dc2626" : "#16a34a" }}>
                 {passRateVal}{passRateVal !== "N/A" ? "%" : ""}
@@ -312,15 +340,16 @@ export function ExistingTestTable({
                   <th style={{ padding: "12px 16px", width: 120 }}>STATUS</th>
                   <th style={{ padding: "12px 16px" }}>TEST CLASS</th>
                   <th style={{ padding: "12px 16px" }}>TEST NAME</th>
-                  <th style={{ padding: "12px 16px", width: 90 }}>TYPE</th>
+                  <th style={{ padding: "12px 16px", width: 110 }}>FRAMEWORK</th>
+                  <th style={{ padding: "12px 16px", width: 95 }}>TEST TYPE</th>
                   <th style={{ padding: "12px 16px" }}>DESCRIPTION</th>
-                  <th style={{ padding: "12px 16px", width: 100 }}>DURATION</th>
+                  <th style={{ padding: "12px 16px", width: 90 }}>DURATION</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={7} style={{ padding: 32, textAlign: "center", color: "#94a3b8" }}>
+                    <td colSpan={8} style={{ padding: 32, textAlign: "center", color: "#94a3b8" }}>
                       No matching test cases found.
                     </td>
                   </tr>
@@ -335,6 +364,7 @@ export function ExistingTestTable({
                     const badgeColor = isRunning ? "#1d4ed8" : isPending ? "#64748b" : isPassed ? "#15803d" : isSkipped ? "#b45309" : isNotExecuted ? "#475569" : "#b91c1c";
                     const badgeBg = isRunning ? "#eff6ff" : isPending ? "#f8fafc" : isPassed ? "#dcfce7" : isSkipped ? "#fef3c7" : isNotExecuted ? "#f1f5f9" : "#fde8e8";
                     const displayStatus = isRunning ? "RUNNING" : isPending ? "PENDING" : isNotExecuted ? "NOT EXECUTED" : isPassed ? "✓ PASSED" : isSkipped ? "○ SKIPPED" : t.status === "ERROR" ? "! ERROR" : "✕ FAILED";
+                    const frameworkDisplay = t.framework || (t.type && !["UI", "API", "UNIT"].includes(t.type.toUpperCase()) ? t.type : "") || frameworkInfo?.detected_framework || frameworkInfo?.build_tool || "JUnit";
                     const rawType = (t.testType || t.test_type || (t.type === "UI" || t.type === "API" || t.type === "UNIT" ? t.type : "") || (t.category === "UI" ? "UI" : t.category === "API" ? "API" : "") || "UNIT").toUpperCase();
                     const testTypeDisplay = rawType.includes("UI") ? "UI" : rawType.includes("API") ? "API" : "UNIT";
 
@@ -349,6 +379,8 @@ export function ExistingTestTable({
                       ? `Skipped validation for "${t.test_name}".`
                       : isNotExecuted
                       ? (t.failure_message || `Maven compilation failed before "${t.test_name}" could execute.`)
+                      : (t.root_cause || t.rootCause)
+                      ? `${(t.error_category || t.errorCategory) ? `[${t.error_category || t.errorCategory}] ` : ""}${t.root_cause || t.rootCause}`
                       : t.failure_message
                       ? t.failure_message.slice(0, 100) + (t.failure_message.length > 100 ? "..." : "")
                       : `Validation failed in "${t.test_name}".`;
@@ -407,14 +439,33 @@ export function ExistingTestTable({
                         <td style={{ padding: "12px 16px" }}>
                           <span
                             style={{
+                              fontSize: 10,
+                              fontWeight: 700,
+                              padding: "2px 8px",
+                              borderRadius: 6,
+                              background: "#f1f5f9",
+                              color: "#334155",
+                              border: "1px solid #e2e8f0",
+                              letterSpacing: "0.02em",
+                              whiteSpace: "nowrap",
+                              display: "inline-block",
+                            }}
+                          >
+                            {frameworkDisplay}
+                          </span>
+                        </td>
+                        <td style={{ padding: "12px 16px" }}>
+                          <span
+                            style={{
                               fontSize: 9,
                               fontWeight: 800,
-                              padding: "1.5px 5.5px",
+                              padding: "2px 7px",
                               borderRadius: 4,
-                              background: testTypeDisplay === "UI" ? "#eff6ff" : testTypeDisplay === "API" ? "#f0fdf4" : "#f1f5f9",
-                              color: testTypeDisplay === "UI" ? "#2563eb" : testTypeDisplay === "API" ? "#16a34a" : "#475569",
-                              border: `1px solid ${testTypeDisplay === "UI" ? "#dbeafe" : testTypeDisplay === "API" ? "#dcfce7" : "#e2e8f0"}`,
+                              background: testTypeDisplay === "UI" ? "#f5f3ff" : testTypeDisplay === "API" ? "#ecfeff" : "#f8fafc",
+                              color: testTypeDisplay === "UI" ? "#7c3aed" : testTypeDisplay === "API" ? "#0284c7" : "#475569",
+                              border: `1px solid ${testTypeDisplay === "UI" ? "#ddd6fe" : testTypeDisplay === "API" ? "#bae6fd" : "#e2e8f0"}`,
                               letterSpacing: "0.04em",
+                              display: "inline-block",
                             }}
                           >
                             {testTypeDisplay}

@@ -19,18 +19,24 @@ export interface TestReportData {
   url?: string | null;
   error?: string | null;
   errorCode?: string | null;
+  errorCategory?: string | null;
+  rootCause?: string | null;
+  apexExecution?: string | null;
+  unavailableReason?: string | null;
   stackTrace?: string | null;
   stdout?: string | null;
   stderr?: string | null;
   type?: string;
   testType?: "JUNIT" | "API" | "UI" | "UNIT" | "UNKNOWN" | string;
   framework?: string;
+  engine?: string;
   // UI evidence
   screenshotUrl?: string | null;
   videoUrl?: string | null;
   traceUrl?: string | null;
   // API evidence
   apiEvidence?: ApiEvidence | null;
+  evidence?: any;
 }
 
 interface TestReportsModalProps {
@@ -44,7 +50,8 @@ interface TestReportsModalProps {
 const STATUS_COLORS = {
   PASSED: { bg: "#064e3b", text: "#34d399", border: "#065f46" },
   FAILED: { bg: "#451a1a", text: "#f87171", border: "#7f1d1d" },
-  SKIPPED: { bg: "#1e1b4b", text: "#a5b4fc", border: "#312e81" },
+  ERROR: { bg: "#451a1a", text: "#f87171", border: "#7f1d1d" },
+  SKIPPED: { bg: "#451a03", text: "#fbbf24", border: "#78350f" },
   NOT_EXECUTED: { bg: "#1e293b", text: "#94a3b8", border: "#475569" },
   DEFAULT: { bg: "#1e293b", text: "#94a3b8", border: "#334155" },
 };
@@ -59,7 +66,7 @@ function StatusBadge({ status }: { status: string }) {
   const label = status === "NOT_EXECUTED" ? "NOT EXECUTED" : status;
   return (
     <span style={{
-      fontSize: 10, fontWeight: 900, padding: "2px 10px", borderRadius: 99,
+      fontSize: 10, fontWeight: 900, padding: "3px 10px", borderRadius: 6,
       textTransform: "uppercase", letterSpacing: "0.05em",
       background: c.bg, color: c.text, border: `1px solid ${c.border}`,
     }}>{label}</span>
@@ -77,6 +84,11 @@ function TestExecutionDetails({ data }: { data: TestReportData }) {
   const hasStackTrace = !!(data.stackTrace && data.stackTrace.trim());
   const hasStdout = !!(data.stdout && data.stdout.trim());
   const hasStderr = !!(data.stderr && data.stderr.trim());
+
+  const frameworkVal = data.framework || "JUnit";
+  const rawTestType = (data.testType || (data.type === "UI" || data.type === "API" || data.type === "UNIT" ? data.type : "") || "UNIT").toUpperCase();
+  const testTypeVal = rawTestType.includes("UI") ? "UI" : rawTestType.includes("API") ? "API" : "UNIT";
+  const engineVal = data.engine || (testTypeVal === "UI" ? "Playwright" : data.type && data.type !== frameworkVal && data.type !== testTypeVal ? data.type : null);
 
   return (
     <div style={{
@@ -96,89 +108,174 @@ function TestExecutionDetails({ data }: { data: TestReportData }) {
         letterSpacing: "0.08em",
         borderBottom: "1px solid #334155",
         paddingBottom: 8,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
       }}>
-        Test Execution Details
+        <span>Test Execution Details</span>
+        <span style={{ fontSize: 10, color: "#64748b", textTransform: "none", fontWeight: 600 }}>APEX Test Discovery &amp; Execution</span>
       </div>
 
-      {/* Two-Column / Multi-Column Grid */}
+      {/* Multi-Column Grid */}
       <div style={{
         display: "grid",
-        gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-        gap: "12px 20px",
+        gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
+        gap: "14px 20px",
       }}>
         <div>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>Test ID</div>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0", fontFamily: "monospace", wordBreak: "break-all" }}>
-            {data.testId || "None"}
-          </div>
-        </div>
-
-        <div>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>Execution ID</div>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0", fontFamily: "monospace", wordBreak: "break-all" }}>
-            {data.executionId || "None"}
-          </div>
-        </div>
-
-        <div>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>Test Method / Name</div>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#38bdf8", fontFamily: "monospace" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 2 }}>Test Name</div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#38bdf8", fontFamily: "monospace", wordBreak: "break-all" }}>
             {data.title || "None"}
           </div>
         </div>
 
         <div>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>Class / Suite</div>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#7dd3fc", fontFamily: "monospace", wordBreak: "break-all" }}>
-            {data.spec || "None"}
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 2 }}>Test ID</div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#cbd5e1", fontFamily: "monospace", wordBreak: "break-all" }}>
+            {data.testId || "None"}
           </div>
         </div>
 
         <div>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>Status</div>
-          <div style={{ fontSize: 12, fontWeight: 800, color: data.status === "PASSED" ? "#34d399" : data.status === "FAILED" || data.status === "ERROR" ? "#f87171" : "#94a3b8" }}>
-            {data.status || "None"}
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 2 }}>Execution ID</div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#cbd5e1", fontFamily: "monospace", wordBreak: "break-all" }}>
+            {data.executionId || "None"}
           </div>
         </div>
 
         <div>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>Duration</div>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#f472b6" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 2 }}>Status</div>
+          <div style={{ marginTop: 2 }}>
+            <StatusBadge status={data.status} />
+          </div>
+        </div>
+
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 2 }}>Duration</div>
+          <div style={{ fontSize: 12, fontWeight: 800, color: "#f472b6" }}>
             {data.duration || "None"}
           </div>
         </div>
 
         <div>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>Source File</div>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#cbd5e1", fontFamily: "monospace", wordBreak: "break-all" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 2 }}>Source File</div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", fontFamily: "monospace", wordBreak: "break-all" }}>
             {data.file || "None"}
           </div>
         </div>
 
         <div>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>Framework</div>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#fbbf24" }}>
-            {data.framework || "None"}
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 2 }}>Class / Suite</div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#7dd3fc", fontFamily: "monospace", wordBreak: "break-all" }}>
+            {data.spec || "None"}
           </div>
         </div>
 
         <div>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>Test Type</div>
-          <div style={{ fontSize: 12, fontWeight: 800, color: "#a78bfa" }}>
-            {data.testType || "None"}
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 2 }}>Framework</div>
+          <div style={{ marginTop: 2 }}>
+            <span style={{
+              fontSize: 10,
+              fontWeight: 700,
+              padding: "2px 8px",
+              borderRadius: 6,
+              background: "#334155",
+              color: "#e2e8f0",
+              border: "1px solid #475569",
+              letterSpacing: "0.02em",
+              display: "inline-block",
+            }}>
+              {frameworkVal}
+            </span>
           </div>
         </div>
 
         <div>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>Test Type / Framework</div>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#94a3b8" }}>
-            {data.type || "None"}
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 2 }}>Test Type</div>
+          <div style={{ marginTop: 2 }}>
+            <span style={{
+              fontSize: 9,
+              fontWeight: 800,
+              padding: "2px 8px",
+              borderRadius: 4,
+              background: testTypeVal === "UI" ? "#1e1b4b" : testTypeVal === "API" ? "#083344" : "#1e293b",
+              color: testTypeVal === "UI" ? "#a78bfa" : testTypeVal === "API" ? "#38bdf8" : "#94a3b8",
+              border: `1px solid ${testTypeVal === "UI" ? "#3730a3" : testTypeVal === "API" ? "#155e75" : "#334155"}`,
+              letterSpacing: "0.04em",
+              display: "inline-block",
+            }}>
+              {testTypeVal}
+            </span>
           </div>
         </div>
+
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 2 }}>APEX Execution</div>
+          <div style={{ marginTop: 2, display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{
+              fontSize: 10,
+              fontWeight: 800,
+              padding: "2px 8px",
+              borderRadius: 6,
+              background: "#064e3b",
+              color: "#34d399",
+              border: "1px solid #065f46",
+              letterSpacing: "0.02em",
+              display: "inline-block",
+            }}>
+              {data.apexExecution || (data as any)?.details?.apexExecution || "Started successfully"}
+            </span>
+          </div>
+        </div>
+
+        {engineVal && (
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 2 }}>Engine</div>
+            <div style={{ marginTop: 2 }}>
+              <span style={{
+                fontSize: 10,
+                fontWeight: 700,
+                padding: "2px 8px",
+                borderRadius: 6,
+                background: "#1e1b4b",
+                color: "#c084fc",
+                border: "1px solid #4c1d95",
+                letterSpacing: "0.02em",
+                display: "inline-block",
+              }}>
+                {engineVal}
+              </span>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Expandable Sections for Error, Stack Trace, stdout, stderr */}
+      {/* Expandable Sections for Error, Root Cause, Category, Stack Trace, stdout, stderr */}
       <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 4 }}>
+        {/* Root Cause (when present) */}
+        {(data.rootCause || (data as any)?.details?.rootCause) && (
+          <div style={{ background: "#451a03", borderRadius: 8, padding: "10px 14px", border: "1px solid #78350f" }}>
+            <div style={{ fontSize: 10, fontWeight: 800, color: "#fbbf24", textTransform: "uppercase", marginBottom: 4, letterSpacing: "0.05em" }}>
+              Root Cause
+            </div>
+            <div style={{ fontSize: 12, color: "#fef08a", fontWeight: 700, lineHeight: 1.4 }}>
+              {data.rootCause || (data as any)?.details?.rootCause}
+            </div>
+          </div>
+        )}
+
+        {/* Error Classification / Category (when present) */}
+        {(data.errorCategory || (data as any)?.details?.errorCategory) && (
+          <div style={{ background: "#1e293b", borderRadius: 8, padding: "10px 14px", border: "1px solid #334155" }}>
+            <div style={{ fontSize: 10, fontWeight: 800, color: "#94a3b8", textTransform: "uppercase", marginBottom: 4, letterSpacing: "0.05em" }}>
+              Error Classification
+            </div>
+            <div style={{ fontSize: 12, color: "#f87171", fontWeight: 700 }}>
+              {data.errorCategory || (data as any)?.details?.errorCategory}
+            </div>
+          </div>
+        )}
+
         {/* Error */}
         <div style={{ background: "#0f172a", borderRadius: 8, padding: "10px 14px", border: "1px solid #334155" }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", marginBottom: 4 }}>
@@ -455,25 +552,6 @@ function ApiReportPanel({ data }: { data: TestReportData }) {
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", paddingTop: 10 }}>
         <button
           onClick={() => {
-            const rawJson = JSON.stringify(data, null, 2);
-            const blob = new Blob([rawJson], { type: "application/json" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `${data.title}_api_report.json`;
-            a.click();
-            URL.revokeObjectURL(url);
-          }}
-          style={{
-            padding: "8px 14px", background: "#1e293b", color: "#34d399",
-            borderRadius: 8, border: "1px solid #334155", fontSize: 11, fontWeight: 700,
-            display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer"
-          }}
-        >
-          <FaDownload size={11} /> Download API Report
-        </button>
-        <button
-          onClick={() => {
             const logs = data.stdout || data.stderr || "No execution logs recorded.";
             const blob = new Blob([logs], { type: "text/plain" });
             const url = URL.createObjectURL(blob);
@@ -584,7 +662,7 @@ function UiReportPanel({ data }: { data: TestReportData }) {
           </div>
         ) : (
           <div style={{ background: "#0f172a", padding: "16px 20px", borderRadius: 10, border: "1px solid #334155", color: "#94a3b8", fontSize: 12 }}>
-            No screenshot evidence available for this test.
+            {data.unavailableReason || (data as any)?.evidence?.unavailableReason || "Screenshot evidence unavailable because test failed before or during initialization."}
           </div>
         )}
       </div>
@@ -609,7 +687,7 @@ function UiReportPanel({ data }: { data: TestReportData }) {
           </div>
         ) : (
           <div style={{ background: "#0f172a", padding: "16px 20px", borderRadius: 10, border: "1px solid #334155", color: "#94a3b8", fontSize: 12 }}>
-            Video evidence unavailable.
+            {data.unavailableReason || (data as any)?.evidence?.unavailableReason || "Video evidence unavailable."}
           </div>
         )}
       </div>
@@ -678,25 +756,6 @@ function UiReportPanel({ data }: { data: TestReportData }) {
             <FaDownload size={11} /> Download Video
           </a>
         )}
-        <button
-          onClick={() => {
-            const rawJson = JSON.stringify(data, null, 2);
-            const blob = new Blob([rawJson], { type: "application/json" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `${data.title}_ui_report.json`;
-            a.click();
-            URL.revokeObjectURL(url);
-          }}
-          style={{
-            padding: "8px 14px", background: "#1e293b", color: "#f1f5f9",
-            borderRadius: 8, border: "1px solid #334155", fontSize: 11, fontWeight: 700,
-            display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer"
-          }}
-        >
-          <FaDownload size={11} /> Download UI Test Report
-        </button>
         <button
           onClick={() => {
             const logs = data.stdout || data.stderr || "No execution logs recorded.";
@@ -919,25 +978,6 @@ function JUnitReportPanel({ data }: { data: TestReportData }) {
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", paddingTop: 10 }}>
         <button
           onClick={() => {
-            const rawJson = JSON.stringify(data, null, 2);
-            const blob = new Blob([rawJson], { type: "application/json" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `${data.title}_unit_report.json`;
-            a.click();
-            URL.revokeObjectURL(url);
-          }}
-          style={{
-            padding: "8px 14px", background: "#1e293b", color: "#38bdf8",
-            borderRadius: 8, border: "1px solid #334155", fontSize: 11, fontWeight: 700,
-            display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer"
-          }}
-        >
-          <FaDownload size={11} /> Download Unit Test Report
-        </button>
-        <button
-          onClick={() => {
             const logs = data.stdout || data.stderr || "No execution logs recorded.";
             const blob = new Blob([logs], { type: "text/plain" });
             const url = URL.createObjectURL(blob);
@@ -988,20 +1028,30 @@ function GenericReportPanel({ data }: { data: TestReportData }) {
         </div>
       </div>
 
-      <div style={{ background: "#1e293b", borderRadius: 12, padding: "16px 20px", border: "1px solid #334155" }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0" }}>Test Status: {data.status}</div>
-        {data.error && <div style={{ fontSize: 12, color: "#fca5a5", marginTop: 8 }}>{data.error}</div>}
-      </div>
+      <TestExecutionDetails data={data} />
 
-      {(data.stdout || data.stderr) && (
-        <pre style={{
-          margin: 0, background: "#020617", border: "1px solid #1e293b",
-          borderRadius: 10, padding: 14, fontFamily: "monospace", fontSize: 11,
-          color: "#e2e8f0", whiteSpace: "pre-wrap", wordBreak: "break-all", maxHeight: 250, overflowY: "auto",
-        }}>
-          {data.stdout || data.stderr}
-        </pre>
-      )}
+      {/* Action Buttons */}
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", paddingTop: 10 }}>
+        <button
+          onClick={() => {
+            const logs = data.stdout || data.stderr || "No execution logs recorded.";
+            const blob = new Blob([logs], { type: "text/plain" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `${data.title}_logs.txt`;
+            a.click();
+            URL.revokeObjectURL(url);
+          }}
+          style={{
+            padding: "8px 14px", background: "#1e293b", color: "#fbbf24",
+            borderRadius: 8, border: "1px solid #334155", fontSize: 11, fontWeight: 700,
+            display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer"
+          }}
+        >
+          <FaDownload size={11} /> Download Logs
+        </button>
+      </div>
     </div>
   );
 }
