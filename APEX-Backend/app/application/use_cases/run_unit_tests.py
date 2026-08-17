@@ -63,20 +63,19 @@ class RunUnitTestSuiteUseCase:
 
         # Wrap generator's ChatLLM with tracing if DB is available
         original_chat = self._generator._chat_llm
+        original_critic_chat = self._validator._critic_agent._chat_llm
         if db:
             tracing_chat = LLMTokenTracingService(
                 chat_llm=original_chat,
                 db=db,
                 job_id=req.job_id,
-                endpoint="junit_generation"
             )
             self._generator._chat_llm = tracing_chat
             # Also wrap critic agent's ChatLLM
             self._validator._critic_agent._chat_llm = LLMTokenTracingService(
-                chat_llm=original_chat,
+                chat_llm=original_critic_chat,
                 db=db,
                 job_id=req.job_id,
-                endpoint="junit_critic"
             )
 
         try:
@@ -164,7 +163,7 @@ class RunUnitTestSuiteUseCase:
         finally:
             if db:
                 self._generator._chat_llm = original_chat
-                self._validator._critic_agent._chat_llm = original_chat
+                self._validator._critic_agent._chat_llm = original_critic_chat
 
     def discover_target_classes(self, project_dir: Path) -> list[Path]:
         main_java = project_dir / "src" / "main" / "java"
@@ -202,7 +201,6 @@ class RunUnitTestSuiteUseCase:
                 chat_llm=original_chat,
                 db=db,
                 job_id=req.job_id,
-                endpoint="junit_generation_batch"
             )
             self._generator._chat_llm = tracing_chat
 

@@ -110,14 +110,14 @@ class SanitizeLineTests(unittest.TestCase):
         assert result is not None
         self.assertNotIn(".javaapex-rewrite-9f1c2b7e.yml", result)
 
-    def test_no_openrewrite_token_survives_any_mapped_or_cleaned_line(self) -> None:
+    def test_no_migration_tool_token_survives_any_mapped_or_cleaned_line(self) -> None:
         raw_lines = [
             "[INFO] Scanning for projects...",
             "Selected Java recipe for target 21: org.openrewrite.java.migrate.UpgradeToJava21",
             "Asserting exact target Java version 21 via UpgradeJavaVersion",
             "Selected conditional recipe jakarta-ee: org.openrewrite.java.migrate.jakarta.JavaxMigrationToJakarta",
-            "OpenRewrite could not run: Maven tooling was not found in this environment.",
-            "No applicable OpenRewrite recipes for the selected target.",
+            "Migration engine could not run: Maven tooling was not found in this environment.",
+            "No applicable migration recipes for the selected target.",
             "[ERROR] org.openrewrite.maven.MavenDownloadingException: could not find artifact",
         ]
         for line in raw_lines:
@@ -141,7 +141,7 @@ class SanitizeLinesTests(unittest.TestCase):
 
 class SanitizeTextTests(unittest.TestCase):
     def test_never_drops_content(self) -> None:
-        text = "Modernized legacy Gradle build script in build.gradle before OpenRewrite."
+        text = "Modernized legacy Gradle build script in build.gradle before migration."
         result = sanitizer.sanitize_text(text)
         self.assertTrue(result)
         self.assertNotIn("OpenRewrite", result)

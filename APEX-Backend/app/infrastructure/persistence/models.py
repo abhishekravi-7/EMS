@@ -149,7 +149,6 @@ class LLMTokenUsage(Base):
     __tablename__ = "llm_token_usage"
     __table_args__ = (
         Index("ix_llm_token_usage_user_created", "user_id", "created_at"),
-        Index("ix_llm_token_usage_job_id", "job_id"),
         Index("ix_llm_token_usage_repo_url", "repository_url"),
     )
 

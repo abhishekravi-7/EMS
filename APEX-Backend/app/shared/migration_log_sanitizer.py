@@ -36,7 +36,7 @@ _WINDOWS_PATH = re.compile(r"[A-Za-z]:\\[^\s\"'<>]+")
 _UNIX_PATH = re.compile(r"(?<![\w/])/(?:[\w.\-]+/)+[\w.\-]+")
 
 _RECIPE_FQN = re.compile(r"\borg\.openrewrite\.[\w$]+(?:\.[\w$]+)*")
-_OPENREWRITE_WORD = re.compile(r"\bopen\s*rewrite\b", re.IGNORECASE)
+_MIGRATION_TOOL_WORD = re.compile(r"\bopen\s*rewrite\b", re.IGNORECASE)
 
 
 def _redact(line: str) -> str:
@@ -240,10 +240,10 @@ def _simplify_error(line: str) -> str:
 def _generic_clean(line: str) -> str:
     text = _redact(line)
     text = _replace_recipe_refs(text)
-    # "open rewrite" reads naturally as "migration" in the sentences this
-    # brand word actually shows up in ("open rewrite recipe(s)/plugin/failed/
-    # could not run" -> "migration recipe(s)/plugin/failed/could not run").
-    text = _OPENREWRITE_WORD.sub("migration", text)
+    # The migration tool name reads naturally as "migration" in the sentences
+    # it actually shows up in ("tool recipe(s)/plugin/failed/could not run"
+    # -> "migration recipe(s)/plugin/failed/could not run").
+    text = _MIGRATION_TOOL_WORD.sub("migration", text)
     text = re.sub(r"^\[(INFO|WARN|WARNING|DEBUG)]\s*", "", text, flags=re.IGNORECASE)
     text = re.sub(r"\s+", " ", text).strip(" :-\t")
     if text and text[0].isalpha():

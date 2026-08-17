@@ -7,7 +7,7 @@ Responsibilities:
   * Save ``discovery-report.json``.
   * Return a clean discovery summary.
 
-Explicitly NOT done here: migration, OpenRewrite, Maven/Gradle builds, pushing
+Explicitly NOT done here: migration-engine execution, Maven/Gradle builds, pushing
 to GitHub, or any modification of the cloned repository.
 """
 

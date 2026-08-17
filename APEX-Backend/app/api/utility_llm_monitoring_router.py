@@ -11,26 +11,34 @@ Provides REST APIs for querying LLM token usage statistics, including:
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 import logging
+from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import HTMLResponse
+from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
+from app.core.config import settings
 from app.infrastructure.persistence.database import get_db
 from app.infrastructure.persistence.llm_token_repository import LLMTokenRepository
-from app.infrastructure.persistence.models import User
+from app.infrastructure.persistence.models import LLMTokenUsage, User
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/llm", tags=["llm-monitoring"])
 
+_DASHBOARD_MAX_LIMIT = 1000
+_DASHBOARD_HTML_PATH = Path(__file__).resolve().parents[2] / "token_tracing" / "dashboard.html"
+
 
 @router.get("/token-usage/summary")
 async def get_token_usage_summary(
+    request: Request,
     days: int = 7,
-    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     """Get token usage summary statistics for the user.
@@ -45,10 +53,66 @@ async def get_token_usage_summary(
     - Total estimated cost
     - Average response duration
     """
+    current_user = get_current_user(request, db)
     summary = LLMTokenRepository.get_summary(db, user_id=current_user.id, days=days)
     return {
         "period_days": days,
         **summary,
+    }
+
+
+@router.get("/token-usage/dashboard")
+async def get_token_usage_dashboard() -> HTMLResponse:
+    """Serve the token-usage dashboard page from the backend origin."""
+    html = _load_dashboard_html()
+    injection = '<script>window.TOKEN_TRACING_API = "/api/llm/token-usage/dashboard";</script>\n'
+    marker = '<script>\n"use strict";\n'
+    if marker in html:
+        html = html.replace(marker, injection + marker, 1)
+    else:
+        html = html.replace("</head>", f"{injection}</head>", 1)
+    return HTMLResponse(content=html, headers={"Cache-Control": "no-store"})
+
+
+@router.get("/token-usage/dashboard/summary")
+async def get_token_usage_dashboard_summary(
+    request: Request,
+    days: int = 7,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Return dashboard-shaped summary data for the authenticated user."""
+    current_user = get_current_user(request, db)
+    records = _fetch_dashboard_records(db, user_id=current_user.id, days=days)
+    return _build_dashboard_summary(records)
+
+
+@router.get("/token-usage/dashboard/records")
+async def get_token_usage_dashboard_records(
+    request: Request,
+    days: int = 7,
+    limit: int = 100,
+    model: str | None = None,
+    endpoint: str | None = None,
+    provider: str | None = None,
+    error: str = "",
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Return dashboard-shaped recent records for the authenticated user."""
+    error_only = error.lower() in {"1", "true", "yes"}
+    current_user = get_current_user(request, db)
+    records = _fetch_dashboard_records(
+        db,
+        user_id=current_user.id,
+        days=days,
+        model=model,
+        endpoint=endpoint,
+        provider=provider,
+        error_only=error_only,
+        limit=limit,
+    )
+    return {
+        "count": len(records),
+        "records": records,
     }
 
 
@@ -236,4 +300,139 @@ async def check_llm_providers() -> dict[str, Any]:
         },
         "primary_provider": "ollama" if ollama.is_configured else "groq",
         "fallback_provider": "groq" if ollama.is_configured else None,
+    }
+
+
+def _load_dashboard_html() -> str:
+    try:
+        return _DASHBOARD_HTML_PATH.read_text(encoding="utf-8")
+    except OSError:
+        return (
+            "<!doctype html><html><body><h1>dashboard.html not found</h1>"
+            "<p>The dashboard page could not be loaded from the backend package.</p>"
+            "</body></html>"
+        )
+
+
+def _fetch_dashboard_records(
+    db: Session,
+    *,
+    user_id: int,
+    days: int,
+    model: str | None = None,
+    endpoint: str | None = None,
+    provider: str | None = None,
+    error_only: bool = False,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    cutoff = datetime.now(timezone.utc) - timedelta(days=max(days, 1))
+    capped_limit = max(0, min(int(limit), _DASHBOARD_MAX_LIMIT))
+
+    query = db.query(LLMTokenUsage).filter(
+        LLMTokenUsage.user_id == user_id,
+        LLMTokenUsage.created_at >= cutoff,
+    )
+    if model:
+        query = query.filter(LLMTokenUsage.model == model)
+    if endpoint:
+        query = query.filter(LLMTokenUsage.endpoint == endpoint)
+    if provider:
+        query = query.filter(LLMTokenUsage.provider == provider)
+    if error_only:
+        query = query.filter(LLMTokenUsage.error_message.isnot(None))
+
+    rows = query.order_by(desc(LLMTokenUsage.created_at)).limit(capped_limit).all()
+    return [
+        {
+            "request_id": row.request_id,
+            "timestamp": row.created_at.isoformat(),
+            "provider": row.provider,
+            "model": row.model,
+            "endpoint": row.endpoint,
+            "input_tokens": row.input_tokens or 0,
+            "output_tokens": row.output_tokens or 0,
+            "total_tokens": row.total_tokens or 0,
+            "cached_tokens": row.cached_tokens or 0,
+            "estimated_cost_usd": row.estimated_cost_usd or 0.0,
+            "duration_ms": row.duration_ms,
+            "error": row.error_message,
+            "is_retry": row.is_retry,
+            "fallback_used": row.fallback_used,
+            "fallback_reason": row.fallback_reason,
+            "question_preview": row.question_preview,
+            "status": row.status,
+            "prompt_cache_hit": bool(row.cached_tokens and row.cached_tokens > 0),
+        }
+        for row in rows
+    ]
+
+
+def _build_dashboard_summary(records: list[dict[str, Any]]) -> dict[str, Any]:
+    total_input = total_output = total_cached = 0
+    total_cost = 0.0
+    error_calls = 0
+    cached_calls = 0
+    durations: list[float] = []
+    last_ts: str | None = None
+    buckets: dict[str, dict[str, dict[str, Any]]] = {
+        "model": {},
+        "endpoint": {},
+        "provider": {},
+    }
+
+    for rec in records:
+        total_input += rec.get("input_tokens") or 0
+        total_output += rec.get("output_tokens") or 0
+        total_cached += rec.get("cached_tokens") or 0
+        total_cost += rec.get("estimated_cost_usd") or 0.0
+        if rec.get("error"):
+            error_calls += 1
+        if rec.get("prompt_cache_hit") or (rec.get("cached_tokens") or 0) > 0:
+            cached_calls += 1
+        duration = rec.get("duration_ms")
+        if duration is not None:
+            durations.append(float(duration))
+        ts = rec.get("timestamp")
+        if ts:
+            last_ts = max(last_ts or "", ts)
+        for key, bucket in buckets.items():
+            row = bucket.setdefault(
+                rec.get(key) or "(unknown)",
+                {"calls": 0, "total_tokens": 0, "cost_usd": 0.0, "errors": 0},
+            )
+            row["calls"] += 1
+            row["total_tokens"] += rec.get("total_tokens") or 0
+            row["cost_usd"] += rec.get("estimated_cost_usd") or 0.0
+            if rec.get("error"):
+                row["errors"] += 1
+
+    def _sorted(bucket: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+        return sorted(
+            ({"name": name, **row} for name, row in bucket.items()),
+            key=lambda r: (r["cost_usd"], r["calls"]),
+            reverse=True,
+        )
+
+    durations.sort()
+    p95 = None
+    if durations:
+        p95 = durations[max(0, int((len(durations) * 0.95) - 1))]
+
+    n = len(records)
+    return {
+        "total_calls": n,
+        "total_input_tokens": total_input,
+        "total_output_tokens": total_output,
+        "total_tokens": total_input + total_output,
+        "total_cached_tokens": total_cached,
+        "total_cost_usd": round(total_cost, 6),
+        "error_calls": error_calls,
+        "error_rate": round(error_calls / n, 4) if n else 0.0,
+        "cache_hit_rate": round(cached_calls / n, 4) if n else 0.0,
+        "avg_duration_ms": round(sum(durations) / len(durations), 1) if durations else None,
+        "p95_duration_ms": round(p95, 1) if p95 is not None else None,
+        "last_record_at": last_ts,
+        "per_model": _sorted(buckets["model"]),
+        "per_endpoint": _sorted(buckets["endpoint"]),
+        "per_provider": _sorted(buckets["provider"]),
     }

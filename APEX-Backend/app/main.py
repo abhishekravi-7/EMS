@@ -7,9 +7,11 @@ Run locally with::
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.api.deps import get_db
 from app.api.utility_router import utility_router
@@ -114,6 +116,19 @@ app.include_router(llm_monitoring_router, prefix="/api")
 # Unversioned utility endpoints the frontend calls directly under /api
 # (-> GET /api/github/repo-visibility, GET /api/local-project/capabilities).
 app.include_router(utility_router, prefix="/api")
+
+
+def _mount_frontend_bundle() -> None:
+    """Serve the built SPA when the frontend bundle is present."""
+    frontend_dist = Path(__file__).resolve().parents[1] / "frontend-dist"
+    if not frontend_dist.is_dir():
+        logger.info("Frontend bundle not found at %s; API-only mode.", frontend_dist)
+        return
+
+    app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
+
+
+_mount_frontend_bundle()
 
 
 @app.get("/health", tags=["health"])

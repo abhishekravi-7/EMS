@@ -93,7 +93,7 @@
   <header>
     <div class="title-group">
       <h1><i><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg></i> Token Usage</h1>
-      <p>Live LLM token, cost and latency traces for every AI call made by PROVA.</p>
+      <p>Live LLM token, cost and latency traces for every AI call</p>
     </div>
     <div class="actions">
       <button id="btn-auto-refresh"><i>🔄</i> Auto-refresh</button>
@@ -214,7 +214,7 @@
 <script>
 "use strict";
 
-const API_BASE = window.TOKEN_TRACING_API || "";
+const API_BASE = window.TOKEN_TRACING_API || "/api";
 const state = { model: "", endpoint: "", provider: "", errorOnly: false, autoRefresh: true };
 let autoTimer = null;
 
@@ -307,22 +307,46 @@ async function refresh() {
   const query = p.toString();
 
   try {
+    const fetchJson = async (path) => {
+      const response = await fetch(`${API_BASE}/${path}?${query}`, { credentials: "include" });
+      const bodyText = await response.text();
+      let payload = null;
+      try {
+        payload = bodyText ? JSON.parse(bodyText) : null;
+      } catch {
+        payload = null;
+      }
+      if (!response.ok) {
+        const message = payload?.detail?.message || payload?.detail || payload?.error || `HTTP ${response.status}`;
+        const error = new Error(message);
+        error.status = response.status;
+        throw error;
+      }
+      return payload;
+    };
+
     const [summary, records] = await Promise.all([
-      fetch(`${API_BASE}/api/summary?${query}`).then(r => r.json()),
-      fetch(`${API_BASE}/api/records?${query}`).then(r => r.json())
+      fetchJson("summary"),
+      fetchJson("records"),
     ]);
 
-    renderSummary(summary);
+    const safeSummary = summary || {};
+    const perModel = Array.isArray(safeSummary.per_model) ? safeSummary.per_model : [];
+    const perEndpoint = Array.isArray(safeSummary.per_endpoint) ? safeSummary.per_endpoint : [];
+    const perProvider = Array.isArray(safeSummary.per_provider) ? safeSummary.per_provider : [];
+    const safeRecords = Array.isArray(records?.records) ? records.records : [];
 
-    const maxCost = Math.max(0.0001, ...summary.per_model.map(m => m.cost_usd), ...summary.per_endpoint.map(e => e.cost_usd));
-    renderHealth($('#list-models'), summary.per_model, maxCost);
-    renderHealth($('#list-endpoints'), summary.per_endpoint, maxCost);
-    $('#count-models').textContent = `${summary.per_model.length} entries`;
-    $('#count-endpoints').textContent = `${summary.per_endpoint.length} entries`;
+    renderSummary(safeSummary);
 
-    renderRecords(records.records);
-    $('#count-records').textContent = `${records.records.length} shown - newest first`;
-    $('#f-info').textContent = `Showing newest ${records.records.length} of ${summary.total_calls} calls`;
+    const maxCost = Math.max(0.0001, ...perModel.map(m => m.cost_usd || 0), ...perEndpoint.map(e => e.cost_usd || 0));
+    renderHealth($('#list-models'), perModel, maxCost);
+    renderHealth($('#list-endpoints'), perEndpoint, maxCost);
+    $('#count-models').textContent = `${perModel.length} entries`;
+    $('#count-endpoints').textContent = `${perEndpoint.length} entries`;
+
+    renderRecords(safeRecords);
+    $('#count-records').textContent = `${safeRecords.length} shown - newest first`;
+    $('#f-info').textContent = `Showing newest ${safeRecords.length} of ${safeSummary.total_calls || 0} calls`;
 
     // Populate selects once
     if ($('#f-model').options.length <= 1) {
@@ -332,12 +356,26 @@ async function refresh() {
         el.innerHTML = `<option value="">All ${id}s</option>` + items.map(it => `<option value="${esc(it.name)}">${esc(it.name)}</option>`).join('');
         el.value = current;
       };
-      fill('model', summary.per_model);
-      fill('endpoint', summary.per_endpoint);
-      fill('provider', summary.per_provider);
+      fill('model', perModel);
+      fill('endpoint', perEndpoint);
+      fill('provider', perProvider);
     }
   } catch (e) {
     console.error("Refresh failed", e);
+    const message = e instanceof Error ? e.message : String(e);
+    const isAuthError = e && typeof e === "object" && "status" in e && Number(e.status) === 401;
+    $('#f-info').textContent = isAuthError
+      ? "Sign in required to view live token usage."
+      : `Dashboard unavailable: ${message}`;
+    $('#records-body').innerHTML = '<tr><td colspan="8" style="text-align:center; padding: 40px">Unable to load dashboard data.</td></tr>';
+    $('#count-models').textContent = '0 entries';
+    $('#count-endpoints').textContent = '0 entries';
+    $('#count-records').textContent = '0 shown - newest first';
+    if (isAuthError) {
+      clearInterval(autoTimer);
+      state.autoRefresh = false;
+      $('#btn-auto-refresh').classList.remove('primary');
+    }
   }
 }
 

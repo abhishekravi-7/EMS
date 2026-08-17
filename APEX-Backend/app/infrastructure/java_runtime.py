@@ -5,7 +5,7 @@ JDK 8, 11, 17, 21 under ``C:\\Program Files\\Java``) while a single ambient
 ``JAVA_HOME``/``PATH`` only points at one of them. Rather than always using
 whatever the ambient environment happens to resolve to, this module can
 discover the other installed JDKs and pick the one that actually matches the
-selected migration target, so OpenRewrite and the build-validation step run
+selected migration target, so the migration engine and the build-validation step run
 under a JDK capable of the requested ``--release``.
 """
 
@@ -127,7 +127,7 @@ def build_compatible_java_target(target_java_version: str | None) -> tuple[str |
     The migration always targets exactly what the user selected — the platform
     never silently downgrades it to match whatever JDK happens to be
     installed. If a locally installed JDK can satisfy the target (even if it
-    isn't the ambient default), the OpenRewrite run and build validation use
+    isn't the ambient default), the migration run and build validation use
     that JDK automatically (see :func:`build_tool_env`). Only when *no*
     installed JDK can satisfy the target does this return an informational
     message; the migration target itself is never changed.
@@ -141,7 +141,7 @@ def build_compatible_java_target(target_java_version: str | None) -> tuple[str |
         closest = selected.version_text if selected else "no JDK found"
         message = (
             f"Target Java {requested} selected, but no local JDK {requested}+ "
-            f"was found (closest available: {closest}). OpenRewrite/build "
+            f"was found (closest available: {closest}). Migration/build "
             f"validation may fail to compile at this release. The migrated "
             f"project's build configuration still targets Java {requested} as "
             f"selected; install a JDK {requested}+ locally (or set "
@@ -158,7 +158,7 @@ def gradle_runtime_major(project_dir: Path, target_major: int | None) -> int | N
     when launched on a JDK newer than they support -- e.g. Gradle 7.x's
     bundled ASM can't parse Java 21 class files, so it fails during its own
     build-script analysis before the project's source is even touched. Both
-    the OpenRewrite run and the post-migration build validation must launch
+    the migration run and the post-migration build validation must launch
     Gradle under a JDK the wrapper's own version actually supports.
     """
     version = _gradle_wrapper_version(project_dir)

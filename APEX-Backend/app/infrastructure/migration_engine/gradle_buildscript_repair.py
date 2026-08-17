@@ -1,7 +1,7 @@
 """Pre-flight repair for Gradle build scripts that fail to *evaluate*.
 
 When Gradle crashes while evaluating a project's own ``build.gradle`` --
-before OpenRewrite's recipe task ever runs -- no recipe selection can help;
+before the migration recipe task ever runs -- no recipe selection can help;
 recipes only run once evaluation succeeds. This looks *only* at coordinates
 the project itself already declared (``classpath "group:artifact:version"``
 in the ``buildscript`` block, or ``id 'x' version 'y'`` in the ``plugins``
