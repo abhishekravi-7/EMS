@@ -1,0 +1,334 @@
+name: Integration CI
+
+on:
+  push:
+    branches:
+      - dev
+      - "feature/**"
+      - "feat/**"
+      - "fix/**"
+
+  pull_request:
+    branches:
+      - dev
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+
+  # ============================================================
+  # FRONTEND CI
+  # React + TypeScript + Vite
+  # ============================================================
+  frontend:
+    name: Frontend quality gates
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: ./APEX-Frontend
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: APEX-Frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      # --------------------------------------------------------
+      # ESLint
+      # --------------------------------------------------------
+      - name: ESLint
+        run: |
+          set -o pipefail
+          npm run lint 2>&1 | tee eslint.log
+
+      # --------------------------------------------------------
+      # TypeScript
+      # --------------------------------------------------------
+      - name: TypeScript check
+        run: |
+          set -o pipefail
+          npm run typecheck 2>&1 | tee typecheck.log
+
+      # --------------------------------------------------------
+      # Frontend Unit Tests
+      # --------------------------------------------------------
+      - name: Frontend unit tests
+        run: |
+          if find . -type f \( -name "*.test.*" -o -name "*.spec.*" \) | grep -q .; then
+            set -o pipefail
+            npm test -- --run 2>&1 | tee unit-tests.log
+          else
+            echo "No frontend unit tests detected; skipping." | tee unit-tests.log
+          fi
+
+      # --------------------------------------------------------
+      # Vite Production Build
+      # --------------------------------------------------------
+      - name: Vite production build
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee vite-build.log
+
+      # --------------------------------------------------------
+      # Upload Frontend Failure Logs
+      # --------------------------------------------------------
+      - name: Upload frontend failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-failure-logs
+          path: |
+            APEX-Frontend/eslint.log
+            APEX-Frontend/typecheck.log
+            APEX-Frontend/unit-tests.log
+            APEX-Frontend/vite-build.log
+          if-no-files-found: ignore
+
+
+  # ============================================================
+  # BACKEND CI
+  # Python + FastAPI
+  # ============================================================
+  backend:
+    name: Backend quality gates
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: ./APEX-Backend
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: APEX-Backend/requirements.txt
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio respx ruff bandit
+
+      # --------------------------------------------------------
+      # Ruff
+      # --------------------------------------------------------
+      - name: Ruff lint
+        run: |
+          set -o pipefail
+          ruff check . 2>&1 | tee ruff.log
+
+      # --------------------------------------------------------
+      # Pytest
+      # --------------------------------------------------------
+      - name: Pytest
+        run: |
+          set -o pipefail
+          pytest -q 2>&1 | tee pytest.log
+
+      # --------------------------------------------------------
+      # Bandit
+      # --------------------------------------------------------
+      - name: Bandit security scan
+        run: |
+          set -o pipefail
+          bandit -r app -f txt -o bandit.log
+
+      # --------------------------------------------------------
+      # Upload Backend Failure Logs
+      # --------------------------------------------------------
+      - name: Upload backend failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-failure-logs
+          path: |
+            APEX-Backend/ruff.log
+            APEX-Backend/pytest.log
+            APEX-Backend/bandit.log
+          if-no-files-found: ignore
+
+
+  # ============================================================
+  # SECURITY CI
+  # Gitleaks + Trivy
+  # ============================================================
+  security:
+    name: Security scans
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # --------------------------------------------------------
+      # Gitleaks
+      # --------------------------------------------------------
+      - name: Gitleaks secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: >
+            detect
+            --source .
+            --no-banner
+            --redact
+            --report-format json
+            --report-path gitleaks-report.json
+            --exit-code 1
+
+      # --------------------------------------------------------
+      # Trivy
+      # --------------------------------------------------------
+      - name: Trivy filesystem scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: table
+          output: trivy-results.txt
+          severity: CRITICAL,HIGH
+          exit-code: 1
+          ignore-unfixed: true
+
+      # --------------------------------------------------------
+      # Upload Security Failure Reports
+      # --------------------------------------------------------
+      - name: Upload security failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-failure-logs
+          path: |
+            gitleaks-report.json
+            trivy-results.txt
+          if-no-files-found: ignore
+
+
+  # ============================================================
+  # SONARCLOUD / SONARQUBE
+  # Static Code Analysis
+  # ============================================================
+  quality-gate:
+    name: SonarQube / SonarCloud quality gate
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: SonarQube / SonarCloud analysis
+        uses: SonarSource/sonarqube-scan-action@v5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectBaseDir: .
+
+
+  # ============================================================
+  # FAILURE NOTIFICATION
+  # ============================================================
+  notify:
+    name: Failure notification
+
+    needs:
+      - frontend
+      - backend
+      - security
+      - quality-gate
+
+    if: ${{ always() && contains(needs.*.result, 'failure') }}
+
+    runs-on: ubuntu-latest
+
+    env:
+      SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+      SMTP_PORT: ${{ secrets.SMTP_PORT }}
+      SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+      SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+      ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
+
+    steps:
+
+      - name: Send email on failure
+        if: ${{ env.SMTP_SERVER != '' && env.SMTP_USERNAME != '' && env.ALERT_EMAIL != '' }}
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ env.SMTP_SERVER }}
+          server_port: ${{ env.SMTP_PORT || '587' }}
+          username: ${{ env.SMTP_USERNAME }}
+          password: ${{ env.SMTP_PASSWORD }}
+
+          subject: >-
+            ❌ Integration CI Failed -
+            ${{ github.repository }} -
+            ${{ github.ref_name }}
+
+          to: ${{ env.ALERT_EMAIL }}
+
+          from: GitHub Actions <${{ env.SMTP_USERNAME }}>
+
+          body: |
+            Integration CI failed.
+
+            Repository:
+            ${{ github.repository }}
+
+            Branch:
+            ${{ github.ref_name }}
+
+            Commit:
+            ${{ github.sha }}
+
+            Workflow:
+            ${{ github.workflow }}
+
+            Run URL:
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            Job Status:
+
+            Frontend:
+            ${{ needs.frontend.result }}
+
+            Backend:
+            ${{ needs.backend.result }}
+
+            Security:
+            ${{ needs.security.result }}
+
+            SonarCloud:
+            ${{ needs.quality-gate.result }}
+
+            One or more required Integration CI checks failed.
+
+            Please open the GitHub Actions run URL above and download
+            the available artifacts to inspect the detailed failure logs.
