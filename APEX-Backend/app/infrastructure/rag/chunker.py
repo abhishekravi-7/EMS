@@ -263,3 +263,171 @@ def build_migration_chunks(report: dict[str, Any]) -> list[KnowledgeChunk]:
         chunks.append(KnowledgeChunk("dependency_upgrades", "\n".join(upgrade_lines)))
 
     return chunks
+
+
+import re
+
+def chunk_java_file(content: str, file_path: str, version: str) -> list[KnowledgeChunk]:
+    """Perform logical class-and-method code-aware chunking for Java files."""
+    lines = content.splitlines()
+    if not lines:
+        return []
+    chunks = []
+    
+    # 1. Extract package and imports
+    package_imports_lines = []
+    first_class_line_idx = -1
+    for idx, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        # Check for class, interface, enum, or annotation declaration
+        if ("class " in stripped or "interface " in stripped or "enum " in stripped or stripped.startswith("@")):
+            # Make sure it's not an import, package, or comment line
+            if not (stripped.startswith("import ") or stripped.startswith("package ") or stripped.startswith("//") or stripped.startswith("/*") or stripped.startswith("*")):
+                first_class_line_idx = idx
+                break
+        if stripped.startswith("package ") or stripped.startswith("import "):
+            package_imports_lines.append(line)
+            
+    header = "\n".join(package_imports_lines) if package_imports_lines else ""
+    
+    # If no class declaration was found, index the whole file
+    if first_class_line_idx == -1:
+        chunks.append(KnowledgeChunk(
+            chunk_type="code_file",
+            text=content,
+            metadata={
+                "file_path": file_path,
+                "version": version,
+                "start_line": 1,
+                "end_line": len(lines)
+            }
+        ))
+        return chunks
+
+    # 2. Heuristically parse class and methods via bracket-matching
+    bracket_count = 0
+    in_class = False
+    class_name = "UnknownClass"
+    current_block_lines = []
+    block_start_line = 1
+    
+    for idx in range(first_class_line_idx, len(lines)):
+        line = lines[idx]
+        current_block_lines.append(line)
+        
+        # Simple clean line ignoring brackets inside strings or comments
+        clean_line = line
+        if "//" in clean_line:
+            clean_line = clean_line.split("//")[0]
+        clean_line = re.sub(r'".*?"', '""', clean_line)
+        clean_line = re.sub(r"'.*?'", "''", clean_line)
+        
+        open_brackets = clean_line.count("{")
+        close_brackets = clean_line.count("}")
+        
+        if not in_class:
+            class_match = re.search(r'(?:class|interface|enum)\s+([A-Za-z0-9_]+)', line)
+            if class_match:
+                class_name = class_match.group(1)
+                in_class = True
+                
+        bracket_count += open_brackets - close_brackets
+        
+        if bracket_count <= 0 and in_class:
+            text = (header + "\n" + "\n".join(current_block_lines)).strip()
+            chunks.append(KnowledgeChunk(
+                chunk_type="java_class",
+                text=text,
+                metadata={
+                    "file_path": file_path,
+                    "version": version,
+                    "class_name": class_name,
+                    "start_line": block_start_line,
+                    "end_line": idx + 1
+                }
+            ))
+            current_block_lines = []
+            block_start_line = idx + 2
+            in_class = False
+            bracket_count = 0
+        elif in_class and bracket_count == 1 and close_brackets > 0:
+            text = (header + "\n" + "\n".join(current_block_lines)).strip()
+            method_name = "unknown"
+            for bline in current_block_lines:
+                m = re.search(r'([A-Za-z0-9_]+)\s*\([^)]*\)\s*(?:throws\s+[A-Za-z0-9_,\s]+)?\s*\{', bline)
+                if m:
+                    method_name = m.group(1)
+                    break
+            chunks.append(KnowledgeChunk(
+                chunk_type="java_method",
+                text=text,
+                metadata={
+                    "file_path": file_path,
+                    "version": version,
+                    "class_name": class_name,
+                    "method_name": method_name,
+                    "start_line": block_start_line,
+                    "end_line": idx + 1
+                }
+            ))
+            current_block_lines = []
+            block_start_line = idx + 2
+            
+    if current_block_lines:
+        text = (header + "\n" + "\n".join(current_block_lines)).strip()
+        chunks.append(KnowledgeChunk(
+            chunk_type="java_class" if in_class else "code_file",
+            text=text,
+            metadata={
+                "file_path": file_path,
+                "version": version,
+                "class_name": class_name if in_class else None,
+                "start_line": block_start_line,
+                "end_line": len(lines)
+            }
+        ))
+        
+    return chunks
+
+
+def chunk_text_file(content: str, file_path: str, version: str, chunk_type: str = "code_file") -> list[KnowledgeChunk]:
+    """Chunk yml, properties, readme, or configuration files into overlapping line-blocks."""
+    lines = content.splitlines()
+    if not lines:
+        return []
+    if len(lines) <= 60:
+        return [KnowledgeChunk(
+            chunk_type=chunk_type,
+            text=content,
+            metadata={
+                "file_path": file_path,
+                "version": version,
+                "start_line": 1,
+                "end_line": len(lines)
+            }
+        )]
+        
+    chunks = []
+    chunk_size = 40
+    overlap = 10
+    i = 0
+    while i < len(lines):
+        end = min(i + chunk_size, len(lines))
+        chunk_lines = lines[i:end]
+        text = "\n".join(chunk_lines).strip()
+        if text:
+            chunks.append(KnowledgeChunk(
+                chunk_type=chunk_type,
+                text=text,
+                metadata={
+                    "file_path": file_path,
+                    "version": version,
+                    "start_line": i + 1,
+                    "end_line": end
+                }
+            ))
+        i += chunk_size - overlap
+    return chunks
+

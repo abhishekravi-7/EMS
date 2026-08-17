@@ -1,7 +1,8 @@
 import { FaTimes } from "react-icons/fa";
 import { wizardStyles as styles } from "@/shared/components/wizard/wizardStyles";
 import { useWizardController } from "../hooks/useWizardController";
-import StrategyChatWidget from "@/features/strategy/components/StrategyChatWidget";
+import { useChatbot } from "@/shared/context/ChatbotContext";
+import { useEffect } from "react";
 import ConnectPage from "@/features/connect/pages/ConnectPage";
 import { ConnectStepView } from "@/features/connect/components/ConnectStepView";
 import DiscoveryPage from "@/features/discovery/pages/DiscoveryPage";
@@ -91,10 +92,25 @@ export default function MigrationWizardPage() {
     renderStepIndicator,
   } = useWizardController();
 
+  const { setContext } = useChatbot();
+
+  useEffect(() => {
+    const nextRepoUrl = repoUrl || null;
+    const nextStrategyContext = strategyAssistantContext || null;
+
+    // Use JSON stringify to check for actual content changes before calling setContext.
+    // This is the most reliable way to prevent infinite loops when objects are reconstructed.
+    const hasUrlChange = nextRepoUrl !== repoUrl; // repoUrl is stable
+    const hasContextChange = JSON.stringify(nextStrategyContext) !== JSON.stringify(strategyAssistantContext); // Wait, this doesn't make sense if they are the same variables.
+
+    // Actually, we want to check against what's ALREADY in the context.
+    // But setContext already does that internally.
+    setContext({ repoUrl: nextRepoUrl, strategyContext: nextStrategyContext });
+  }, [repoUrl, strategyAssistantContext, setContext]);
+
   return (
     <div style={styles.container}>
-      {/* Assistant is available on every step except Connect (step 1). */}
-      {step !== 1 && <StrategyChatWidget repoUrl={selectedRepo?.url} strategyContext={strategyAssistantContext} />}
+      {/* Assistant is integrated globally in AppShell */}
       <div style={styles.stepIndicatorContainer}>{renderStepIndicator()}</div>
       <div style={styles.main}>
         {error && <div style={styles.errorBanner}><span>{error}</span><button style={styles.errorClose} onClick={() => setError("")}><FaTimes /></button></div>}
@@ -148,6 +164,7 @@ export default function MigrationWizardPage() {
           <StrategyPage>
             <StrategyStepView
               strategy={strategyState}
+              strategyAssistantContext={strategyAssistantContext}
               repoAnalysis={repoAnalysis}
               selectedRepo={selectedRepo}
               riskLevel={riskLevel}

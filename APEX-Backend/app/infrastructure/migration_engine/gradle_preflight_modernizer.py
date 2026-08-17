@@ -1,6 +1,6 @@
-"""Pre-flight modernization for legacy Gradle builds before OpenRewrite.
+"""Pre-flight modernization for legacy Gradle builds before migration.
 
-OpenRewrite's current Gradle plugin needs a modern Gradle/JVM runtime. Very
+The migration engine's current Gradle plugin needs a modern Gradle/JVM runtime. Very
 old projects (Gradle 4/5 plus Java 8-era buildscript plugins) can fail before
 any recipe runs, so this performs a narrow buildscript lift just far enough for
 the rewrite task to evaluate.
@@ -41,7 +41,7 @@ class GradlePreflightModernizer:
 
         if updated != text:
             build_file.write_text(updated, encoding="utf-8")
-            changes.append(f"Modernized legacy Gradle build script in {build_file.name} before OpenRewrite.")
+            changes.append(f"Modernized legacy Gradle build script in {build_file.name} before migration.")
 
         return changes
 
@@ -77,7 +77,7 @@ class GradlePreflightModernizer:
         properties.write_text(updated, encoding="utf-8")
         return [
             f"Modernized Gradle wrapper from {version[0]}.{version[1]} to {_GRADLE_8_VERSION} "
-            "so the OpenRewrite Gradle plugin can run on Java 17+."
+            "so the migration Gradle plugin can run on Java 17+."
         ]
 
     @staticmethod
@@ -194,7 +194,7 @@ class GradlePreflightModernizer:
     def _disable_legacy_spotbugs(text: str) -> str:
         updated = re.sub(
             r"(?m)^(\s*)classpath\s+[\"']gradle\.plugin\.com\.github\.spotbugs:spotbugs-gradle-plugin:[^\"']+[\"']\s*$",
-            r"\1// Disabled by JavaApex preflight: legacy SpotBugs plugin blocks modern Gradle/OpenRewrite evaluation.",
+            r"\1// Disabled by JavaApex preflight: legacy SpotBugs plugin blocks modern Gradle migration evaluation.",
             text,
         )
         updated = re.sub(

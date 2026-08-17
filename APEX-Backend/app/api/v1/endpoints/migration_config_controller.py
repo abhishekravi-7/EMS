@@ -15,6 +15,7 @@ from app.application.pipelines.migration_config_pipeline import MigrationConfigP
 from app.core.exceptions import MigrationConfigError
 from app.infrastructure.persistence.database import get_db
 from app.infrastructure.persistence.models import User
+from app.infrastructure.migration_engine.recipe_mapper import load_catalog
 from app.schemas.migration_config_schema import (
     MigrationConfigRequest,
     MigrationConfigResponse,
@@ -23,6 +24,46 @@ from app.schemas.migration_config_schema import (
 router = APIRouter(tags=["migration-config"])
 
 _pipeline = MigrationConfigPipeline()
+
+
+def _recipe_items() -> list[dict[str, str]]:
+    catalog = load_catalog()
+    items: list[dict[str, str]] = []
+
+    for rule in catalog.get("javaUpgradeRecipes", []):
+        recipe = str(rule.get("recipe") or "").strip()
+        if recipe:
+            items.append(
+                {
+                    "id": str(rule.get("id") or recipe.rsplit(".", 1)[-1]),
+                    "name": recipe.rsplit(".", 1)[-1],
+                    "description": f"Upgrade Java compatibility to target {rule.get('minTarget')}",
+                }
+            )
+
+    for rule in catalog.get("conditionalRecipes", []):
+        recipe = str(rule.get("recipe") or "").strip()
+        if recipe:
+            items.append(
+                {
+                    "id": str(rule.get("id") or recipe.rsplit(".", 1)[-1]),
+                    "name": recipe.rsplit(".", 1)[-1],
+                    "description": str(rule.get("id") or "Conditional migration recipe"),
+                }
+            )
+
+    for rule in catalog.get("cleanupRecipes", []):
+        recipe = str(rule.get("recipe") or "").strip()
+        if recipe:
+            items.append(
+                {
+                    "id": str(rule.get("id") or recipe.rsplit(".", 1)[-1]),
+                    "name": recipe.rsplit(".", 1)[-1],
+                    "description": "Source-code cleanup recipe",
+                }
+            )
+
+    return items
 
 
 @router.post(
@@ -56,3 +97,11 @@ async def save_migration_config(
         )
 
     return JSONResponse(status_code=200, content=outcome.response)
+
+
+@router.get(
+    "/migration/recipes",
+    summary="Get the available migration recipe catalog.",
+)
+async def get_migration_recipes() -> JSONResponse:
+    return JSONResponse(status_code=200, content=_recipe_items())

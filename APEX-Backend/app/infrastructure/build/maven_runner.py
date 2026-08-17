@@ -1,8 +1,8 @@
-"""Runs OpenRewrite via the Maven plugin.
+"""Runs the migration engine via the Maven plugin.
 
 Only the non-forking ``rewrite:runNoFork`` goal is invoked (apply recipes in
-place). This avoids Maven compiling the source project before OpenRewrite has a
-chance to update incompatible build/dependency metadata; the separate build
+place). This avoids Maven compiling the source project before the migration
+engine has a chance to update incompatible build/dependency metadata; the separate build
 validation phase compiles/packages the migrated project afterward. Recipes are
 supplied as a generated declarative recipe YAML (``rewrite.configLocation``)
 rather than a flat CSV of zero-arg recipe names, so parameterized recipes
@@ -41,7 +41,7 @@ class MavenRewriteRunner:
         try:
             goal = (
                 f"org.openrewrite.maven:rewrite-maven-plugin:"
-                f"{settings.openrewrite_maven_plugin_version}:runNoFork"
+                f"{settings.migration_maven_plugin_version}:runNoFork"
             )
             command = [
                 mvn,

@@ -457,7 +457,7 @@ export async function listMigrationSummaries(): Promise<MigrationJobSummary[]> {
 // Get available recipes
 export async function getRecipes(): Promise<{ id: string; name: string; description: string }[]> {
   return requestJson<{ id: string; name: string; description: string }[]>(
-    "/openrewrite/recipes",
+    "/migration/recipes",
     "Failed to fetch recipes"
   );
 }

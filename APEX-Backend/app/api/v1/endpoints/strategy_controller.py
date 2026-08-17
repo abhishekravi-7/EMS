@@ -18,18 +18,23 @@ import json
 import logging
 from collections.abc import AsyncIterator
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, StreamingResponse
+from sqlalchemy.orm import Session
 
-from app.application.use_cases.answer_repo_question import AnswerRepoQuestionUseCase
+from app.api.deps import get_current_user
+from app.application.use_cases.answer_repo_question import AnswerRepoQuestionUseCase, is_conversational_intent
 from app.application.use_cases.index_repository import (
     IndexRepositoryUseCase,
     RepositoryNotFoundForIndexingError,
 )
 from app.core.config import settings
-from app.core.exceptions import RagDisabledError, RepositoryNotIndexedError, StrategyChatError
+from app.core.exceptions import RagDisabledError, RepositoryNotIndexedError, StrategyChatError, ChatLLMServiceError
+from app.infrastructure.persistence.database import get_db
+from app.infrastructure.persistence.models import User
 from app.infrastructure.rag import vector_store
+from app.infrastructure.llm.ollama_client import OllamaClient
 from app.schemas.strategy_schema import (
     IndexRequest,
     IndexResponse,
@@ -59,15 +64,49 @@ def _sse(event: str, payload: dict) -> str:
 
 
 @router.post("/query/stream")
-async def query_stream(payload: StrategyQueryRequest) -> StreamingResponse:
+async def query_stream(
+    payload: StrategyQueryRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
     async def event_stream() -> AsyncIterator[str]:
         try:
-            yield _sse("phase", {"message": "Reading strategy page"})
+            # Skip RAG-related phase messages for simple greetings/thanks
+            if not is_conversational_intent(payload.question):
+                yield _sse("phase", {"message": "Reading strategy page"})
+
+            history_dicts = [{"role": msg.role, "content": msg.content} for msg in payload.history] if payload.history else None
             prepared = await _answer_use_case.prepare(
                 question=payload.question,
                 repository_url=payload.repo_url,
+                db=db,
+                current_user=current_user,
+                job_id=payload.job_id,
+                history=history_dicts,
                 page_context=payload.strategy_context,
             )
+
+            # Stream references immediately to provide visual confirmation
+            retrieved_chunks = getattr(prepared, "retrieved_chunks", [])
+            if retrieved_chunks:
+                sources = []
+                seen_files = set()
+                for hit in retrieved_chunks:
+                    file_path = hit.get("file_path")
+                    if file_path and file_path not in seen_files:
+                        sources.append({
+                            "title": file_path,
+                            "url": "#",
+                            "excerpt": hit.get("text")[:120] + "..." if hit.get("text") else None
+                        })
+                        seen_files.add(file_path)
+
+                if sources:
+                    yield _sse("references", {"sources": sources})
+                    # Update status message to be more descriptive
+                    chunk_count = len(retrieved_chunks)
+                    file_count = len(seen_files)
+                    yield _sse("phase", {"message": f"Analyzing {chunk_count} context chunks from {file_count} files..."})
 
             yield _sse("phase", {"message": "Preparing answer"})
             buffer: list[str] = []
@@ -76,10 +115,28 @@ async def query_stream(payload: StrategyQueryRequest) -> StreamingResponse:
                 yield _sse("chunk", {"chunk": delta})
 
             answer = "".join(buffer).strip()
+            
+            # Final source list using the standardized SourceReference format
+            sources = []
+            seen_files = set()
+            for hit in getattr(prepared, "retrieved_chunks", []):
+                file_path = hit.get("file_path")
+                if file_path and file_path not in seen_files:
+                    sources.append({
+                        "title": file_path,
+                        "url": "#",
+                        "excerpt": hit.get("text")[:120] + "..." if hit.get("text") else None
+                    })
+                    seen_files.add(file_path)
+
             yield _sse(
                 "final",
                 {
-                    "parsed": {"answer": answer, "rationale": []},
+                    "parsed": {
+                        "answer": answer, 
+                        "rationale": [],
+                    },
+                    "sources": sources,
                     "details": {
                         "provider_used": prepared.chat.last_provider,
                         "repository": prepared.repository_metadata,
@@ -87,26 +144,48 @@ async def query_stream(payload: StrategyQueryRequest) -> StreamingResponse:
                     },
                 },
             )
+        except ChatLLMServiceError as exc:
+            # Surface the specific LLM error (Groq failure, Ollama unavailable, etc.)
+            error_msg = str(exc)
+            # If it looks like a raw technical error, replace with a user-friendly version
+            if "Local Ollama server could not be reached" in error_msg:
+                error_msg = (
+                    "The local AI service is currently unavailable. "
+                    "Please make sure Ollama is running and the configured model is available. "
+                    "Run: ollama serve"
+                )
+            yield _sse("error", {"message": error_msg, "status": "LLM_SERVICE_ERROR"})
         except StrategyChatError as exc:
             yield _sse("error", {"message": exc.message, "status": exc.status})
-        except Exception:  # noqa: BLE001 - surface a clean error, never a 500 stream
+        except RepositoryNotIndexedError as exc:
+            # Repository not indexed – advise client to index first
+            yield _sse("error", {"message": str(exc), "status": "REPOSITORY_NOT_INDEXED"})
+        except Exception as exc:  # noqa: BLE001 - surface a clean error, never a 500 stream
             logger.exception("Strategy chat stream failed.")
             yield _sse(
                 "error",
-                {"message": "The assistant hit an unexpected error. Please try again."},
+                {"message": "The assistant hit an unexpected error. Please try again.", "status": "INTERNAL_ERROR", "detail": str(exc)},
             )
-
     return StreamingResponse(
         event_stream(), media_type="text/event-stream", headers=_SSE_HEADERS
     )
 
 
 @router.post("/query", response_model=StrategyAnswerResponse)
-async def query(payload: StrategyQueryRequest) -> JSONResponse:
+async def query(
+    payload: StrategyQueryRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> JSONResponse:
     try:
+        history_dicts = [{"role": msg.role, "content": msg.content} for msg in payload.history] if payload.history else None
         result = await _answer_use_case.answer(
             question=payload.question,
             repository_url=payload.repo_url,
+            db=db,
+            current_user=current_user,
+            job_id=payload.job_id,
+            history=history_dicts,
             page_context=payload.strategy_context,
         )
     except StrategyChatError as exc:
@@ -114,7 +193,20 @@ async def query(payload: StrategyQueryRequest) -> JSONResponse:
             status_code=exc.http_status,
             content={"status": exc.status, "message": exc.message, "detail": exc.message},
         )
+    except RepositoryNotIndexedError as exc:
+        # Repository not indexed yet – signal client to index first
+        return JSONResponse(
+            status_code=404,
+            content={"status": "REPOSITORY_NOT_INDEXED", "message": str(exc), "detail": str(exc)},
+        )
+    except Exception as exc:
+        logger.exception("Unexpected error in strategy query")
+        return JSONResponse(
+            status_code=500,
+            content={"status": "INTERNAL_ERROR", "message": "An unexpected error occurred.", "detail": str(exc)},
+        )
     return JSONResponse(status_code=200, content=result)
+
 
 
 @router.post("/index", response_model=IndexResponse)
@@ -181,3 +273,24 @@ async def repositories() -> JSONResponse:
         return JSONResponse(status_code=200, content={"repositories": []})
     repos = await run_in_threadpool(vector_store.list_repositories)
     return JSONResponse(status_code=200, content={"repositories": repos})
+
+
+@router.get("/ollama/health")
+async def ollama_health() -> JSONResponse:
+    """Check whether the configured local Ollama server is reachable.
+
+    Returns the server availability status and the configured model name.
+    Does NOT expose internal credentials or sensitive configuration.
+    """
+    client = OllamaClient()
+    result = await client.health_check()
+    status_code = 200 if result.get("available") else 503
+    # Strip the internal URL from the public response for safety
+    safe_result = {
+        "available": result.get("available", False),
+        "model": result.get("model"),
+        "model_installed": result.get("model_installed"),
+        "installed_models": result.get("installed_models"),
+        "message": result.get("message"),
+    }
+    return JSONResponse(status_code=status_code, content=safe_result)

@@ -12,15 +12,27 @@ from typing import Any, Optional
 from pydantic import BaseModel, Field
 
 
+class Message(BaseModel):
+    role: str
+    content: str
+
+
 class StrategyQueryRequest(BaseModel):
     """Body for ``POST /api/strategy/query`` and ``.../query/stream``."""
 
     question: str
     repo_url: Optional[str] = None
-    # The widget sends a rich, pre-built page context; kept loosely typed since
-    # it is supplementary grounding, not a strict contract.
     strategy_context: Optional[dict[str, Any]] = None
     provider: Optional[str] = None  # accepted for compatibility; routing is automatic
+    job_id: Optional[str] = None
+    conversation_id: Optional[str] = None
+    history: Optional[list[Message]] = None
+
+
+class SourceReference(BaseModel):
+    title: str
+    url: str
+    excerpt: Optional[str] = None
 
 
 class StrategyAnswerResponse(BaseModel):
@@ -28,7 +40,9 @@ class StrategyAnswerResponse(BaseModel):
 
     answer: str
     rationale: list[str] = Field(default_factory=list)
+    sources: list[SourceReference] = Field(default_factory=list)
     details: dict[str, Any] = Field(default_factory=dict)
+
 
 
 class IndexRequest(BaseModel):

@@ -1,4 +1,4 @@
-"""Condenses Maven/Gradle OpenRewrite output into UI-friendly log lines."""
+"""Condenses Maven/Gradle migration output into UI-friendly log lines."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ _NOISE = (
 )
 
 
-# Printed by the Maven/Gradle OpenRewrite plugin once it actually starts
+# Printed by the Maven/Gradle migration plugin once it actually starts
 # applying recipes. Its absence on a failed run means the build tool failed
 # while evaluating/compiling the project itself (a project-level build
 # configuration or plugin incompatibility) -- before any recipe ran, so no

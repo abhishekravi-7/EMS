@@ -136,3 +136,65 @@ class MigrationJobOwner(Base):
     job_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utc_now)
+
+
+class LLMTokenUsage(Base):
+    """Tracks token usage for all LLM requests (Ollama and Groq).
+    
+    Records metadata for every LLM call including token counts, provider,
+    model, duration, and fallback information. Used for monitoring LLM
+    usage and cost tracking in the Strategy chatbot.
+    """
+
+    __tablename__ = "llm_token_usage"
+    __table_args__ = (
+        Index("ix_llm_token_usage_user_created", "user_id", "created_at"),
+        Index("ix_llm_token_usage_repo_url", "repository_url"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    # Request correlation ID for grouping related requests (e.g., original + fallback)
+    request_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    # User who initiated the LLM request (if available)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    # Job ID from migration workflow (if applicable)
+    job_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    # Timestamp of the request
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utc_now, index=True)
+    
+    # Provider identification
+    provider: Mapped[str] = mapped_column(String(20), nullable=False, index=True)  # "ollama" or "groq"
+    model: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    
+    # Token counts from provider response (nullable for Ollama if not available)
+    input_tokens: Mapped[int | None] = mapped_column(nullable=True)
+    output_tokens: Mapped[int | None] = mapped_column(nullable=True)
+    total_tokens: Mapped[int | None] = mapped_column(nullable=True)
+    # Prompt cache hit tokens (for providers that support prompt caching)
+    cached_tokens: Mapped[int | None] = mapped_column(nullable=True)
+    
+    # Request metadata
+    role: Mapped[str] = mapped_column(String(50), nullable=False, default="chat")  # e.g., "chat", "system"
+    endpoint: Mapped[str | None] = mapped_column(String(255), nullable=True)  # API endpoint name
+    call_type: Mapped[str] = mapped_column(String(50), nullable=False, default="chat_stream")
+    
+    # Execution metrics
+    duration_ms: Mapped[float | None] = mapped_column(nullable=True)  # Response time in milliseconds
+    estimated_cost_usd: Mapped[float | None] = mapped_column(nullable=True)  # Estimated cost
+    
+    # Status tracking
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="success", index=True)  # "success" or "failure"
+    error_message: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    
+    # Fallback tracking
+    fallback_used: Mapped[bool] = mapped_column(nullable=False, default=False)  # Was fallback to Groq used?
+    fallback_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)  # Why fallback occurred
+    original_provider: Mapped[str | None] = mapped_column(String(20), nullable=True)  # Original provider before fallback
+    
+    # Attempt tracking (for retries)
+    attempt: Mapped[int] = mapped_column(nullable=False, default=1)
+    is_retry: Mapped[bool] = mapped_column(nullable=False, default=False)
+    
+    # Additional context
+    question_preview: Mapped[str | None] = mapped_column(String(500), nullable=True)  # First 500 chars of question
+    repository_url: Mapped[str | None] = mapped_column(String(500), nullable=True)  # Repository being analyzed

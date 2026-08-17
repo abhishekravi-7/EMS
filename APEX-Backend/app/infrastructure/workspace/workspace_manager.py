@@ -44,7 +44,7 @@ class WorkspaceManager:
     def prepare_migrated_repo(self) -> None:
         """Create a fresh ``migrated-repo`` as a copy of ``original-repo``.
 
-        The copy excludes ``.git`` so OpenRewrite works on a clean working tree
+        The copy excludes ``.git`` so the migration engine works on a clean working tree
         and the eventual push starts from a single fresh commit. ``original-repo``
         is never modified.
         """
@@ -60,7 +60,7 @@ class WorkspaceManager:
 
         This job's workspace (``storage/migration-jobs/...``) normally sits
         nested inside this very project's own git working tree. Without a
-        ``.git`` of its own here, OpenRewrite's Maven/Gradle plugins walk up
+        ``.git`` of its own here, the Maven/Gradle migration plugins walk up
         the filesystem looking for one and land on the *outer* repository
         root instead -- which makes them silently resolve project files
         against the wrong base directory and apply zero recipe changes

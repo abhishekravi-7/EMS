@@ -49,7 +49,7 @@ async def start_migration(
     verify_job_ownership(db, job_id, current_user)
     request = payload.model_dump() if payload else None
     try:
-        result = _pipeline.start(job_id, request)
+        result = _pipeline.start(job_id, request, current_user_id=current_user.id)
     except (MigrationConfigError, MigrationExecutionError) as exc:
         return JSONResponse(
             status_code=exc.http_status,
@@ -159,7 +159,7 @@ async def rerun_migration_tests(
     )
 
     try:
-        result = await use_case.execute_project_suite(req)
+        result = await use_case.execute_project_suite(req, db=db)
         score = 92.5
 
         orig_repo = paths.original_repo_dir if paths.original_repo_dir.exists() else project_dir

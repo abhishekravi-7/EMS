@@ -15,3 +15,9 @@ export const APP_BASE_URL = (configuredApiUrl || runtimeOrigin).replace(/\/+$/, 
 export const API_BASE_URL = `${APP_BASE_URL}/api`;
 export const GITHUB_AUTH_LOGIN_URL = `${API_BASE_URL}/auth/github/login`;
 export const GOOGLE_AUTH_LOGIN_URL = `${API_BASE_URL}/auth/google/login`;
+
+// LLM Token Tracing Dashboard.
+// Default to the backend-served dashboard so the Usage button works even when
+// the standalone :8765 dashboard process is not running.
+export const TOKEN_TRACING_DASHBOARD_URL =
+  import.meta.env?.VITE_TOKEN_TRACING_DASHBOARD_URL || `${API_BASE_URL}/llm/token-usage/dashboard`;

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+from app.core.context import user_id_ctx, job_id_ctx, repository_url_ctx
 from typing import Any
 
 from app.application.services import progress_service
@@ -158,13 +159,21 @@ class StartMigrationUseCase:
     # ------------------------------------------------------------------ #
     # Phase 2: the long-running job (runs in a background thread)
     # ------------------------------------------------------------------ #
-    def run(self, job_id: str) -> None:
+    def run(self, job_id: str, current_user_id: int | None = None) -> None:
         paths = WorkspacePaths(job_id)
         store = MigrationReportStore(paths)
         report = store.read() or {}
         build_tool = report.get("buildTool", "")
         target_java = report.get("targetJavaVersion", "")
         conversion_types = report.get("conversionTypes") or []
+        user_token = None
+        job_token = None
+        repo_token = None
+
+        if current_user_id is not None:
+            user_token = user_id_ctx.set(current_user_id)
+        job_token = job_id_ctx.set(job_id)
+        repo_token = repository_url_ctx.set(report.get("sourceRepoUrl") or None)
 
         try:
             # --- Prepare migrated-repo ---
@@ -361,6 +370,13 @@ class StartMigrationUseCase:
         except Exception as exc:  # noqa: BLE001 - report any unexpected failure cleanly
             logger.exception("Unexpected migration failure for job %s", job_id)
             self._fail(store, job_id, "Migration failed due to an unexpected error.")
+        finally:
+            if repo_token is not None:
+                repository_url_ctx.reset(repo_token)
+            if job_token is not None:
+                job_id_ctx.reset(job_token)
+            if user_token is not None:
+                user_id_ctx.reset(user_token)
 
     # -- migration run + diagnose-and-retry loop ------------------------------ #
 

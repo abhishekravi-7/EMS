@@ -2,6 +2,7 @@ import os
 import re
 import time
 import json
+import shutil
 import subprocess
 import threading
 import signal
@@ -108,6 +109,23 @@ class ExistingTestDetector:
                 except Exception:
                     continue
                 self._analyze_file(filepath, rel_path)
+
+        # Deduplicate discovered test cases to represent unique tests
+        unique_tests = []
+        seen_test_keys = set()
+        for t in self.tests_found:
+            t_name = ExistingTestRunnerService._normalize_test_name(t.get("name"))
+            t["name"] = t_name
+            t_suite = t.get("classname") or t.get("module") or ""
+            t_file = t.get("file", "")
+            key = ExistingTestRunnerService._canonical_test_identifier(t_name, t_suite, t_file)
+            if key in seen_test_keys:
+                continue
+            seen_test_keys.add(key)
+            unique_tests.append(t)
+
+        self.tests_found = unique_tests
+        self.total_test_count = len(unique_tests)
         self._parse_execution_results()
         
         categories = self._categorize_tests()
@@ -751,29 +769,310 @@ class ExistingTestRunnerService:
                 pass
         return results
 
-    def _parse_gradle_xml_reports(self, proj_root: Path) -> list[dict]:
+    def _resolve_maven_executable(self, target_dir: Path, repo_root: Path, job_id: str) -> tuple[str, Path | None, Path | None]:
+        """
+        Resolves Maven executable in the following strict order:
+        1. Check target_dir and parent directories up to repo_root for Maven wrapper (mvnw.cmd on Windows, mvnw on Unix).
+        2. If wrapper script is found, verify that required wrapper files exist and are structurally valid:
+           - <wrapper_dir>/mvnw.cmd (valid Windows batch script, no bash syntax or double-double quotes)
+           - <wrapper_dir>/.mvn/wrapper/maven-wrapper.jar (valid non-empty JAR)
+           - <wrapper_dir>/.mvn/wrapper/maven-wrapper.properties (configuration file)
+        3. If wrapper is complete and valid, return ("WRAPPER", wrapper_candidate, wrapper_dir).
+        4. If wrapper is missing, incomplete, or malformed/unusable, attempt system Maven lookup via PATH / M2_HOME / MAVEN_HOME.
+        5. If system Maven is found, return ("SYSTEM", resolved_sys_mvn, target_dir).
+        6. If neither found, return ("NOT_FOUND", None, None).
+        """
+        self._log(job_id, f"[MAVEN] Repository: {repo_root}")
+
+        wrapper_names = ["mvnw.cmd", "mvnw.bat"] if os.name == "nt" else ["mvnw"]
+        wrapper_candidate = None
+        wrapper_dir = None
+
+        current = target_dir.resolve()
+        repo_root_res = repo_root.resolve()
+
+        while True:
+            for w_name in wrapper_names:
+                cand = current / w_name
+                if cand.is_file():
+                    wrapper_candidate = cand
+                    wrapper_dir = current
+                    break
+            if wrapper_candidate:
+                break
+            if current == repo_root_res or repo_root_res not in current.parents:
+                break
+            current = current.parent
+
+        wrapper_valid = False
+        if wrapper_candidate and wrapper_dir:
+            wrapper_jar = wrapper_dir / ".mvn" / "wrapper" / "maven-wrapper.jar"
+            wrapper_props = wrapper_dir / ".mvn" / "wrapper" / "maven-wrapper.properties"
+            self._log(job_id, f"[MAVEN] Wrapper: {wrapper_candidate}")
+            self._log(job_id, f"[MAVEN] Wrapper JAR: {wrapper_jar}")
+
+            has_jar = wrapper_jar.is_file() and wrapper_jar.stat().st_size > 0
+            has_props = wrapper_props.is_file()
+
+            # Inspect wrapper script contents for Windows compatibility
+            script_malformed = False
+            try:
+                content = wrapper_candidate.read_text(encoding="utf-8", errors="ignore")
+                lines = content.splitlines()
+                for line in lines:
+                    stripped = line.strip()
+                    if stripped.startswith("#") and not stripped.startswith("#!"):
+                        # Bash-style comment in a Windows .cmd file
+                        script_malformed = True
+                        break
+                    if 'set WRAPPER_JAR=""' in line or '""%MAVEN_PROJECTBASEDIR%' in line:
+                        # Double-double quotes breaking Windows paths with spaces
+                        script_malformed = True
+                        break
+            except Exception:
+                script_malformed = True
+
+            if has_jar and has_props and not script_malformed:
+                wrapper_valid = True
+                self._log(job_id, "[MAVEN] Wrapper valid: true")
+                return "WRAPPER", wrapper_candidate, wrapper_dir
+            else:
+                self._log(job_id, "[MAVEN] Wrapper validation failed")
+                if not has_jar:
+                    self._log(job_id, f"[MAVEN] Wrapper JAR missing: {wrapper_jar}")
+                if script_malformed:
+                    self._log(job_id, "[MAVEN] Wrapper script contains malformed Windows batch syntax (bash comments or invalid quotes)")
+                self._log(job_id, "[MAVEN] Wrapper valid: false")
+                self._log(job_id, "[MAVEN] Falling back to system Maven")
+        else:
+            self._log(job_id, "[MAVEN] Wrapper: NOT FOUND")
+            self._log(job_id, "[MAVEN] Wrapper valid: false")
+            self._log(job_id, "[MAVEN] Attempting system Maven")
+
+        # Resolve system Maven using PATH
+        sys_mvn_names = ["mvn.cmd", "mvn.bat", "mvn.exe", "mvn"] if os.name == "nt" else ["mvn"]
+        resolved_sys_mvn = None
+
+        for m_name in sys_mvn_names:
+            found = shutil.which(m_name)
+            if found:
+                resolved_sys_mvn = Path(found).resolve()
+                break
+
+        # Also check M2_HOME / MAVEN_HOME / bin / mvn
+        if not resolved_sys_mvn:
+            for env_var in ["MAVEN_HOME", "M2_HOME"]:
+                if env_var in os.environ:
+                    for m_name in sys_mvn_names:
+                        candidate = Path(os.environ[env_var]) / "bin" / m_name
+                        if candidate.is_file():
+                            resolved_sys_mvn = candidate.resolve()
+                            break
+                    if resolved_sys_mvn:
+                        break
+
+        if resolved_sys_mvn:
+            self._log(job_id, f"[MAVEN] System Maven found: {resolved_sys_mvn}")
+            return "SYSTEM", resolved_sys_mvn, target_dir
+
+        self._log(job_id, "[MAVEN] System Maven: NOT FOUND")
+        return "NOT_FOUND", None, None
+
+    @staticmethod
+    def _get_system_and_user_env_var(var_name: str) -> str | None:
+        if os.name != "nt":
+            return None
+        try:
+            import winreg
+            # Check User Environment (HKCU)
+            try:
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment") as key:
+                    val, _ = winreg.QueryValueEx(key, var_name)
+                    if val:
+                        return str(val)
+            except Exception:
+                pass
+            # Check System Environment (HKLM)
+            try:
+                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment") as key:
+                    val, _ = winreg.QueryValueEx(key, var_name)
+                    if val:
+                        return str(val)
+            except Exception:
+                pass
+        except Exception:
+            pass
+        return None
+
+    def _resolve_gradle_executable(self, target_dir: Path, repo_root: Path, job_id: str) -> tuple[str, Path | None, Path | None, str]:
+        """
+        Resolves Gradle executable in the following strict order:
+        1. Check target_dir for gradlew.bat (Windows) or gradlew (Unix).
+        2. Search upwards through parent directories up to repo_root for gradlew.bat.
+        3. Check GRADLE_HOME if defined: %GRADLE_HOME%/bin/gradle.bat.
+        4. Check current process PATH (and Windows environment PATH) for gradle.bat.
+        5. Return (resolution_type, executable_path, wrapper_root_dir, source).
+        """
+        self._log(job_id, "[GRADLE] Resolving Gradle executable")
+        self._log(job_id, f"[GRADLE] Target directory: {target_dir}")
+
+        wrapper_name = "gradlew.bat" if os.name == "nt" else "gradlew"
+
+        # 1 & 2. Search target_dir and parent directories up to repo_root
+        current = target_dir.resolve()
+        repo_root_res = repo_root.resolve()
+        wrapper_candidate = None
+        wrapper_dir = None
+
+        while True:
+            cand = current / wrapper_name
+            self._log(job_id, f"[GRADLE] Checking wrapper: {cand}")
+            if cand.is_file():
+                wrapper_candidate = cand
+                wrapper_dir = current
+                break
+
+            if current == repo_root_res or repo_root_res not in current.parents:
+                break
+            current = current.parent
+
+        if wrapper_candidate:
+            self._log(job_id, "[GRADLE] Wrapper: FOUND")
+            self._log(job_id, f"[GRADLE] Selected executable: {wrapper_candidate}")
+            self._log(job_id, "[GRADLE] Source: wrapper")
+            return "WRAPPER", wrapper_candidate, wrapper_dir, "wrapper"
+
+        self._log(job_id, "[GRADLE] Wrapper: NOT FOUND")
+
+        # 3. Check GRADLE_HOME (from environment or Windows registry)
+        gradle_home_val = os.environ.get("GRADLE_HOME")
+        if not gradle_home_val and os.name == "nt":
+            gradle_home_val = self._get_system_and_user_env_var("GRADLE_HOME")
+
+        self._log(job_id, f"[GRADLE] GRADLE_HOME: {gradle_home_val or 'NOT SET'}")
+
+        sys_gradle_names = ["gradle.bat", "gradle.cmd", "gradle.exe", "gradle"] if os.name == "nt" else ["gradle"]
+
+        if gradle_home_val:
+            for g_name in sys_gradle_names:
+                candidate = Path(gradle_home_val) / "bin" / g_name
+                if candidate.is_file():
+                    resolved_path = candidate.resolve()
+                    self._log(job_id, f"[GRADLE] Selected executable: {resolved_path}")
+                    self._log(job_id, "[GRADLE] Source: GRADLE_HOME")
+                    return "SYSTEM", resolved_path, target_dir, "GRADLE_HOME"
+
+        # 4. Check process PATH (and Windows registry PATH if nt)
+        path_candidate = None
+        for g_name in sys_gradle_names:
+            found = shutil.which(g_name)
+            if found:
+                path_candidate = Path(found).resolve()
+                break
+
+        # If not found in current process PATH on Windows, check system & user registry PATH
+        if not path_candidate and os.name == "nt":
+            reg_paths = []
+            u_path = self._get_system_and_user_env_var("Path")
+            if u_path:
+                reg_paths.extend(u_path.split(";"))
+            s_path = self._get_system_and_user_env_var("PATH")
+            if s_path:
+                reg_paths.extend(s_path.split(";"))
+            for p_dir in reg_paths:
+                if not p_dir:
+                    continue
+                p_dir_expanded = os.path.expandvars(p_dir.strip())
+                for g_name in sys_gradle_names:
+                    cand = Path(p_dir_expanded) / g_name
+                    if cand.is_file():
+                        path_candidate = cand.resolve()
+                        break
+                if path_candidate:
+                    break
+
+        if path_candidate:
+            self._log(job_id, "[GRADLE] PATH Gradle: FOUND")
+            self._log(job_id, f"[GRADLE] PATH Gradle candidate: {path_candidate}")
+            self._log(job_id, f"[GRADLE] Selected executable: {path_candidate}")
+            self._log(job_id, "[GRADLE] Source: PATH")
+            return "SYSTEM", path_candidate, target_dir, "PATH"
+
+        self._log(job_id, "[GRADLE] PATH Gradle: NOT FOUND")
+        self._log(job_id, "[GRADLE] PATH Gradle candidate: NOT FOUND")
+        self._log(job_id, "[GRADLE] Selected executable: NONE")
+        self._log(job_id, "[GRADLE] Source: NOT_FOUND")
+        return "NOT_FOUND", None, None, "NOT_FOUND"
+
+    def _parse_gradle_xml_reports(self, proj_root: Path, working_dir: Path | None = None) -> list[dict]:
         results = []
         if not proj_root.exists():
             return results
 
         xml_files = set()
-        for pattern in ["**/build/test-results/test/*.xml", "**/build/test-results/**/TEST-*.xml", "*.xml"]:
+        for pattern in [
+            "build/test-results/test/*.xml",
+            "build/test-results/**/TEST-*.xml",
+        ]:
             for xml_file in proj_root.glob(pattern):
-                if xml_file.is_file():
+                if xml_file.is_file() and xml_file.suffix.lower() == ".xml":
                     xml_files.add(xml_file)
 
         for xml_file in xml_files:
             try:
                 tree = ET.parse(xml_file)
                 root = tree.getroot()
-                if root.tag == "testsuite":
-                    results.extend(self._parse_testsuite_element(root))
-                elif root.tag == "testsuites":
-                    for ts in root.findall("testsuite"):
-                        results.extend(self._parse_testsuite_element(ts))
+                if root.tag in ("testsuite", "testsuites"):
+                    if root.tag == "testsuite":
+                        results.extend(self._parse_testsuite_element(root))
+                    elif root.tag == "testsuites":
+                        for ts in root.findall("testsuite"):
+                            results.extend(self._parse_testsuite_element(ts))
             except Exception:
                 pass
         return results
+
+    @staticmethod
+    def _normalize_test_name(name: str | None) -> str:
+        """
+        Normalizes test method/case names by stripping trailing empty parentheses '()'
+        while preserving parameterized signatures like 'testMethod(String, int)' or '[1] arg=val'.
+
+        Examples:
+            'testGetFeet()' -> 'testGetFeet'
+            'testGetFeet'   -> 'testGetFeet'
+            'test(int, int)' -> 'test(int, int)'
+            'com.example.Class.method()' -> 'com.example.Class.method'
+        """
+        if not name:
+            return "unknown"
+        s = name.strip()
+        if s.endswith("()"):
+            return s[:-2].strip()
+        return s
+
+    @staticmethod
+    def _canonical_test_identifier(test_name: str | None, suite: str | None, file_or_module: str | None = None) -> tuple[str, str]:
+        """
+        Builds a canonical (class_name, test_method) tuple for unique test matching and deduplication.
+        """
+        norm_name = ExistingTestRunnerService._normalize_test_name(test_name).lower()
+        if "." in norm_name and not ("(" in norm_name and norm_name.index(".") > norm_name.index("(")):
+            parts = norm_name.split(".")
+            norm_name = parts[-1]
+            if not suite:
+                suite = parts[-2]
+
+        suite_str = (suite or "").strip()
+        if suite_str:
+            class_name = suite_str.split(".")[-1].split("$")[0].lower()
+        elif file_or_module:
+            f_stem = Path(file_or_module).stem
+            class_name = f_stem.split("$")[0].lower()
+        else:
+            class_name = "unknown"
+
+        return (class_name, norm_name)
 
     @staticmethod
     def _classify_error_and_root_cause(
@@ -859,7 +1158,7 @@ class ExistingTestRunnerService:
         suite_sys_err = ts_el.findtext("system-err")
 
         for tc in ts_el.findall("testcase"):
-            name = tc.get("name", "unknown")
+            name = self._normalize_test_name(tc.get("name", "unknown"))
             classname = tc.get("classname", "unknown")
             time_str = tc.get("time", "0")
             
@@ -1340,10 +1639,46 @@ class ExistingTestRunnerService:
 
                 if runner_type == "Maven":
                     self._log(job_id, f"Executing JUnit/Maven project: {proj_root_str}")
-                    mvn_cmd = "mvn.cmd" if os.name == "nt" else "mvn"
-                    mvnw = proj_root / ("mvnw.cmd" if os.name == "nt" else "mvnw")
-                    if mvnw.is_file():
-                        mvn_cmd = str(mvnw)
+                    build_tool = (build_tool + ", Maven").strip(", ")
+
+                    res_type, mvn_exec, mvn_work_dir = self._resolve_maven_executable(proj_root, project_dir, job_id)
+
+                    if res_type == "NOT_FOUND" or not mvn_exec:
+                        self._log(job_id, "[MAVEN] Selected executable: NONE")
+                        self._log(job_id, "Build tool: Maven", "WARN")
+                        self._log(job_id, "Status: NOT EXECUTED", "WARN")
+                        self._log(job_id, "Category: BUILD_TOOL_UNAVAILABLE", "WARN")
+                        self._log(job_id, "Reason: Maven wrapper is incomplete/unusable and system Maven is unavailable.", "WARN")
+
+                        for t in grouped_tests:
+                            t_name = t.get("name", "unknown")
+                            t_suite = t.get("classname") or t.get("suite") or t.get("file", "").split("/")[-1].replace(".java", "")
+                            t_file = t.get("file", "Unknown")
+                            parsed_test_results.append({
+                                "test_name": t_name,
+                                "suite": t_suite,
+                                "status": "NOT_EXECUTED",
+                                "duration": "N/A",
+                                "failure_message": "Maven wrapper is incomplete/unusable and system Maven is unavailable",
+                                "file": t_file,
+                                "error_category": "Build Tool Unavailable",
+                                "errorCategory": "Build Tool Unavailable",
+                                "error_code": "BUILD_TOOL_UNAVAILABLE",
+                                "errorCode": "BUILD_TOOL_UNAVAILABLE",
+                                "root_cause": "Maven wrapper is incomplete/unusable and system Maven is unavailable",
+                                "rootCause": "Maven wrapper is incomplete/unusable and system Maven is unavailable",
+                                "apex_execution": "Started successfully",
+                                "apexExecution": "Started successfully",
+                                "framework": t.get("framework", "JUnit"),
+                                "type": "JUnit",
+                                "category": "UNIT"
+                            })
+                        continue
+
+                    self._log(job_id, f"[MAVEN] Selected executable: {mvn_exec}")
+                    if os.name == "nt":
+                        self._log(job_id, "[MAVEN] Windows command interpreter: cmd.exe")
+                    self._log(job_id, f"[MAVEN] Working directory: {proj_root}")
 
                     test_args = ["test", "surefire-report:report"]
                     if selected_classes_for_proj:
@@ -1351,21 +1686,39 @@ class ExistingTestRunnerService:
                         if class_list:
                             test_args.append(f"-Dtest={class_list}")
 
+                    mvn_cmd = str(mvn_exec)
+                    exec_cmd = ["cmd.exe", "/c", mvn_cmd] + test_args if os.name == "nt" and mvn_cmd.lower().endswith((".cmd", ".bat")) else [mvn_cmd] + test_args
                     runner_command = f"{mvn_cmd} {' '.join(test_args)}"
-                    build_tool = (build_tool + ", Maven").strip(", ")
-                    self._log(job_id, f"Executing: {runner_command}")
+                    self._log(job_id, f"[MAVEN] Command: {runner_command}")
 
                     try:
-                        execution_output, exit_code = self._run_cmd(job_id, [mvn_cmd] + test_args, cwd=proj_root, timeout=300)
-                        self._log(job_id, f"Maven test run completed (exit code: {exit_code})")
+                        self._log(job_id, "[MAVEN] Maven started successfully")
+                        execution_output, exit_code = self._run_cmd(job_id, exec_cmd, cwd=proj_root, timeout=300)
+                        self._log(job_id, f"[MAVEN] Exit code: {exit_code}")
 
                         surefire_dir = proj_root / "target" / "surefire-reports"
+                        self._log(job_id, f"[MAVEN] Surefire report directory: {surefire_dir}")
                         parsed_results = self._parse_surefire_xml_reports(surefire_dir)
 
                         for result in parsed_results:
                             result.setdefault("framework", "JUnit")
                             result.setdefault("type", "JUnit")
                             result.setdefault("category", "UNIT")
+
+                            # Link with discovered test in grouped_tests to inherit exact repository-relative file path
+                            r_name = self._normalize_test_name(result.get("test_name", ""))
+                            r_suite = result.get("suite", "").split(".")[-1].lower()
+                            for t in grouped_tests:
+                                t_name = self._normalize_test_name(t.get("name", ""))
+                                t_suite = (t.get("classname") or t.get("suite") or "").split(".")[-1].lower()
+                                if r_name == t_name and (r_suite == t_suite or not r_suite):
+                                    result["file"] = t.get("file", result.get("file"))
+                                    result["framework"] = t.get("framework", result.get("framework", "JUnit"))
+                                    result["type"] = t.get("type", result.get("type", "JUnit"))
+                                    result["category"] = t.get("category", result.get("category", "UNIT"))
+                                    break
+
+                            self._log(job_id, f"[MAVEN-TEST-RESULT] test={result.get('suite', 'Test')}.{result.get('test_name', 'unknown')} status={result.get('status')}")
 
                         if parsed_results:
                             parsed_test_results.extend(parsed_results)
@@ -1374,44 +1727,170 @@ class ExistingTestRunnerService:
                             self._log(job_id, "No surefire XML reports found after Maven execution", "WARN")
                             if exit_code != 0:
                                 compilation_failed = True
-                                compilation_error_msg = self._extract_compilation_errors(execution_output)
+                                compilation_error_msg = self._extract_compilation_errors(execution_output) or "Maven compilation/build failed before tests could execute."
                                 self._log(job_id, "Maven compilation failed before tests could execute.", "ERROR")
                                 if compilation_error_msg:
                                     for err_line in compilation_error_msg.splitlines()[:5]:
                                         self._log(job_id, f"  {err_line}", "ERROR")
+                                for t in grouped_tests:
+                                    t_name = t.get("name", "unknown")
+                                    t_suite = t.get("classname") or t.get("suite") or t.get("file", "").split("/")[-1].replace(".java", "")
+                                    t_file = t.get("file", "Unknown")
+                                    parsed_test_results.append({
+                                        "test_name": t_name,
+                                        "suite": t_suite,
+                                        "status": "NOT_EXECUTED",
+                                        "duration": "N/A",
+                                        "failure_message": compilation_error_msg,
+                                        "file": t_file,
+                                        "error_category": "Compilation Failure",
+                                        "errorCategory": "Compilation Failure",
+                                        "error_code": "COMPILATION_FAILURE",
+                                        "errorCode": "COMPILATION_FAILURE",
+                                        "root_cause": "Maven compilation failed before tests could execute",
+                                        "rootCause": "Maven compilation failed before tests could execute",
+                                        "apex_execution": "Started successfully",
+                                        "apexExecution": "Started successfully",
+                                        "framework": t.get("framework", "JUnit"),
+                                        "type": "JUnit",
+                                        "category": "UNIT"
+                                    })
                     except Exception as e:
                         compilation_failed = True
                         compilation_error_msg = str(e)
                         self._log(job_id, f"Maven execution error: {e}", "ERROR")
+                        for t in grouped_tests:
+                            t_name = t.get("name", "unknown")
+                            t_suite = t.get("classname") or t.get("suite") or t.get("file", "").split("/")[-1].replace(".java", "")
+                            t_file = t.get("file", "Unknown")
+                            parsed_test_results.append({
+                                "test_name": t_name,
+                                "suite": t_suite,
+                                "status": "NOT_EXECUTED",
+                                "duration": "N/A",
+                                "failure_message": f"Maven execution error: {e}",
+                                "file": t_file,
+                                "error_category": "Build Tool Error",
+                                "errorCategory": "Build Tool Error",
+                                "error_code": "EXECUTION_ERROR",
+                                "errorCode": "EXECUTION_ERROR",
+                                "root_cause": f"Maven execution error: {e}",
+                                "rootCause": f"Maven execution error: {e}",
+                                "apex_execution": "Started successfully",
+                                "apexExecution": "Started successfully",
+                                "framework": t.get("framework", "JUnit"),
+                                "type": "JUnit",
+                                "category": "UNIT"
+                            })
 
                 elif runner_type == "Gradle":
                     self._log(job_id, f"Executing JUnit/Gradle project: {proj_root_str}")
-                    gradlew = proj_root / ("gradlew.bat" if os.name == "nt" else "gradlew")
-                    if gradlew.is_file():
-                        gradle_cmd = str(gradlew)
-                    else:
-                        gradle_cmd = "gradle.bat" if os.name == "nt" else "gradle"
-                        self._log(job_id, "Gradle wrapper (gradlew) not found in project root. Attempting system Gradle...", "WARN")
+                    build_tool = (build_tool + ", Gradle").strip(", ")
 
-                    test_args = ["test"]
+                    res_type, gradle_exec, gradle_work_dir, gradle_source = self._resolve_gradle_executable(proj_root, project_dir, job_id)
+
+                    if res_type == "NOT_FOUND" or not gradle_exec:
+                        self._log(job_id, "Build tool: Gradle", "WARN")
+                        self._log(job_id, "Status: NOT EXECUTED", "WARN")
+                        self._log(job_id, "Category: BUILD_TOOL_UNAVAILABLE", "WARN")
+                        self._log(job_id, "Reason: Gradle wrapper was not found and Gradle is not installed/configured on PATH.", "WARN")
+
+                        for t in grouped_tests:
+                            t_name = t.get("name", "unknown")
+                            t_suite = t.get("classname") or t.get("suite") or t.get("file", "").split("/")[-1].replace(".java", "")
+                            t_file = t.get("file", "Unknown")
+                            parsed_test_results.append({
+                                "test_name": t_name,
+                                "suite": t_suite,
+                                "status": "NOT_EXECUTED",
+                                "duration": "N/A",
+                                "failure_message": "Gradle wrapper and system Gradle executable were not found",
+                                "file": t_file,
+                                "error_category": "Build Tool Unavailable",
+                                "errorCategory": "Build Tool Unavailable",
+                                "error_code": "BUILD_TOOL_UNAVAILABLE",
+                                "errorCode": "BUILD_TOOL_UNAVAILABLE",
+                                "root_cause": "Gradle wrapper was not found and Gradle is not installed/configured on PATH",
+                                "rootCause": "Gradle wrapper was not found and Gradle is not installed/configured on PATH",
+                                "apex_execution": "Started successfully",
+                                "apexExecution": "Started successfully",
+                                "framework": t.get("framework", "JUnit"),
+                                "type": "JUnit",
+                                "category": "UNIT"
+                            })
+                        continue
+
+                    # Inspect module configuration for test task association and source sets
+                    build_gradle_file = proj_root / "build.gradle"
+                    build_gradle_kts = proj_root / "build.gradle.kts"
+                    proj_content = ""
+                    for bgf in [build_gradle_file, build_gradle_kts]:
+                        if bgf.exists():
+                            try:
+                                proj_content += bgf.read_text(encoding="utf-8", errors="ignore").lower()
+                            except Exception:
+                                pass
+
+                    task_name = "test"
+                    for t in grouped_tests:
+                        t_name = t.get("name", "unknown")
+                        t_file = t.get("file", "")
+                        source_set = "src/integrationTest/java" if "integrationtest" in t_file.lower() else "src/test/java"
+                        if "task integrationtest" in proj_content or "tasks.register('integrationtest'" in proj_content or "sourcesets.integrationtest" in proj_content:
+                            t_task = "integrationTest"
+                        else:
+                            t_task = "test"
+                        module_name = proj_root.name
+                        self._log(job_id, f"[GRADLE-TEST-TASK] module={module_name} test={t.get('classname', 'Test')}.{t_name} source={source_set} task={t_task}")
+
+                    if "task integrationtest" in proj_content or "tasks.register('integrationtest'" in proj_content or any("integrationtest" in t.get("file", "").lower() for t in grouped_tests):
+                        task_name = "integrationTest"
+
+                    self._log(job_id, f"[GRADLE-TEST-TASK] module={proj_root.name} selectedTask={task_name}")
+
+                    # Execute against module directory so module-specific conditions like gradle.startParameter.taskNames are satisfied
+                    exec_cwd = proj_root
+
+                    test_args = [task_name]
                     if selected_classes_for_proj:
                         for cls in selected_classes_for_proj:
-                            if cls: test_args.extend(["--tests", cls])
+                            if cls:
+                                test_args.extend(["--tests", cls])
 
+                    gradle_cmd = str(gradle_exec)
                     runner_command = f"{gradle_cmd} {' '.join(test_args)}"
-                    build_tool = (build_tool + ", Gradle").strip(", ")
-                    self._log(job_id, f"Executing: {runner_command}")
+
+                    self._log(job_id, f"[GRADLE] Working directory: {exec_cwd}")
+                    self._log(job_id, f"[GRADLE] Command: {runner_command}")
 
                     try:
-                        execution_output, exit_code = self._run_cmd(job_id, [gradle_cmd] + test_args, cwd=proj_root, timeout=300)
-                        self._log(job_id, f"Gradle test run completed (exit code: {exit_code})")
+                        execution_output, exit_code = self._run_cmd(job_id, [gradle_cmd] + test_args, cwd=exec_cwd, timeout=300)
+                        self._log(job_id, f"[GRADLE] Exit code: {exit_code}")
 
-                        parsed_results = self._parse_gradle_xml_reports(proj_root)
+                        report_dir = proj_root / "build" / "test-results" / "test"
+                        self._log(job_id, f"[GRADLE] XML report directory: {report_dir}")
+
+                        parsed_results = self._parse_gradle_xml_reports(proj_root, exec_cwd)
 
                         for result in parsed_results:
                             result.setdefault("framework", "JUnit")
                             result.setdefault("type", "JUnit")
                             result.setdefault("category", "UNIT")
+
+                            # Link with discovered test in grouped_tests to inherit exact repository-relative file path
+                            r_name = self._normalize_test_name(result.get("test_name", ""))
+                            r_suite = result.get("suite", "").split(".")[-1].lower()
+                            for t in grouped_tests:
+                                t_name = self._normalize_test_name(t.get("name", ""))
+                                t_suite = (t.get("classname") or t.get("suite") or "").split(".")[-1].lower()
+                                if r_name == t_name and (r_suite == t_suite or not r_suite):
+                                    result["file"] = t.get("file", result.get("file"))
+                                    result["framework"] = t.get("framework", result.get("framework", "JUnit"))
+                                    result["type"] = t.get("type", result.get("type", "JUnit"))
+                                    result["category"] = t.get("category", result.get("category", "UNIT"))
+                                    break
+
+                            self._log(job_id, f"[GRADLE-TEST-RESULT] test={result.get('suite', 'Test')}.{result.get('test_name', 'unknown')} status={result.get('status')}")
 
                         if parsed_results:
                             parsed_test_results.extend(parsed_results)
@@ -1420,11 +1899,57 @@ class ExistingTestRunnerService:
                             self._log(job_id, "No Gradle XML reports found after execution", "WARN")
                             if exit_code != 0:
                                 compilation_failed = True
-                                compilation_error_msg = self._extract_compilation_errors(execution_output)
+                                compilation_error_msg = self._extract_compilation_errors(execution_output) or "Gradle build/compilation failed before tests could execute."
+                                for t in grouped_tests:
+                                    t_name = t.get("name", "unknown")
+                                    t_suite = t.get("classname") or t.get("suite") or t.get("file", "").split("/")[-1].replace(".java", "")
+                                    t_file = t.get("file", "Unknown")
+                                    parsed_test_results.append({
+                                        "test_name": t_name,
+                                        "suite": t_suite,
+                                        "status": "NOT_EXECUTED",
+                                        "duration": "N/A",
+                                        "failure_message": compilation_error_msg,
+                                        "file": t_file,
+                                        "error_category": "Compilation Failure",
+                                        "errorCategory": "Compilation Failure",
+                                        "error_code": "COMPILATION_FAILURE",
+                                        "errorCode": "COMPILATION_FAILURE",
+                                        "root_cause": "Gradle build/compilation failed before tests could execute",
+                                        "rootCause": "Gradle build/compilation failed before tests could execute",
+                                        "apex_execution": "Started successfully",
+                                        "apexExecution": "Started successfully",
+                                        "framework": t.get("framework", "JUnit"),
+                                        "type": "JUnit",
+                                        "category": "UNIT"
+                                    })
                     except Exception as e:
                         compilation_failed = True
                         compilation_error_msg = str(e)
                         self._log(job_id, f"Gradle execution error: {e}", "WARN")
+                        for t in grouped_tests:
+                            t_name = t.get("name", "unknown")
+                            t_suite = t.get("classname") or t.get("suite") or t.get("file", "").split("/")[-1].replace(".java", "")
+                            t_file = t.get("file", "Unknown")
+                            parsed_test_results.append({
+                                "test_name": t_name,
+                                "suite": t_suite,
+                                "status": "NOT_EXECUTED",
+                                "duration": "N/A",
+                                "failure_message": f"Gradle execution error: {e}",
+                                "file": t_file,
+                                "error_category": "Build Tool Error",
+                                "errorCategory": "Build Tool Error",
+                                "error_code": "EXECUTION_ERROR",
+                                "errorCode": "EXECUTION_ERROR",
+                                "root_cause": f"Gradle execution error: {e}",
+                                "rootCause": f"Gradle execution error: {e}",
+                                "apex_execution": "Started successfully",
+                                "apexExecution": "Started successfully",
+                                "framework": t.get("framework", "JUnit"),
+                                "type": "JUnit",
+                                "category": "UNIT"
+                            })
 
                 elif runner_type == "npm":
                     self._log(job_id, f"Executing Jest/JS project: {proj_root_str}")
@@ -1567,6 +2092,78 @@ class ExistingTestRunnerService:
                     except Exception as e:
                         self._log(job_id, f"Pytest execution error: {e}", "WARN")
 
+        # Diagnostic logging for discovered tests:
+        if test_cases:
+            for tc in test_cases:
+                orig_name = tc.get("name", "unknown")
+                tc_suite = tc.get("classname") or tc.get("suite") or tc.get("module", "")
+                tc_file = tc.get("file", "")
+                c_key = self._canonical_test_identifier(orig_name, tc_suite, tc_file)
+                canonical_str = f"{c_key[0]}.{c_key[1]}"
+                mod_str = tc.get("module") or tc.get("file", "")
+                self._log(job_id, f"[TEST-IDENTITY] discovered={orig_name} canonical={canonical_str} module={mod_str}")
+
+        # Deduplicate parsed_test_results using canonical test identifiers with priority:
+        # Executed results (PASSED, FAILED, ERROR, SKIPPED) take precedence over NOT_EXECUTED.
+        STATUS_PRIORITY = {
+            "PASSED": 1,
+            "FAILED": 1,
+            "ERROR": 1,
+            "SKIPPED": 2,
+            "NOT_EXECUTED": 3,
+        }
+
+        results_by_key = {}
+        for r in parsed_test_results:
+            r_name = self._normalize_test_name(r.get("test_name") or r.get("name", ""))
+            r["test_name"] = r_name
+            r["name"] = r_name
+            r_suite = r.get("suite") or r.get("classname", "")
+            r_file = r.get("file", "")
+
+            key = self._canonical_test_identifier(r_name, r_suite, r_file)
+            canonical_str = f"{key[0]}.{key[1]}"
+
+            if key not in results_by_key:
+                results_by_key[key] = r
+            else:
+                existing = results_by_key[key]
+                existing_prio = STATUS_PRIORITY.get(existing.get("status", "NOT_EXECUTED"), 4)
+                new_prio = STATUS_PRIORITY.get(r.get("status", "NOT_EXECUTED"), 4)
+                if new_prio < existing_prio:
+                    self._log(job_id, f"[TEST-DEDUP] duplicate={canonical_str} keeping={r.get('status')}")
+                    results_by_key[key] = r
+                else:
+                    self._log(job_id, f"[TEST-DEDUP] duplicate={canonical_str} keeping={existing.get('status')}")
+
+        # Ensure all discovered test_cases have a corresponding entry if missing
+        if test_cases:
+            for tc in test_cases:
+                tc_name = self._normalize_test_name(tc.get("name", "test"))
+                tc_suite = tc.get("classname") or tc.get("suite") or tc.get("module", "")
+                tc_file = tc.get("file", "")
+                key = self._canonical_test_identifier(tc_name, tc_suite, tc_file)
+                canonical_str = f"{key[0]}.{key[1]}"
+                if key not in results_by_key:
+                    results_by_key[key] = {
+                        "test_name": tc_name,
+                        "name": tc_name,
+                        "suite": tc_suite,
+                        "status": "NOT_EXECUTED",
+                        "duration": "N/A",
+                        "file": tc_file,
+                        "failure_message": "Test was not executed by build runner.",
+                        "framework": tc.get("framework", "JUnit"),
+                        "type": tc.get("type", "JUnit"),
+                        "category": tc.get("category", self._test_category(tc.get("type", "JUnit"), tc.get("framework", "")))
+                    }
+                    self._log(job_id, f"[TEST-MERGE] discovered={canonical_str} executed=NONE status=NOT_EXECUTED")
+                else:
+                    status_str = results_by_key[key].get("status", "UNKNOWN")
+                    self._log(job_id, f"[TEST-MERGE] discovered={canonical_str} executed={canonical_str} status={status_str}")
+
+        parsed_test_results = list(results_by_key.values())
+
         # ── POST-EXECUTION PROCESSING: Calculate Metrics & Breakdown ──────────────────
 
         compilation_or_build_failed = False
@@ -1581,7 +2178,8 @@ class ExistingTestRunnerService:
 
             for tc in test_cases:
                 parsed_test_results.append({
-                    "test_name": tc.get("name", "test"),
+                    "test_name": self._normalize_test_name(tc.get("name", "test")),
+                    "name": self._normalize_test_name(tc.get("name", "test")),
                     "suite": tc.get("module", tc.get("classname", "")),
                     "status": status_code,
                     "duration": "N/A",
@@ -1631,17 +2229,18 @@ class ExistingTestRunnerService:
 
             type_map = {}
             for tc in test_cases:
-                t_name = tc.get("name")
+                t_name = self._normalize_test_name(tc.get("name"))
                 t_file = tc.get("file", "")
                 t_module = tc.get("module", "")
-                
+
                 if t_name not in type_map:
                     type_map[t_name] = []
                 type_map[t_name].append({
                     "file_hint": t_file.split("/")[-1].replace(".java", "").replace(".ts", "").replace(".js", ""),
                     "module_hint": t_module,
                     "type": tc.get("type", "Unknown"),
-                    "category": tc.get("category", self._test_category(tc.get("type", "Unknown"), tc.get("framework", "")))
+                    "category": tc.get("category", self._test_category(tc.get("type", "Unknown"), tc.get("framework", ""))),
+                    "framework": tc.get("framework", "")
                 })
 
             for tc in parsed_test_results:
@@ -1662,7 +2261,9 @@ class ExistingTestRunnerService:
                     icon = status
                     level = "INFO"
 
-                test_name = tc.get("test_name") or tc.get("name", "unknown")
+                test_name = self._normalize_test_name(tc.get("test_name") or tc.get("name", "unknown"))
+                tc["test_name"] = test_name
+                tc["name"] = test_name
                 suite = tc.get("suite") or tc.get("classname", "unknown")
                 short_class = suite.split(".")[-1] if suite else ""
                 duration = tc.get("duration", "N/A")
@@ -1911,7 +2512,7 @@ class ExistingTestRunnerService:
         duration = time.time() - start_time
         pass_pct = f"{int((executed_passed / total_executed) * 100)}%" if total_executed > 0 else "N/A"
 
-        if compilation_or_build_failed or (executed_any and total_executed == 0):
+        if compilation_or_build_failed or compilation_failed or (executed_any and total_executed == 0):
             job_status = "ERROR"
             final_log_msg = "⚠️ Existing test suite execution completed with errors."
         elif executed_failed > 0:

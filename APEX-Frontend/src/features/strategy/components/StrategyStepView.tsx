@@ -9,8 +9,9 @@ import {
   WizardSectionHeading,
 } from "@/shared/components/wizard";
 import type { RepoAnalysis, RepoInfo, DependencyInfo } from "@/shared/types/domain";
-import type { JavaVersionRecommendationResponse } from "../services/strategyService";
+import type { JavaVersionRecommendationResponse, StrategyPageContext } from "../services/strategyService";
 import type { useStrategyState, JavaVersionOption } from "../hooks/useStrategyState";
+
 
 const getJavaVersionRecommendationProviderLabel = (providerUsed?: string | null) => {
   const normalized = String(providerUsed || "").trim().toLowerCase();
@@ -69,6 +70,7 @@ interface StrategyStepViewProps {
   targetRepositoryOwner: string;
   onBack: () => void;
   onContinue: () => void;
+  strategyAssistantContext: StrategyPageContext | null;
 }
 
 export function StrategyStepView({
@@ -94,6 +96,7 @@ export function StrategyStepView({
   targetRepositoryOwner,
   onBack,
   onContinue,
+  strategyAssistantContext,
 }: StrategyStepViewProps) {
   const {
     selectedSourceVersion,
@@ -680,6 +683,11 @@ export function StrategyStepView({
           </p>
         )}
       </div>
+
+      <WizardSectionHeading
+        title="Migration Destination"
+        style={{ marginBottom: 14, marginTop: 20 }}
+      />
 
       <div style={styles.btnRow}>
         <button style={styles.secondaryBtn} onClick={onBack}>{renderBackButtonLabel()}</button>

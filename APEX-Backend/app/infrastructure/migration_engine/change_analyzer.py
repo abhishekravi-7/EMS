@@ -1,7 +1,7 @@
 """Diffs the original repo against the migrated repo to report what changed.
 
 Read-only: only inspects file bytes/text on both trees, never modifies either.
-Used after OpenRewrite/build-config modernization runs so the migration report
+Used after migration/build-config modernization runs so the migration report
 can state exactly which files, imports, and source lines were touched.
 """
 
@@ -33,7 +33,7 @@ class SourceChange:
     lines_changed: int
 
     def to_dict(self) -> dict[str, object]:
-        return {"file": self.file, "linesChanged": self.lines_changed}
+        return {"file": self.file, "lines_changed": self.lines_changed}
 
 
 @dataclass(frozen=True)

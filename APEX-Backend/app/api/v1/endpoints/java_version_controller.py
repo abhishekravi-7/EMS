@@ -8,11 +8,14 @@ returns a fresh, non-cached recommendation every time.
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
+from sqlalchemy.orm import Session
 
+from app.api.deps import get_current_user, get_db
 from app.application.use_cases.recommend_java_version import RecommendJavaVersionUseCase
 from app.core.exceptions import JavaVersionRecommendationError
+from app.infrastructure.persistence.models import User
 from app.schemas.java_version_schema import (
     JavaVersionRecommendationRequest,
     JavaVersionRecommendationResponse,
@@ -28,9 +31,13 @@ _use_case = RecommendJavaVersionUseCase()
     response_model=JavaVersionRecommendationResponse,
     summary="AI-recommend a target Java version, given the detected source version and project metadata.",
 )
-async def recommend_java_version(payload: JavaVersionRecommendationRequest) -> JSONResponse:
+async def recommend_java_version(
+    payload: JavaVersionRecommendationRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> JSONResponse:
     try:
-        result = await _use_case.execute(payload)
+        result = await _use_case.execute(payload, db=db, current_user=current_user)
     except JavaVersionRecommendationError as exc:
         return JSONResponse(
             status_code=exc.http_status,

@@ -35,6 +35,7 @@ class TestCriticAgent:
             async for chunk in self._chat_llm.stream_chat(
                 system_prompt=JUNIT_CRITIC_SYSTEM_PROMPT,
                 user_prompt=prompt,
+                endpoint="junit_critic",
             ):
                 response_text += chunk
         except Exception as exc:

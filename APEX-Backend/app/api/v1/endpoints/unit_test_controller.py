@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
 
+from app.api.deps import get_db
 from app.application.use_cases.run_unit_tests import RunUnitTestSuiteUseCase
 from app.application.use_cases.validate_unit_tests import ValidateUnitTestSuiteUseCase
 from app.core.exceptions import APEXError
@@ -46,6 +48,7 @@ def analyze_unit_tests(request: UnitTestAnalysisRequest) -> UnitTestAnalysisResp
 )
 async def validate_unit_tests(
     request: UnitTestValidationRequest,
+    db: Session = Depends(get_db),
 ) -> UnitTestValidationReport:
     try:
         use_case = ValidateUnitTestSuiteUseCase()
@@ -53,6 +56,7 @@ async def validate_unit_tests(
             source_code=request.source_code,
             test_code=request.test_code,
             target_class_name=request.target_class_name,
+            db=db,
         )
     except APEXError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
@@ -70,10 +74,11 @@ async def validate_unit_tests(
 )
 async def generate_and_run_unit_tests(
     request: UnitTestGenerateAndRunRequest,
+    db: Session = Depends(get_db),
 ) -> UnitTestSuiteResult:
     try:
         use_case = RunUnitTestSuiteUseCase()
-        return await use_case.execute(request)
+        return await use_case.execute(request, db=db)
     except APEXError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except Exception as exc:
