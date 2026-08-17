@@ -185,7 +185,7 @@ jobs:
           fetch-depth: 0
 
       # --------------------------------------------------------
-      # Gitleaks
+      # Gitleaks Secret Scan
       # --------------------------------------------------------
       - name: Gitleaks secret scan
         uses: gitleaks/gitleaks-action@v2
@@ -202,10 +202,10 @@ jobs:
             --exit-code 1
 
       # --------------------------------------------------------
-      # Trivy
+      # Trivy Filesystem Scan
       # --------------------------------------------------------
       - name: Trivy filesystem scan
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@0.33.1
         with:
           scan-type: fs
           scan-ref: .
@@ -218,7 +218,7 @@ jobs:
       # --------------------------------------------------------
       # Upload Security Failure Reports
       # --------------------------------------------------------
-      - name: Upload security failure logs
+      - name: Upload security failure reports
         if: failure()
         uses: actions/upload-artifact@v4
         with:
@@ -231,7 +231,7 @@ jobs:
 
   # ============================================================
   # SONARCLOUD / SONARQUBE
-  # Static Code Analysis
+  # Static Code Analysis + Quality Gate
   # ============================================================
   quality-gate:
     name: SonarQube / SonarCloud quality gate
@@ -251,6 +251,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectBaseDir: .
+          args: >
+            -Dsonar.qualitygate.wait=true
+            -Dsonar.qualitygate.timeout=300
 
 
   # ============================================================
@@ -314,7 +317,9 @@ jobs:
             Run URL:
             ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
-            Job Status:
+            ==============================
+            JOB STATUS
+            ==============================
 
             Frontend:
             ${{ needs.frontend.result }}
@@ -328,7 +333,4 @@ jobs:
             SonarCloud:
             ${{ needs.quality-gate.result }}
 
-            One or more required Integration CI checks failed.
-
-            Please open the GitHub Actions run URL above and download
-            the available artifacts to inspect the detailed failure logs.
+            ==============================
