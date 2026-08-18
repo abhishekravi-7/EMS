@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import apexLogo from "../../../assets/logo.jpg";
 import {
   FaGithub,
   FaCoffee,
@@ -156,14 +157,8 @@ const LandingPage: React.FC = () => {
       <header className="apex-navbar-wrap">
         <div className="apex-container">
           <nav className="apex-navbar">
-            <div className="apex-logo" onClick={() => navigate("/")}>
-              <div className="apex-logo-icon">
-                <FaCoffee />
-              </div>
-              <div>
-                <span className="apex-logo-text-java">Java </span>
-                <span className="apex-logo-text-apex">APEX</span>
-              </div>
+            <div className="apex-logo" onClick={() => navigate("/")} style={{ cursor: "pointer" }}>
+              <img src={apexLogo} alt="Java APEX" style={{ height: 38, width: "auto", objectFit: "contain", display: "block" }} />
             </div>
 
             {/* <ul className="apex-nav-links">

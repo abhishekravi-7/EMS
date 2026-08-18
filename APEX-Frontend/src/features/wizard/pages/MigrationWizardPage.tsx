@@ -1,8 +1,8 @@
+import React, { useEffect } from "react";
 import { FaTimes } from "react-icons/fa";
 import { wizardStyles as styles } from "@/shared/components/wizard/wizardStyles";
 import { useWizardController } from "../hooks/useWizardController";
 import { useChatbot } from "@/shared/context/ChatbotContext";
-import { useEffect } from "react";
 import ConnectPage from "@/features/connect/pages/ConnectPage";
 import { ConnectStepView } from "@/features/connect/components/ConnectStepView";
 import DiscoveryPage from "@/features/discovery/pages/DiscoveryPage";
@@ -16,6 +16,14 @@ import { MigrationAnimationView } from "@/features/result/components/MigrationAn
 import { MigrationProgressView } from "@/features/result/components/MigrationProgressView";
 import { ResultReportView } from "@/features/result/components/ResultReportView";
 import "./MigrationWizardPage.css";
+
+const WIZARD_SIDEBAR_STEPS = [
+  { id: 1, number: 1, title: "Connect", subtitle: "Repository" },
+  { id: 2, number: 2, title: "Discovery", subtitle: "Dependencies" },
+  { id: 3, number: 3, title: "Strategy", subtitle: "Migration Plan" },
+  { id: 4, number: 4, title: "Migration", subtitle: "Modernization" },
+  { id: 5, number: 5, title: "Results", subtitle: "Validation" },
+];
 
 export default function MigrationWizardPage() {
   const {
@@ -98,21 +106,75 @@ export default function MigrationWizardPage() {
     const nextRepoUrl = repoUrl || null;
     const nextStrategyContext = strategyAssistantContext || null;
 
-    // Use JSON stringify to check for actual content changes before calling setContext.
-    // This is the most reliable way to prevent infinite loops when objects are reconstructed.
-    const hasUrlChange = nextRepoUrl !== repoUrl; // repoUrl is stable
-    const hasContextChange = JSON.stringify(nextStrategyContext) !== JSON.stringify(strategyAssistantContext); // Wait, this doesn't make sense if they are the same variables.
-
-    // Actually, we want to check against what's ALREADY in the context.
-    // But setContext already does that internally.
     setContext({ repoUrl: nextRepoUrl, strategyContext: nextStrategyContext });
   }, [repoUrl, strategyAssistantContext, setContext]);
 
+  const activeSidebarStepId = step >= 5 ? 5 : step;
+
   return (
-    <div style={styles.container}>
-      {/* Assistant is integrated globally in AppShell */}
-      <div style={styles.stepIndicatorContainer}>{renderStepIndicator()}</div>
-      <div style={styles.main}>
+    <div className="wizard-dashboard-layout">
+      {/* Left Sidebar Step Navigation */}
+      <aside className="wizard-sidebar">
+        <div className="wizard-steps-list">
+          {WIZARD_SIDEBAR_STEPS.map((s, index) => {
+            const isCurrent = activeSidebarStepId === s.id;
+            const isCompleted = activeSidebarStepId > s.id;
+
+            return (
+              <React.Fragment key={s.id}>
+                <div
+                  className={`wizard-step-item ${isCurrent ? "is-active" : ""} ${isCompleted ? "is-completed" : ""}`}
+                  onClick={() => {
+                    if (!isCurrent && (isCompleted || s.id === 1 || s.id <= step)) {
+                      setStep(s.id);
+                    }
+                  }}
+                  style={{ cursor: isCompleted || s.id === 1 || s.id <= step ? "pointer" : "default" }}
+                >
+                  <div className="wizard-step-num-badge">
+                    {s.number}
+                  </div>
+                  <div className="wizard-step-text-col">
+                    <span className="wizard-step-title">{s.title}</span>
+                    <span className="wizard-step-subtitle">{s.subtitle}</span>
+                  </div>
+                </div>
+                {index < WIZARD_SIDEBAR_STEPS.length - 1 && (
+                  <div className={`wizard-step-divider ${isCompleted ? "is-completed" : ""}`} />
+                )}
+              </React.Fragment>
+            );
+          })}
+        </div>
+
+        {/* Need Help? Card */}
+        <div className="wizard-help-card">
+          <div className="wizard-help-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+            </svg>
+          </div>
+          <div className="wizard-help-title">Need Help?</div>
+          <div className="wizard-help-desc">Check our documentation or contact support team.</div>
+          <button
+            type="button"
+            className="wizard-help-btn"
+            onClick={() => {
+              const docsBtn = document.querySelector('.ui-nav-button') as HTMLButtonElement | null;
+              if (docsBtn) docsBtn.click();
+            }}
+          >
+            <span>Visit Docs</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+              <polyline points="12 5 19 12 12 19"></polyline>
+            </svg>
+          </button>
+        </div>
+      </aside>
+
+      {/* Main Content Area */}
+      <main className="wizard-main-content">
         {error && <div style={styles.errorBanner}><span>{error}</span><button style={styles.errorClose} onClick={() => setError("")}><FaTimes /></button></div>}
         {step === 1 && (
           <ConnectPage>
@@ -254,7 +316,7 @@ export default function MigrationWizardPage() {
             />
           </ResultPage>
         )}
-      </div>
+      </main>
     </div>
   );
 }
