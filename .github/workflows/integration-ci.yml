@@ -141,6 +141,8 @@ jobs:
           severity: CRITICAL,HIGH
           exit-code: 1
           ignore-unfixed: true
+          version: v0.70.0
+          cache: true
 
       - name: Upload security failure logs
         if: failure()
