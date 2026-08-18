@@ -98,6 +98,7 @@ export default function MigrationWizardPage() {
     selectedLLMProvider,
     useLLMTests,
     renderStepIndicator,
+    maxVisitedIndicatorStep,
   } = useWizardController();
 
   const { setContext } = useChatbot();
@@ -118,18 +119,32 @@ export default function MigrationWizardPage() {
         <div className="wizard-steps-list">
           {WIZARD_SIDEBAR_STEPS.map((s, index) => {
             const isCurrent = activeSidebarStepId === s.id;
-            const isCompleted = activeSidebarStepId > s.id;
+
+            // A step is "completed" when maxVisitedIndicatorStep has passed it.
+            // This persists even when the user navigates backward — going to step 2
+            // does NOT lose the completed status of steps 3 or 4.
+            const isCompleted = maxVisitedIndicatorStep > s.id;
+
+            // Navigation rule:
+            //  • Completed step  → freely clickable in EITHER direction (free jump).
+            //  • Current step    → no-op (already here).
+            //  • Never-visited   → locked; must use Continue button to unlock first.
+            const canClick = !isCurrent && isCompleted;
+            const isLocked  = !isCurrent && !isCompleted; // truly never reached yet
 
             return (
               <React.Fragment key={s.id}>
                 <div
                   className={`wizard-step-item ${isCurrent ? "is-active" : ""} ${isCompleted ? "is-completed" : ""}`}
                   onClick={() => {
-                    if (!isCurrent && (isCompleted || s.id === 1 || s.id <= step)) {
+                    if (canClick) {
                       setStep(s.id);
                     }
                   }}
-                  style={{ cursor: isCompleted || s.id === 1 || s.id <= step ? "pointer" : "default" }}
+                  style={{
+                    cursor: canClick ? "pointer" : isLocked ? "not-allowed" : "default",
+                  }}
+                  title={isLocked ? "Complete the previous step first to unlock this one" : undefined}
                 >
                   <div className="wizard-step-num-badge">
                     {s.number}
