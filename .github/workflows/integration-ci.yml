@@ -129,14 +129,15 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          args: detect --source . --no-banner --redact --exit-code 1
+          args: detect --source . --no-banner --redact --report-format json --report-path .gitleaks-report.json --exit-code 1
 
       - name: Trivy filesystem scan
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: .
           format: table
+          output: trivy-results.txt
           severity: CRITICAL,HIGH
           exit-code: 1
           ignore-unfixed: true
@@ -210,7 +211,7 @@ jobs:
               {
                 "contentType": "application/vnd.microsoft.card.adaptive",
                 "content": {
-                  "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                  "\$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
                   "type": "AdaptiveCard",
                   "version": "1.5",
                   "body": [
@@ -244,28 +245,61 @@ jobs:
           JSON
           )
 
-          curl -H "Content-Type: application/json" \
-               -d "$payload" \
-               "$TEAMS_WEBHOOK_URL"
+          response_file="$(mktemp)"
+          http_code="$(
+            curl -sS \
+              -H "Content-Type: application/json" \
+              -d "$payload" \
+              -o "$response_file" \
+              -w '%{http_code}' \
+              "$TEAMS_WEBHOOK_URL"
+          )"
 
-      - name: Send Microsoft Teams notification for frontend failure
-        if: ${{ env.TEAMS_WEBHOOK_URL != '' && needs.frontend.result == 'failure' }}
+          if [[ "$http_code" != 2* ]]; then
+            echo "Teams webhook request failed with HTTP status: $http_code"
+            echo "Response body:"
+            cat "$response_file"
+            exit 1
+          fi
+
+      - name: Send Microsoft Teams notification on failure
+        if: ${{ env.TEAMS_WEBHOOK_URL != '' && contains(needs.*.result, 'failure') }}
         shell: bash
         run: |
-          payload=$(cat <<'JSON'
+          failed_jobs=()
+
+          if [[ "${{ needs.frontend.result }}" == "failure" ]]; then
+            failed_jobs+=("Frontend quality gates")
+          fi
+
+          if [[ "${{ needs.backend.result }}" == "failure" ]]; then
+            failed_jobs+=("Backend quality gates")
+          fi
+
+          if [[ "${{ needs.security.result }}" == "failure" ]]; then
+            failed_jobs+=("Security scans")
+          fi
+
+          if [[ "${{ needs.quality-gate.result }}" == "failure" ]]; then
+            failed_jobs+=("SonarQube / SonarCloud quality gate")
+          fi
+
+          failed_jobs_text=$(IFS=', '; echo "${failed_jobs[*]}")
+
+          payload=$(cat <<JSON
           {
             "type": "message",
             "attachments": [
               {
                 "contentType": "application/vnd.microsoft.card.adaptive",
                 "content": {
-                  "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                  "\$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
                   "type": "AdaptiveCard",
                   "version": "1.5",
                   "body": [
                     {
                       "type": "TextBlock",
-                      "text": "Frontend CI Failed",
+                      "text": "Integration CI Failed",
                       "weight": "Bolder",
                       "size": "Medium",
                       "color": "Attention"
@@ -277,12 +311,13 @@ jobs:
                         { "title": "Branch", "value": "${{ github.ref_name }}" },
                         { "title": "Commit", "value": "${{ github.sha }}" },
                         { "title": "Workflow", "value": "${{ github.workflow }}" },
-                        { "title": "Run URL", "value": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" }
+                        { "title": "Run URL", "value": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" },
+                        { "title": "Failed Jobs", "value": "$failed_jobs_text" }
                       ]
                     },
                     {
                       "type": "TextBlock",
-                      "text": "The frontend quality gates job failed. Download the integration-ci-error-logs artifact from this run to inspect the logs.",
+                      "text": "Download the integration-ci-error-logs artifact from this run to inspect the logs.",
                       "wrap": true
                     }
                   ]
@@ -293,104 +328,19 @@ jobs:
           JSON
           )
 
-          curl -H "Content-Type: application/json" \
-               -d "$payload" \
-               "$TEAMS_WEBHOOK_URL"
+          response_file="$(mktemp)"
+          http_code="$(
+            curl -sS \
+              -H "Content-Type: application/json" \
+              -d "$payload" \
+              -o "$response_file" \
+              -w '%{http_code}' \
+              "$TEAMS_WEBHOOK_URL"
+          )"
 
-      - name: Send Microsoft Teams notification for backend failure
-        if: ${{ env.TEAMS_WEBHOOK_URL != '' && needs.backend.result == 'failure' }}
-        shell: bash
-        run: |
-          payload=$(cat <<'JSON'
-          {
-            "type": "message",
-            "attachments": [
-              {
-                "contentType": "application/vnd.microsoft.card.adaptive",
-                "content": {
-                  "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-                  "type": "AdaptiveCard",
-                  "version": "1.5",
-                  "body": [
-                    {
-                      "type": "TextBlock",
-                      "text": "Backend CI Failed",
-                      "weight": "Bolder",
-                      "size": "Medium",
-                      "color": "Attention"
-                    },
-                    {
-                      "type": "FactSet",
-                      "facts": [
-                        { "title": "Repository", "value": "${{ github.repository }}" },
-                        { "title": "Branch", "value": "${{ github.ref_name }}" },
-                        { "title": "Commit", "value": "${{ github.sha }}" },
-                        { "title": "Workflow", "value": "${{ github.workflow }}" },
-                        { "title": "Run URL", "value": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" }
-                      ]
-                    },
-                    {
-                      "type": "TextBlock",
-                      "text": "The backend quality gates job failed. Download the integration-ci-error-logs artifact from this run to inspect the logs.",
-                      "wrap": true
-                    }
-                  ]
-                }
-              }
-            ]
-          }
-          JSON
-          )
-
-          curl -H "Content-Type: application/json" \
-               -d "$payload" \
-               "$TEAMS_WEBHOOK_URL"
-
-      - name: Send Microsoft Teams notification for security failure
-        if: ${{ env.TEAMS_WEBHOOK_URL != '' && needs.security.result == 'failure' }}
-        shell: bash
-        run: |
-          payload=$(cat <<'JSON'
-          {
-            "type": "message",
-            "attachments": [
-              {
-                "contentType": "application/vnd.microsoft.card.adaptive",
-                "content": {
-                  "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-                  "type": "AdaptiveCard",
-                  "version": "1.5",
-                  "body": [
-                    {
-                      "type": "TextBlock",
-                      "text": "Security CI Failed",
-                      "weight": "Bolder",
-                      "size": "Medium",
-                      "color": "Attention"
-                    },
-                    {
-                      "type": "FactSet",
-                      "facts": [
-                        { "title": "Repository", "value": "${{ github.repository }}" },
-                        { "title": "Branch", "value": "${{ github.ref_name }}" },
-                        { "title": "Commit", "value": "${{ github.sha }}" },
-                        { "title": "Workflow", "value": "${{ github.workflow }}" },
-                        { "title": "Run URL", "value": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" }
-                      ]
-                    },
-                    {
-                      "type": "TextBlock",
-                      "text": "The security scans job failed. Download the integration-ci-error-logs artifact from this run to inspect the logs.",
-                      "wrap": true
-                    }
-                  ]
-                }
-              }
-            ]
-          }
-          JSON
-          )
-
-          curl -H "Content-Type: application/json" \
-               -d "$payload" \
-               "$TEAMS_WEBHOOK_URL"
+          if [[ "$http_code" != 2* ]]; then
+            echo "Teams webhook request failed with HTTP status: $http_code"
+            echo "Response body:"
+            cat "$response_file"
+            exit 1
+          fi
