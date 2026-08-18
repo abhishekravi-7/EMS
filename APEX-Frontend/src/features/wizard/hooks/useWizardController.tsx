@@ -4538,7 +4538,11 @@ export function useWizardController() {
       {MIGRATION_STEPS.map((s, index) => {
         const isCompleted = currentIndicatorStep > s.id;
         const isActive = currentIndicatorStep === s.id;
+        // A step is unlocked once maxVisitedIndicatorStep has reached it.
+        // Unlocked completed steps are clickable in either direction.
         const isUnlocked = s.id <= maxVisitedIndicatorStep;
+        const canClickIndicator = isUnlocked && !isActive;
+        const isIndicatorLocked = !isUnlocked; // never visited yet
 
         return (
         <React.Fragment key={s.id}>
@@ -4549,10 +4553,13 @@ export function useWizardController() {
               alignItems: "center", 
               gap: 8,
               opacity: 1,
-              cursor: isUnlocked && !isActive ? "pointer" : "default",
+              // Completed (unlocked): pointer — free jump in any direction.
+              // Never-visited (locked): not-allowed.
+              // Current (active): default (no-op).
+              cursor: canClickIndicator ? "pointer" : isIndicatorLocked ? "not-allowed" : "default",
               transition: "all 0.3s ease"
             }} 
-            onClick={() => isUnlocked && !isActive && setStep(s.id)}
+            onClick={() => canClickIndicator && setStep(s.id)}
           >
             <div
               className={`wizard-step-circle${isCompleted ? " is-complete" : isActive ? " is-active" : ""}`}
@@ -4673,5 +4680,6 @@ export function useWizardController() {
     selectedLLMProvider,
     useLLMTests,
     renderStepIndicator,
+    maxVisitedIndicatorStep,
   };
 }

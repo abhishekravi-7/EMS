@@ -9,6 +9,7 @@ import { AuthContext, type AuthContextValue, type AuthUser } from "./AuthContext
  */
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(true); // starts true
 
   useEffect(() => {
     let cancelled = false;
@@ -22,6 +23,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       .catch(() => {
         // No cookie, or an expired/invalid one — this is the normal state
         // for a first-time or already-logged-out visitor, not an error.
+      })
+      .finally(() => {
+        if (!cancelled) setIsAuthLoading(false); // check complete either way
       });
     return () => {
       cancelled = true;
@@ -31,6 +35,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const value = useMemo<AuthContextValue>(
     () => ({
       isAuthenticated: user !== null,
+      isAuthLoading,
       user,
       login: (nextUser: AuthUser) => setUser(nextUser),
       logout: () => {
@@ -42,7 +47,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         void logOut();
       },
     }),
-    [user]
+    [user, isAuthLoading]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
