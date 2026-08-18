@@ -207,12 +207,6 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
-      SMTP_PORT: ${{ secrets.SMTP_PORT }}
-      SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
-      SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
-      ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
-      CC_EMAIL: ${{ secrets.CC_EMAIL }}
       TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
 
     steps:
@@ -231,57 +225,6 @@ jobs:
           name: integration-ci-error-logs
           path: ci-error-logs
           if-no-files-found: ignore
-
-      - name: Send email on success
-        if: ${{ env.SMTP_SERVER != '' && env.SMTP_USERNAME != '' && env.ALERT_EMAIL != '' && needs.frontend.result == 'success' && needs.backend.result == 'success' && needs.security.result == 'success' && needs.quality-gate.result == 'success' }}
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: ${{ env.SMTP_SERVER }}
-          server_port: ${{ env.SMTP_PORT || '587' }}
-          username: ${{ env.SMTP_USERNAME }}
-          password: ${{ env.SMTP_PASSWORD }}
-          subject: "Integration CI passed for ${{ github.repository }} on ${{ github.ref_name }}"
-          to: ${{ env.ALERT_EMAIL }}
-          cc: ${{ env.CC_EMAIL }}
-          from: GitHub Actions <${{ env.SMTP_USERNAME }}>
-          body: |
-            Integration CI passed.
-
-            Repository: ${{ github.repository }}
-            Branch: ${{ github.ref_name }}
-            Commit: ${{ github.sha }}
-            Workflow: ${{ github.workflow }}
-            Run URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-
-            All jobs completed successfully.
-
-      - name: Send email on failure
-        if: ${{ env.SMTP_SERVER != '' && env.SMTP_USERNAME != '' && env.ALERT_EMAIL != '' && contains(needs.*.result, 'failure') }}
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: ${{ env.SMTP_SERVER }}
-          server_port: ${{ env.SMTP_PORT || '587' }}
-          username: ${{ env.SMTP_USERNAME }}
-          password: ${{ env.SMTP_PASSWORD }}
-          subject: "Integration CI failed for ${{ github.repository }} on ${{ github.ref_name }}"
-          to: ${{ env.ALERT_EMAIL }}
-          cc: ${{ env.CC_EMAIL }}
-          from: GitHub Actions <${{ env.SMTP_USERNAME }}>
-          body: |
-            Integration CI failed.
-
-            Repository: ${{ github.repository }}
-            Branch: ${{ github.ref_name }}
-            Commit: ${{ github.sha }}
-            Workflow: ${{ github.workflow }}
-            Run URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-
-            Frontend: ${{ needs.frontend.result }}
-            Backend: ${{ needs.backend.result }}
-            Security: ${{ needs.security.result }}
-            SonarQube / SonarCloud: ${{ needs.quality-gate.result }}
-
-            Download the integration-ci-error-logs artifact from this run to inspect the logs.
 
       - name: Send Microsoft Teams notification on success
         if: ${{ env.TEAMS_WEBHOOK_URL != '' && needs.frontend.result == 'success' && needs.backend.result == 'success' && needs.security.result == 'success' && needs.quality-gate.result == 'success' }}
@@ -369,14 +312,14 @@ jobs:
 
           failed_jobs_text=$(IFS=', '; echo "${failed_jobs[*]}")
 
-          payload=$(cat <<JSON
+          payload=$(cat <<'JSON'
           {
             "type": "message",
             "attachments": [
               {
                 "contentType": "application/vnd.microsoft.card.adaptive",
                 "content": {
-                  "\$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                  "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
                   "type": "AdaptiveCard",
                   "version": "1.5",
                   "body": [
