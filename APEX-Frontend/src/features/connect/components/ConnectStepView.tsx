@@ -1,21 +1,23 @@
+import React, { useRef } from "react";
 import {
   FaCheckCircle,
+  FaCode,
+  FaCoffee,
   FaExclamationTriangle,
   FaFileAlt,
+  FaFileCode,
+  FaFlask,
   FaFolderOpen,
+  FaGithub,
   FaInfoCircle,
-  FaLink,
   FaLock,
-  FaUpload,
+  FaProjectDiagram,
+  FaRocket,
+  FaSearch,
+  FaShieldAlt,
 } from "react-icons/fa";
-import { wizardStyles as styles } from "@/shared/components/wizard/wizardStyles";
-import {
-  renderWizardIconBadge,
-  renderForwardButtonLabel,
-  buildWizardAccentVars,
-  WizardInfoTooltip,
-} from "@/shared/components/wizard";
 import type { useRepositoryConnect } from "../hooks/useRepositoryConnect";
+import "../pages/ConnectPage.css";
 
 interface ConnectStepViewProps {
   connect: ReturnType<typeof useRepositoryConnect>;
@@ -56,15 +58,9 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
     handleLocalProjectUpload,
   } = connect;
 
-  const browserWindow = window as Window & typeof globalThis & {
-    folderInputRef?: HTMLInputElement | null;
-    zipInputRef?: HTMLInputElement | null;
-  };
+  const folderInputRef = useRef<HTMLInputElement | null>(null);
+  const zipInputRef = useRef<HTMLInputElement | null>(null);
 
-  const localProjectMessage = localProjectCapabilitiesLoading
-    ? "Checking local project support..."
-    : localProjectCapabilities?.message ||
-      "Upload projects using the folder picker or ZIP archive uploader below. The backend will extract and analyze your uploaded files.";
   const authenticationBannerText = showEnterpriseToken
     ? "GitHub Enterprise repository detected - authentication required"
     : "Private repository detected - authentication required";
@@ -86,355 +82,544 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
       : accessTokenValidationState === "invalid"
         ? <FaExclamationTriangle />
         : <FaInfoCircle />;
+
   return (
-    <div style={styles.card}>
-      <div style={styles.stepHeader}>
-        {renderWizardIconBadge(<FaLink />, "#2563eb", "xl")}
-        <div>
-          <h2 style={styles.title}>Connect Repository</h2>
-          <p style={styles.subtitle}>Enter a GitHub repository URL or analyze a local Java project to start migration analysis.</p>
+    <div className="page-connect" data-step="connect">
+      {/* Background Watermarks & Decorative Patterns */}
+      <div className="connect-bg-watermarks" aria-hidden="true">
+        {/* Left Java Watermark */}
+        <div className="connect-watermark-left">
+          <svg width="84" height="84" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M18 8h1a4 4 0 0 1 0 8h-1" />
+            <path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z" />
+            <line x1="6" y1="1" x2="6" y2="4" />
+            <line x1="10" y1="1" x2="10" y2="4" />
+            <line x1="14" y1="1" x2="14" y2="4" />
+          </svg>
+          <div style={{ fontSize: 13, fontWeight: 700, opacity: 0.6, marginTop: 4, letterSpacing: 1 }}>&lt;/&gt;</div>
         </div>
+
+        {/* Right Code Braces Watermark */}
+        <div className="connect-watermark-right">
+          <div style={{ fontSize: 48, fontWeight: 300, fontFamily: "monospace", opacity: 0.7 }}>{`{ }`}</div>
+          <div style={{ fontSize: 13, fontWeight: 700, opacity: 0.6, marginTop: 4, textAlign: "right", letterSpacing: 1 }}>&lt;/&gt;</div>
+        </div>
+
+        {/* Constellation Network Nodes */}
+        <svg className="connect-network-canvas" viewBox="0 0 1000 600" preserveAspectRatio="none">
+          <g stroke="#3b82f6" strokeWidth="1" opacity="0.35">
+            <line x1="80" y1="120" x2="160" y2="180" />
+            <line x1="160" y1="180" x2="140" y2="280" />
+            <line x1="160" y1="180" x2="220" y2="150" />
+            <line x1="220" y1="150" x2="280" y2="220" />
+            <line x1="140" y1="280" x2="200" y2="340" />
+            <line x1="200" y1="340" x2="280" y2="220" />
+
+            <line x1="780" y1="140" x2="860" y2="190" />
+            <line x1="860" y1="190" x2="940" y2="160" />
+            <line x1="860" y1="190" x2="880" y2="280" />
+            <line x1="880" y1="280" x2="940" y2="340" />
+            <line x1="880" y1="280" x2="800" y2="240" />
+          </g>
+          <g fill="#3b82f6" opacity="0.45">
+            <circle cx="80" cy="120" r="3.5" />
+            <circle cx="160" cy="180" r="4.5" />
+            <circle cx="140" cy="280" r="3.5" />
+            <circle cx="220" cy="150" r="3" />
+            <circle cx="280" cy="220" r="4" />
+            <circle cx="200" cy="340" r="3.5" />
+
+            <circle cx="780" cy="140" r="3" />
+            <circle cx="860" cy="190" r="4.5" />
+            <circle cx="940" cy="160" r="3.5" />
+            <circle cx="880" cy="280" r="4" />
+            <circle cx="940" cy="340" r="3" />
+            <circle cx="800" cy="240" r="3.5" />
+          </g>
+        </svg>
       </div>
 
-      <div style={styles.field}>
-        <label style={{ ...styles.label, display: "flex", alignItems: "center", gap: 8 }}>
-          Repository URL
-          <WizardInfoTooltip label="Repository URL formats" placement="left" width={220}>
-            <div style={{ fontWeight: 600, marginBottom: 6, color: "#94a3b8" }}>Supported formats:</div>
-            <div>- https://github.com/owner/repo</div>
-            <div>- github.com/owner/repo</div>
-            <div>- owner/repo</div>
-          </WizardInfoTooltip>
-        </label>
-        <input
-          type="text"
-          style={{ ...styles.input, borderColor: urlValidation.valid ? '#22c55e' : repoUrl ? '#ef4444' : '#e2e8f0' }}
-          value={repoUrl}
-          onChange={(e) => {
-            setRepoUrl(e.target.value);
-            setSelectedRepo(null);
-            onClearRepoAnalysis();
-            setIsPrivateRepo(false);
-            setPatToken("");
-            resetAccessTokenValidationState();
-            onError("");
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && urlValidation.valid) {
-              void handleRepositoryContinue();
-            }
-          }}
-          placeholder="https://github.com/owner/repository"
-        />
-        {!shouldShowPatInput && (
-          <div style={{ fontSize: 12, color: '#64748b', marginTop: 12, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-            <span>Public GitHub repositories can be analyzed without a token.</span>
-            <button
-              type="button"
-              onClick={() => {
-                setIsPrivateRepo(true);
-                resetAccessTokenValidationState();
-                onError("");
-              }}
-              style={{
-                background: "none",
-                border: "none",
-                color: "#2563eb",
-                cursor: "pointer",
-                fontSize: 12,
-                fontWeight: 600,
-                padding: 0,
-                textDecoration: "underline",
-              }}
-            >
-              Have a Private Access Token (PAT)?
-            </button>
-          </div>
-        )}
-        {repoAccessCheckLoading && !shouldShowPatInput && (
-          <div style={{ fontSize: 12, color: '#2563eb', marginTop: 8 }}>
-            Checking repository access...
-          </div>
-        )}
-        {shouldShowPatInput && (
-          <div style={{ marginTop: 16 }}>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                marginBottom: 14,
-                color: "#f59e0b",
-                fontSize: 14,
-                fontWeight: 600,
-              }}
-            >
-              <FaLock />
-              <span>{authenticationBannerText}</span>
+      <div className="connect-content-wrapper">
+        {/* Hero Title & Subtitle */}
+        <div className="connect-hero">
+          <h1 className="connect-hero-title">Start Your Migration Journey</h1>
+          <p className="connect-hero-subtitle">
+            Analyze your Java project with <span className="connect-hero-highlight">APEX intelligence</span> and modernize with confidence.
+          </p>
+        </div>
+
+        {/* Action Cards: GitHub Repository & Upload Local Project */}
+        <div className="connect-cards-container">
+          {/* Card 1: Connect GitHub Repository */}
+          <div className="connect-action-card">
+            <div className="connect-card-accent-github" />
+            <div className="connect-card-icon-badge is-blue">
+              <FaGithub size={30} />
             </div>
-            <div
-              style={{
-                border: "1px solid #fbbf24",
-                borderRadius: 18,
-                padding: 20,
-                background: "linear-gradient(180deg, #fff8db 0%, #fff4c2 100%)",
-                boxShadow: "0 8px 18px rgba(245, 158, 11, 0.12)",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
-                <div
-                  style={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: 10,
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    background: "#fff",
-                    color: "#d97706",
-                    boxShadow: "0 2px 8px rgba(217, 119, 6, 0.12)",
-                  }}
-                >
-                  <FaLock />
-                </div>
-                <div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: "#9a3412" }}>{tokenCardTitle}</div>
-                  <div style={{ fontSize: 13, color: "#b45309", marginTop: 4 }}>{tokenDescription}</div>
-                </div>
-              </div>
-              <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                <input
-                  type="password"
-                  style={{
-                    ...styles.input,
-                    flex: "1 1 420px",
-                    marginBottom: 0,
-                    background: "#fff",
-                    borderColor:
-                      accessTokenValidationState === "valid"
-                        ? "#22c55e"
-                        : accessTokenValidationState === "invalid"
-                          ? "#f59e0b"
-                          : activeAccessToken
-                            ? "#22c55e"
-                            : "#e2e8f0",
-                  }}
-                  value={showEnterpriseToken ? githubToken : patToken}
-                  onChange={(e) => {
-                    resetAccessTokenValidationState();
-                    if (showEnterpriseToken) {
-                      setGithubToken(e.target.value);
-                    } else {
-                      setPatToken(e.target.value);
-                    }
-                  }}
-                  placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
-                  autoComplete="off"
-                />
-                <button
-                  type="button"
-                  style={{
-                    ...styles.primaryBtn,
-                    minWidth: 132,
-                    opacity: accessTokenValidationState === "validating" ? 0.8 : 1,
-                  }}
-                  disabled={accessTokenValidationState === "validating"}
-                  onClick={() => void handleAccessTokenValidate()}
-                >
-                  {accessTokenValidationState === "validating" ? "Validating..." : "Validate"}
-                </button>
-              </div>
-              <div style={{ fontSize: 12, color: tokenStatusColor, marginTop: 10, display: "flex", alignItems: "center", gap: 8 }}>
-                {tokenStatusIcon}
-                <span>
-                  {accessTokenValidationMessage || (
-                    <a href="https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token" target="_blank" rel="noopener noreferrer">
-                      How to create a Personal Access Token?
-                    </a>
-                  )}
-                </span>
-              </div>
-              {accessTokenValidationState === "valid" && (
-                <div style={{ marginTop: 16, display: "flex", justifyContent: "flex-end" }}>
+            <h2 className="connect-card-heading">Connect GitHub Repository</h2>
+            <p className="connect-card-desc">
+              Connect your GitHub repository to analyze and discover project insights.
+            </p>
+
+            <div className="connect-card-input-box">
+              <input
+                type="text"
+                className="connect-text-input"
+                value={repoUrl}
+                onChange={(e) => {
+                  setRepoUrl(e.target.value);
+                  setSelectedRepo(null);
+                  onClearRepoAnalysis();
+                  setIsPrivateRepo(false);
+                  setPatToken("");
+                  resetAccessTokenValidationState();
+                  onError("");
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && urlValidation.valid) {
+                    void handleRepositoryContinue();
+                  }
+                }}
+                placeholder="https://github.com/owner/repository"
+                style={{
+                  borderColor: urlValidation.valid ? "#22c55e" : repoUrl ? "#ef4444" : "#cbd5e1",
+                }}
+              />
+
+              {!shouldShowPatInput && (
+                <div style={{ fontSize: 11, color: "#64748b", marginTop: 8, display: "flex", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
+                  <span>Public repository or</span>
                   <button
                     type="button"
-                    style={{
-                      ...styles.primaryBtn,
-                      background: "linear-gradient(135deg, #16a34a, #15803d)",
-                      border: "none",
-                      minWidth: 260,
-                      fontWeight: 700,
-                      fontSize: 15,
-                      boxShadow: "0 4px 14px rgba(22,163,74,0.25)",
+                    onClick={() => {
+                      setIsPrivateRepo(true);
+                      resetAccessTokenValidationState();
+                      onError("");
                     }}
-                    onClick={() => void handleRepositoryContinue()}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "#2563eb",
+                      cursor: "pointer",
+                      fontSize: 11,
+                      fontWeight: 600,
+                      padding: 0,
+                      textDecoration: "underline",
+                    }}
                   >
-                    {renderForwardButtonLabel("Continue with Authenticated Repository")}
+                    Need a PAT?
                   </button>
                 </div>
               )}
-            </div>
-          </div>
-        )}
-        {repositoryNeedsAuthentication && !activeAccessToken && accessTokenValidationState === "idle" && (
-          <div style={{ fontSize: 12, color: "#b45309", marginTop: 8 }}>
-            Add a PAT above before continuing with repository analysis.
-          </div>
-        )}
-        {repoUrl && !urlValidation.valid && (
-          <div style={{ fontSize: 12, color: '#ef4444', marginTop: 6 }}>
-            Warning: {urlValidation.message}
-          </div>
-        )}
-        {urlValidation.valid && (
-          <div style={{ fontSize: 12, color: '#22c55e', marginTop: 6 }}>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-              <FaCheckCircle />
-              Valid repository URL
-            </span>
-          </div>
-        )}
-      </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 24 }}>
-        <div style={{ flex: 1, height: 1, background: "#e2e8f0" }} />
-        <div style={{ fontSize: 14, fontWeight: 700, color: "#94a3b8", letterSpacing: "0.08em" }}>OR</div>
-        <div style={{ flex: 1, height: 1, background: "#e2e8f0" }} />
-      </div>
-
-      <div className="wizard-local-project-panel">
-        <div className="wizard-local-project-header">
-          {renderWizardIconBadge(<FaFolderOpen />, "#f59e0b", "lg")}
-          <div>
-            <div className="wizard-local-project-title">
-              Upload Local Project
-            </div>
-            <div className="wizard-local-project-subtitle">
-              Select a folder from your computer or upload a ZIP file for analysis.
-            </div>
-          </div>
-        </div>
-
-        <div style={{ fontSize: 12, color: "#64748b", marginBottom: 12 }}>
-          {localProjectMessage}
-        </div>
-
-        <div style={{ fontSize: 13, color: "#475569", marginBottom: 12 }}>
-          Select a folder from your computer OR upload a ZIP archive. This sends the project contents to the backend for analysis.
-        </div>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <div className="wizard-picker-grid">
-              <div style={{ flex: 1, minWidth: 200 }}>
-                <input
-                  ref={(el) => {
-                    if (el) {
-                      browserWindow.folderInputRef = el;
-                      el.setAttribute('webkitdirectory', '');
-                      el.setAttribute('directory', '');
-                    }
-                  }}
-                  type="file"
-                  multiple
-                  style={{ display: "none" }}
-                  onChange={(e) => handleLocalProjectFilesChange(e.target.files)}
-                />
-                <div
-                  onClick={() => {
-                    browserWindow.folderInputRef?.click();
-                  }}
-                  className="wizard-picker-option"
-                  style={buildWizardAccentVars("#f59e0b")}
-                >
-                  <span className="wizard-picker-option-label">
-                    {renderWizardIconBadge(<FaFolderOpen />, "#f59e0b", "sm")}
-                    <span>Select Folder</span>
-                  </span>
+              {repoAccessCheckLoading && !shouldShowPatInput && (
+                <div style={{ fontSize: 11, color: "#2563eb", marginTop: 6 }}>
+                  Checking repository access...
                 </div>
-              </div>
-              <div style={{ flex: 1, minWidth: 200 }}>
-                <input
-                  ref={(el) => {
-                    if (el) browserWindow.zipInputRef = el;
-                  }}
-                  type="file"
-                  accept=".zip"
-                  style={{ display: "none" }}
-                  onChange={(e) => handleLocalProjectFilesChange(e.target.files)}
-                />
-                <div
-                  onClick={() => {
-                    browserWindow.zipInputRef?.click();
-                  }}
-                  className="wizard-picker-option"
-                  style={buildWizardAccentVars("#8b5cf6")}
-                >
-                  <span className="wizard-picker-option-label">
-                    {renderWizardIconBadge(<FaFileAlt />, "#8b5cf6", "sm")}
-                    <span>Select ZIP File</span>
-                  </span>
+              )}
+
+              {shouldShowPatInput && (
+                <div style={{ marginTop: 12, textAlign: "left", width: "100%" }}>
+                  <div
+                    style={{
+                      border: "1px solid #fbbf24",
+                      borderRadius: 12,
+                      padding: 12,
+                      background: "#fffbeb",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, fontSize: 12, fontWeight: 700, color: "#9a3412" }}>
+                      <FaLock size={12} />
+                      <span>{tokenCardTitle}</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <input
+                        type="password"
+                        style={{
+                          flex: 1,
+                          padding: "6px 10px",
+                          borderRadius: 6,
+                          border: "1px solid #cbd5e1",
+                          fontSize: 12,
+                          background: "#ffffff",
+                        }}
+                        value={showEnterpriseToken ? githubToken : patToken}
+                        onChange={(e) => {
+                          resetAccessTokenValidationState();
+                          if (showEnterpriseToken) {
+                            setGithubToken(e.target.value);
+                          } else {
+                            setPatToken(e.target.value);
+                          }
+                        }}
+                        placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
+                        autoComplete="off"
+                      />
+                      <button
+                        type="button"
+                        style={{
+                          padding: "6px 12px",
+                          borderRadius: 6,
+                          background: "#2563eb",
+                          color: "#ffffff",
+                          border: "none",
+                          fontSize: 12,
+                          fontWeight: 600,
+                          cursor: "pointer",
+                        }}
+                        disabled={accessTokenValidationState === "validating"}
+                        onClick={() => void handleAccessTokenValidate()}
+                      >
+                        {accessTokenValidationState === "validating" ? "..." : "Validate"}
+                      </button>
+                    </div>
+                    <div style={{ fontSize: 11, color: tokenStatusColor, marginTop: 6, display: "flex", alignItems: "center", gap: 4 }}>
+                      {tokenStatusIcon}
+                      <span>{accessTokenValidationMessage || "Provide a PAT with repo scope."}</span>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
+
+            <button
+              type="button"
+              className="connect-primary-btn is-blue"
+              disabled={
+                connecting ||
+                !urlValidation.valid ||
+                (shouldShowPatInput && accessTokenValidationState !== "valid")
+              }
+              onClick={() => void handleRepositoryContinue()}
+            >
+              <span>{connecting ? "Verifying repository..." : "Connect Repository"}</span>
+              <span style={{ fontSize: 16 }}>→</span>
+            </button>
+          </div>
+
+          {/* Center OR Badge */}
+          <div className="connect-or-separator">
+            <div className="connect-or-circle">OR</div>
+          </div>
+
+          {/* Card 2: Upload Local Project */}
+          <div className="connect-action-card">
+            <div className="connect-card-accent-upload" />
+            <div className="connect-card-icon-badge is-green">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                <line x1="12" y1="11" x2="12" y2="17"></line>
+                <polyline points="9 14 12 11 15 14"></polyline>
+              </svg>
+            </div>
+            <h2 className="connect-card-heading">Upload Local Project</h2>
+            <p className="connect-card-desc">
+              Upload a ZIP file or select a folder from your machine to get started.
+            </p>
+
+            {/* Hidden Inputs for folder & zip */}
+            <input
+              ref={(el) => {
+                if (el) {
+                  folderInputRef.current = el;
+                  el.setAttribute("webkitdirectory", "");
+                  el.setAttribute("directory", "");
+                }
+              }}
+              type="file"
+              multiple
+              style={{ display: "none" }}
+              onChange={(e) => handleLocalProjectFilesChange(e.target.files)}
+            />
+            <input
+              ref={zipInputRef}
+              type="file"
+              accept=".zip"
+              style={{ display: "none" }}
+              onChange={(e) => handleLocalProjectFilesChange(e.target.files)}
+            />
+
+            <div className="connect-upload-options">
+              <button
+                type="button"
+                className="connect-upload-pill"
+                onClick={() => folderInputRef.current?.click()}
+              >
+                <FaFolderOpen />
+                <span>Select Folder</span>
+              </button>
+              <button
+                type="button"
+                className="connect-upload-pill"
+                onClick={() => zipInputRef.current?.click()}
+              >
+                <FaFileAlt />
+                <span>Select ZIP</span>
+              </button>
+            </div>
+
             {localProjectUploadFiles.length > 0 && (
-              <div style={{ fontSize: 13, color: "#334155" }}>
-                Selected {localProjectUploadFiles.length} file{localProjectUploadFiles.length === 1 ? "" : "s"}.
+              <div style={{ fontSize: 12, color: "#166534", marginBottom: 10, fontWeight: 600 }}>
+                ✓ Selected {localProjectUploadFiles.length} file{localProjectUploadFiles.length === 1 ? "" : "s"}
               </div>
             )}
             {localProjectUploadWarning && (
-              <div style={{ fontSize: 13, color: "#b45309" }}>{localProjectUploadWarning}</div>
+              <div style={{ fontSize: 11, color: "#b45309", marginBottom: 8 }}>{localProjectUploadWarning}</div>
             )}
             {localProjectUploadCompressing && (
-              <div style={{ fontSize: 13, color: "#0f766e" }}>Compressing selected folder to ZIP before upload...</div>
+              <div style={{ fontSize: 11, color: "#0f766e", marginBottom: 8 }}>Compressing files...</div>
             )}
             {localProjectUploadError && (
-              <div style={{ fontSize: 13, color: "#b91c1c" }}>{localProjectUploadError}</div>
+              <div style={{ fontSize: 11, color: "#b91c1c", marginBottom: 8 }}>{localProjectUploadError}</div>
             )}
+
             <button
-              style={{ ...styles.primaryBtn, minWidth: 140, opacity: localProjectUploadFiles.length === 0 || localProjectUploadLoading || localProjectCapabilities?.enabled === false ? 0.5 : 1, display: "flex", alignItems: "center", gap: 8, justifyContent: "center" }}
-              disabled={localProjectUploadFiles.length === 0 || localProjectUploadLoading || localProjectCapabilities?.enabled === false}
-              onClick={() => void handleLocalProjectUpload()}
+              type="button"
+              className="connect-primary-btn is-green"
+              disabled={
+                localProjectUploadLoading ||
+                localProjectCapabilities?.enabled === false
+              }
+              onClick={() => {
+                if (localProjectUploadFiles.length > 0) {
+                  void handleLocalProjectUpload();
+                } else {
+                  folderInputRef.current?.click();
+                }
+              }}
             >
-              {localProjectUploadLoading ? (
-                "Uploading..."
-              ) : (
-                <span className="wizard-button-content">
-                  {renderWizardIconBadge(<FaUpload />, "#2563eb", "sm")}
-                  <span>Upload and Analyze</span>
-                </span>
-              )}
+              <span>
+                {localProjectUploadLoading
+                  ? "Uploading..."
+                  : localProjectUploadFiles.length > 0
+                    ? "Upload Project"
+                    : "Upload Project"}
+              </span>
+              <span style={{ fontSize: 16 }}>→</span>
             </button>
           </div>
-      </div>
+        </div>
 
-      <div style={styles.btnRow}>
-        <button
-          style={{
-            ...styles.primaryBtn,
-            opacity:
-              connecting ||
-              !urlValidation.valid ||
-              (shouldShowPatInput && accessTokenValidationState !== "valid")
-                ? 0.5
-              : 1,
-          }}
-          disabled={
-            connecting ||
-            !urlValidation.valid ||
-            (shouldShowPatInput && accessTokenValidationState !== "valid")
-          }
-          onClick={() => void handleRepositoryContinue()}
-        >
-          {connecting
-            ? "Verifying repository..."
-            : renderForwardButtonLabel(
-                shouldShowPatInput && accessTokenValidationState === "valid"
-                  ? "Continue with Authenticated Repository"
-                  : shouldShowPatInput
-                    ? "Validate PAT to Continue"
-                  : "Continue"
-              )}
-        </button>
+        {/* APEX Migration Engine Process Section */}
+        <div className="connect-engine-section">
+          <div className="connect-engine-badge-wrap">
+            <span className="connect-engine-badge">
+              APEX Migration Engine
+            </span>
+          </div>
+
+          <div className="connect-engine-steps-row">
+            {/* 1. Analyze */}
+            <div className="connect-engine-step">
+              <div className="connect-engine-step-icon is-analyze">
+                <FaSearch />
+              </div>
+              <div className="connect-engine-step-info">
+                <span className="connect-engine-step-title">Analyze</span>
+                <span className="connect-engine-step-desc">Deep scan of your codebase</span>
+              </div>
+            </div>
+
+            <div className="connect-engine-arrow">→</div>
+
+            {/* 2. Understand */}
+            <div className="connect-engine-step">
+              <div className="connect-engine-step-icon is-understand">
+                <FaProjectDiagram />
+              </div>
+              <div className="connect-engine-step-info">
+                <span className="connect-engine-step-title">Understand</span>
+                <span className="connect-engine-step-desc">Dependencies &amp; impact analysis</span>
+              </div>
+            </div>
+
+            <div className="connect-engine-arrow">→</div>
+
+            {/* 3. Strategize */}
+            <div className="connect-engine-step">
+              <div className="connect-engine-step-icon is-strategize">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+                </svg>
+              </div>
+              <div className="connect-engine-step-info">
+                <span className="connect-engine-step-title">Strategize</span>
+                <span className="connect-engine-step-desc">Smart migration recommendations</span>
+              </div>
+            </div>
+
+            <div className="connect-engine-arrow">→</div>
+
+            {/* 4. Modernize */}
+            <div className="connect-engine-step">
+              <div className="connect-engine-step-icon is-modernize">
+                <FaRocket />
+              </div>
+              <div className="connect-engine-step-info">
+                <span className="connect-engine-step-title">Modernize</span>
+                <span className="connect-engine-step-desc">Automated &amp; guided modernization</span>
+              </div>
+            </div>
+
+            <div className="connect-engine-arrow">→</div>
+
+            {/* 5. Validate */}
+            <div className="connect-engine-step">
+              <div className="connect-engine-step-icon is-validate">
+                <FaShieldAlt />
+              </div>
+              <div className="connect-engine-step-info">
+                <span className="connect-engine-step-title">Validate</span>
+                <span className="connect-engine-step-desc">Test and verify migration success</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Bottom Grid: Project Intelligence & Migration Readiness */}
+        <div className="connect-bottom-grid">
+          {/* Lower Left Card: Project Intelligence */}
+          <div className="connect-bottom-card">
+            <div>
+              <div className="connect-bottom-card-header">
+                <span className="connect-bottom-card-title">Project Intelligence</span>
+                <span className="connect-sample-preview-tag">(Sample Preview)</span>
+                <FaInfoCircle className="connect-info-icon" title="Project Intelligence Preview" />
+              </div>
+
+              <div className="connect-metrics-row">
+                {/* 1. Java Version */}
+                <div className="connect-metric-subcard">
+                  <div className="connect-metric-icon" style={{ color: "#2563eb" }}>
+                    <FaCoffee />
+                  </div>
+                  <span className="connect-metric-label">Java Version</span>
+                  <span className="connect-metric-value" style={{ color: "#2563eb" }}>8</span>
+                  <span className="connect-metric-subtext">Detected</span>
+                </div>
+
+                {/* 2. Build Tool */}
+                <div className="connect-metric-subcard">
+                  <div className="connect-metric-icon" style={{ color: "#ea580c", fontWeight: 900, fontStyle: "italic" }}>
+                    M
+                  </div>
+                  <span className="connect-metric-label">Build Tool</span>
+                  <span className="connect-metric-value" style={{ color: "#ea580c", fontSize: 16 }}>Maven</span>
+                  <span className="connect-metric-subtext">pom.xml detected</span>
+                </div>
+
+                {/* 3. Test Framework */}
+                <div className="connect-metric-subcard">
+                  <div className="connect-metric-icon" style={{ color: "#16a34a" }}>
+                    <FaFlask />
+                  </div>
+                  <span className="connect-metric-label">Test Framework</span>
+                  <span className="connect-metric-value" style={{ color: "#16a34a", fontSize: 16 }}>JUnit</span>
+                  <span className="connect-metric-subtext" style={{ color: "#16a34a" }}>124 Tests</span>
+                </div>
+
+                {/* 4. Total Files */}
+                <div className="connect-metric-subcard">
+                  <div className="connect-metric-icon" style={{ color: "#7c3aed" }}>
+                    <FaFileCode />
+                  </div>
+                  <span className="connect-metric-label">Total Files</span>
+                  <span className="connect-metric-value" style={{ color: "#7c3aed" }}>386</span>
+                  <span className="connect-metric-subtext">Source Files</span>
+                </div>
+
+                {/* 5. Frameworks */}
+                <div className="connect-metric-subcard">
+                  <div className="connect-metric-icon" style={{ color: "#0d9488" }}>
+                    <FaCode />
+                  </div>
+                  <span className="connect-metric-label">Frameworks</span>
+                  <span className="connect-metric-value" style={{ color: "#0d9488", fontSize: 14 }}>Spring Boot</span>
+                  <span className="connect-metric-subtext">+ 3 more</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="connect-card-action-link" onClick={() => {}}>
+              <span>View Detailed Analysis</span>
+              <span>→</span>
+            </div>
+          </div>
+
+          {/* Lower Right Card: Migration Readiness */}
+          <div className="connect-bottom-card">
+            <div>
+              <div className="connect-bottom-card-header">
+                <span className="connect-bottom-card-title">Migration Readiness</span>
+                <FaInfoCircle className="connect-info-icon" title="Readiness based on dependency and framework compatibility" />
+              </div>
+
+              <div className="connect-readiness-body">
+                {/* Radial Gauge */}
+                <div className="connect-readiness-gauge-col">
+                  <div className="connect-readiness-gauge-wrap">
+                    <svg width="96" height="96" viewBox="0 0 96 96">
+                      <circle
+                        cx="48"
+                        cy="48"
+                        r="40"
+                        fill="none"
+                        stroke="#f1f5f9"
+                        strokeWidth="8"
+                      />
+                      <circle
+                        cx="48"
+                        cy="48"
+                        r="40"
+                        fill="none"
+                        stroke="#16a34a"
+                        strokeWidth="8"
+                        strokeDasharray={251.2}
+                        strokeDashoffset={251.2 * (1 - 0.87)}
+                        strokeLinecap="round"
+                        transform="rotate(-90 48 48)"
+                      />
+                    </svg>
+                    <span className="connect-gauge-center-text">87%</span>
+                  </div>
+                  <span className="connect-readiness-status-badge">
+                    <FaRocket size={12} />
+                    <span>High Readiness</span>
+                  </span>
+                </div>
+
+                {/* Checklist */}
+                <div className="connect-readiness-checklist">
+                  <div className="connect-checklist-item">
+                    <FaCheckCircle className="connect-checklist-item is-check" />
+                    <span>Java version detected</span>
+                  </div>
+                  <div className="connect-checklist-item">
+                    <FaCheckCircle className="connect-checklist-item is-check" />
+                    <span>Build system detected</span>
+                  </div>
+                  <div className="connect-checklist-item">
+                    <FaCheckCircle className="connect-checklist-item is-check" />
+                    <span>Test framework detected</span>
+                  </div>
+                  <div className="connect-checklist-item">
+                    <FaExclamationTriangle className="connect-checklist-item is-warn" />
+                    <span>3 Deprecated dependencies</span>
+                  </div>
+                  <div className="connect-checklist-item">
+                    <FaExclamationTriangle className="connect-checklist-item is-warn" />
+                    <span>2 Potential risks</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="connect-card-action-link" onClick={() => {}}>
+              <span>View Details</span>
+              <span>→</span>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -6,7 +6,7 @@ import { ChatbotProvider } from "@/shared/context/ChatbotContext";
 import "./App.css";
 
 const MigrationWizardPage = lazy(() => import("@/features/wizard/pages/MigrationWizardPage"));
-const LandingPage = lazy(() => import("@/features/auth/pages/LandingPage"));
+// const LandingPage = lazy(() => import("@/features/auth/pages/LandingPage"));
 const SignUpPage = lazy(() => import("@/features/auth/pages/SignUpPage"));
 const SignInPage = lazy(() => import("@/features/auth/pages/SignInPage"));
 
@@ -34,7 +34,7 @@ export default function App() {
             }
           >
             <Routes>
-              <Route path="/" element={<LandingPage />} />
+              {/* <Route path="/" element={<LandingPage />} /> */}
               <Route path="/signup" element={<SignUpPage />} />
               <Route path="/signin" element={<SignInPage />} />
               <Route path="/*" element={<MigrationWizardPage />} />

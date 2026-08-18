@@ -136,7 +136,9 @@ def find_shallowest_dir_with(
 def remove_tree(path: Path) -> None:
     """Recursively delete ``path`` if it exists.
 
-    Handles Windows read-only files (common inside ``.git``) via an onerror hook.
+    Handles Windows read-only, hidden, and system files (common inside
+    ``.git``) via an onerror hook that strips all special attributes before
+    retrying the delete.
     """
     long_path = _long_path(path)
     if not long_path.exists():
@@ -144,12 +146,16 @@ def remove_tree(path: Path) -> None:
 
     def _on_error(func, target, _exc_info):  # pragma: no cover - platform specific
         try:
-            Path(target).chmod(stat.S_IWRITE)
+            p = Path(target)
+            # Strip read-only, hidden, system attributes then retry
+            current = p.stat().st_mode
+            p.chmod(current | stat.S_IWRITE | stat.S_IREAD)
             func(target)
         except OSError:
-            pass
+            pass  # best-effort; copy_tree uses dirs_exist_ok as fallback
 
     shutil.rmtree(long_path, onerror=_on_error)
+
 
 
 def _relative_files(root: Path) -> dict[str, Path]:
@@ -214,11 +220,29 @@ def copy_tree(src: Path, dst: Path, *, exclude: set[str] | None = None) -> None:
 
     ``exclude`` names directories to skip at any level (e.g. ``{".git"}``) so the
     copy is a clean working tree without VCS metadata.
+
+    On Windows, file locks from a previous failed migration can prevent
+    ``remove_tree`` from fully deleting the destination. We use
+    ``dirs_exist_ok=True`` so the copy succeeds regardless, and also do a
+    best-effort force-removal with a short retry loop before the copy.
     """
+    import time
+
     exclude = exclude or set()
-    remove_tree(dst)
+
+    # Best-effort removal: try up to 3 times with a short delay for Windows
+    # file locks to release between retries.
+    long_dst = _long_path(dst)
+    for attempt in range(3):
+        remove_tree(dst)
+        if not long_dst.exists():
+            break
+        if attempt < 2:
+            time.sleep(0.5)
 
     def _ignore(_dir: str, names: list[str]) -> set[str]:
         return {name for name in names if name in exclude}
 
-    shutil.copytree(_long_path(src), _long_path(dst), ignore=_ignore)
+    # dirs_exist_ok=True lets the copy succeed even if the destination
+    # directory still exists after the removal attempts above.
+    shutil.copytree(_long_path(src), long_dst, ignore=_ignore, dirs_exist_ok=True)

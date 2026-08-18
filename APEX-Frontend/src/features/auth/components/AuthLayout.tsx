@@ -1,5 +1,6 @@
 import React from "react";
 import { Link, useNavigate } from "react-router-dom";
+import apexLogo from "../../../assets/logo.jpg";
 import {
   FaCoffee,
   FaArrowLeft,
@@ -159,20 +160,18 @@ const AuthLayout: React.FC<AuthLayoutProps> = ({ mode, children }) => {
     <div className={`apex-auth-page ${isSignIn ? "apex-auth-page--signin" : "apex-auth-page--signup"}`}>
       {/* ── Top Header ── */}
       <header className="apex-auth-topbar">
-        <div className="apex-auth-topbar-brand" onClick={() => navigate("/")}>
-          <div className="apex-auth-logo-icon">
-            <FaCoffee />
-          </div>
-          <div className="apex-auth-logo-text">
-            <span style={{ color: "#0f172a", fontWeight: 800 }}>Java </span>
-            <span style={{ color: "#2563eb", fontWeight: 800 }}>APEX</span>
-          </div>
+        <div className="apex-auth-topbar-brand" onClick={() => navigate("/")} style={{ cursor: "pointer" }}>
+          <img
+            src={apexLogo}
+            alt="Java APEX"
+            style={{ height: 38, width: "auto", objectFit: "contain", display: "block" }}
+          />
         </div>
 
-        <Link to="/" className="apex-auth-back-btn">
+        {/* <Link to="/" className="apex-auth-back-btn">
           <FaArrowLeft style={{ fontSize: 11 }} />
           <span>Back to Home</span>
-        </Link>
+        </Link> */}
       </header>
 
       {/* ── Main Content Container ── */}
