@@ -41,7 +41,8 @@ const PasswordInput: React.FC<PasswordInputProps> = ({
           id={inputId}
           name={name}
           type={visible ? "text" : "password"}
-          className={`auth-input auth-input--with-icon ${error ? "auth-input--error" : ""}`}
+          className={`auth-input has-left-icon auth-input--with-icon ${error ? "auth-input--error" : ""}`}
+
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onBlur={onBlur}

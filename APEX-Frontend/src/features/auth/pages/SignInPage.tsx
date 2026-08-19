@@ -99,7 +99,7 @@ const SignInPage: React.FC = () => {
               id="email"
               name="email"
               type="email"
-              className={`auth-input auth-input--with-icon ${errors.email ? "auth-input--error" : ""}`}
+              className={`auth-input has-left-icon ${errors.email ? "auth-input--error" : ""}`}
               placeholder="Enter your email"
               value={values.email}
               onChange={(e) => setField("email", e.target.value)}
@@ -123,8 +123,7 @@ const SignInPage: React.FC = () => {
         />
 
         {/* Forgot Password Link */}
-        <div className="auth-row-between" style={{ marginTop: -4, marginBottom: 20 }}>
-          <span />
+        <div className="auth-forgot-row">
           <button
             type="button"
             className="auth-link-forgot"
