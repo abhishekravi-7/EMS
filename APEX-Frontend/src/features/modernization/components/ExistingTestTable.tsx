@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo } from "react";
 import {
   FaCheck,
   FaTimes,
@@ -11,7 +11,6 @@ import {
   FaChevronLeft,
   FaChevronRight,
   FaInfoCircle,
-  FaExclamationCircle,
   FaSpinner,
   FaRedo,
 } from "react-icons/fa";
@@ -47,8 +46,8 @@ export interface TestResult {
   videoUrl?: string | null;
   trace_url?: string | null;
   traceUrl?: string | null;
-  api_evidence?: any;
-  evidence?: any;
+  api_evidence?: Record<string, unknown> | null;
+  evidence?: Record<string, unknown> | null;
   unavailable_reason?: string | null;
   unavailableReason?: string | null;
 }
@@ -70,6 +69,7 @@ interface LogEntry {
 
 interface ExistingTestTableProps {
   testResults: TestResult[];
+  title?: string;
   fileBreakdown?: FileSummary[];
   frameworkInfo?: {
     detected_framework?: string;
@@ -99,18 +99,13 @@ export function ExistingTestTable({
   const [viewMode, setViewMode] = useState<"TABLE" | "LOGS">("TABLE");
   const [filter, setFilter] = useState<"ALL" | "PASSED" | "FAILED" | "SKIPPED">("ALL");
   const [search, setSearch] = useState("");
-  const [pageSize, setPageSize] = useState<number>(10);
+  const pageSize = 10;
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [sortField, setSortField] = useState<SortField | null>(null);
   const [sortOrder, setSortOrder] = useState<SortOrder>("ASC");
 
   const buildTool = (frameworkInfo?.build_tool || "MAVEN").toUpperCase();
   const testSourceDir = frameworkInfo?.test_source_dir || "src/test/java";
-
-  // Reset pagination when search, filter or pageSize changes
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [search, filter, pageSize]);
 
   // Canonical counts computed directly from testResults
   const counts = useMemo(() => {
@@ -220,16 +215,6 @@ export function ExistingTestTable({
       <FaSortDown style={{ color: "#4f46e5", fontSize: 10, marginLeft: 4 }} />
     );
   };
-
-  const nowFormatted = new Date().toLocaleString("en-GB", {
-    day: "numeric",
-    month: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "numeric",
-    second: "numeric",
-    hour12: true,
-  });
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -418,7 +403,10 @@ export function ExistingTestTable({
                 return (
                   <button
                     key={p.key}
-                    onClick={() => setFilter(p.key as any)}
+                    onClick={() => {
+                      setFilter(p.key as "ALL" | "PASSED" | "FAILED" | "SKIPPED");
+                      setCurrentPage(1);
+                    }}
                     style={{
                       padding: "6px 14px",
                       borderRadius: 20,
@@ -457,7 +445,10 @@ export function ExistingTestTable({
                 type="text"
                 placeholder="Search by test name, class, or file..."
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setCurrentPage(1);
+                }}
                 style={{
                   padding: "7px 12px 7px 34px",
                   borderRadius: 8,

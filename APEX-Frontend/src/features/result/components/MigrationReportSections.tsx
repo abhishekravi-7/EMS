@@ -765,7 +765,7 @@ export function MigrationSonarSection({
       `"${i?.status || ""}"`,
       `"${i?.effort || ""}"`,
     ]);
-    const csvStr = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+    const csvStr = [headers.join(","), ...rows.map((r: string[]) => r.join(","))].join("\n");
     const blob = new Blob([csvStr], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");

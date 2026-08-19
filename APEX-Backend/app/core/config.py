@@ -79,9 +79,8 @@ class Settings(BaseSettings):
     # `sentence-transformers` are not installed in the deployed image. When
     # false the chatbot reports itself unavailable instead of failing at import
     # time; Discovery and Migration are unaffected (their indexing calls are
-    # already best-effort). Set RAG_ENABLED=true once the instance has the RAM
-    # and both packages are back in requirements.txt.
-    rag_enabled: bool = True
+    # already best-effort). Set ENABLE_RAG=true once the instance has the RAM.
+    rag_enabled: bool = Field(default=False, alias="ENABLE_RAG")
     # Number of knowledge chunks retrieved per question.
     rag_top_k: int = 4
     # Timeout (seconds) for a single chat-LLM request (Groq or Ollama).
