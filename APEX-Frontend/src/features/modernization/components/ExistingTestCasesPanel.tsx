@@ -3,7 +3,7 @@ import {
   FaPlay,
 } from "react-icons/fa";
 import { FunctionalTestingTabs } from "./FunctionalTestingTabs";
-import { ExistingTestAnalytics, type DiscoveredOrExecutedTest } from "./ExistingTestAnalytics";
+import { ExistingTestAnalytics } from "./ExistingTestAnalytics";
 import { ExistingTestCoverage } from "./ExistingTestCoverage";
 import { ExistingTestTable, type TestResult } from "./ExistingTestTable";
 
@@ -36,11 +36,11 @@ interface ExistingTestCasesPanelProps {
   onRunAll?: () => void;
   isRunning: boolean;
   onViewSuite?: (suiteName: string) => void;
-  onSelectTest?: (test: any) => void;
+  onSelectTest?: (test: TestResult) => void;
 }
 
 export function ExistingTestCasesPanel({
-  jobId,
+  jobId: _jobId,
   discoveredTests,
   framework,
   onRunSelected,
@@ -77,7 +77,7 @@ export function ExistingTestCasesPanel({
     const seen = new Set<string>();
     const list: TestResult[] = [];
 
-    discoveredTests.forEach((t: any, idx: number) => {
+    discoveredTests.forEach((t: TestCase, idx: number) => {
       const testName = (t.test_name || t.name || t.methodname || t.title || `scenario_${idx + 1}`).replace(/\(\s*\)$/, "");
       const rawSuite = t.classname || t.suite || t.spec || t.file || "TestSuite";
       const testSuite = rawSuite.split("/").pop()?.split("\\").pop()?.replace(/\.(java|kt)$/, "").split(".").pop() || "TestSuite";

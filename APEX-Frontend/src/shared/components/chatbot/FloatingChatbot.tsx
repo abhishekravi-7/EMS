@@ -1,10 +1,15 @@
 import React, { useEffect, useId, useRef, useState, useCallback, useMemo } from "react";
-import type { StrategyPageContext } from "@/features/strategy/services/strategyService";
 import { API_BASE_URL } from "@/services/config/env";
 import { useChatbot } from "@/shared/context/ChatbotContext";
 import "./FloatingChatbot.css";
 
 type Role = "user" | "assistant" | "system";
+
+interface ComparisonTableSpec {
+  caption?: string;
+  headers: string[];
+  rows: string[][];
+}
 
 interface ChatMessage {
   id: string;
@@ -43,7 +48,7 @@ const normalizeComparisonTable = (value: unknown): ComparisonTableSpec | null =>
     : [];
   const rows = Array.isArray(candidate.rows)
     ? candidate.rows
-        .map((row) =>
+        .map((row: unknown) =>
           Array.isArray(row)
             ? row.filter((item): item is string => typeof item === "string").map((item) => item.trim())
             : []
@@ -193,24 +198,26 @@ const parseMarkdownContentBlocks = (content: string): ContentBlock[] => {
  */
 const MarkdownBlock = React.memo(({ block, messageId, index }: { block: ContentBlock; messageId: string; index: number }) => {
   if (block.kind === "heading") {
-    const Tag = `h${Math.min(block.level, 6)}` as keyof JSX.IntrinsicElements;
-    return (
-      <Tag key={`${messageId}_h_${index}`} className="strategy-chat-heading">
-        {renderInlineMarkdown(block.text)}
-      </Tag>
+    const headingTag = `h${Math.min(block.level, 6)}` as keyof React.JSX.IntrinsicElements;
+    return React.createElement(
+      headingTag,
+      { key: `${messageId}_h_${index}`, className: "strategy-chat-heading" },
+      renderInlineMarkdown(block.text)
     );
   }
 
   if (block.kind === "list") {
-    const Tag = block.ordered ? "ol" : "ul";
-    return (
-      <Tag key={`${messageId}_l_${index}`} className="strategy-chat-list">
-        {block.items.map((item, i) => (
-          <li key={`${messageId}_l_${index}_${i}`} className="strategy-chat-list-item">
-            {renderInlineMarkdown(item)}
-          </li>
-        ))}
-      </Tag>
+    const listTag = block.ordered ? "ol" : "ul";
+    return React.createElement(
+      listTag,
+      { key: `${messageId}_l_${index}`, className: "strategy-chat-list" },
+      block.items.map((item: string, i: number) =>
+        React.createElement(
+          "li",
+          { key: `${messageId}_l_${index}_${i}`, className: "strategy-chat-list-item" },
+          renderInlineMarkdown(item)
+        )
+      )
     );
   }
 
@@ -224,7 +231,7 @@ const MarkdownBlock = React.memo(({ block, messageId, index }: { block: ContentB
 
   const blockColumnCount = Math.max(
     block.table.headers.length,
-    ...block.table.rows.map((row) => row.length)
+      ...block.table.rows.map((row: string[]) => row.length)
   );
 
   return (
@@ -240,9 +247,9 @@ const MarkdownBlock = React.memo(({ block, messageId, index }: { block: ContentB
           </tr>
         </thead>
         <tbody>
-          {block.table.rows.map((row, rowIndex) => (
-            <tr key={`${messageId}_tr_${index}_${rowIndex}`}>
-              {Array.from({ length: blockColumnCount }, (_, colIndex) => (
+            {block.table.rows.map((row: string[], rowIndex: number) => (
+              <tr key={`${messageId}_tr_${index}_${rowIndex}`}>
+              {Array.from({ length: blockColumnCount }, (_, colIndex: number) => (
                 <td key={`${messageId}_td_${index}_${rowIndex}_${colIndex}`}>
                   {renderInlineMarkdown(row[colIndex] || "")}
                 </td>
@@ -256,48 +263,10 @@ const MarkdownBlock = React.memo(({ block, messageId, index }: { block: ContentB
 });
 
 const AssistantMessageContent = React.memo(({ message, sources }: { message: ChatMessage, sources: SourceReference[] }) => {
-  // Use a ref to cache blocks and avoid O(N^2) work by stabilizing block references.
-  const lastParseRef = useRef<{ content: string; blocks: ContentBlock[] }>({
-    content: "",
-    blocks: [],
-  });
-
-  const blocks = useMemo(() => {
-    const content = message.content || "";
-    const last = lastParseRef.current;
-
-    if (content === last.content) return last.blocks;
-
-    // We still call parseMarkdownContentBlocks (O(N)), but we stabilize the objects.
-    // This ensures React's O(N) reconciliation is super fast (memoized children).
-    const nextBlocks = parseMarkdownContentBlocks(content);
-
-    // Stabilize block references: if text/table hasn't changed, reuse the old object.
-    const stabilized = nextBlocks.map((block, i) => {
-      const prev = last.blocks[i];
-      if (prev && prev.kind === block.kind) {
-        if (block.kind === "paragraph" && block.text === prev.text) return prev;
-        if (block.kind === "table") {
-          // Shallow compare headers and rows to see if we can reuse the reference
-          const sameHeaders = prev.table.headers.length === block.table.headers.length &&
-            prev.table.headers.every((h, j) => h === block.table.headers[j]);
-          const sameRows = prev.table.rows.length === block.table.rows.length &&
-            prev.table.rows.every((row, rIdx) =>
-              row.length === block.table.rows[rIdx].length &&
-              row.every((cell, cIdx) => cell === block.table.rows[rIdx][cIdx])
-            );
-          if (sameHeaders && sameRows) return prev;
-        }
-      }
-      return block;
-    });
-
-    lastParseRef.current = { content, blocks: stabilized };
-    return stabilized;
-  }, [message.content]);
+  const blocks = useMemo(() => parseMarkdownContentBlocks(message.content || ""), [message.content]);
 
   const comparisonTable = useMemo(() => normalizeComparisonTable(message.details?.comparison_table), [message.details]);
-  const hasMarkdownTable = useMemo(() => blocks.some((block) => block.kind === "table"), [blocks]);
+  const hasMarkdownTable = blocks.some((block) => block.kind === "table");
 
   const elements = blocks.map((block, index) => (
     <MarkdownBlock key={`${message.id}_block_${index}`} block={block} messageId={message.id} index={index} />
@@ -306,7 +275,7 @@ const AssistantMessageContent = React.memo(({ message, sources }: { message: Cha
   if (!hasMarkdownTable && comparisonTable) {
     const columnCount = Math.max(
       comparisonTable.headers.length,
-      ...comparisonTable.rows.map((row) => row.length)
+      ...comparisonTable.rows.map((row: string[]) => row.length)
     );
     elements.push(
       <div key={`${message.id}_comparison`} className="strategy-chat-table-wrap">
@@ -324,9 +293,9 @@ const AssistantMessageContent = React.memo(({ message, sources }: { message: Cha
             </tr>
           </thead>
           <tbody>
-            {comparisonTable.rows.map((row, rowIndex) => (
+            {comparisonTable.rows.map((row: string[], rowIndex: number) => (
               <tr key={`${message.id}_c_tr_${rowIndex}`}>
-                {Array.from({ length: columnCount }, (_, colIndex) => (
+                {Array.from({ length: columnCount }, (_, colIndex: number) => (
                   <td key={`${message.id}_c_td_${rowIndex}_${colIndex}`}>
                     {row[colIndex] || ""}
                   </td>

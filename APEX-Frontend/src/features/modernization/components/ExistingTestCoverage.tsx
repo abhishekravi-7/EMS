@@ -10,6 +10,7 @@ import {
   FaBullseye,
   FaPlay,
 } from "react-icons/fa";
+import type { DiscoveredOrExecutedTest } from "./ExistingTestAnalytics";
 
 interface MetricCardProps {
   label: string;
@@ -98,8 +99,8 @@ interface ExistingTestCoverageProps {
     execution_status?: string;
     compilation_error?: string | null;
   };
-  discoveredTests?: any[];
-  testResults?: any[];
+  discoveredTests?: DiscoveredOrExecutedTest[];
+  testResults?: DiscoveredOrExecutedTest[];
   isExecuted?: boolean;
   frameworkInfo?: {
     detected_framework?: string;
@@ -179,7 +180,24 @@ export function ExistingTestCoverage({
             Existing Test Coverage
           </span>
         </div>
-        <div style={{ display: "flex", gap: 10 }}>
+      <div style={{ display: "flex", gap: 10 }}>
+          {onOpenReport && (
+            <button
+              onClick={onOpenReport}
+              style={{
+                padding: "8px 16px",
+                background: "#ffffff",
+                color: "#2563eb",
+                border: "1px solid #bfdbfe",
+                borderRadius: 8,
+                fontWeight: 700,
+                fontSize: 12,
+                cursor: "pointer",
+              }}
+            >
+              Open Report
+            </button>
+          )}
           <button
             onClick={onRunAll}
             style={{

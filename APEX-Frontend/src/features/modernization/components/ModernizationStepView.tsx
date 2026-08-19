@@ -37,7 +37,7 @@ import { ExistingTestLogs } from "./ExistingTestLogs";
 import { ExistingTestValidationReport } from "./ExistingTestValidationReport";
 import { FunctionalTestingTabs } from "./FunctionalTestingTabs";
 import { ProposedTestCasesPanel } from "./ProposedTestCasesPanel";
-import { TestReportsModal } from "./TestReportsModal";
+import { TestReportsModal, type TestReportData } from "./TestReportsModal";
 import { wizardStyles as styles } from "@/shared/components/wizard/wizardStyles";
 import { renderWizardIconBadge, renderBackButtonLabel } from "@/shared/components/wizard";
 import type { RepoAnalysis, RepoInfo } from "@/shared/types/domain";
@@ -145,19 +145,7 @@ export function ModernizationStepView({
   const [validationSearch, setValidationSearch] = useState("");
   const [expandedFailures, setExpandedFailures] = useState<Record<number, boolean>>({});
   const [showTestDetailModal, setShowTestDetailModal] = useState(false);
-  const [testDetailReport, setTestDetailReport] = useState<{
-    name: string;
-    suite: string;
-    status: string;
-    url?: string | null;
-    type?: string;
-    screenshotUrl?: string | null;
-    videoUrl?: string | null;
-    traceUrl?: string | null;
-    apiEvidence?: any;
-    error?: string | null;
-    errorCode?: string | null;
-  } | null>(null);
+  const [testDetailReport, setTestDetailReport] = useState<TestReportData | null>(null);
 
   const existingLogRef = useRef<HTMLDivElement | null>(null);
   const existingPollRef = useRef<any>(null);
@@ -2103,29 +2091,7 @@ export function ModernizationStepView({
       <TestReportsModal
         isOpen={showTestDetailModal}
         onClose={() => setShowTestDetailModal(false)}
-        data={testDetailReport ? {
-          testId: testDetailReport.testId,
-          executionId: testDetailReport.executionId,
-          title: testDetailReport.name || testDetailReport.title,
-          spec: testDetailReport.suite || testDetailReport.spec,
-          status: testDetailReport.status,
-          duration: testDetailReport.duration,
-          file: testDetailReport.file,
-          url: testDetailReport.url,
-          error: testDetailReport.error,
-          errorCode: testDetailReport.errorCode,
-          type: testDetailReport.type,
-          testType: testDetailReport.testType,
-          framework: testDetailReport.framework,
-          stackTrace: testDetailReport.stackTrace,
-          stdout: testDetailReport.stdout,
-          stderr: testDetailReport.stderr,
-          screenshotUrl: testDetailReport.screenshotUrl,
-          videoUrl: testDetailReport.videoUrl,
-          traceUrl: testDetailReport.traceUrl,
-          apiEvidence: testDetailReport.apiEvidence,
-          evidence: testDetailReport.evidence,
-        } : null}
+      data={testDetailReport}
       />
 
       <div style={styles.btnRow}>

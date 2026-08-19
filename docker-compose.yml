@@ -10,7 +10,7 @@ services:
       - DATABASE_URL=postgresql+psycopg://apex_user:apex_pass@db:5432/java_apex_db
       - LLM_1=${LLM_1:-} # Hugging Face Token
       - LLM_2=${LLM_2:-} # Groq API Key
-      - RAG_ENABLED=true
+      - ENABLE_RAG=true
     volumes:
       - ./APEX-Backend/storage:/app/storage
       - ./APEX-Backend/logs:/app/logs

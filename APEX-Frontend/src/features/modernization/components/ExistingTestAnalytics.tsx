@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { FaTimes, FaCheckCircle, FaTimesCircle, FaInfoCircle } from "react-icons/fa";
+import type { TestResult } from "./ExistingTestTable";
 
 export interface DiscoveredOrExecutedTest {
   testId?: string;
@@ -35,12 +36,12 @@ export interface DiscoveredOrExecutedTest {
   videoUrl?: string | null;
   trace_url?: string | null;
   traceUrl?: string | null;
-  api_evidence?: any;
-  apiEvidence?: any;
-  evidence?: any;
+  api_evidence?: Record<string, unknown> | null;
+  apiEvidence?: Record<string, unknown> | null;
+  evidence?: Record<string, unknown> | null;
   unavailable_reason?: string | null;
   unavailableReason?: string | null;
-  details?: any;
+  details?: Record<string, unknown> | null;
 }
 
 interface FileSummary {
@@ -51,6 +52,10 @@ interface FileSummary {
   skipped: number;
   not_executed?: number;
   tests?: DiscoveredOrExecutedTest[];
+}
+
+interface SuiteSummary extends FileSummary {
+  tests: DiscoveredOrExecutedTest[];
 }
 
 interface ExistingTestAnalyticsProps {
@@ -73,7 +78,7 @@ interface ExistingTestAnalyticsProps {
     test_source_dir?: string;
   };
   onViewSuite?: (suiteName: string) => void;
-  onSelectTest?: (test: any) => void;
+  onSelectTest?: (test: TestResult) => void;
 }
 
 interface SliceItem {
@@ -189,7 +194,7 @@ export function ExistingTestAnalytics({
   fileBreakdown = [],
   discoveredTests = [],
   testResults = [],
-  frameworkInfo,
+  frameworkInfo: _frameworkInfo,
   onViewSuite,
   onSelectTest,
 }: ExistingTestAnalyticsProps) {
@@ -203,7 +208,7 @@ export function ExistingTestAnalytics({
   }, [testResults, discoveredTests]);
 
   // ── 1. Dynamic Suite Composition ──
-  const { suitesList, totalDiscoveredCount } = useMemo(() => {
+  const { suitesList, totalDiscoveredCount } = useMemo((): { suitesList: SuiteSummary[]; totalDiscoveredCount: number } => {
     if (canonicalTests.length > 0) {
       const groupMap: Record<string, { total: number; passed: number; failed: number; skipped: number; tests: DiscoveredOrExecutedTest[] }> = {};
 
@@ -469,7 +474,7 @@ export function ExistingTestAnalytics({
                         if (onViewSuite) {
                           onViewSuite(s.file);
                         }
-                        setSelectedSuiteModal({ name: baseName, tests: (s as any).tests || [] });
+        setSelectedSuiteModal({ name: baseName, tests: s.tests || [] });
                       }}
                       style={{
                         border: "none",
@@ -721,8 +726,21 @@ export function ExistingTestAnalytics({
                       key={sIdx}
                       onClick={() => {
                         if (onSelectTest) {
+                          const selectedTest: TestResult = {
+                            test_name: st.test_name || st.name || st.title || `scenario_${sIdx + 1}`,
+                            name: st.name || st.test_name || st.title || `scenario_${sIdx + 1}`,
+                            title: st.title || st.test_name || st.name || `scenario_${sIdx + 1}`,
+                            suite: st.suite || st.spec || st.classname || selectedSuiteModal.name,
+                            spec: st.spec || st.suite || st.classname || selectedSuiteModal.name,
+                            status: (st.status || "NOT_EXECUTED") as TestResult["status"],
+                            duration: st.duration || "—",
+                            file: st.file || selectedSuiteModal.name,
+                            error: st.failure_message || st.error || null,
+                            failure_message: st.failure_message || st.error || null,
+                            framework: st.framework || undefined,
+                          };
                           setSelectedSuiteModal(null);
-                          onSelectTest(st);
+                          onSelectTest(selectedTest);
                         }
                       }}
                       style={{
