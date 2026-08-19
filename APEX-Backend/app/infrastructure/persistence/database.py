@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Generator
+from typing import Optional
 
+from fastapi import HTTPException
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
@@ -20,16 +22,21 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# `pool_pre_ping=True` makes SQLAlchemy validate a pooled connection with a
-# cheap "SELECT 1" before handing it to a request, so a connection the
-# database silently closed (e.g. after being idle) is transparently replaced
-# instead of surfacing as a request-time error.
-engine = create_engine(settings.database_url, pool_pre_ping=True)
+# Create SQLAlchemy engine/session only when database usage is enabled.
+if settings.database_enabled:
+    # `pool_pre_ping=True` makes SQLAlchemy validate a pooled connection with a
+    # cheap "SELECT 1" before handing it to a request, so a connection the
+    # database silently closed (e.g. after being idle) is transparently replaced
+    # instead of surfacing as a request-time error.
+    engine = create_engine(settings.database_url, pool_pre_ping=True)
 
-# Factory for `Session` objects — comparable to Hibernate's `SessionFactory`.
-# `autoflush=False`/`autocommit=False` are the SQLAlchemy 2.0 defaults,
-# listed explicitly here for clarity.
-SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    # Factory for `Session` objects — comparable to Hibernate's `SessionFactory`.
+    # `autoflush=False`/`autocommit=False` are the SQLAlchemy 2.0 defaults,
+    # listed explicitly here for clarity.
+    SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+else:
+    engine = None  # type: Optional[object]
+    SessionLocal = None
 
 
 class Base(DeclarativeBase):
@@ -48,13 +55,16 @@ def get_db() -> Generator[Session, None, None]:
     (even if the handler raised) — similar to a try/finally wrapped around a
     Hibernate session. Use it as `db: Session = Depends(get_db)`.
     """
+    if not settings.database_enabled or SessionLocal is None:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "DATABASE_DISABLED", "message": "This feature requires database access and is currently disabled."},
+        )
+
     db = SessionLocal()
     try:
         yield db
     except Exception:
-        # A route handler raised without committing/rolling back itself —
-        # make sure the failed transaction never leaks into the next use of
-        # this connection.
         db.rollback()
         raise
     finally:
@@ -84,6 +94,9 @@ def ensure_database_exists() -> None:
     Called once at startup, before `verify_database_connection()` — see
     `app/main.py`.
     """
+    if not settings.database_enabled:
+        return
+
     target_url = make_url(settings.database_url)
     target_db_name = target_url.database
     if not target_db_name:
@@ -128,8 +141,11 @@ def verify_database_connection() -> None:
     obvious startup error instead of a confusing failure on the first
     request.
     """
+    if not settings.database_enabled:
+        return
+
     try:
-        with engine.connect() as connection:
+        with engine.connect() as connection:  # type: ignore[attr-defined]
             connection.execute(text("SELECT 1"))
     except Exception as exc:
         logger.error("Database connection failed at startup: %s", type(exc).__name__)
