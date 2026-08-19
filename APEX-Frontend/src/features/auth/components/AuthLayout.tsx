@@ -1,16 +1,9 @@
 import React from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import apexLogo from "../../../assets/logo.jpg";
 import {
-  FaCoffee,
-  FaArrowLeft,
   FaSearch,
   FaCogs,
-  FaChartLine,
-  FaShieldAlt,
-  FaRandom,
-  FaUsers,
-  FaCode,
   FaChartBar,
   FaClipboard,
   FaBolt,
@@ -171,141 +164,52 @@ const SignUpHeroGraphic: React.FC = () => (
 
 const AuthLayout: React.FC<AuthLayoutProps> = ({ mode, children }) => {
   const navigate = useNavigate();
-  const isSignIn = mode === "signin";
 
-  if (isSignIn) {
-    return (
-      <div className="apex-auth-page new-signin-layout">
-        <div className="new-signin-left">
-          <div className="new-signin-left-content">
-            {/* Branding Top */}
-            <div className="new-signin-brand">
-              <div className="new-signin-logo" onClick={() => navigate("/")} style={{ cursor: "pointer", marginBottom: '8px' }}>
-                <img
-                  src={apexLogo}
-                  alt="Java APEX"
-                  style={{ height: 42, width: "auto", objectFit: "contain", display: "block" }}
-                />
-              </div>
-              <div className="new-signin-tagline" style={{ fontSize: '18px', fontWeight: 600, color: '#0f172a' }}>AI-Powered Accelerator</div>
+  return (
+    <div className="apex-auth-page new-signin-layout">
+      <div className="new-signin-left">
+        <div className="new-signin-left-content">
+          {/* Branding Top */}
+          <div className="new-signin-brand">
+            <div className="new-signin-logo" onClick={() => navigate("/")} style={{ cursor: "pointer", marginBottom: '8px' }}>
+              <img
+                src={apexLogo}
+                alt="Java APEX"
+                style={{ height: 42, width: "auto", objectFit: "contain", display: "block" }}
+              />
             </div>
-
-            {/* Headings */}
-            <div className="new-signin-headings">
-              <h1 className="new-signin-title">Accelerate Your</h1>
-              <h1 className="new-signin-title-blue">Modernization Journey</h1>
-              <p className="new-signin-subtext">
-                AI-driven insights. Automated modernization.<br/>Measurable results.
-              </p>
-            </div>
-
-            {/* Center Graphic */}
-            <div className="new-signin-graphic">
-              <SignInHeroGraphic />
-            </div>
-
-            {/* Footer */}
-            <div className="new-signin-footer">
-              <a href="http://www.javaapex.com" target="_blank" rel="noreferrer">www.javaapex.com</a>
-              <span className="powered-by">powered by <strong>SORIM.AI</strong></span>
-            </div>
+            <div className="new-signin-tagline" style={{ fontSize: '18px', fontWeight: 600, color: '#0f172a' }}>AI-Powered Accelerator</div>
           </div>
-        </div>
-        <div className="new-signin-right">
-          <div className="apex-auth-card">
-            {children}
+
+          {/* Headings */}
+          <div className="new-signin-headings">
+            <h1 className="new-signin-title">Accelerate Your</h1>
+            <h1 className="new-signin-title-blue">Modernization Journey</h1>
+            <p className="new-signin-subtext">
+              AI-driven insights. Automated modernization.<br/>Measurable results.
+            </p>
+          </div>
+
+          {/* Center Graphic */}
+          <div className="new-signin-graphic">
+            <SignInHeroGraphic />
+          </div>
+
+          {/* Footer */}
+          <div className="new-signin-footer">
+            <a href="http://www.javaapex.com" target="_blank" rel="noreferrer">www.javaapex.com</a>
+            <span className="powered-by">powered by <strong>SORIM.AI</strong></span>
           </div>
         </div>
       </div>
-    );
-  }
-
-  return (
-    <div className="apex-auth-page apex-auth-page--signup">
-      {/* ── Top Header ── */}
-      <header className="apex-auth-topbar">
-        <div className="apex-auth-topbar-brand" onClick={() => navigate("/")} style={{ cursor: "pointer" }}>
-          <img
-            src={apexLogo}
-            alt="Java APEX"
-            style={{ height: 38, width: "auto", objectFit: "contain", display: "block" }}
-          />
+      <div className="new-signin-right">
+        <div className="apex-auth-card">
+          {children}
         </div>
-      </header>
-
-      {/* ── Main Content Container ── */}
-      <main className="apex-auth-main">
-        <div className="apex-auth-container">
-          {/* Left Hero Card */}
-          <div className="apex-auth-hero-card apex-auth-hero-card--signup">
-            <div className="apex-auth-hero-content">
-              <h1 className="apex-auth-hero-title" style={{ color: "#ffffff" }}>
-                Create your<br />
-                <span style={{ color: "#60a5fa" }}>Java APEX</span> account
-              </h1>
-              <p className="apex-auth-hero-sub" style={{ color: "#93c5fd" }}>
-                Get started with AI-powered Java modernization in minutes.
-              </p>
-
-              <div className="apex-auth-features">
-                <div className="apex-auth-feature-item">
-                  <div className="apex-auth-feature-icon apex-auth-feature-icon--dark"><FaCogs /></div>
-                  <div>
-                    <div className="apex-auth-feature-title" style={{ color: "#ffffff" }}>AI-Driven Modernization</div>
-                    <div className="apex-auth-feature-desc" style={{ color: "#cbd5e1" }}>Leverage AI to modernize your legacy Java applications</div>
-                  </div>
-                </div>
-
-                <div className="apex-auth-feature-item">
-                  <div className="apex-auth-feature-icon apex-auth-feature-icon--dark"><FaRandom /></div>
-                  <div>
-                    <div className="apex-auth-feature-title" style={{ color: "#ffffff" }}>End-to-End Automation</div>
-                    <div className="apex-auth-feature-desc" style={{ color: "#cbd5e1" }}>From analysis to migration, we automate it all</div>
-                  </div>
-                </div>
-
-                <div className="apex-auth-feature-item">
-                  <div className="apex-auth-feature-icon apex-auth-feature-icon--dark"><FaChartLine /></div>
-                  <div>
-                    <div className="apex-auth-feature-title" style={{ color: "#ffffff" }}>Actionable Insights</div>
-                    <div className="apex-auth-feature-desc" style={{ color: "#cbd5e1" }}>Clear recommendations and detailed reports</div>
-                  </div>
-                </div>
-
-                <div className="apex-auth-feature-item">
-                  <div className="apex-auth-feature-icon apex-auth-feature-icon--dark"><FaUsers /></div>
-                  <div>
-                    <div className="apex-auth-feature-title" style={{ color: "#ffffff" }}>Collaborate Seamlessly</div>
-                    <div className="apex-auth-feature-desc" style={{ color: "#cbd5e1" }}>Invite your team and work together securely</div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Vector 3D Graphic */}
-              <SignUpHeroGraphic />
-            </div>
-          </div>
-
-          {/* Right Auth Card Form */}
-          <div className="apex-auth-card-wrap">
-            <div className="apex-auth-card">
-              {children}
-            </div>
-          </div>
-        </div>
-      </main>
-
-      {/* ── Footer ── */}
-      <footer className="apex-auth-footer">
-        <div>© {new Date().getFullYear()} Java APEX. All rights reserved.</div>
-        <div className="apex-auth-footer-links">
-          <a href="#privacy" className="apex-auth-footer-link">Privacy Policy</a>
-          <a href="#terms" className="apex-auth-footer-link">Terms of Service</a>
-          <a href="#support" className="apex-auth-footer-link">Support</a>
-        </div>
-      </footer>
+      </div>
     </div>
   );
 };
+
 
 export default AuthLayout;
