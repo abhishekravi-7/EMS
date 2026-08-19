@@ -37,10 +37,11 @@ interface ExistingTestValidationReportProps {
     test_source_dir?: string;
   };
   testResults: TestResult[];
-  fileBreakdown?: FileSummary[];
   logs: LogEntry[];
   onSelectTest: (test: TestResult) => void;
   onClose: () => void;
+  onRunAgain?: () => void;
+  isRunning?: boolean;
 }
 
 export function ExistingTestValidationReport({
@@ -51,6 +52,8 @@ export function ExistingTestValidationReport({
   logs,
   onSelectTest,
   onClose,
+  onRunAgain,
+  isRunning = false,
 }: ExistingTestValidationReportProps) {
   const [activeTab, setActiveTab] = useState<"TABLE" | "LOGS">("TABLE");
 
@@ -337,6 +340,8 @@ export function ExistingTestValidationReport({
               fileBreakdown={fileBreakdown}
               frameworkInfo={frameworkInfo}
               onSelectTest={onSelectTest}
+              onRunAgain={onRunAgain}
+              isRunning={isRunning}
             />
           ) : (
             <ExistingTestLogs logs={logs} />

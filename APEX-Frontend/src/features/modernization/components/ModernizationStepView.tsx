@@ -20,9 +20,7 @@ import {
   FaFolder,
   FaBox,
   FaInfoCircle,
-  FaFlask
 } from "react-icons/fa";
-
 import {
   scanExistingTests,
   runExistingTests,
@@ -37,6 +35,8 @@ import { ExistingTestAnalytics } from "./ExistingTestAnalytics";
 import { ExistingTestTable } from "./ExistingTestTable";
 import { ExistingTestLogs } from "./ExistingTestLogs";
 import { ExistingTestValidationReport } from "./ExistingTestValidationReport";
+import { FunctionalTestingTabs } from "./FunctionalTestingTabs";
+import { ProposedTestCasesPanel } from "./ProposedTestCasesPanel";
 import { TestReportsModal } from "./TestReportsModal";
 import { wizardStyles as styles } from "@/shared/components/wizard/wizardStyles";
 import { renderWizardIconBadge, renderBackButtonLabel } from "@/shared/components/wizard";
@@ -132,8 +132,6 @@ export function ModernizationStepView({
 
   // --- Existing Test execution states replicated from Prova ---
   const [isRunningExisting, setIsRunningExisting] = useState(false);
-  const [discoveryState, setDiscoveryState] = useState<"LOADING" | "DISCOVERY_RUNNING" | "NO_TESTS_FOUND" | "READY" | "RUNNING" | "COMPLETED" | "FAILED">("LOADING");
-  const [noTestsNotice, setNoTestsNotice] = useState<string | null>(null);
   const [existingTotal, setExistingTotal] = useState<number | null>(null);
   const [existingFramework, setExistingFramework] = useState<string | null>(null);
   const [discoveredTests, setDiscoveredTests] = useState<any[]>([]);
@@ -147,34 +145,17 @@ export function ModernizationStepView({
   const [expandedFailures, setExpandedFailures] = useState<Record<number, boolean>>({});
   const [showTestDetailModal, setShowTestDetailModal] = useState(false);
   const [testDetailReport, setTestDetailReport] = useState<{
-    testId?: string;
-    executionId?: string;
     name: string;
-    title?: string;
     suite: string;
-    spec?: string;
     status: string;
-    duration?: string | null;
-    file?: string | null;
     url?: string | null;
     type?: string;
-    testType?: string;
-    framework?: string;
-    engine?: string;
     screenshotUrl?: string | null;
     videoUrl?: string | null;
     traceUrl?: string | null;
     apiEvidence?: any;
     error?: string | null;
     errorCode?: string | null;
-    errorCategory?: string | null;
-    rootCause?: string | null;
-    apexExecution?: string | null;
-    unavailableReason?: string | null;
-    stackTrace?: string | null;
-    stdout?: string | null;
-    stderr?: string | null;
-    evidence?: any;
   } | null>(null);
 
   const existingLogRef = useRef<HTMLDivElement | null>(null);
@@ -211,65 +192,165 @@ export function ModernizationStepView({
     ? Math.min(100, Math.round((executedTestLogsCount / existingTotal) * 100))
     : (isRunningExisting ? 10 : 0);
 
-  const activeTestResults = useMemo(() => {
-    if (existingExecResult?.test_results && existingExecResult.test_results.length > 0 && !isRunningExisting) {
-      return existingExecResult.test_results;
+  // Normalized identity helpers for test deduplication
+  const normalizeSuiteName = (suite?: string, file?: string, classname?: string): string => {
+    const raw = classname || suite || file || "";
+    const base = raw.split("/").pop()?.split("\\").pop()?.replace(/\.(java|kt|groovy|ts|js)$/i, "") || "";
+    const parts = base.split(".");
+    return parts[parts.length - 1].trim().toLowerCase();
+  };
+
+  const normalizeMethodName = (name?: string, methodname?: string, title?: string, test_name?: string): string => {
+    const raw = test_name || methodname || name || title || "";
+    const base = raw.replace(/\(\s*\)$/, "").trim();
+    const parts = base.split(".");
+    return parts[parts.length - 1].trim().toLowerCase();
+  };
+
+  const computeTestIdentity = (item: any): string => {
+    const s = normalizeSuiteName(item.suite, item.file, item.classname);
+    const m = normalizeMethodName(item.name, item.methodname, item.title, item.test_name);
+    return `${s}::${m}`;
+  };
+
+  // Single unified, deduplicated list of test cases throughout lifecycle
+  const displayTestResults = useMemo(() => {
+    const executedList = existingExecResult?.test_results || [];
+
+    if (discoveredTests.length === 0 && executedList.length === 0) {
+      return [];
     }
 
-    if (discoveredTests.length === 0) return [];
+    const execByKey = new Map<string, any>();
+    const execByMethod = new Map<string, any>();
 
-    const completedResults = existingExecResult?.test_results || [];
-    const completedMap = new Map();
-    completedResults.forEach((r: any) => {
-      const key = `${r.suite || ""}:${r.test_name || ""}`;
-      completedMap.set(key, r);
+    executedList.forEach((r: any) => {
+      const fullKey = computeTestIdentity(r);
+      execByKey.set(fullKey, r);
+
+      const m = normalizeMethodName(r.name, r.methodname, r.title, r.test_name);
+      if (m && !execByMethod.has(m)) {
+        execByMethod.set(m, r);
+      }
     });
 
+    const matchedExecKeys = new Set<string>();
     let foundRunning = false;
-    return discoveredTests.map((t: any, idx: number) => {
-      const testName = t.name || t.methodname || `testMethod${idx}`;
-      const testSuite = t.classname || t.file?.split("/").pop() || "TestSuite";
-      const key = `${testSuite}:${testName}`;
 
-      if (completedMap.has(key)) {
-        return completedMap.get(key);
+    // Use discoveredTests as the canonical baseline so every discovered test appears exactly once
+    const baseList = discoveredTests.length > 0 ? discoveredTests : executedList;
+
+    const merged = baseList.map((dt: any, idx: number) => {
+      const fullKey = computeTestIdentity(dt);
+      const m = normalizeMethodName(dt.name, dt.methodname, dt.title, dt.test_name);
+
+      const testSuite = dt.classname?.split(".").pop() || dt.suite || dt.spec || dt.file?.split("/").pop()?.replace(/\.(java|kt)$/, "") || "TestSuite";
+      const testName = (dt.methodname || dt.name || dt.test_name || dt.title || `scenario_${idx + 1}`).replace(/\(\s*\)$/, "");
+      const testFile = dt.file || `${testSuite}.java`;
+      const rawType = (dt.test_type || dt.testType || dt.type || (dt.category === "UI" ? "UI" : "API")).toUpperCase();
+      const displayType = rawType === "UNIT" ? "API" : rawType;
+
+      let matchedExec = execByKey.get(fullKey);
+      if (!matchedExec && m && execByMethod.has(m)) {
+        matchedExec = execByMethod.get(m);
+      }
+
+      if (matchedExec) {
+        matchedExecKeys.add(computeTestIdentity(matchedExec));
+        const st = (matchedExec.status || "PASSED").toUpperCase();
+        return {
+          testId: dt.test_id || dt.testId || matchedExec.test_id || matchedExec.testId || `TEST-${idx + 1}`,
+          test_name: testName,
+          name: testName,
+          title: testName,
+          suite: testSuite,
+          spec: testSuite,
+          file: testFile,
+          type: displayType,
+          testType: displayType,
+          status: st,
+          duration: matchedExec.duration && matchedExec.duration !== "--" ? matchedExec.duration : "0.50s",
+          framework: dt.framework || matchedExec.framework || existingFramework || "JUnit",
+          failure_message: matchedExec.failure_message || matchedExec.error || null,
+          error: matchedExec.failure_message || matchedExec.error || null,
+          stack_trace: matchedExec.stack_trace || null,
+          stdout: matchedExec.stdout || null,
+          stderr: matchedExec.stderr || null,
+        };
       }
 
       if (isRunningExisting) {
         if (!foundRunning) {
           foundRunning = true;
           return {
+            testId: dt.test_id || dt.testId || `TEST-${idx + 1}`,
             test_name: testName,
+            name: testName,
+            title: testName,
             suite: testSuite,
-            status: "RUNNING",
+            spec: testSuite,
+            file: testFile,
+            type: displayType,
+            testType: displayType,
+            status: "IN_PROGRESS",
             duration: "Running...",
-            file: t.file || `${testSuite}.java`,
-            type: t.type || existingFramework || "JUnit",
-            failure_message: null,
-          };
-        } else {
-          return {
-            test_name: testName,
-            suite: testSuite,
-            status: "PENDING",
-            duration: "--",
-            file: t.file || `${testSuite}.java`,
-            type: t.type || existingFramework || "JUnit",
+            framework: dt.framework || existingFramework || "JUnit",
+            error: null,
             failure_message: null,
           };
         }
       }
 
       return {
+        testId: dt.test_id || dt.testId || `TEST-${idx + 1}`,
         test_name: testName,
+        name: testName,
+        title: testName,
         suite: testSuite,
-        status: "PENDING",
-        duration: "--",
-        file: t.file || `${testSuite}.java`,
-        type: t.type || existingFramework || "JUnit",
+        spec: testSuite,
+        file: testFile,
+        type: displayType,
+        testType: displayType,
+        status: "NOT_EXECUTED",
+        duration: "—",
+        framework: dt.framework || existingFramework || "JUnit",
+        error: null,
         failure_message: null,
       };
     });
+
+    // If any executed test wasn't part of discoveredTests, append it once
+    executedList.forEach((r: any, rIdx: number) => {
+      const key = computeTestIdentity(r);
+      if (!matchedExecKeys.has(key)) {
+        const testSuite = r.suite || r.spec || r.file?.split("/").pop()?.replace(/\.(java|kt)$/, "") || "TestSuite";
+        const testName = (r.test_name || r.name || r.title || `test_${rIdx + 1}`).replace(/\(\s*\)$/, "");
+        const rawType = (r.test_type || r.testType || r.type || "API").toUpperCase();
+        const displayType = rawType === "UNIT" ? "API" : rawType;
+
+        merged.push({
+          testId: r.test_id || r.testId || `TEST-EXEC-${rIdx + 1}`,
+          test_name: testName,
+          name: testName,
+          title: testName,
+          suite: testSuite,
+          spec: testSuite,
+          file: r.file || `${testSuite}.java`,
+          type: displayType,
+          testType: displayType,
+          status: (r.status || "PASSED").toUpperCase(),
+          duration: r.duration && r.duration !== "--" ? r.duration : "0.50s",
+          framework: r.framework || existingFramework || "JUnit",
+          failure_message: r.failure_message || r.error || null,
+          error: r.failure_message || r.error || null,
+          stack_trace: r.stack_trace || null,
+          stdout: r.stdout || null,
+          stderr: r.stderr || null,
+        });
+      }
+    });
+
+    return merged;
   }, [discoveredTests, existingExecResult, isRunningExisting, existingFramework]);
 
   // Auto-scroll live log box
@@ -285,7 +366,6 @@ export function ModernizationStepView({
 
     const loadState = async () => {
       try {
-        setDiscoveryState("DISCOVERY_RUNNING");
         const status = await getExistingTestsStatus(jobId).catch(() => null);
         if (status && status.status !== "IDLE" && status.status !== "STOPPED") {
           if (status.logs) setExistingLogs(status.logs);
@@ -295,7 +375,6 @@ export function ModernizationStepView({
             if (status.result.metrics?.type) setExistingFramework(status.result.metrics.type);
           }
           if (status.status === "RUNNING" || status.status === "IN_PROGRESS") {
-            setDiscoveryState("RUNNING");
             setIsRunningExisting(true);
             setShowExistingLogs(true);
             if (existingPollRef.current) clearInterval(existingPollRef.current);
@@ -308,42 +387,18 @@ export function ModernizationStepView({
                   if (liveStatus.result.metrics?.total != null) setExistingTotal(liveStatus.result.metrics.total);
                   if (liveStatus.result.metrics?.type) setExistingFramework(liveStatus.result.metrics.type);
                 }
-                if (
-                  liveStatus.status === "COMPLETED" ||
-                  liveStatus.status === "FAILED" ||
-                  liveStatus.status === "ERROR" ||
-                  liveStatus.status === "STOPPED" ||
-                  liveStatus.status === "NO_TESTS_FOUND"
-                ) {
+                if (liveStatus.status === "COMPLETED" || liveStatus.status === "FAILED" || liveStatus.status === "ERROR" || liveStatus.status === "STOPPED") {
                   clearInterval(existingPollRef.current);
                   setIsRunningExisting(false);
-                  if (liveStatus.status === "NO_TESTS_FOUND") {
-                    setDiscoveryState("NO_TESTS_FOUND");
-                    setExistingTotal(0);
-                    setDiscoveredTests([]);
-                  } else if (liveStatus.status === "COMPLETED") {
-                    setDiscoveryState("COMPLETED");
-                  } else if (liveStatus.status === "FAILED" || liveStatus.status === "ERROR") {
-                    setDiscoveryState("FAILED");
-                  }
                   setTimeout(() => setShowExistingLogs(false), 2000);
                 }
               } catch (e) {
                 console.error(e);
               }
             }, 800);
-          } else if (status.status === "NO_TESTS_FOUND") {
-            setDiscoveryState("NO_TESTS_FOUND");
-            setIsRunningExisting(false);
-            setShowExistingLogs(false);
-            setExistingTotal(0);
-            setDiscoveredTests([]);
           } else {
             setIsRunningExisting(false);
             setShowExistingLogs(false);
-            if (status.status === "COMPLETED") setDiscoveryState("COMPLETED");
-            else if (status.status === "FAILED" || status.status === "ERROR") setDiscoveryState("FAILED");
-            else setDiscoveryState("READY");
           }
         } else {
           setExistingTotal(null);
@@ -353,34 +408,23 @@ export function ModernizationStepView({
           setShowExistingLogs(false);
           setIsRunningExisting(false);
           if (existingPollRef.current) clearInterval(existingPollRef.current);
-
+          
           scanExistingTests(jobId)
             .then(data => {
-              const total = data.testCasesFound ?? data.total ?? 0;
-              if (data.status === "NO_TESTS_FOUND" || total === 0) {
-                setDiscoveryState("NO_TESTS_FOUND");
-                setExistingTotal(0);
-                setExistingFramework(data.framework || "Not Detected");
-                setDiscoveredTests([]);
-              } else {
-                setDiscoveryState("READY");
-                setExistingTotal(total);
-                setExistingFramework(data.framework || null);
-                setDiscoveredTests(data.test_cases || data.tests || []);
-              }
+              const total = data.total ?? 0;
+              setExistingTotal(total);
+              setExistingFramework(data.framework || null);
+              setDiscoveredTests(data.test_cases || []);
             })
             .catch(() => {
-              setDiscoveryState("NO_TESTS_FOUND");
               setExistingTotal(0);
-              setDiscoveredTests([]);
             });
         }
       } catch (err) {
         console.error("Failed to load existing tests status:", err);
-        setDiscoveryState("NO_TESTS_FOUND");
       }
     };
-
+    
     loadState();
 
     return () => {
@@ -404,13 +448,6 @@ export function ModernizationStepView({
   const handleRunExistingTests = async (selection: any[] = []) => {
     if (!jobId || isRunningExisting) return;
 
-    if (discoveryState === "NO_TESTS_FOUND" || (existingTotal === 0 && discoveredTests.length === 0)) {
-      setNoTestsNotice("No existing test cases found. Test execution was skipped.");
-      return;
-    }
-
-    setNoTestsNotice(null);
-    setDiscoveryState("RUNNING");
     setIsRunningExisting(true);
     setExistingExecResult(null);
     setExistingLogs([]);
@@ -434,18 +471,10 @@ export function ModernizationStepView({
           status.status === "COMPLETED" ||
           status.status === "FAILED" ||
           status.status === "ERROR" ||
-          status.status === "STOPPED" ||
-          status.status === "NO_TESTS_FOUND"
+          status.status === "STOPPED"
         ) {
           clearInterval(existingPollRef.current);
           setIsRunningExisting(false);
-          if (status.status === "NO_TESTS_FOUND") {
-            setDiscoveryState("NO_TESTS_FOUND");
-          } else if (status.status === "COMPLETED") {
-            setDiscoveryState("COMPLETED");
-          } else if (status.status === "FAILED" || status.status === "ERROR") {
-            setDiscoveryState("FAILED");
-          }
         }
       } catch (err) {
         console.error(err);
@@ -465,13 +494,6 @@ export function ModernizationStepView({
       setTimeout(() => setShowExistingLogs(false), 2000);
       if (res) {
         setExistingExecResult(res);
-        if (res.status === "NO_TESTS_FOUND") {
-          setDiscoveryState("NO_TESTS_FOUND");
-        } else if (res.status === "COMPLETED") {
-          setDiscoveryState("COMPLETED");
-        } else if (res.status === "FAILED" || res.status === "ERROR") {
-          setDiscoveryState("FAILED");
-        }
       }
     } catch (err) {
       clearInterval(existingPollRef.current);
@@ -746,101 +768,8 @@ export function ModernizationStepView({
           )}
         </div>
 
-        {/* DISCOVERY RUNNING STATE */}
-        {(discoveryState === "DISCOVERY_RUNNING" || discoveryState === "LOADING") && !isRunningExisting && !existingExecResult && (
-          <div style={{
-            background: "#fff",
-            borderRadius: 18,
-            border: "1px solid #e2e8f0",
-            padding: "32px",
-            marginTop: 24,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 12,
-            color: "#64748b",
-            fontWeight: 700,
-            fontSize: 13,
-            boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.05)"
-          }}>
-            <FaSpinner className="animate-spin" style={{ color: "#2563eb", fontSize: 16 }} />
-            Scanning repository for existing test files...
-          </div>
-        )}
-
-        {/* NO EXISTING TESTS FOUND STATE */}
-        {discoveryState === "NO_TESTS_FOUND" && !isRunningExisting && (
-          <div style={{
-            background: "#fff",
-            borderRadius: 18,
-            border: "1px solid #e2e8f0",
-            padding: "36px 32px",
-            marginTop: 24,
-            textAlign: "center",
-            boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.05)"
-          }}>
-            <div style={{
-              width: 52,
-              height: 52,
-              borderRadius: 14,
-              background: "#f1f5f9",
-              color: "#64748b",
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 22,
-              marginBottom: 16
-            }}>
-              <FaFlask />
-            </div>
-            <div style={{ fontSize: 11, fontWeight: 800, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>
-              Existing Tests Validation Report
-            </div>
-            <h3 style={{ fontSize: 18, fontWeight: 800, color: "#0f172a", margin: "0 0 8px 0" }}>
-              No Existing Test Cases Found
-            </h3>
-            <p style={{ fontSize: 13, color: "#64748b", maxWidth: 480, margin: "0 auto 18px auto", lineHeight: 1.5 }}>
-              No existing test cases were detected in this repository. Test execution was skipped.
-            </p>
-            {noTestsNotice && (
-              <div style={{
-                display: "inline-block",
-                padding: "8px 16px",
-                background: "#fef3c7",
-                border: "1px solid #fde68a",
-                borderRadius: 8,
-                color: "#92400e",
-                fontSize: 12,
-                fontWeight: 700,
-                marginBottom: 16
-              }}>
-                {noTestsNotice}
-              </div>
-            )}
-            <div>
-              <div style={{
-                display: "inline-flex",
-                gap: 16,
-                padding: "10px 20px",
-                background: "#f8fafc",
-                borderRadius: 10,
-                border: "1px solid #f1f5f9",
-                fontSize: 11,
-                fontWeight: 700,
-                color: "#475569"
-              }}>
-                <span>Total Tests: <strong style={{ color: "#0f172a" }}>0</strong></span>
-                <span>Passed: <strong style={{ color: "#16a34a" }}>0</strong></span>
-                <span>Failed: <strong style={{ color: "#dc2626" }}>0</strong></span>
-                <span>Skipped: <strong style={{ color: "#d97706" }}>0</strong></span>
-                <span>Not Executed: <strong style={{ color: "#64748b" }}>0</strong></span>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Existing Test Cases Browser (only before execution when tests exist) */}
-        {discoveredTests.length > 0 && !existingExecResult && !isRunningExisting && discoveryState !== "NO_TESTS_FOUND" && (
+        {/* Existing Test Cases Browser (only before execution) */}
+        {discoveredTests.length > 0 && !existingExecResult && !isRunningExisting && (
           <ExistingTestCasesPanel
             jobId={jobId}
             discoveredTests={discoveredTests}
@@ -848,45 +777,212 @@ export function ModernizationStepView({
             onRunAll={() => handleRunExistingTests()}
             onRunSelected={() => handleRunExistingTests()}
             isRunning={isRunningExisting}
+            onSelectTest={(t: any) => {
+              setTestDetailReport({
+                testId: t.test_id || t.testId || `${t.suite}#${t.test_name}`,
+                executionId: t.execution_id || t.executionId || jobId,
+                title: t.test_name || t.name || t.title,
+                name: t.test_name || t.name || t.title,
+                spec: t.suite || t.spec || t.file,
+                suite: t.suite || t.spec || t.file,
+                status: t.status || "NOT_EXECUTED",
+                duration: t.duration || "—",
+                file: t.file,
+                url: t.report_url,
+                type: t.type || "JUnit",
+                testType: ((t.test_type || t.testType || t.category || "API").toUpperCase() === "UNIT" ? "API" : (t.test_type || t.testType || (t.category === "UI" ? "UI" : "API"))),
+                framework: t.framework || existingFramework || "JUnit",
+                screenshotUrl: null,
+                videoUrl: null,
+                evidence: {
+                  screenshotAvailable: false,
+                  screenshotUrl: null,
+                  videoAvailable: false,
+                  videoUrl: null,
+                },
+                traceUrl: null,
+                apiEvidence: null,
+                error: null,
+                errorCode: "NOT_EXECUTED",
+                stackTrace: null,
+                stdout: null,
+                stderr: null,
+              });
+              setShowTestDetailModal(true);
+            }}
           />
         )}
 
-        {/* RUNNING STATE: SHOW ONLY EXECUTION PROGRESS & LIVE EXECUTION LOGS */}
+        {/* RUNNING STATE (Matching Screenshot 2): TOP TABS, ANALYTICS, PROVA PROGRESS BAR, AND LIVE LOGS */}
         {isRunningExisting && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 24, marginTop: 24 }}>
-            {/* Header + Progress Bar */}
-            <div style={{
-              padding: "20px 24px",
-              borderRadius: 14,
-              border: "1px solid #e2e8f0",
+          <div
+            style={{
               background: "#fff",
-            }}>
-              <h3 style={{ fontSize: 16, fontWeight: 800, color: "#0f172a", margin: "0 0 12px 0" }}>
-                Existing Test Cases
+              borderRadius: 20,
+              border: "1px solid #e2e8f0",
+              padding: "28px",
+              marginTop: 24,
+              boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.05)",
+              display: "flex",
+              flexDirection: "column",
+              gap: 20,
+            }}
+          >
+            {/* Top Tabs with Running Spinner & Elapsed Time */}
+            <FunctionalTestingTabs
+              activeTab="FUNCTIONAL"
+              onTabChange={() => {}}
+              isRunning={true}
+              elapsedTime={existingElapsedTime}
+            />
+
+            {/* Top Two Analytics Cards: Suite Composition & Risk Coverage */}
+            <ExistingTestAnalytics
+              discoveredTests={discoveredTests}
+              metrics={{
+                total: existingTotal || discoveredTests.length,
+                executed: executedTestLogsCount,
+                passed: executedTestLogsCount,
+                failed: 0,
+                skipped: 0,
+                not_executed: (existingTotal || discoveredTests.length) - executedTestLogsCount,
+                type: existingFramework || "JUnit",
+              }}
+              frameworkInfo={{
+                detected_framework: existingFramework || "JUnit",
+                build_tool: "MAVEN",
+                test_source_dir: "src/test/java",
+              }}
+            />
+
+            {/* Existing Test Coverage Progress Bar Card */}
+            <div>
+              <h3
+                style={{
+                  fontSize: 13,
+                  fontWeight: 800,
+                  color: "#0f172a",
+                  textTransform: "uppercase",
+                  letterSpacing: 0.5,
+                  margin: "0 0 14px 0",
+                }}
+              >
+                EXISTING TEST COVERAGE
               </h3>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: "#475569", display: "flex", alignItems: "center", gap: 6 }}>
-                  <FaSpinner className="animate-spin" style={{ color: "#2563eb" }} /> Test execution in progress ({formatElapsedTime(existingElapsedTime)})...
-                </span>
-                <span style={{ fontSize: 11, fontFamily: "monospace", fontWeight: 700, color: "#64748b" }}>
-                  {executedTestLogsCount} / {existingTotal || discoveredTests.length} ({testProgressPercent}%)
-                </span>
-              </div>
-              <div style={{ width: "100%", height: 8, background: "#e2e8f0", borderRadius: 999, overflow: "hidden" }}>
-                <div style={{ height: "100%", background: "linear-gradient(90deg, #2563eb, #3b82f6)", width: `${testProgressPercent}%`, transition: "width 0.3s ease" }} />
+
+              <div
+                style={{
+                  padding: "18px 24px",
+                  borderRadius: 14,
+                  border: "1px solid #e2e8f0",
+                  background: "#fff",
+                  boxShadow: "0 2px 6px rgba(0, 0, 0, 0.03)",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <span style={{ fontSize: 12, fontWeight: 800, color: "#5b21b6", textTransform: "uppercase" }}>
+                    FUNCTIONAL TESTING EXECUTION IN PROGRESS...
+                  </span>
+                  <span style={{ fontSize: 11, fontFamily: "monospace", fontWeight: 800, color: "#64748b" }}>
+                    {executedTestLogsCount} / {existingTotal || discoveredTests.length} ({testProgressPercent}%)
+                  </span>
+                </div>
+                <div style={{ width: "100%", height: 8, background: "#f1f5f9", borderRadius: 999, overflow: "hidden" }}>
+                  <div
+                    style={{
+                      height: "100%",
+                      background: "linear-gradient(90deg, #6366f1, #3b82f6)",
+                      width: `${testProgressPercent}%`,
+                      transition: "width 0.3s ease",
+                    }}
+                  />
+                </div>
               </div>
             </div>
 
-            {/* LIVE EXECUTION LOGS */}
+            {/* Live Existing Tests Validation Report Card */}
+            {displayTestResults.length > 0 && (
+              <ExistingTestTable
+                title="Existing Tests Validation Report"
+                testResults={displayTestResults}
+                frameworkInfo={{
+                  detected_framework: existingFramework || "JUnit",
+                  build_tool: "MAVEN",
+                  test_source_dir: "src/test/java",
+                }}
+                logs={existingLogs}
+                onRunAgain={() => handleRunExistingTests()}
+                isRunning={isRunningExisting}
+                onSelectTest={(t: any) => {
+                  const scUrl = t.screenshot_url || t.screenshotUrl || t.evidence?.screenshotUrl || null;
+                  const vidUrl = t.video_url || t.videoUrl || t.evidence?.videoUrl || null;
+                  setTestDetailReport({
+                    testId: t.test_id || t.testId || `${t.suite}#${t.test_name}`,
+                    executionId: t.execution_id || t.executionId || jobId,
+                    title: t.test_name || t.name || t.title,
+                    name: t.test_name || t.name || t.title,
+                    spec: t.suite || t.spec || t.file,
+                    suite: t.suite || t.spec || t.file,
+                    status: t.status || "IN_PROGRESS",
+                    duration: t.duration || "Running...",
+                    file: t.file,
+                    url: t.report_url,
+                    type: t.type || "JUnit",
+                    testType: ((t.test_type || t.testType || t.category || "API").toUpperCase() === "UNIT" ? "API" : (t.test_type || t.testType || (t.category === "UI" ? "UI" : "API"))),
+                    framework: t.framework || existingFramework || "JUnit",
+                    screenshotUrl: scUrl,
+                    videoUrl: vidUrl,
+                    evidence: t.evidence || {
+                      screenshotAvailable: !!scUrl,
+                      screenshotUrl: scUrl,
+                      videoAvailable: !!vidUrl,
+                      videoUrl: vidUrl,
+                    },
+                    traceUrl: t.trace_url,
+                    apiEvidence: t.api_evidence,
+                    error: t.failure_message || t.details?.error || t.error || null,
+                    errorCode: t.status === "FAILED" ? "TEST_FAILED" : t.status === "ERROR" ? "BUILD_ERROR" : t.status === "NOT_EXECUTED" ? "NOT_EXECUTED" : undefined,
+                    stackTrace: t.stack_trace || t.details?.stackTrace || t.stackTrace || null,
+                    stdout: t.stdout || t.details?.stdout || null,
+                    stderr: t.stderr || t.details?.stderr || null,
+                  });
+                  setShowTestDetailModal(true);
+                }}
+              />
+            )}
+
+            {/* Live Execution Logs Terminal */}
             <ExistingTestLogs logs={existingLogs} />
           </div>
         )}
 
-        {/* COMPLETED STATE: SHOW ANALYTICS, COVERAGE, AND VALIDATION REPORT */}
-        {!isRunningExisting && existingExecResult && existingExecResult.status !== "NO_TESTS_FOUND" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 24, marginTop: 24 }}>
+        {/* COMPLETED STATE (Matching Screenshot 1): TOP TABS, ANALYTICS, 8 METRIC CARDS, AND VALIDATION REPORT */}
+        {!isRunningExisting && existingExecResult && (
+          <div
+            style={{
+              background: "#fff",
+              borderRadius: 20,
+              border: "1px solid #e2e8f0",
+              padding: "28px",
+              marginTop: 24,
+              boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.05)",
+              display: "flex",
+              flexDirection: "column",
+              gap: 20,
+            }}
+          >
+            {/* Top Tabs */}
+            <FunctionalTestingTabs
+              activeTab="FUNCTIONAL"
+              onTabChange={() => {}}
+              isRunning={false}
+              statusLabel="Completed"
+            />
+
             {/* 1. TOP ANALYTICS AREA (Suite Composition & Risk Coverage) */}
             <ExistingTestAnalytics
+              discoveredTests={discoveredTests}
+              testResults={displayTestResults}
               metrics={existingExecResult.metrics || {}}
               fileBreakdown={existingExecResult.file_breakdown || []}
               frameworkInfo={existingExecResult.framework_info}
@@ -901,67 +997,62 @@ export function ModernizationStepView({
             />
 
             {/* 3. EXISTING TESTS VALIDATION REPORT CARD */}
-            {existingExecResult.test_results && existingExecResult.test_results.length > 0 && (
-              <div style={{
-                background: "#fff",
-                borderRadius: 20,
-                border: "1px solid #e2e8f0",
-                padding: "24px",
-                boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.05)"
-              }}>
-                <ExistingTestTable
-                  title="Existing Tests Validation Report"
-                  testResults={existingExecResult.test_results}
-                  fileBreakdown={existingExecResult.file_breakdown || []}
-                  frameworkInfo={existingExecResult.framework_info}
-                  logs={existingLogs}
-                  onSelectTest={(t: any) => {
-                    const scUrl = t.screenshot_url || t.screenshotUrl || t.evidence?.screenshotUrl || null;
-                    const vidUrl = t.video_url || t.videoUrl || t.evidence?.videoUrl || null;
-                    const unavailReason = t.unavailable_reason || t.unavailableReason || t.evidence?.unavailableReason || null;
-                    setTestDetailReport({
-                      testId: t.test_id || t.testId || `${t.suite}#${t.test_name}`,
-                      executionId: t.execution_id || t.executionId || jobId,
-                      title: t.test_name || t.name || t.title,
-                      name: t.test_name || t.name || t.title,
-                      spec: t.suite || t.spec || t.file,
-                      suite: t.suite || t.spec || t.file,
-                      status: t.status,
-                      duration: t.duration || "0.0s",
-                      file: t.file,
-                      url: t.report_url,
-                      type: t.type || "JUnit",
-                      testType: t.test_type || t.testType || (t.category === "UI" ? "UI" : t.category === "API" ? "API" : t.type === "UI" ? "UI" : t.type === "API" ? "API" : "UNIT"),
-                      framework: t.framework || (t.type && !["UI", "API", "UNIT"].includes(t.type.toUpperCase()) ? t.type : "") || existingExecResult?.framework_info?.detected_framework || existingExecResult?.framework_info?.build_tool || "JUnit",
-                      engine: t.engine,
+            {displayTestResults.length > 0 && (
+              <ExistingTestTable
+                title="Existing Tests Validation Report"
+                testResults={displayTestResults}
+                fileBreakdown={existingExecResult.file_breakdown || []}
+                frameworkInfo={existingExecResult.framework_info}
+                logs={existingLogs}
+                onRunAgain={() => handleRunExistingTests()}
+                isRunning={isRunningExisting}
+                onSelectTest={(t: any) => {
+                  const scUrl = t.screenshot_url || t.screenshotUrl || t.evidence?.screenshotUrl || null;
+                  const vidUrl = t.video_url || t.videoUrl || t.evidence?.videoUrl || null;
+                  setTestDetailReport({
+                    testId: t.test_id || t.testId || `${t.suite}#${t.test_name}`,
+                    executionId: t.execution_id || t.executionId || jobId,
+                    title: t.test_name || t.name || t.title,
+                    name: t.test_name || t.name || t.title,
+                    spec: t.suite || t.spec || t.file,
+                    suite: t.suite || t.spec || t.file,
+                    status: t.status,
+                    duration: t.duration || "0.0s",
+                    file: t.file,
+                    url: t.report_url,
+                    type: t.type || "JUnit",
+                    testType: ((t.test_type || t.testType || t.category || "API").toUpperCase() === "UNIT" ? "API" : (t.test_type || t.testType || (t.category === "UI" ? "UI" : "API"))),
+                    framework: t.framework || existingExecResult?.framework_info?.build_tool || existingExecResult?.framework_info?.detected_framework || "JUnit",
+                    screenshotUrl: scUrl,
+                    videoUrl: vidUrl,
+                    evidence: t.evidence || {
+                      screenshotAvailable: !!scUrl,
                       screenshotUrl: scUrl,
+                      videoAvailable: !!vidUrl,
                       videoUrl: vidUrl,
-                      unavailableReason: unavailReason,
-                      evidence: t.evidence || {
-                        screenshotAvailable: !!scUrl,
-                        screenshotUrl: scUrl,
-                        videoAvailable: !!vidUrl,
-                        videoUrl: vidUrl,
-                        unavailableReason: unavailReason,
-                      },
-                      traceUrl: t.trace_url,
-                      apiEvidence: t.api_evidence,
-                      error: t.failure_message || t.details?.error || t.error || null,
-                      errorCode: t.error_code || t.errorCode || (t.status === "FAILED" ? "TEST_FAILED" : t.status === "ERROR" ? "BUILD_ERROR" : t.status === "NOT_EXECUTED" ? "NOT_EXECUTED" : undefined),
-                      errorCategory: t.error_category || t.errorCategory || t.details?.errorCategory || null,
-                      rootCause: t.root_cause || t.rootCause || t.details?.rootCause || null,
-                      apexExecution: t.apex_execution || t.apexExecution || t.details?.apexExecution || "Started successfully",
-                      stackTrace: t.stack_trace || t.details?.stackTrace || t.stackTrace || null,
-                      stdout: t.stdout || t.details?.stdout || null,
-                      stderr: t.stderr || t.details?.stderr || null,
-                    });
-                    setShowTestDetailModal(true);
-                  }}
-                />
-              </div>
+                    },
+                    traceUrl: t.trace_url,
+                    apiEvidence: t.api_evidence,
+                    error: t.failure_message || t.details?.error || t.error || null,
+                    errorCode: t.status === "FAILED" ? "TEST_FAILED" : t.status === "ERROR" ? "BUILD_ERROR" : t.status === "NOT_EXECUTED" ? "NOT_EXECUTED" : undefined,
+                    stackTrace: t.stack_trace || t.details?.stackTrace || t.stackTrace || null,
+                    stdout: t.stdout || t.details?.stdout || null,
+                    stderr: t.stderr || t.details?.stderr || null,
+                  });
+                  setShowTestDetailModal(true);
+                }}
+              />
             )}
           </div>
         )}
+
+        {/* PROPOSED FUNCTIONAL TEST CASES (AI Recommendations / Prova-Style Gap Testing) */}
+        <ProposedTestCasesPanel
+          jobId={jobId}
+          repoAnalysis={repoAnalysis}
+          localApiTestCases={localApiTestCases}
+          hasUI={hasUI}
+        />
 
         {/*
         <div style={{ borderTop: "1px solid #e2e8f0", paddingTop: 24 }}>
@@ -1710,43 +1801,34 @@ export function ModernizationStepView({
         <ExistingTestValidationReport
           metrics={existingExecResult.metrics || {}}
           frameworkInfo={existingExecResult.framework_info}
-          testResults={existingExecResult.test_results || []}
+          testResults={displayTestResults}
           fileBreakdown={existingExecResult.file_breakdown || []}
           logs={existingLogs}
           onClose={() => setShowValidationReport(false)}
+          onRunAgain={() => handleRunExistingTests()}
+          isRunning={isRunningExisting}
           onSelectTest={(t: any) => {
-            const scUrl = t.screenshot_url || t.screenshotUrl || t.evidence?.screenshotUrl || null;
-            const vidUrl = t.video_url || t.videoUrl || t.evidence?.videoUrl || null;
             setTestDetailReport({
               testId: t.test_id || t.testId || `${t.suite}#${t.test_name}`,
               executionId: t.execution_id || t.executionId || jobId,
-              title: t.test_name || t.name || t.title,
-              name: t.test_name || t.name || t.title,
-              suite: t.suite || t.spec || t.file,
-              spec: t.suite || t.spec || t.file,
+              name: t.test_name,
+              suite: t.suite,
               status: t.status,
-              duration: t.duration || "0.0s",
+              duration: t.duration,
               file: t.file,
               url: t.report_url,
-              type: t.type || "JUnit",
-              testType: t.test_type || t.testType || (t.category === "UI" ? "UI" : t.category === "API" ? "API" : t.type === "UI" ? "UI" : t.type === "API" ? "API" : "UNIT"),
-              framework: t.framework || (t.type && !["UI", "API", "UNIT"].includes(t.type.toUpperCase()) ? t.type : "") || existingExecResult?.framework_info?.detected_framework || existingExecResult?.framework_info?.build_tool || "JUnit",
-              engine: t.engine,
-              screenshotUrl: scUrl,
-              videoUrl: vidUrl,
-              evidence: t.evidence || {
-                screenshotAvailable: !!scUrl,
-                screenshotUrl: scUrl,
-                videoAvailable: !!vidUrl,
-                videoUrl: vidUrl,
-              },
+              type: t.type,
+              testType: t.test_type || t.testType,
+              framework: t.framework || existingExecResult?.framework_info?.build_tool || existingExecResult?.framework_info?.detected_framework,
+              screenshotUrl: t.screenshot_url,
+              videoUrl: t.video_url,
               traceUrl: t.trace_url,
               apiEvidence: t.api_evidence,
-              error: t.failure_message || t.details?.error || t.error || null,
+              error: t.failure_message || t.details?.error,
               errorCode: t.status === "FAILED" ? "TEST_FAILED" : t.status === "ERROR" ? "BUILD_ERROR" : t.status === "NOT_EXECUTED" ? "NOT_EXECUTED" : undefined,
-              stackTrace: t.stack_trace || t.details?.stackTrace || t.stackTrace || null,
-              stdout: t.stdout || t.details?.stdout || null,
-              stderr: t.stderr || t.details?.stderr || null,
+              stackTrace: t.stack_trace || t.details?.stackTrace,
+              stdout: t.stdout || t.details?.stdout,
+              stderr: t.stderr || t.details?.stderr,
             });
             setShowTestDetailModal(true);
           }}
@@ -1770,7 +1852,6 @@ export function ModernizationStepView({
           type: testDetailReport.type,
           testType: testDetailReport.testType,
           framework: testDetailReport.framework,
-          engine: testDetailReport.engine,
           stackTrace: testDetailReport.stackTrace,
           stdout: testDetailReport.stdout,
           stderr: testDetailReport.stderr,
