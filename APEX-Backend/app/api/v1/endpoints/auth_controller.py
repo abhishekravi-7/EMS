@@ -176,14 +176,29 @@ async def login(payload: LoginRequest, db: Session | None = Depends(get_db_optio
         fake_user.last_login_at = datetime.now(timezone.utc)
 
         access_token = security.create_access_token(fake_user.id)
-        # Issue a refresh token for parity, but note refresh/rotation will
-        # not work while DB is disabled (refresh endpoint depends on DB).
-        refresh_token = security.create_refresh_token(fake_user.id)
 
+        # In static-login (DB disabled) mode we intentionally do NOT issue a
+        # refresh token cookie. This keeps parity for a signed-in session via
+        # the access token while avoiding refresh/rotation behavior that
+        # depends on the database.
         logger.info("Static user logged in (email=%s).", fake_user.email)
         body = AuthResponse(user=UserResponse.model_validate(fake_user), message="Login successful.")
         response = JSONResponse(status_code=200, content=body.model_dump(by_alias=True, mode="json"))
-        _set_auth_cookies(response, access_token, refresh_token)
+
+        # Set only the access token cookie (mirror `_set_auth_cookies`'s
+        # options for consistency with production behavior).
+        common_cookie_options = {
+            "httponly": True,
+            "secure": settings.is_production,
+            "samesite": settings.cookie_samesite,
+            "path": "/",
+        }
+        response.set_cookie(
+            ACCESS_TOKEN_COOKIE,
+            access_token,
+            max_age=settings.access_token_expire_minutes * 60,
+            **common_cookie_options,
+        )
         return response
 
     # Normal DB-backed flow
