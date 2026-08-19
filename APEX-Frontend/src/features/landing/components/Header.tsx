@@ -1,5 +1,5 @@
 import React from "react";
-import apexLogo from "../../../assets/apexlogo.png";
+import apexLogo from "../../../assets/logo.jpg";
 import "./Header.css";
 
 interface HeaderProps {
@@ -22,7 +22,6 @@ export default function Header({ showBackButton = false, onBackToHome }: HeaderP
     logoContainer: {
       display: "flex",
       alignItems: "center",
-      
       cursor: "pointer",
     },
     logoText: {
@@ -76,10 +75,9 @@ export default function Header({ showBackButton = false, onBackToHome }: HeaderP
 
   return (
     <nav style={styles.navbar}>
-      {/* Logo Only - No Text */}
+      {/* Logo */}
       <div style={styles.logoContainer} onClick={onBackToHome}>
-        <img src={apexLogo} alt="javaAPEX" style={{ width: 36, height: 36, objectFit: 'contain' }} />
-        <p style={styles.logoText}>javaAPEX</p>
+        <img src={apexLogo} alt="Java APEX" style={{ height: 36, width: "auto", objectFit: "contain" }} />
       </div>
 
       {/* Navigation Links */}

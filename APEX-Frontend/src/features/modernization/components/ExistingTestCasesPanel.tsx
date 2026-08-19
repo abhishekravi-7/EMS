@@ -1,15 +1,11 @@
 import React, { useState, useMemo } from "react";
 import {
-  FaCheckSquare,
-  FaSquare,
-  FaChevronDown,
-  FaChevronRight,
   FaPlay,
-  FaSearch,
-  FaFlask,
-  FaBox,
-  FaList,
 } from "react-icons/fa";
+import { FunctionalTestingTabs } from "./FunctionalTestingTabs";
+import { ExistingTestAnalytics, type DiscoveredOrExecutedTest } from "./ExistingTestAnalytics";
+import { ExistingTestCoverage } from "./ExistingTestCoverage";
+import { ExistingTestTable, type TestResult } from "./ExistingTestTable";
 
 interface TestCase {
   name: string;
@@ -21,6 +17,15 @@ interface TestCase {
   classname: string;
   methodname: string;
   status: string;
+  priority?: string;
+  test_name?: string;
+  title?: string;
+  suite?: string;
+  spec?: string;
+  test_type?: string;
+  testType?: string;
+  test_id?: string;
+  testId?: string;
 }
 
 interface ExistingTestCasesPanelProps {
@@ -30,6 +35,8 @@ interface ExistingTestCasesPanelProps {
   onRunSelected?: (selection: TestCase[]) => void;
   onRunAll?: () => void;
   isRunning: boolean;
+  onViewSuite?: (suiteName: string) => void;
+  onSelectTest?: (test: any) => void;
 }
 
 export function ExistingTestCasesPanel({
@@ -39,36 +46,10 @@ export function ExistingTestCasesPanel({
   onRunSelected,
   onRunAll,
   isRunning,
+  onViewSuite,
+  onSelectTest,
 }: ExistingTestCasesPanelProps) {
-  const [searchQuery, setSearchQuery] = useState("");
-  const [expandedClasses, setExpandedClasses] = useState<Set<string>>(new Set());
-
-  // Group tests by classname
-  const groupedByClass = useMemo(() => {
-    const groups: Record<string, TestCase[]> = {};
-    discoveredTests.forEach((t) => {
-      const cls = t.classname || t.module || "Unknown Class";
-      if (!groups[cls]) groups[cls] = [];
-      groups[cls].push(t);
-    });
-    return groups;
-  }, [discoveredTests]);
-
-  const filteredClasses = useMemo(() => {
-    if (!searchQuery) return Object.keys(groupedByClass);
-    const query = searchQuery.toLowerCase();
-    return Object.keys(groupedByClass).filter((cls) =>
-      cls.toLowerCase().includes(query) ||
-      groupedByClass[cls].some((t) => t.name.toLowerCase().includes(query))
-    );
-  }, [groupedByClass, searchQuery]);
-
-  const toggleExpand = (cls: string) => {
-    const newSet = new Set(expandedClasses);
-    if (newSet.has(cls)) newSet.delete(cls);
-    else newSet.add(cls);
-    setExpandedClasses(newSet);
-  };
+  const [activeTab, setActiveTab] = useState<"FUNCTIONAL" | "BUSINESS">("FUNCTIONAL");
 
   const handleRun = () => {
     if (onRunAll) {
@@ -78,168 +59,171 @@ export function ExistingTestCasesPanel({
     }
   };
 
-  const getDisplayType = (test: TestCase): string => {
-    const fw = (test.framework || "").toLowerCase();
-    const type = (test.type || "").toLowerCase();
-    const category = (test.category || "").toLowerCase();
-
-    if (category === "ui") return "UI";
-    if (category === "api") return "API";
-
-    if (category === "unit") {
-      if (fw.includes("jest")) return "Jest";
-      if (fw.includes("vitest")) return "Vitest";
-      if (fw.includes("junit")) return "JUnit";
-      return test.type || "Unit";
-    }
-
-    if (fw.includes("playwright") || type.includes("playwright")) {
-      return type.includes("api") ? "Playwright API" : "Playwright UI";
-    }
-
-    if (fw.includes("jest") || framework.includes("react testing library") || type === "jest") {
-      return "Jest";
-    }
-
-    if (fw.includes("vitest") || type === "vitest") return "Vitest";
-    if (fw.includes("junit") || fw.includes("spring") || type === "junit") return "JUnit";
-    if (fw.includes("cypress") || type.includes("cypress")) return "Cypress UI";
-    if (type === "api" || type.includes("api")) return "API";
-
-    return test.type || "Unknown";
+  const discoveryMetrics = {
+    total: discoveredTests.length,
+    executed: 0,
+    passed: 0,
+    failed: 0,
+    skipped: 0,
+    not_executed: discoveredTests.length,
+    duration: "—",
+    pass_percentage: "—",
+    type: framework || "JUnit",
+    existing_coverage: "N/A",
   };
 
+  // Map discovered test cases to TestResult format with NOT_EXECUTED status and duration "—"
+  const mappedDiscoveredTests: TestResult[] = useMemo(() => {
+    const seen = new Set<string>();
+    const list: TestResult[] = [];
+
+    discoveredTests.forEach((t: any, idx: number) => {
+      const testName = (t.test_name || t.name || t.methodname || t.title || `scenario_${idx + 1}`).replace(/\(\s*\)$/, "");
+      const rawSuite = t.classname || t.suite || t.spec || t.file || "TestSuite";
+      const testSuite = rawSuite.split("/").pop()?.split("\\").pop()?.replace(/\.(java|kt)$/, "").split(".").pop() || "TestSuite";
+      const testFile = t.file || `${testSuite}.java`;
+
+      const identity = `${testSuite.toLowerCase()}::${testName.toLowerCase()}`;
+      if (seen.has(identity)) return;
+      seen.add(identity);
+
+      const rawType = (t.test_type || t.testType || t.type || (t.category === "UI" ? "UI" : "API")).toUpperCase();
+      const displayType = rawType === "UNIT" ? "API" : rawType;
+
+      list.push({
+        testId: t.test_id || t.testId || `TEST-${idx + 1}`,
+        test_name: testName,
+        name: testName,
+        title: testName,
+        suite: testSuite,
+        spec: testSuite,
+        status: "NOT_EXECUTED",
+        duration: "—",
+        file: testFile,
+        type: displayType,
+        testType: displayType,
+        test_type: displayType,
+        category: displayType,
+        framework: t.framework || framework || "JUnit",
+        error: null,
+        failure_message: null,
+      });
+    });
+
+    return list;
+  }, [discoveredTests, framework]);
+
   return (
-    <div style={{
-      background: "#fff",
-      borderRadius: 20,
-      border: "1px solid #e2e8f0",
-      padding: "24px",
-      marginTop: 24,
-      boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)"
-    }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+    <div
+      style={{
+        background: "#fff",
+        borderRadius: 20,
+        border: "1px solid #e2e8f0",
+        padding: "28px",
+        marginTop: 24,
+        boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.05)",
+        display: "flex",
+        flexDirection: "column",
+        gap: 20,
+      }}
+    >
+      {/* Top Tabs: Functional Testing Summary & Business Report Summary */}
+      <FunctionalTestingTabs
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        isRunning={isRunning}
+        statusLabel={discoveredTests.length > 0 ? "Ready to Execute" : undefined}
+      />
+
+      {/* Top Two Cards: Dynamic Suite Composition Breakdown & Risk based Suite Coverage (BEFORE Execution) */}
+      <ExistingTestAnalytics
+        discoveredTests={discoveredTests}
+        testResults={mappedDiscoveredTests}
+        metrics={discoveryMetrics}
+        frameworkInfo={{
+          detected_framework: framework || "JUnit",
+          build_tool: "MAVEN",
+          test_source_dir: "src/test/java",
+        }}
+        onViewSuite={onViewSuite}
+        onSelectTest={onSelectTest}
+      />
+
+      {/* Existing Test Coverage 8-Cards Grid (Discovery State Before Execution) */}
+      <ExistingTestCoverage
+        metrics={discoveryMetrics}
+        discoveredTests={discoveredTests}
+        testResults={mappedDiscoveredTests}
+        isExecuted={false}
+        frameworkInfo={{
+          detected_framework: framework || "JUnit",
+          build_tool: "MAVEN",
+          test_source_dir: "src/test/java",
+        }}
+        onRunAll={handleRun}
+      />
+
+      {/* Action Bar: Run All Tests */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          padding: "16px 20px",
+          background: "#f8fafc",
+          borderRadius: 14,
+          border: "1px solid #e2e8f0",
+        }}
+      >
         <div>
-          <h3 style={{ fontSize: 18, fontWeight: 800, color: "#0f172a", display: "flex", alignItems: "center", gap: 10 }}>
-            <FaFlask style={{ color: "#3b82f6" }} /> Existing Test Cases
-          </h3>
-          <p style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>
-            Discovered {discoveredTests.length} tests across {Object.keys(groupedByClass).length} classes
-          </p>
-        </div>
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <span style={{
-            padding: "4px 12px", borderRadius: 8, background: "#eff6ff", color: "#1d4ed8",
-            fontSize: 11, fontWeight: 700, border: "1px solid #dbeafe"
-          }}>
-            {framework}
-          </span>
-          <button
-            onClick={handleRun}
-            disabled={isRunning || discoveredTests.length === 0}
-            style={{
-              padding: "9px 22px", background: "#0f172a", color: "#fff",
-              borderRadius: 10, fontWeight: 800, fontSize: 13, border: "none",
-              cursor: isRunning || discoveredTests.length === 0 ? "not-allowed" : "pointer",
-              opacity: isRunning || discoveredTests.length === 0 ? 0.6 : 1,
-              display: "flex", alignItems: "center", gap: 8, transition: "all 0.2s"
-            }}
-          >
-            <FaPlay style={{ fontSize: 10, color: "#22c55e" }} />
-            Run All Tests
-          </button>
-        </div>
-      </div>
-
-      <div style={{ display: "flex", gap: 12, marginBottom: 16 }}>
-        <div style={{ position: "relative", flex: 1 }}>
-          <FaSearch style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "#94a3b8", fontSize: 14 }} />
-          <input
-            type="text"
-            placeholder="Search classes or methods..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            style={{
-              width: "100%", padding: "10px 12px 10px 40px", borderRadius: 12,
-              border: "1px solid #e2e8f0", fontSize: 13, outline: "none",
-              transition: "border-color 0.2s"
-            }}
-          />
-        </div>
-      </div>
-
-      <div style={{
-        maxHeight: 400, overflowY: "auto", border: "1px solid #f1f5f9",
-        borderRadius: 14, background: "#f8fafc", padding: "8px"
-      }}>
-        {filteredClasses.length === 0 ? (
-          <div style={{ padding: "40px", textAlign: "center", color: "#94a3b8" }}>
-            <FaBox size={32} style={{ marginBottom: 12, opacity: 0.3 }} />
-            <p>No tests found matching your search</p>
+          <div style={{ fontSize: 13, fontWeight: 800, color: "#0f172a" }}>
+            Ready to execute existing test cases
           </div>
-        ) : (
-          filteredClasses.map((cls) => {
-            const tests = groupedByClass[cls];
-            const isExpanded = expandedClasses.has(cls);
-
-            return (
-              <div key={cls} style={{ marginBottom: 4, background: "#fff", borderRadius: 10, border: "1px solid #f1f5f9", overflow: "hidden" }}>
-                <div style={{
-                  display: "flex", alignItems: "center", padding: "10px 14px",
-                  cursor: "pointer", transition: "background 0.2s"
-                }} onClick={() => toggleExpand(cls)}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: "#1e293b", fontFamily: "monospace" }}>{cls}</span>
-                    <span style={{ fontSize: 10, color: "#64748b", background: "#f1f5f9", padding: "2px 8px", borderRadius: 4, fontWeight: 700 }}>
-                      {tests.length} {tests.length === 1 ? "test" : "tests"}
-                    </span>
-                  </div>
-                  {isExpanded ? <FaChevronDown size={12} color="#94a3b8" /> : <FaChevronRight size={12} color="#94a3b8" />}
-                </div>
-
-                {isExpanded && (
-                  <div style={{ borderTop: "1px solid #f1f5f9", background: "#fafafa" }}>
-                    {tests.map((t, idx) => {
-                      const displayType = getDisplayType(t);
-                      const typeLower = displayType.toLowerCase();
-
-                      const isUI = typeLower === "ui" || typeLower.includes("playwright ui") || typeLower.includes("cypress ui");
-                      const isAPI = typeLower === "api" || typeLower.includes("playwright api");
-                      const color = isUI ? "#7c3aed" : isAPI ? "#059669" : "#64748b";
-
-                      return (
-                        <div key={idx} style={{
-                          display: "flex", alignItems: "center", padding: "8px 14px 8px 24px",
-                          borderBottom: "1px solid #f1f5f9"
-                        }}>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: 12, fontWeight: 600, color: "#334155" }}>{t.name}</div>
-                            <div style={{ display: "flex", gap: 8, marginTop: 2, alignItems: "center" }}>
-                              <span style={{ fontSize: 9, color, fontWeight: 800, textTransform: "uppercase" }}>
-                                {displayType}
-                              </span>
-                              <span style={{ fontSize: 9, color: "#94a3b8" }}>{t.file}</span>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          })
-        )}
-      </div>
-
-      <div style={{ marginTop: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div style={{ display: "flex", gap: 20 }}>
-          <div style={{ textAlign: "left" }}>
-            <div style={{ fontSize: 16, fontWeight: 800, color: "#0f172a" }}>{discoveredTests.length}</div>
-            <div style={{ fontSize: 9, fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>Discovered Tests</div>
+          <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>
+            {discoveredTests.length} test{discoveredTests.length > 1 ? "s" : ""} discovered from repository analysis (0 executed)
           </div>
         </div>
+
+        <button
+          onClick={handleRun}
+          disabled={isRunning || discoveredTests.length === 0}
+          style={{
+            padding: "10px 24px",
+            background: "#0f172a",
+            color: "#fff",
+            borderRadius: 10,
+            fontWeight: 800,
+            fontSize: 13,
+            border: "none",
+            cursor: isRunning || discoveredTests.length === 0 ? "not-allowed" : "pointer",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            boxShadow: "0 2px 8px rgba(15, 23, 42, 0.15)",
+          }}
+        >
+          <FaPlay style={{ fontSize: 10, color: "#22c55e" }} />
+          Run All Tests
+        </button>
       </div>
+
+      {/* Existing Tests Validation Report Table (Showing All Discovered Tests with NOT EXECUTED Status) */}
+      {mappedDiscoveredTests.length > 0 && (
+        <ExistingTestTable
+          title="Existing Tests Validation Report"
+          testResults={mappedDiscoveredTests}
+          frameworkInfo={{
+            detected_framework: framework || "JUnit",
+            build_tool: "MAVEN",
+            test_source_dir: "src/test/java",
+          }}
+          hasRun={false}
+          isRunning={isRunning}
+          onSelectTest={(t) => {
+            if (onSelectTest) onSelectTest(t);
+          }}
+        />
+      )}
     </div>
   );
 }

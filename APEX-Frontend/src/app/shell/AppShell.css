@@ -73,51 +73,40 @@
 .app-shell-brand {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
   min-width: 0;
+  user-select: none;
 }
 
-.app-shell-logo {
-  height: 42px;
-  width: auto;
-  object-fit: contain;
-  filter: drop-shadow(0 6px 14px rgba(37, 99, 235, 0.1));
-}
-
-.app-shell-brand-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.app-shell-brand-row {
+.app-shell-brand-icon {
   display: flex;
   align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
+  justifyContent: center;
+  flex-shrink: 0;
 }
 
-.app-shell-brand-title {
-  font-family: 'Manrope', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-size: 25px;
-  line-height: 1.05;
+.app-shell-brand-text {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.app-shell-brand-java {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 22px;
   font-weight: 800;
   letter-spacing: -0.03em;
   color: #0f172a;
 }
 
-.app-shell-brand-pill {
-  display: inline-flex;
-  align-items: center;
-  padding: 5px 10px;
-  border-radius: 999px;
-  background: linear-gradient(135deg, #dbeafe 0%, #eff6ff 100%);
-  border: 1px solid #bfdbfe;
-  color: #1d4ed8;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
+.app-shell-brand-apex {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 22px;
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: -0.02em;
+  color: #2563eb;
+}
   text-transform: uppercase;
 }
 
