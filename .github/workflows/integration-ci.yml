@@ -1,0 +1,372 @@
+name: Integration CI
+
+on:
+  push:
+    branches:
+      - dev
+      - 'feature/**'
+      - 'feat/**'
+      - 'fix/**'
+  pull_request:
+    branches:
+      - dev
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Frontend quality gates
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./APEX-Frontend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: APEX-Frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: npm dependency audit
+        run: |
+          npm audit --audit-level=moderate --json > npm-audit-report.json
+
+      - name: ESLint
+        run: set -o pipefail; npm run lint 2>&1 | tee eslint.log
+
+      - name: TypeScript check
+        run: set -o pipefail; npm run typecheck 2>&1 | tee typecheck.log
+
+      - name: Frontend unit tests
+        run: |
+          if find . -type f \( -name "*.test.*" -o -name "*.spec.*" \) | grep -q .; then
+            set -o pipefail; npm test -- --run 2>&1 | tee unit-tests.log
+          else
+            echo "No frontend unit tests detected; skipping." | tee unit-tests.log
+          fi
+
+      - name: Vite production build
+        run: set -o pipefail; npm run build 2>&1 | tee vite-build.log
+
+      - name: Upload frontend failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-failure-logs
+          path: |
+            APEX-Frontend/eslint.log
+            APEX-Frontend/typecheck.log
+            APEX-Frontend/unit-tests.log
+            APEX-Frontend/vite-build.log
+          if-no-files-found: ignore
+
+      - name: Upload frontend dependency audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-audit-report
+          path: APEX-Frontend/npm-audit-report.json
+          if-no-files-found: ignore
+
+  backend:
+    name: Backend quality gates
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./APEX-Backend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: APEX-Backend/requirements.txt
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio respx ruff bandit pip-audit
+
+      - name: pip dependency audit
+        run: |
+          pip-audit -r requirements.txt -f json -o pip-audit-report.json
+
+      - name: Ruff lint
+        run: set -o pipefail; ruff check . 2>&1 | tee ruff.log
+
+      - name: Pytest
+        run: set -o pipefail; pytest -q 2>&1 | tee pytest.log
+
+      - name: Bandit security scan
+        run: |
+          set -o pipefail
+          bandit -r app -f txt -o bandit.log
+
+      - name: Upload backend failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-failure-logs
+          path: |
+            APEX-Backend/ruff.log
+            APEX-Backend/pytest.log
+            APEX-Backend/bandit.log
+          if-no-files-found: ignore
+
+      - name: Upload backend dependency audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-audit-report
+          path: APEX-Backend/pip-audit-report.json
+          if-no-files-found: ignore
+
+  security:
+    name: Security scans
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Gitleaks secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: detect --source . --no-banner --redact --report-format json --report-path .gitleaks-report.json --exit-code 1
+
+      - name: Trivy filesystem scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: table
+          output: trivy-results.txt
+          severity: MEDIUM,HIGH,CRITICAL
+          exit-code: 1
+          ignore-unfixed: true
+          version: v0.70.0
+          cache: true
+
+      - name: Upload security scan reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-scan-reports
+          path: |
+            .gitleaks-report.json
+            trivy-results.txt
+          if-no-files-found: ignore
+
+  quality-gate:
+    name: SonarQube / SonarCloud quality gate
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: SonarQube / SonarCloud analysis
+        uses: SonarSource/sonarqube-scan-action@v5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectBaseDir: .
+
+  notify:
+    name: Teams notification
+    needs:
+      - frontend
+      - backend
+      - security
+      - quality-gate
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+
+    env:
+      TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+
+    steps:
+      - name: Download failure log artifacts
+        if: ${{ contains(needs.*.result, 'failure') }}
+        uses: actions/download-artifact@v4
+        with:
+          path: ci-error-logs
+          pattern: '*-failure-logs'
+          merge-multiple: true
+
+      - name: Upload consolidated CI error logs
+        if: ${{ contains(needs.*.result, 'failure') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-ci-error-logs
+          path: ci-error-logs
+          if-no-files-found: ignore
+
+      - name: Send Microsoft Teams notification on success
+        if: ${{ env.TEAMS_WEBHOOK_URL != '' && needs.frontend.result == 'success' && needs.backend.result == 'success' && needs.security.result == 'success' && needs.quality-gate.result == 'success' }}
+        shell: bash
+        run: |
+          payload=$(cat <<'JSON'
+          {
+            "type": "message",
+            "attachments": [
+              {
+                "contentType": "application/vnd.microsoft.card.adaptive",
+                "content": {
+                  "\$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                  "type": "AdaptiveCard",
+                  "version": "1.5",
+                  "body": [
+                    {
+                      "type": "TextBlock",
+                      "text": "Integration CI Passed",
+                      "weight": "Bolder",
+                      "size": "Medium",
+                      "color": "Good"
+                    },
+                    {
+                      "type": "FactSet",
+                      "facts": [
+                        { "title": "Repository", "value": "${{ github.repository }}" },
+                        { "title": "Branch", "value": "${{ github.ref_name }}" },
+                        { "title": "Commit", "value": "${{ github.sha }}" },
+                        { "title": "Workflow", "value": "${{ github.workflow }}" },
+                        { "title": "Run URL", "value": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" }
+                      ]
+                    },
+                    {
+                      "type": "TextBlock",
+                      "text": "All Integration CI jobs completed successfully.",
+                      "wrap": true
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+          JSON
+          )
+
+          response_file="$(mktemp)"
+          http_code="$(
+            curl -sS \
+              -H "Content-Type: application/json" \
+              -d "$payload" \
+              -o "$response_file" \
+              -w '%{http_code}' \
+              "$TEAMS_WEBHOOK_URL"
+          )"
+
+          if [[ "$http_code" != 2* ]]; then
+            echo "Teams webhook request failed with HTTP status: $http_code"
+            echo "Response body:"
+            cat "$response_file"
+            exit 1
+          fi
+
+      - name: Send Microsoft Teams notification on failure
+        if: ${{ env.TEAMS_WEBHOOK_URL != '' && contains(needs.*.result, 'failure') }}
+        shell: bash
+        run: |
+          failed_jobs=()
+
+          if [[ "${{ needs.frontend.result }}" == "failure" ]]; then
+            failed_jobs+=("Frontend quality gates")
+          fi
+
+          if [[ "${{ needs.backend.result }}" == "failure" ]]; then
+            failed_jobs+=("Backend quality gates")
+          fi
+
+          if [[ "${{ needs.security.result }}" == "failure" ]]; then
+            failed_jobs+=("Security scans")
+          fi
+
+          if [[ "${{ needs.quality-gate.result }}" == "failure" ]]; then
+            failed_jobs+=("SonarQube / SonarCloud quality gate")
+          fi
+
+          failed_jobs_text=$(IFS=', '; echo "${failed_jobs[*]}")
+
+          payload=$(cat <<'JSON'
+          {
+            "type": "message",
+            "attachments": [
+              {
+                "contentType": "application/vnd.microsoft.card.adaptive",
+                "content": {
+                  "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                  "type": "AdaptiveCard",
+                  "version": "1.5",
+                  "body": [
+                    {
+                      "type": "TextBlock",
+                      "text": "Integration CI Failed",
+                      "weight": "Bolder",
+                      "size": "Medium",
+                      "color": "Attention"
+                    },
+                    {
+                      "type": "FactSet",
+                      "facts": [
+                        { "title": "Repository", "value": "${{ github.repository }}" },
+                        { "title": "Branch", "value": "${{ github.ref_name }}" },
+                        { "title": "Commit", "value": "${{ github.sha }}" },
+                        { "title": "Workflow", "value": "${{ github.workflow }}" },
+                        { "title": "Run URL", "value": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" },
+                        { "title": "Failed Jobs", "value": "$failed_jobs_text" }
+                      ]
+                    },
+                    {
+                      "type": "TextBlock",
+                      "text": "Download the integration-ci-error-logs artifact from this run to inspect the logs.",
+                      "wrap": true
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+          JSON
+          )
+
+          response_file="$(mktemp)"
+          http_code="$(
+            curl -sS \
+              -H "Content-Type: application/json" \
+              -d "$payload" \
+              -o "$response_file" \
+              -w '%{http_code}' \
+              "$TEAMS_WEBHOOK_URL"
+          )"
+
+          if [[ "$http_code" != 2* ]]; then
+            echo "Teams webhook request failed with HTTP status: $http_code"
+            echo "Response body:"
+            cat "$response_file"
+            exit 1
+          fi

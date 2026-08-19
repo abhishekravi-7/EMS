@@ -16,6 +16,7 @@ from app.api.v1.endpoints import (
     unit_test_controller,
     existing_test_controller,
     existing_test_report_controller,
+    proposed_test_controller,
 )
 
 api_router = APIRouter()
@@ -28,4 +29,5 @@ api_router.include_router(support_controller.router)
 api_router.include_router(unit_test_controller.router)
 api_router.include_router(existing_test_controller.router)
 api_router.include_router(existing_test_report_controller.router)
+api_router.include_router(proposed_test_controller.router)
 
