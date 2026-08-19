@@ -2216,7 +2216,7 @@ class ExistingTestRunnerService:
         executed_failed = 0
         executed_skipped = 0
         not_executed_count = 0
-        total_discovered = len(test_cases) if test_cases else len(parsed_test_results)
+        total_discovered = max(len(test_cases), len(parsed_test_results)) if (test_cases or parsed_test_results) else 0
 
         if parsed_test_results:
             executed_passed = sum(1 for t in parsed_test_results if t.get("status") == "PASSED")

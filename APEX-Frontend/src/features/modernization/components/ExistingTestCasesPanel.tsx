@@ -138,6 +138,7 @@ export function ExistingTestCasesPanel({
       {/* Top Two Cards: Dynamic Suite Composition Breakdown & Risk based Suite Coverage (BEFORE Execution) */}
       <ExistingTestAnalytics
         discoveredTests={discoveredTests}
+        testResults={mappedDiscoveredTests}
         metrics={discoveryMetrics}
         frameworkInfo={{
           detected_framework: framework || "JUnit",
@@ -145,11 +146,14 @@ export function ExistingTestCasesPanel({
           test_source_dir: "src/test/java",
         }}
         onViewSuite={onViewSuite}
+        onSelectTest={onSelectTest}
       />
 
       {/* Existing Test Coverage 8-Cards Grid (Discovery State Before Execution) */}
       <ExistingTestCoverage
         metrics={discoveryMetrics}
+        discoveredTests={discoveredTests}
+        testResults={mappedDiscoveredTests}
         isExecuted={false}
         frameworkInfo={{
           detected_framework: framework || "JUnit",

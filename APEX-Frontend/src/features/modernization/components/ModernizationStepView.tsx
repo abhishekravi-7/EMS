@@ -214,6 +214,73 @@ export function ModernizationStepView({
     return `${s}::${m}`;
   };
 
+  // Helper to parse live logs and extract completed test statuses during execution
+  const parseLiveLogs = (
+    logs: { ts?: string; msg?: string; level?: string }[]
+  ) => {
+    const completedMap = new Map<string, { status: string; duration?: string; error?: string | null }>();
+
+    for (const log of logs) {
+      const msg = (log.msg || "").trim();
+      if (!msg) continue;
+
+      // 1. APEX standard: [MAVEN-TEST-RESULT] test=Suite.method status=PASSED
+      const apexMatch = msg.match(/\[(?:MAVEN-TEST-RESULT|TEST-RESULT)\]\s+test=([^\s]+)\s+status=([A-Z_]+)/i);
+      if (apexMatch) {
+        const fullTest = apexMatch[1];
+        const rawStatus = apexMatch[2].toUpperCase();
+        const st = rawStatus === "ERROR" ? "FAILED" : rawStatus;
+        const parts = fullTest.split(".");
+        const mName = parts.pop() || "";
+        const sName = parts.pop() || "";
+        const s = normalizeSuiteName(sName);
+        const m = normalizeMethodName(mName);
+        if (m) {
+          if (s) completedMap.set(`${s}::${m}`, { status: st });
+          completedMap.set(m, { status: st });
+        }
+        continue;
+      }
+
+      // 2. Numbered progress: [1/2] com.example.DemoTest.test02 PASSED (0.42s)
+      const numberedMatch = msg.match(/^\[\d+\/\d+\]\s+([^\s]+)\s+(PASSED|FAILED|ERROR|SKIPPED)(?:\s+\(([\d\.]+s?)\))?/i);
+      if (numberedMatch) {
+        const fullTest = numberedMatch[1];
+        const rawStatus = numberedMatch[2].toUpperCase();
+        const st = rawStatus === "ERROR" ? "FAILED" : rawStatus;
+        const dur = numberedMatch[3] || undefined;
+        const parts = fullTest.split(".");
+        const mName = parts.pop() || "";
+        const sName = parts.pop() || "";
+        const s = normalizeSuiteName(sName);
+        const m = normalizeMethodName(mName);
+        if (m) {
+          if (s) completedMap.set(`${s}::${m}`, { status: st, duration: dur });
+          completedMap.set(m, { status: st, duration: dur });
+        }
+        continue;
+      }
+
+      // 3. PyTest format: path/test_file.py::test_name PASSED
+      const pytestMatch = msg.match(/([^\s:]+\.[a-zA-Z0-9]+)::([^\s]+)\s+(PASSED|FAILED|ERROR|SKIPPED)/i);
+      if (pytestMatch) {
+        const sName = pytestMatch[1];
+        const mName = pytestMatch[2];
+        const rawStatus = pytestMatch[3].toUpperCase();
+        const st = rawStatus === "ERROR" ? "FAILED" : rawStatus;
+        const s = normalizeSuiteName(sName);
+        const m = normalizeMethodName(mName);
+        if (m) {
+          if (s) completedMap.set(`${s}::${m}`, { status: st });
+          completedMap.set(m, { status: st });
+        }
+        continue;
+      }
+    }
+
+    return completedMap;
+  };
+
   // Single unified, deduplicated list of test cases throughout lifecycle
   const displayTestResults = useMemo(() => {
     const executedList = existingExecResult?.test_results || [];
@@ -235,11 +302,14 @@ export function ModernizationStepView({
       }
     });
 
-    const matchedExecKeys = new Set<string>();
-    let foundRunning = false;
-
     // Use discoveredTests as the canonical baseline so every discovered test appears exactly once
     const baseList = discoveredTests.length > 0 ? discoveredTests : executedList;
+
+    // Parse live logs ONLY for in-flight execution when still actively running
+    const liveCompletedMap = isRunningExisting ? parseLiveLogs(existingLogs) : new Map();
+
+    const matchedExecKeys = new Set<string>();
+    let foundRunning = false;
 
     const merged = baseList.map((dt: any, idx: number) => {
       const fullKey = computeTestIdentity(dt);
@@ -251,6 +321,7 @@ export function ModernizationStepView({
       const rawType = (dt.test_type || dt.testType || dt.type || (dt.category === "UI" ? "UI" : "API")).toUpperCase();
       const displayType = rawType === "UNIT" ? "API" : rawType;
 
+      // 1. Actual execution result from backend (highest priority)
       let matchedExec = execByKey.get(fullKey);
       if (!matchedExec && m && execByMethod.has(m)) {
         matchedExec = execByMethod.get(m);
@@ -258,7 +329,9 @@ export function ModernizationStepView({
 
       if (matchedExec) {
         matchedExecKeys.add(computeTestIdentity(matchedExec));
-        const st = (matchedExec.status || "PASSED").toUpperCase();
+        const rawStatus = (matchedExec.status || "NOT_EXECUTED").toUpperCase();
+        const st = rawStatus === "ERROR" ? "FAILED" : rawStatus;
+
         const scUrl = matchedExec.screenshot_url || matchedExec.screenshotUrl || matchedExec.evidence?.screenshotUrl || dt.screenshot_url || dt.screenshotUrl || dt.evidence?.screenshotUrl || null;
         const vidUrl = matchedExec.video_url || matchedExec.videoUrl || matchedExec.evidence?.videoUrl || dt.video_url || dt.videoUrl || dt.evidence?.videoUrl || null;
         const trUrl = matchedExec.trace_url || matchedExec.traceUrl || dt.trace_url || dt.traceUrl || null;
@@ -281,7 +354,7 @@ export function ModernizationStepView({
           type: displayType,
           testType: displayType,
           status: st,
-          duration: matchedExec.duration && matchedExec.duration !== "--" ? matchedExec.duration : "0.50s",
+          duration: matchedExec.duration && matchedExec.duration !== "--" ? matchedExec.duration : (st === "PASSED" || st === "FAILED" ? "0.50s" : "—"),
           framework: dt.framework || matchedExec.framework || existingFramework || "JUnit",
           failure_message: matchedExec.failure_message || matchedExec.error || null,
           error: matchedExec.failure_message || matchedExec.error || null,
@@ -303,7 +376,36 @@ export function ModernizationStepView({
         };
       }
 
+      // 2. Live completed result from logs (during active running only)
       if (isRunningExisting) {
+        const liveCompleted = liveCompletedMap.get(fullKey) || (m ? liveCompletedMap.get(m) : null);
+        if (liveCompleted) {
+          return {
+            testId: dt.test_id || dt.testId || `TEST-${idx + 1}`,
+            test_name: testName,
+            name: testName,
+            title: testName,
+            suite: testSuite,
+            spec: testSuite,
+            file: testFile,
+            type: displayType,
+            testType: displayType,
+            status: liveCompleted.status,
+            duration: liveCompleted.duration || "0.45s",
+            framework: dt.framework || existingFramework || "JUnit",
+            error: liveCompleted.error || (liveCompleted.status === "FAILED" ? "Test execution failed." : null),
+            failure_message: liveCompleted.error || (liveCompleted.status === "FAILED" ? "Test execution failed." : null),
+            screenshot_url: dt.screenshot_url || dt.screenshotUrl || null,
+            screenshotUrl: dt.screenshot_url || dt.screenshotUrl || null,
+            video_url: dt.video_url || dt.videoUrl || null,
+            videoUrl: dt.video_url || dt.videoUrl || null,
+            trace_url: dt.trace_url || null,
+            api_evidence: dt.api_evidence || null,
+            evidence: dt.evidence || null,
+          };
+        }
+
+        // 3. If actively running and not yet finished, mark exactly the FIRST unfinished test as IN_PROGRESS
         if (!foundRunning) {
           foundRunning = true;
           return {
@@ -332,6 +434,7 @@ export function ModernizationStepView({
         }
       }
 
+      // 4. Default / unexecuted status — NEVER default to PASSED
       return {
         testId: dt.test_id || dt.testId || `TEST-${idx + 1}`,
         test_name: testName,
@@ -386,7 +489,7 @@ export function ModernizationStepView({
           file: r.file || `${testSuite}.java`,
           type: displayType,
           testType: displayType,
-          status: (r.status || "PASSED").toUpperCase(),
+          status: (r.status || "NOT_EXECUTED").toUpperCase(),
           duration: r.duration && r.duration !== "--" ? r.duration : "0.50s",
           framework: r.framework || existingFramework || "JUnit",
           failure_message: r.failure_message || r.error || null,
@@ -411,7 +514,7 @@ export function ModernizationStepView({
     });
 
     return merged;
-  }, [discoveredTests, existingExecResult, isRunningExisting, existingFramework]);
+  }, [discoveredTests, existingExecResult, isRunningExisting, existingFramework, existingLogs]);
 
   // Auto-scroll live log box
   useEffect(() => {
@@ -912,6 +1015,7 @@ export function ModernizationStepView({
             {/* Top Two Analytics Cards: Suite Composition & Risk Coverage */}
             <ExistingTestAnalytics
               discoveredTests={discoveredTests}
+              testResults={displayTestResults}
               metrics={{
                 total: existingTotal || discoveredTests.length,
                 executed: executedTestLogsCount,
@@ -925,6 +1029,41 @@ export function ModernizationStepView({
                 detected_framework: existingFramework || "JUnit",
                 build_tool: "MAVEN",
                 test_source_dir: "src/test/java",
+              }}
+              onSelectTest={(t: any) => {
+                const scUrl = t.screenshot_url || t.screenshotUrl || t.evidence?.screenshotUrl || null;
+                const vidUrl = t.video_url || t.videoUrl || t.evidence?.videoUrl || null;
+                setTestDetailReport({
+                  testId: t.test_id || t.testId || `${t.suite}#${t.test_name}`,
+                  executionId: t.execution_id || t.executionId || jobId,
+                  title: t.test_name || t.name || t.title,
+                  name: t.test_name || t.name || t.title,
+                  spec: t.suite || t.spec || t.file,
+                  suite: t.suite || t.spec || t.file,
+                  status: t.status || "IN_PROGRESS",
+                  duration: t.duration || "Running...",
+                  file: t.file,
+                  url: t.report_url,
+                  type: t.type || "JUnit",
+                  testType: ((t.test_type || t.testType || t.category || "API").toUpperCase() === "UNIT" ? "API" : (t.test_type || t.testType || (t.category === "UI" ? "UI" : "API"))),
+                  framework: t.framework || existingFramework || "JUnit",
+                  screenshotUrl: scUrl,
+                  videoUrl: vidUrl,
+                  evidence: t.evidence || {
+                    screenshotAvailable: !!scUrl,
+                    screenshotUrl: scUrl,
+                    videoAvailable: !!vidUrl,
+                    videoUrl: vidUrl,
+                  },
+                  traceUrl: t.trace_url,
+                  apiEvidence: t.api_evidence,
+                  error: t.failure_message || t.details?.error || t.error || null,
+                  errorCode: t.status === "FAILED" ? "TEST_FAILED" : t.status === "ERROR" ? "BUILD_ERROR" : t.status === "NOT_EXECUTED" ? "NOT_EXECUTED" : undefined,
+                  stackTrace: t.stack_trace || t.details?.stackTrace || t.stackTrace || null,
+                  stdout: t.stdout || t.details?.stdout || null,
+                  stderr: t.stderr || t.details?.stderr || null,
+                });
+                setShowTestDetailModal(true);
               }}
             />
 
@@ -1060,11 +1199,51 @@ export function ModernizationStepView({
               metrics={existingExecResult.metrics || {}}
               fileBreakdown={existingExecResult.file_breakdown || []}
               frameworkInfo={existingExecResult.framework_info}
+              onSelectTest={(t: any) => {
+                const scUrl = t.screenshot_url || t.screenshotUrl || t.evidence?.screenshotUrl || null;
+                const vidUrl = t.video_url || t.videoUrl || t.evidence?.videoUrl || null;
+                setTestDetailReport({
+                  testId: t.test_id || t.testId || `${t.suite}#${t.test_name}`,
+                  executionId: t.execution_id || t.executionId || jobId,
+                  title: t.test_name || t.name || t.title,
+                  name: t.test_name || t.name || t.title,
+                  spec: t.suite || t.spec || t.file,
+                  suite: t.suite || t.spec || t.file,
+                  status: t.status,
+                  duration: t.duration || "0.0s",
+                  file: t.file,
+                  url: t.report_url,
+                  type: t.type || "JUnit",
+                  testType: ((t.test_type || t.testType || t.category || "API").toUpperCase() === "UNIT" ? "API" : (t.test_type || t.testType || (t.category === "UI" ? "UI" : "API"))),
+                  framework: t.framework || existingExecResult?.framework_info?.build_tool || existingExecResult?.framework_info?.detected_framework || "JUnit",
+                  screenshotUrl: scUrl,
+                  videoUrl: vidUrl,
+                  evidence: t.evidence || {
+                    screenshotAvailable: !!scUrl,
+                    screenshotUrl: scUrl,
+                    videoAvailable: !!vidUrl,
+                    videoUrl: vidUrl,
+                  },
+                  traceUrl: t.trace_url,
+                  apiEvidence: t.api_evidence,
+                  error: t.failure_message || t.details?.error || t.error || null,
+                  errorCode: t.status === "FAILED" ? "TEST_FAILED" : t.status === "ERROR" ? "BUILD_ERROR" : t.status === "NOT_EXECUTED" ? "NOT_EXECUTED" : undefined,
+                  stackTrace: t.stack_trace || t.details?.stackTrace || t.stackTrace || null,
+                  stdout: t.stdout || t.details?.stdout || null,
+                  stderr: t.stderr || t.details?.stderr || null,
+                });
+                setShowTestDetailModal(true);
+              }}
             />
 
             {/* 2. EXISTING TEST COVERAGE (8 Metric Cards) */}
             <ExistingTestCoverage
-              metrics={existingExecResult.metrics || {}}
+              metrics={{
+                ...existingExecResult.metrics,
+                total: displayTestResults.length || discoveredTests.length || existingExecResult.metrics?.total || 0,
+              }}
+              discoveredTests={discoveredTests}
+              testResults={displayTestResults}
               frameworkInfo={existingExecResult.framework_info}
               onRunAll={() => handleRunExistingTests()}
               onOpenReport={() => setShowValidationReport(true)}

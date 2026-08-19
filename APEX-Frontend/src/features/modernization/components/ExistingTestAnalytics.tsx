@@ -1,10 +1,16 @@
 import React, { useState, useMemo } from "react";
+import { FaTimes, FaCheckCircle, FaTimesCircle, FaInfoCircle } from "react-icons/fa";
 
 export interface DiscoveredOrExecutedTest {
+  testId?: string;
+  test_id?: string;
+  executionId?: string;
+  execution_id?: string;
   name?: string;
   test_name?: string;
   title?: string;
   classname?: string;
+  methodname?: string;
   suite?: string;
   spec?: string;
   module?: string;
@@ -17,6 +23,24 @@ export interface DiscoveredOrExecutedTest {
   priority?: string;
   status?: string;
   duration?: string;
+  error?: string | null;
+  failure_message?: string | null;
+  stack_trace?: string | null;
+  stackTrace?: string | null;
+  stdout?: string | null;
+  stderr?: string | null;
+  screenshot_url?: string | null;
+  screenshotUrl?: string | null;
+  video_url?: string | null;
+  videoUrl?: string | null;
+  trace_url?: string | null;
+  traceUrl?: string | null;
+  api_evidence?: any;
+  apiEvidence?: any;
+  evidence?: any;
+  unavailable_reason?: string | null;
+  unavailableReason?: string | null;
+  details?: any;
 }
 
 interface FileSummary {
@@ -26,6 +50,7 @@ interface FileSummary {
   failed: number;
   skipped: number;
   not_executed?: number;
+  tests?: DiscoveredOrExecutedTest[];
 }
 
 interface ExistingTestAnalyticsProps {
@@ -48,6 +73,7 @@ interface ExistingTestAnalyticsProps {
     test_source_dir?: string;
   };
   onViewSuite?: (suiteName: string) => void;
+  onSelectTest?: (test: any) => void;
 }
 
 interface SliceItem {
@@ -165,8 +191,10 @@ export function ExistingTestAnalytics({
   testResults = [],
   frameworkInfo,
   onViewSuite,
+  onSelectTest,
 }: ExistingTestAnalyticsProps) {
   const [riskMode, setRiskMode] = useState<"PRIORITY" | "TYPE">("TYPE");
+  const [selectedSuiteModal, setSelectedSuiteModal] = useState<{ name: string; tests: DiscoveredOrExecutedTest[] } | null>(null);
 
   // Canonical pool of tests: prefer executed testResults if available, else discoveredTests
   const canonicalTests = useMemo(() => {
@@ -177,15 +205,16 @@ export function ExistingTestAnalytics({
   // ── 1. Dynamic Suite Composition ──
   const { suitesList, totalDiscoveredCount } = useMemo(() => {
     if (canonicalTests.length > 0) {
-      const groupMap: Record<string, { total: number; passed: number; failed: number; skipped: number }> = {};
+      const groupMap: Record<string, { total: number; passed: number; failed: number; skipped: number; tests: DiscoveredOrExecutedTest[] }> = {};
 
       canonicalTests.forEach((t) => {
         const rawSuite = t.classname || t.suite || t.module || t.file || "ProjectApplicationTests";
-        const suiteName = rawSuite.split("/").pop()?.replace(/\.(java|js|ts|py)$/, "") || rawSuite;
+        const suiteName = rawSuite.split("/").pop()?.split("\\").pop()?.replace(/\.(java|js|ts|py)$/, "") || rawSuite;
         if (!groupMap[suiteName]) {
-          groupMap[suiteName] = { total: 0, passed: 0, failed: 0, skipped: 0 };
+          groupMap[suiteName] = { total: 0, passed: 0, failed: 0, skipped: 0, tests: [] };
         }
         groupMap[suiteName].total += 1;
+        groupMap[suiteName].tests.push(t);
         const st = (t.status || "").toUpperCase();
         if (st === "PASSED") groupMap[suiteName].passed += 1;
         else if (st === "FAILED" || st === "ERROR") groupMap[suiteName].failed += 1;
@@ -198,6 +227,7 @@ export function ExistingTestAnalytics({
         passed: data.passed,
         failed: data.failed,
         skipped: data.skipped,
+        tests: data.tests,
       }));
 
       return { suitesList: list, totalDiscoveredCount: canonicalTests.length };
@@ -205,12 +235,21 @@ export function ExistingTestAnalytics({
 
     if (fileBreakdown.length > 0) {
       const total = fileBreakdown.reduce((acc, f) => acc + f.total, 0);
-      return { suitesList: fileBreakdown, totalDiscoveredCount: total || metrics.total || 0 };
+      const list = fileBreakdown.map((fb) => ({
+        ...fb,
+        tests: fb.tests || canonicalTests.filter((t) => {
+          const raw = t.classname || t.suite || t.module || t.file || "";
+          const sn = raw.split("/").pop()?.split("\\").pop()?.replace(/\.(java|js|ts|py)$/, "") || raw;
+          const fn = fb.file.split("/").pop()?.split("\\").pop()?.replace(/\.(java|js|ts|py)$/, "") || fb.file;
+          return sn.toLowerCase() === fn.toLowerCase() || raw.toLowerCase().includes(fn.toLowerCase());
+        }),
+      }));
+      return { suitesList: list, totalDiscoveredCount: total || metrics.total || 0 };
     }
 
     const fallbackTotal = metrics.total ?? 0;
     return {
-      suitesList: fallbackTotal > 0 ? [{ file: "ProjectApplicationTests.java", total: fallbackTotal, passed: metrics.passed ?? 0, failed: metrics.failed ?? 0, skipped: metrics.skipped ?? 0 }] : [],
+      suitesList: fallbackTotal > 0 ? [{ file: "ProjectApplicationTests.java", total: fallbackTotal, passed: metrics.passed ?? 0, failed: metrics.failed ?? 0, skipped: metrics.skipped ?? 0, tests: canonicalTests }] : [],
       totalDiscoveredCount: fallbackTotal,
     };
   }, [canonicalTests, fileBreakdown, metrics.total, metrics.passed, metrics.failed, metrics.skipped]);
@@ -368,7 +407,7 @@ export function ExistingTestAnalytics({
             }}
           >
             {suitesList.map((s, idx) => {
-              const baseName = s.file.split("/").pop()?.replace(/\.(java|js|ts|py)$/, "") || "API CONTRACTS";
+              const baseName = s.file.split("/").pop()?.split("\\").pop()?.replace(/\.(java|js|ts|py)$/, "") || "API CONTRACTS";
               const suiteNameUpper = baseName.replace(/Tests?$/, "").toUpperCase() || "API CONTRACTS";
               const pct = totalDiscoveredCount > 0 ? Math.round((s.total / totalDiscoveredCount) * 100) : 100;
 
@@ -422,9 +461,28 @@ export function ExistingTestAnalytics({
                     </div>
                   </div>
 
-                  {/* Suite Count */}
-                  <div style={{ display: "flex", alignItems: "center", minWidth: 32, justifyContent: "flex-end" }}>
+                  {/* Count & View Link */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, width: 75, justifyContent: "flex-end" }}>
                     <span style={{ fontSize: 13, fontWeight: 800, color: "#0f172a" }}>{s.total}</span>
+                    <button
+                      onClick={() => {
+                        if (onViewSuite) {
+                          onViewSuite(s.file);
+                        }
+                        setSelectedSuiteModal({ name: baseName, tests: (s as any).tests || [] });
+                      }}
+                      style={{
+                        border: "none",
+                        background: "transparent",
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: "#7c3aed",
+                        cursor: "pointer",
+                        padding: 0,
+                      }}
+                    >
+                      View →
+                    </button>
                   </div>
                 </div>
               );
@@ -456,28 +514,34 @@ export function ExistingTestAnalytics({
         }}
       >
         <div>
-          {/* Header */}
-          <h3
+          {/* Header with Priority / Type Switcher */}
+          <div
             style={{
-              fontSize: 16,
-              fontWeight: 800,
-              color: "#5b21b6",
-              margin: "0 0 16px 0",
-              textAlign: "center",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: 16,
             }}
           >
-            Risk based Suite Coverage
-          </h3>
+            <h3
+              style={{
+                fontSize: 16,
+                fontWeight: 800,
+                color: "#5b21b6",
+                margin: 0,
+              }}
+            >
+              Risk based Suite Coverage
+            </h3>
 
-          {/* Pill Switcher Toggle */}
-          <div style={{ display: "flex", gap: 4, marginBottom: 12 }}>
+            {/* Switcher: By Priority / By Type */}
             <div
               style={{
-                display: "inline-flex",
+                display: "flex",
                 background: "#f1f5f9",
                 borderRadius: 8,
                 padding: 3,
-                border: "1px solid #e2e8f0",
+                gap: 2,
               }}
             >
               <button
@@ -566,6 +630,178 @@ export function ExistingTestAnalytics({
           </div>
         </div>
       </div>
+
+      {/* ── SUITE DETAILS MODAL ─────────────────────────────────────────── */}
+      {selectedSuiteModal && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 9999,
+            background: "rgba(15, 23, 42, 0.65)",
+            backdropFilter: "blur(4px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "20px",
+          }}
+          onClick={() => setSelectedSuiteModal(null)}
+        >
+          <div
+            style={{
+              background: "#fff",
+              borderRadius: 20,
+              maxWidth: 760,
+              width: "100%",
+              maxHeight: "88vh",
+              display: "flex",
+              flexDirection: "column",
+              boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
+              overflow: "hidden",
+              border: "1px solid #e2e8f0",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              style={{
+                padding: "20px 24px",
+                borderBottom: "1px solid #e2e8f0",
+                background: "linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%)",
+                color: "#fff",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <div>
+                <span style={{ fontSize: 10, fontWeight: 900, background: "rgba(255,255,255,0.15)", padding: "2px 8px", borderRadius: 4, color: "#c4b5fd" }}>
+                  SUITE DETAILS
+                </span>
+                <h3 style={{ fontSize: 18, fontWeight: 900, color: "#fff", margin: "4px 0 0 0" }}>
+                  {selectedSuiteModal.name}
+                </h3>
+              </div>
+              <button
+                onClick={() => setSelectedSuiteModal(null)}
+                style={{
+                  background: "rgba(255, 255, 255, 0.1)",
+                  border: "1px solid rgba(255, 255, 255, 0.2)",
+                  color: "#fff",
+                  borderRadius: "50%",
+                  width: 32,
+                  height: 32,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                  fontSize: 14,
+                }}
+              >
+                <FaTimes />
+              </button>
+            </div>
+
+            <div style={{ padding: "20px 24px", overflowY: "auto", display: "flex", flexDirection: "column", gap: 10 }}>
+              {selectedSuiteModal.tests.length === 0 ? (
+                <div style={{ padding: "24px", textAlign: "center", color: "#64748b", fontSize: 13 }}>
+                  No test cases found for this suite.
+                </div>
+              ) : (
+                selectedSuiteModal.tests.map((st, sIdx) => {
+                  const testTitle = (st.test_name || st.name || st.title || st.methodname || `scenario_${sIdx + 1}`).replace(/\(\s*\)$/, "");
+                  const testDesc = (st.status === "FAILED" || st.status === "ERROR") && (st.failure_message || st.error)
+                    ? (st.failure_message || st.error)
+                    : st.file || st.spec || st.classname || `Validates ${selectedSuiteModal.name} test scenario`;
+                  const stStatus = (st.status || "NOT_EXECUTED").toUpperCase();
+                  const rawType = (st.test_type || st.testType || st.category || st.type || "API").toUpperCase();
+                  const displayType = rawType === "UNIT" ? "API" : (rawType.includes("UI") ? "UI" : "API");
+
+                  return (
+                    <div
+                      key={sIdx}
+                      onClick={() => {
+                        if (onSelectTest) {
+                          setSelectedSuiteModal(null);
+                          onSelectTest(st);
+                        }
+                      }}
+                      style={{
+                        padding: "12px 16px",
+                        borderRadius: 10,
+                        border: "1px solid #e2e8f0",
+                        background: "#f8fafc",
+                        cursor: onSelectTest ? "pointer" : "default",
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        transition: "all 0.15s ease",
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = "#f1f5f9";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = "#f8fafc";
+                      }}
+                    >
+                      <div style={{ flex: 1, paddingRight: 16 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                          <span style={{ fontSize: 13, fontWeight: 800, color: "#0f172a" }}>{testTitle}</span>
+                          <span style={{
+                            fontSize: 9,
+                            fontWeight: 800,
+                            padding: "2px 6px",
+                            borderRadius: 4,
+                            background: displayType === "UI" ? "#faf5ff" : "#eff6ff",
+                            color: displayType === "UI" ? "#9333ea" : "#2563eb",
+                            border: `1px solid ${displayType === "UI" ? "#e9d5ff" : "#bfdbfe"}`,
+                          }}>
+                            {displayType}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: 11, color: "#64748b", marginTop: 3, fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 520 }}>
+                          {testDesc}
+                        </div>
+                      </div>
+
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+                        {st.status && (
+                          <span style={{
+                            fontSize: 10,
+                            fontWeight: 800,
+                            padding: "2px 8px",
+                            borderRadius: 6,
+                            background: stStatus === "PASSED" ? "#ecfdf5" : stStatus === "FAILED" || stStatus === "ERROR" ? "#fef2f2" : stStatus === "SKIPPED" ? "#fffbeb" : "#f1f5f9",
+                            color: stStatus === "PASSED" ? "#059669" : stStatus === "FAILED" || stStatus === "ERROR" ? "#dc2626" : stStatus === "SKIPPED" ? "#d97706" : "#64748b",
+                            border: `1px solid ${stStatus === "PASSED" ? "#a7f3d0" : stStatus === "FAILED" || stStatus === "ERROR" ? "#fecaca" : stStatus === "SKIPPED" ? "#fde68a" : "#e2e8f0"}`,
+                          }}>
+                            {stStatus === "NOT_EXECUTED" ? "NOT EXECUTED" : stStatus}
+                          </span>
+                        )}
+
+                        {onSelectTest && (
+                          <button
+                            style={{
+                              border: "none",
+                              background: "transparent",
+                              color: "#7c3aed",
+                              fontWeight: 800,
+                              fontSize: 11,
+                              cursor: "pointer",
+                              padding: 0,
+                            }}
+                          >
+                            Details →
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

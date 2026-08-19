@@ -120,14 +120,14 @@ export function ExistingTestTable({
       const st = (t.status || "NOT_EXECUTED").toUpperCase();
       if (st === "PASSED") res.passed++;
       else if (st === "FAILED" || st === "ERROR") res.failed++;
-      else if (st === "SKIPPED") res.skipped++;
+      else if (st === "SKIPPED" || st === "NOT_EXECUTED" || st === "NOT EXECUTED" || st === "PENDING") res.skipped++;
       else res.not_executed++;
     });
     return res;
   }, [testResults]);
 
   const executedCount = counts.passed + counts.failed + counts.skipped;
-  const passRateVal = executedCount > 0 ? `${((counts.passed / executedCount) * 100).toFixed(1)}%` : "—";
+  const passRateVal = (counts.passed + counts.failed) > 0 ? `${((counts.passed / (counts.passed + counts.failed)) * 100).toFixed(1)}%` : (executedCount > 0 ? `${((counts.passed / executedCount) * 100).toFixed(1)}%` : "—");
 
   // Filtering & searching
   const filtered = useMemo(() => {
