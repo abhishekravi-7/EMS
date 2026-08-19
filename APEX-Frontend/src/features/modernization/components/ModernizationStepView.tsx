@@ -132,6 +132,7 @@ export function ModernizationStepView({
 
   // --- Existing Test execution states replicated from Prova ---
   const [isRunningExisting, setIsRunningExisting] = useState(false);
+  const [hasExistingTestsRun, setHasExistingTestsRun] = useState(false);
   const [existingTotal, setExistingTotal] = useState<number | null>(null);
   const [existingFramework, setExistingFramework] = useState<string | null>(null);
   const [discoveredTests, setDiscoveredTests] = useState<any[]>([]);
@@ -258,6 +259,17 @@ export function ModernizationStepView({
       if (matchedExec) {
         matchedExecKeys.add(computeTestIdentity(matchedExec));
         const st = (matchedExec.status || "PASSED").toUpperCase();
+        const scUrl = matchedExec.screenshot_url || matchedExec.screenshotUrl || matchedExec.evidence?.screenshotUrl || dt.screenshot_url || dt.screenshotUrl || dt.evidence?.screenshotUrl || null;
+        const vidUrl = matchedExec.video_url || matchedExec.videoUrl || matchedExec.evidence?.videoUrl || dt.video_url || dt.videoUrl || dt.evidence?.videoUrl || null;
+        const trUrl = matchedExec.trace_url || matchedExec.traceUrl || dt.trace_url || dt.traceUrl || null;
+        const apiEv = matchedExec.api_evidence || matchedExec.apiEvidence || dt.api_evidence || dt.apiEvidence || null;
+        const ev = matchedExec.evidence || dt.evidence || (scUrl || vidUrl ? {
+          screenshotAvailable: !!scUrl,
+          screenshotUrl: scUrl,
+          videoAvailable: !!vidUrl,
+          videoUrl: vidUrl,
+        } : null);
+
         return {
           testId: dt.test_id || dt.testId || matchedExec.test_id || matchedExec.testId || `TEST-${idx + 1}`,
           test_name: testName,
@@ -276,6 +288,18 @@ export function ModernizationStepView({
           stack_trace: matchedExec.stack_trace || null,
           stdout: matchedExec.stdout || null,
           stderr: matchedExec.stderr || null,
+          screenshot_url: scUrl,
+          screenshotUrl: scUrl,
+          video_url: vidUrl,
+          videoUrl: vidUrl,
+          trace_url: trUrl,
+          traceUrl: trUrl,
+          api_evidence: apiEv,
+          apiEvidence: apiEv,
+          evidence: ev,
+          unavailable_reason: matchedExec.unavailable_reason || matchedExec.unavailableReason || dt.unavailable_reason || dt.unavailableReason || null,
+          unavailableReason: matchedExec.unavailable_reason || matchedExec.unavailableReason || dt.unavailable_reason || dt.unavailableReason || null,
+          details: matchedExec.details || dt.details || null,
         };
       }
 
@@ -297,6 +321,13 @@ export function ModernizationStepView({
             framework: dt.framework || existingFramework || "JUnit",
             error: null,
             failure_message: null,
+            screenshot_url: dt.screenshot_url || dt.screenshotUrl || null,
+            screenshotUrl: dt.screenshot_url || dt.screenshotUrl || null,
+            video_url: dt.video_url || dt.videoUrl || null,
+            videoUrl: dt.video_url || dt.videoUrl || null,
+            trace_url: dt.trace_url || null,
+            api_evidence: dt.api_evidence || null,
+            evidence: dt.evidence || null,
           };
         }
       }
@@ -316,6 +347,13 @@ export function ModernizationStepView({
         framework: dt.framework || existingFramework || "JUnit",
         error: null,
         failure_message: null,
+        screenshot_url: dt.screenshot_url || dt.screenshotUrl || null,
+        screenshotUrl: dt.screenshot_url || dt.screenshotUrl || null,
+        video_url: dt.video_url || dt.videoUrl || null,
+        videoUrl: dt.video_url || dt.videoUrl || null,
+        trace_url: dt.trace_url || null,
+        api_evidence: dt.api_evidence || null,
+        evidence: dt.evidence || null,
       };
     });
 
@@ -327,6 +365,16 @@ export function ModernizationStepView({
         const testName = (r.test_name || r.name || r.title || `test_${rIdx + 1}`).replace(/\(\s*\)$/, "");
         const rawType = (r.test_type || r.testType || r.type || "API").toUpperCase();
         const displayType = rawType === "UNIT" ? "API" : rawType;
+        const scUrl = r.screenshot_url || r.screenshotUrl || r.evidence?.screenshotUrl || null;
+        const vidUrl = r.video_url || r.videoUrl || r.evidence?.videoUrl || null;
+        const trUrl = r.trace_url || r.traceUrl || null;
+        const apiEv = r.api_evidence || r.apiEvidence || null;
+        const ev = r.evidence || (scUrl || vidUrl ? {
+          screenshotAvailable: !!scUrl,
+          screenshotUrl: scUrl,
+          videoAvailable: !!vidUrl,
+          videoUrl: vidUrl,
+        } : null);
 
         merged.push({
           testId: r.test_id || r.testId || `TEST-EXEC-${rIdx + 1}`,
@@ -346,6 +394,18 @@ export function ModernizationStepView({
           stack_trace: r.stack_trace || null,
           stdout: r.stdout || null,
           stderr: r.stderr || null,
+          screenshot_url: scUrl,
+          screenshotUrl: scUrl,
+          video_url: vidUrl,
+          videoUrl: vidUrl,
+          trace_url: trUrl,
+          traceUrl: trUrl,
+          api_evidence: apiEv,
+          apiEvidence: apiEv,
+          evidence: ev,
+          unavailable_reason: r.unavailable_reason || r.unavailableReason || null,
+          unavailableReason: r.unavailable_reason || r.unavailableReason || null,
+          details: r.details || null,
         });
       }
     });
@@ -376,6 +436,7 @@ export function ModernizationStepView({
           }
           if (status.status === "RUNNING" || status.status === "IN_PROGRESS") {
             setIsRunningExisting(true);
+            setHasExistingTestsRun(true);
             setShowExistingLogs(true);
             if (existingPollRef.current) clearInterval(existingPollRef.current);
             existingPollRef.current = setInterval(async () => {
@@ -390,14 +451,20 @@ export function ModernizationStepView({
                 if (liveStatus.status === "COMPLETED" || liveStatus.status === "FAILED" || liveStatus.status === "ERROR" || liveStatus.status === "STOPPED") {
                   clearInterval(existingPollRef.current);
                   setIsRunningExisting(false);
+                  setHasExistingTestsRun(true);
                   setTimeout(() => setShowExistingLogs(false), 2000);
                 }
               } catch (e) {
                 console.error(e);
               }
             }, 800);
+          } else if (status.status === "COMPLETED" || status.status === "FAILED" || status.status === "ERROR" || status.result) {
+            setIsRunningExisting(false);
+            setHasExistingTestsRun(true);
+            setShowExistingLogs(false);
           } else {
             setIsRunningExisting(false);
+            setHasExistingTestsRun(false);
             setShowExistingLogs(false);
           }
         } else {
@@ -407,6 +474,7 @@ export function ModernizationStepView({
           setExistingLogs([]);
           setShowExistingLogs(false);
           setIsRunningExisting(false);
+          setHasExistingTestsRun(false);
           if (existingPollRef.current) clearInterval(existingPollRef.current);
           
           scanExistingTests(jobId)
@@ -438,6 +506,7 @@ export function ModernizationStepView({
       await stopExistingTests(jobId);
       if (existingPollRef.current) clearInterval(existingPollRef.current);
       setIsRunningExisting(false);
+      setHasExistingTestsRun(true);
       const finalStatus = await getExistingTestsStatus(jobId).catch(() => ({}) as any);
       if (finalStatus.logs) setExistingLogs(finalStatus.logs);
     } catch (err) {
@@ -449,6 +518,7 @@ export function ModernizationStepView({
     if (!jobId || isRunningExisting) return;
 
     setIsRunningExisting(true);
+    setHasExistingTestsRun(true);
     setExistingExecResult(null);
     setExistingLogs([]);
     setShowExistingLogs(true);
@@ -475,6 +545,7 @@ export function ModernizationStepView({
         ) {
           clearInterval(existingPollRef.current);
           setIsRunningExisting(false);
+          setHasExistingTestsRun(true);
         }
       } catch (err) {
         console.error(err);
@@ -495,11 +566,13 @@ export function ModernizationStepView({
       if (res) {
         setExistingExecResult(res);
       }
+      setHasExistingTestsRun(true);
     } catch (err) {
       clearInterval(existingPollRef.current);
       console.error('Failed to execute existing tests:', err);
       setShowExistingLogs(false);
       setIsRunningExisting(false);
+      setHasExistingTestsRun(true);
     }
   };
 
@@ -913,6 +986,7 @@ export function ModernizationStepView({
                 logs={existingLogs}
                 onRunAgain={() => handleRunExistingTests()}
                 isRunning={isRunningExisting}
+                hasRun={hasExistingTestsRun}
                 onSelectTest={(t: any) => {
                   const scUrl = t.screenshot_url || t.screenshotUrl || t.evidence?.screenshotUrl || null;
                   const vidUrl = t.video_url || t.videoUrl || t.evidence?.videoUrl || null;
@@ -1006,6 +1080,7 @@ export function ModernizationStepView({
                 logs={existingLogs}
                 onRunAgain={() => handleRunExistingTests()}
                 isRunning={isRunningExisting}
+                hasRun={hasExistingTestsRun}
                 onSelectTest={(t: any) => {
                   const scUrl = t.screenshot_url || t.screenshotUrl || t.evidence?.screenshotUrl || null;
                   const vidUrl = t.video_url || t.videoUrl || t.evidence?.videoUrl || null;
@@ -1807,23 +1882,34 @@ export function ModernizationStepView({
           onClose={() => setShowValidationReport(false)}
           onRunAgain={() => handleRunExistingTests()}
           isRunning={isRunningExisting}
+          hasRun={hasExistingTestsRun}
           onSelectTest={(t: any) => {
+            const scUrl = t.screenshot_url || t.screenshotUrl || t.evidence?.screenshotUrl || null;
+            const vidUrl = t.video_url || t.videoUrl || t.evidence?.videoUrl || null;
             setTestDetailReport({
               testId: t.test_id || t.testId || `${t.suite}#${t.test_name}`,
               executionId: t.execution_id || t.executionId || jobId,
-              name: t.test_name,
-              suite: t.suite,
+              name: t.test_name || t.name || t.title,
+              title: t.test_name || t.name || t.title,
+              spec: t.suite || t.spec || t.file,
+              suite: t.suite || t.spec || t.file,
               status: t.status,
-              duration: t.duration,
+              duration: t.duration || "0.0s",
               file: t.file,
               url: t.report_url,
               type: t.type,
-              testType: t.test_type || t.testType,
+              testType: ((t.test_type || t.testType || t.category || "API").toUpperCase() === "UNIT" ? "API" : (t.test_type || t.testType || (t.category === "UI" ? "UI" : "API"))),
               framework: t.framework || existingExecResult?.framework_info?.build_tool || existingExecResult?.framework_info?.detected_framework,
-              screenshotUrl: t.screenshot_url,
-              videoUrl: t.video_url,
+              screenshotUrl: scUrl,
+              videoUrl: vidUrl,
               traceUrl: t.trace_url,
               apiEvidence: t.api_evidence,
+              evidence: t.evidence || {
+                screenshotAvailable: !!scUrl,
+                screenshotUrl: scUrl,
+                videoAvailable: !!vidUrl,
+                videoUrl: vidUrl,
+              },
               error: t.failure_message || t.details?.error,
               errorCode: t.status === "FAILED" ? "TEST_FAILED" : t.status === "ERROR" ? "BUILD_ERROR" : t.status === "NOT_EXECUTED" ? "NOT_EXECUTED" : undefined,
               stackTrace: t.stack_trace || t.details?.stackTrace,
@@ -1841,8 +1927,8 @@ export function ModernizationStepView({
         data={testDetailReport ? {
           testId: testDetailReport.testId,
           executionId: testDetailReport.executionId,
-          title: testDetailReport.name,
-          spec: testDetailReport.suite,
+          title: testDetailReport.name || testDetailReport.title,
+          spec: testDetailReport.suite || testDetailReport.spec,
           status: testDetailReport.status,
           duration: testDetailReport.duration,
           file: testDetailReport.file,
@@ -1859,6 +1945,7 @@ export function ModernizationStepView({
           videoUrl: testDetailReport.videoUrl,
           traceUrl: testDetailReport.traceUrl,
           apiEvidence: testDetailReport.apiEvidence,
+          evidence: testDetailReport.evidence,
         } : null}
       />
 

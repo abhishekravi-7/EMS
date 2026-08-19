@@ -7,6 +7,7 @@ export interface AuthUser {
 
 export interface AuthContextValue {
   isAuthenticated: boolean;
+  isAuthLoading: boolean;   // true until the initial /api/auth/me check completes
   user: AuthUser | null;
   login: (user: AuthUser) => void;
   logout: () => void;

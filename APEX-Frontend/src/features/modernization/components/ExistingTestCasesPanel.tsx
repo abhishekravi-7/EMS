@@ -213,7 +213,7 @@ export function ExistingTestCasesPanel({
             build_tool: "MAVEN",
             test_source_dir: "src/test/java",
           }}
-          onRunAgain={handleRun}
+          hasRun={false}
           isRunning={isRunning}
           onSelectTest={(t) => {
             if (onSelectTest) onSelectTest(t);

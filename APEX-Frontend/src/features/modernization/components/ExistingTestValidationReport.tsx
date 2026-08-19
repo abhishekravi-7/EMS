@@ -42,6 +42,7 @@ interface ExistingTestValidationReportProps {
   onClose: () => void;
   onRunAgain?: () => void;
   isRunning?: boolean;
+  hasRun?: boolean;
 }
 
 export function ExistingTestValidationReport({
@@ -54,6 +55,7 @@ export function ExistingTestValidationReport({
   onClose,
   onRunAgain,
   isRunning = false,
+  hasRun = true,
 }: ExistingTestValidationReportProps) {
   const [activeTab, setActiveTab] = useState<"TABLE" | "LOGS">("TABLE");
 
@@ -342,6 +344,7 @@ export function ExistingTestValidationReport({
               onSelectTest={onSelectTest}
               onRunAgain={onRunAgain}
               isRunning={isRunning}
+              hasRun={hasRun}
             />
           ) : (
             <ExistingTestLogs logs={logs} />

@@ -40,12 +40,17 @@ export interface TestResult {
   stackTrace?: string | null;
   stack_trace?: string | null;
   stdout?: string | null;
-  stderr?: string | null;
   report_url?: string | null;
   screenshot_url?: string | null;
+  screenshotUrl?: string | null;
   video_url?: string | null;
+  videoUrl?: string | null;
   trace_url?: string | null;
+  traceUrl?: string | null;
   api_evidence?: any;
+  evidence?: any;
+  unavailable_reason?: string | null;
+  unavailableReason?: string | null;
 }
 
 interface FileSummary {
@@ -73,9 +78,9 @@ interface ExistingTestTableProps {
   };
   logs?: LogEntry[];
   onSelectTest: (test: TestResult) => void;
-  title?: string;
   onRunAgain?: () => void;
   isRunning?: boolean;
+  hasRun?: boolean;
 }
 
 type SortField = "NAME" | "DURATION" | "STATUS" | "TYPE" | "CLASS";
@@ -89,6 +94,7 @@ export function ExistingTestTable({
   title = "Existing Tests Validation Report",
   onRunAgain,
   isRunning = false,
+  hasRun = false,
 }: ExistingTestTableProps) {
   const [viewMode, setViewMode] = useState<"TABLE" | "LOGS">("TABLE");
   const [filter, setFilter] = useState<"ALL" | "PASSED" | "FAILED" | "SKIPPED">("ALL");
@@ -314,8 +320,8 @@ export function ExistingTestTable({
             </span>
           </div>
 
-          {/* Global Run Again Button */}
-          {onRunAgain && (
+          {/* Global Run Again Button - rendered only after tests have run (hasRun === true) */}
+          {hasRun && onRunAgain && (
             <button
               onClick={onRunAgain}
               disabled={isRunning}

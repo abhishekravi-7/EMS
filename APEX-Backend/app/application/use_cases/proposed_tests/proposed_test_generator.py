@@ -151,7 +151,7 @@ class ProposedTestGenerator:
                         id=ptc_id,
                         title=title,
                         description=f"Execute {svc_name}.{m_name}() with mock inputs to ensure calculation/business rules execute correctly.",
-                        type=ProposedTestType.API,
+                        type=ProposedTestType.UNIT,
                         priority=priority,
                         source=f"{svc_name}.java",
                         reason=reason,

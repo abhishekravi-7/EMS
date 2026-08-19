@@ -180,7 +180,7 @@ export function ProposedTestCasesPanel({
       if (jobId) {
         try {
           const statusRes = await getProposedTestsStatus(jobId).catch(() => null);
-          if (statusRes && statusRes.proposals && statusRes.proposals.length > 0) {
+          if (statusRes && Array.isArray(statusRes.proposals) && statusRes.proposals.length > 0) {
             fetchedProposals = statusRes.proposals;
           } else {
             const listRes = await getProposedTests(jobId).catch(() => null);
@@ -216,14 +216,39 @@ export function ProposedTestCasesPanel({
       const syntheticProposals: ProposedTestCase[] = [];
       let counter = 1;
 
+      // Extract Java files and endpoints from repo analysis
+      const javaFileList: string[] = (repoAnalysis?.java_files || (repoAnalysis as any)?.all_files || [])
+        .map((f: any) => (typeof f === "string" ? f : f?.path || f?.name || ""))
+        .filter(Boolean);
+
       // A. Discovered API Endpoints
-      const apiCases = localApiTestCases || repoAnalysis?.api_endpoints || [];
+      const rawApiCases = (localApiTestCases && localApiTestCases.length > 0)
+        ? localApiTestCases
+        : (repoAnalysis?.api_endpoints || (repoAnalysis as any)?.endpoints || []);
+
+      const apiCases = Array.isArray(rawApiCases) && rawApiCases.length > 0
+        ? rawApiCases
+        : javaFileList
+            .filter((f) => f.includes("Controller") || f.includes("Resource") || f.includes("Endpoint"))
+            .map((f, idx) => {
+              const clean = f.replace(/\.(java|kt|py|ts|js)$/, "").split("/").pop() || "ApiController";
+              const resourceSlug = clean.replace(/Controller|Resource|Endpoint/gi, "").toLowerCase() || "item";
+              return {
+                id: idx + 1,
+                method: idx % 3 === 0 ? "POST" : idx % 3 === 1 ? "GET" : "PUT",
+                path: `/api/v1/${resourceSlug}`,
+                controller: clean,
+                scenario: `Verify ${clean} operations and request routing`,
+                expectedStatus: idx % 3 === 0 ? 201 : 200,
+              };
+            });
+
       apiCases.forEach((ep: any) => {
         const method = (ep.method || "GET").toUpperCase();
-        const path = ep.path || ep.endpoint || "/";
+        const path = ep.path || ep.endpoint || ep.url || "/";
         const controller = ep.controller || (ep.source_file ? ep.source_file.replace(".java", "").split("/").pop() || "ApiController" : "ApiController");
         const priority: ProposedTestPriority = (method === "POST" || method === "DELETE" || path.toLowerCase().includes("auth") || path.toLowerCase().includes("user") || path.toLowerCase().includes("order")) ? "HIGH" : "MEDIUM";
-        const status = ep.expectedStatus || (method === "POST" ? 201 : method === "DELETE" ? 204 : 200);
+        const status = ep.expectedStatus || ep.expected_status || (method === "POST" ? 201 : method === "DELETE" ? 204 : 200);
 
         syntheticProposals.push({
           id: `PTC-${String(counter++).padStart(3, "0")}`,
@@ -256,10 +281,19 @@ export function ProposedTestCasesPanel({
       });
 
       // B. Discovered Services / Business Logic (Classified as API)
-      const services = repoAnalysis?.services || repoAnalysis?.classes || [];
-      services.slice(0, 15).forEach((svc: any) => {
-        const svcName = typeof svc === "string" ? svc : (svc.name || svc.className || "BusinessService");
-        const cleanSvc = svcName.replace(".java", "").split("/").pop() || svcName;
+      const rawServices = (repoAnalysis?.services && repoAnalysis.services.length > 0)
+        ? repoAnalysis.services
+        : (repoAnalysis?.classes && repoAnalysis.classes.length > 0)
+        ? repoAnalysis.classes
+        : javaFileList
+            .filter((f) => !f.toLowerCase().includes("test") && (f.includes("Service") || f.includes("Manager") || f.includes("Handler") || f.includes("Repository") || f.endsWith(".java")))
+            .slice(0, 15);
+
+      const services = Array.isArray(rawServices) ? rawServices : [];
+      services.forEach((svc: any) => {
+        const svcName = typeof svc === "string" ? svc : (svc.name || svc.className || svc.file || "BusinessService");
+        const cleanSvc = svcName.replace(/\.(java|kt|ts|js)$/, "").split("/").pop() || svcName;
+        if (!cleanSvc || cleanSvc === "package-info") return;
 
         syntheticProposals.push({
           id: `PTC-${String(counter++).padStart(3, "0")}`,
@@ -285,40 +319,43 @@ export function ProposedTestCasesPanel({
       });
 
       // C. Discovered UI Workflows (UI)
-      if (hasUI || (repoAnalysis?.ui_workflows && repoAnalysis.ui_workflows.length > 0)) {
-        const uiWorkflows = repoAnalysis?.ui_workflows || [
-          { name: "User Registration & Authentication Flow", route: "/login" },
-          { name: "Entity Search & Filter Workflow", route: "/search" },
-          { name: "Record Detail View & Edit Form", route: "/details" },
-        ];
+      const hasUiAssets = hasUI || javaFileList.some((f) => f.includes("webapp") || f.includes("templates") || f.includes("static") || f.endsWith(".html") || f.endsWith(".jsp") || f.endsWith(".tsx") || f.endsWith(".vue"));
+      const uiWorkflows = (repoAnalysis?.ui_workflows && repoAnalysis.ui_workflows.length > 0)
+        ? repoAnalysis.ui_workflows
+        : hasUiAssets
+        ? [
+            { name: "User Registration & Authentication Flow", route: "/login" },
+            { name: "Entity Search & Filter Workflow", route: "/search" },
+            { name: "Record Detail View & Edit Form", route: "/details" },
+          ]
+        : [];
 
-        uiWorkflows.forEach((ui: any) => {
-          const uiName = ui.name || "User Interaction Workflow";
-          const route = ui.route || "/";
+      uiWorkflows.forEach((ui: any) => {
+        const uiName = ui.name || "User Interaction Workflow";
+        const route = ui.route || "/";
 
-          syntheticProposals.push({
-            id: `PTC-${String(counter++).padStart(3, "0")}`,
-            title: `Validate ${uiName}`,
-            description: `End-to-end browser automation validating navigation, form validations, and asynchronous UI rendering at route '${route}'.`,
-            type: "UI",
-            priority: "HIGH",
-            source: `UI Router (${route})`,
-            reason: `Discovered user-facing view workflow at route '${route}' without E2E browser tests.`,
-            preconditions: ["Frontend web application running on port 3000/5173", "Backend API services available"],
-            steps: [
-              `Navigate browser to route '${route}'`,
-              "Fill in form fields and submit user interaction",
-              "Assert success notifications and verify table DOM element presence",
-            ],
-            expected_result: "Page loads within 1.5s, DOM elements render cleanly without JavaScript errors",
-            status: "PROPOSED",
-            ui_spec: {
-              target_route: route,
-              assertions: ["page.url().includes(route)", "expect(element).toBeVisible()"],
-            },
-          });
+        syntheticProposals.push({
+          id: `PTC-${String(counter++).padStart(3, "0")}`,
+          title: `Validate ${uiName}`,
+          description: `End-to-end browser automation validating navigation, form validations, and asynchronous UI rendering at route '${route}'.`,
+          type: "UI",
+          priority: "HIGH",
+          source: `UI Router (${route})`,
+          reason: `Discovered user-facing view workflow at route '${route}' without E2E browser tests.`,
+          preconditions: ["Frontend web application running on port 3000/5173", "Backend API services available"],
+          steps: [
+            `Navigate browser to route '${route}'`,
+            "Fill in form fields and submit user interaction",
+            "Assert success notifications and verify table DOM element presence",
+          ],
+          expected_result: "Page loads within 1.5s, DOM elements render cleanly without JavaScript errors",
+          status: "PROPOSED",
+          ui_spec: {
+            target_route: route,
+            assertions: ["page.url().includes(route)", "expect(element).toBeVisible()"],
+          },
         });
-      }
+      });
 
       if (isMounted) {
         setProposals(syntheticProposals);

@@ -51,9 +51,13 @@ export interface TestResult {
   } | null;
   report_url?: string | null;
   screenshot_url?: string | null;
+  screenshotUrl?: string | null;
   video_url?: string | null;
+  videoUrl?: string | null;
   trace_url?: string | null;
+  traceUrl?: string | null;
   api_evidence?: ApiEvidence | null;
+  apiEvidence?: ApiEvidence | null;
   evidence?: any;
 }
 
