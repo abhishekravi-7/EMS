@@ -19,5 +19,5 @@ email-validator>=2.1,<3.0
 # `sentence-transformers` pulls in torch and can use substantial memory. Install
 # torch from the CPU index on machines where CUDA is not required:
 #   pip install --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt
-qdrant-client>=1.7,<2.0
-sentence-transformers>=2.6,<6.0
+#qdrant-client>=1.7,<2.0
+#sentence-transformers>=2.6,<6.0  --uncomment when you use RAG
