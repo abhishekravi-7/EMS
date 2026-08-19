@@ -11,7 +11,10 @@ import {
   FaRandom,
   FaUsers,
   FaCode,
-  FaChartBar
+  FaChartBar,
+  FaClipboard,
+  FaBolt,
+  FaLink
 } from "react-icons/fa";
 import "../auth.css";
 
@@ -20,67 +23,81 @@ export interface AuthLayoutProps {
   children: React.ReactNode;
 }
 
-/* ── 3D SVG Graphic for Sign In ── */
+const HexTile = ({ x, y, size = 1, icon: Icon, color, label, isCenter = false }: any) => {
+  const R = 45 * size; // Radius
+  const W = R * 0.866;
+  const H = R * 0.5;
+  const depth = 12 * size;
+
+  // Hexagon Top Face Points
+  const topPoints = `0,-${H} ${W},-${H/2} ${W},${H/2} 0,${H} -${W},${H/2} -${W},-${H/2}`;
+  // Hexagon Left Face Points
+  const leftPoints = `-${W},${H/2} 0,${H} 0,${H+depth} -${W},${H/2+depth}`;
+  // Hexagon Right Face Points
+  const rightPoints = `0,${H} ${W},${H/2} ${W},${H/2+depth} 0,${H+depth}`;
+
+  return (
+    <g transform={`translate(${x}, ${y})`}>
+      <filter id={`shadow-${label}`}>
+        <feDropShadow dx="0" dy="12" stdDeviation="15" floodColor={color} floodOpacity="0.25" />
+      </filter>
+      
+      {/* Shadow */}
+      <polygon points={topPoints} fill="#cbd5e1" filter="blur(8px)" opacity="0.6" transform={`translate(0, ${depth + 20})`} />
+      
+      {/* Left Face */}
+      <polygon points={leftPoints} fill="#f1f5f9" />
+      {/* Right Face */}
+      <polygon points={rightPoints} fill="#e2e8f0" />
+      {/* Top Face */}
+      <polygon points={topPoints} fill="#ffffff" stroke="#e2e8f0" strokeWidth="1.5" filter={`url(#shadow-${label})`} />
+      
+      {/* Highlight edge */}
+      <polyline points={`-${W},${H/2} 0,${H} ${W},${H/2}`} fill="none" stroke="#ffffff" strokeWidth="2" />
+      
+      <foreignObject x={-W} y={-H - (isCenter ? 15 : 10)} width={W * 2} height={H * 2 + depth}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', pointerEvents: 'none' }}>
+          <Icon size={isCenter ? 36 : 22} style={{ color }} />
+          <span style={{ fontSize: isCenter ? 14 : 11, fontWeight: 700, color: '#0f172a', marginTop: 6 }}>{label}</span>
+        </div>
+      </foreignObject>
+    </g>
+  );
+};
+
 const SignInHeroGraphic: React.FC = () => (
-  <div className="apex-3d-graphic-wrap">
-    <svg width="100%" height="210" viewBox="0 0 320 210" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <defs>
-        <linearGradient id="signinGlass" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#ffffff" stopOpacity="0.9" />
-          <stop offset="100%" stopColor="#e0f2fe" stopOpacity="0.75" />
-        </linearGradient>
-        <linearGradient id="signinLineGrad" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0%" stopColor="#2563eb" />
-          <stop offset="100%" stopColor="#3b82f6" />
-        </linearGradient>
-        <linearGradient id="shieldGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#3b82f6" />
-          <stop offset="100%" stopColor="#1d4ed8" />
-        </linearGradient>
-        <filter id="shadowGlow" x="-20%" y="-20%" width="140%" height="140%">
-          <feDropShadow dx="0" dy="8" stdDeviation="12" floodColor="#2563eb" floodOpacity="0.15" />
-        </filter>
-      </defs>
-
-      {/* Background Floating Cubes */}
-      <rect x="250" y="20" width="24" height="24" rx="6" fill="#dbeafe" opacity="0.7" transform="rotate(15 250 20)" />
-      <rect x="30" y="40" width="20" height="20" rx="5" fill="#eff6ff" opacity="0.8" transform="rotate(-12 30 40)" />
-
-      {/* Main Glass Dashboard Panel */}
-      <g filter="url(#shadowGlow)">
-        <rect x="70" y="25" width="210" height="135" rx="14" fill="url(#signinGlass)" stroke="#bfdbfe" strokeWidth="1.5" />
-        {/* Top Dots */}
-        <circle cx="88" cy="40" r="3.5" fill="#ef4444" />
-        <circle cx="98" cy="40" r="3.5" fill="#f59e0b" />
-        <circle cx="108" cy="40" r="3.5" fill="#22c55e" />
-
-        {/* Wireframe Cards */}
-        <rect x="88" y="54" width="174" height="1" fill="#cbd5e1" opacity="0.5" />
-        <rect x="88" y="66" width="70" height="10" rx="3" fill="#cbd5e1" opacity="0.4" />
-        <rect x="88" y="82" width="100" height="8" rx="3" fill="#cbd5e1" opacity="0.3" />
-
-        {/* Spline Wave Line Chart */}
-        <path d="M 88 125 Q 120 75, 150 110 T 210 70 L 260 95" stroke="url(#signinLineGrad)" strokeWidth="3.5" strokeLinecap="round" fill="none" />
-        <path d="M 88 125 Q 120 75, 150 110 T 210 70 L 260 95 L 260 145 L 88 145 Z" fill="url(#signinLineGrad)" opacity="0.1" />
-
-        {/* Floating Mini Widgets inside */}
-        <rect x="200" y="105" width="60" height="24" rx="6" fill="#ffffff" stroke="#93c5fd" strokeWidth="1" />
-        <rect x="208" y="112" width="28" height="4" rx="2" fill="#2563eb" />
-        <rect x="208" y="120" width="44" height="3" rx="1.5" fill="#94a3b8" />
+  <div className="apex-3d-graphic-wrap" style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+    <svg width="100%" height="400" viewBox="0 0 500 400" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ overflow: 'visible', marginTop: '-20px' }}>
+      
+      {/* Ground lines (circuit board effect) */}
+      <g stroke="#bfdbfe" strokeWidth="1.5" opacity="0.6">
+        {/* Horizontal */}
+        <line x1="50" y1="200" x2="450" y2="200" />
+        <circle cx="50" cy="200" r="3" fill="#bfdbfe" />
+        <circle cx="450" cy="200" r="3" fill="#bfdbfe" />
+        
+        {/* Diagonal */}
+        <line x1="100" y1="100" x2="250" y2="200" />
+        <line x1="400" y1="100" x2="250" y2="200" />
+        <line x1="100" y1="300" x2="250" y2="200" />
+        <line x1="400" y1="300" x2="250" y2="200" />
+        
+        {/* Circuit dots */}
+        <circle cx="100" cy="100" r="3" fill="#bfdbfe" />
+        <circle cx="400" cy="100" r="3" fill="#bfdbfe" />
+        <circle cx="100" cy="300" r="3" fill="#bfdbfe" />
+        <circle cx="400" cy="300" r="3" fill="#bfdbfe" />
       </g>
 
-      {/* Base Platform Stand */}
-      <ellipse cx="175" cy="172" rx="100" ry="16" fill="#bfdbfe" opacity="0.5" />
-      <ellipse cx="175" cy="170" rx="90" ry="12" fill="#dbeafe" />
+      {/* Tiles */}
+      <HexTile x={250} y={90} icon={FaSearch} color="#3b82f6" label="Discovery" />
+      <HexTile x={360} y={150} icon={FaClipboard} color="#f59e0b" label="Strategy" />
+      <HexTile x={360} y={260} icon={FaBolt} color="#f97316" label="Modernization" />
+      <HexTile x={140} y={260} icon={FaChartBar} color="#10b981" label="Summary" />
+      <HexTile x={140} y={150} icon={FaLink} color="#6366f1" label="Connect" />
 
-      {/* Foreground Glossy 3D Shield Badge */}
-      <g transform="translate(30, 95)" filter="url(#shadowGlow)">
-        <path d="M 32 0 C 48 0, 64 6, 64 6 C 64 36, 52 58, 32 70 C 12 58, 0 36, 0 6 C 0 6, 16 0, 32 0 Z" fill="url(#shieldGrad)" stroke="#60a5fa" strokeWidth="1.5" />
-        {/* Lock Icon inside Shield */}
-        <rect x="22" y="32" width="20" height="16" rx="4" fill="#ffffff" />
-        <path d="M 26 32 V 25 C 26 21.7, 28.7 19, 32 19 C 35.3 19, 38 21.7, 38 25 V 32" stroke="#ffffff" strokeWidth="3" fill="none" strokeLinecap="round" />
-        <circle cx="32" cy="40" r="2" fill="#1d4ed8" />
-      </g>
+      {/* Center Tile */}
+      <HexTile x={250} y={200} size={1.5} icon={FaCogs} color="#2563eb" label="LLM" isCenter={true} />
     </svg>
   </div>
 );
@@ -156,8 +173,55 @@ const AuthLayout: React.FC<AuthLayoutProps> = ({ mode, children }) => {
   const navigate = useNavigate();
   const isSignIn = mode === "signin";
 
+  if (isSignIn) {
+    return (
+      <div className="apex-auth-page new-signin-layout">
+        <div className="new-signin-left">
+          <div className="new-signin-left-content">
+            {/* Branding Top */}
+            <div className="new-signin-brand">
+              <div className="new-signin-logo" onClick={() => navigate("/")} style={{ cursor: "pointer", marginBottom: '8px' }}>
+                <img
+                  src={apexLogo}
+                  alt="Java APEX"
+                  style={{ height: 42, width: "auto", objectFit: "contain", display: "block" }}
+                />
+              </div>
+              <div className="new-signin-tagline" style={{ fontSize: '18px', fontWeight: 600, color: '#0f172a' }}>AI-Powered Accelerator</div>
+            </div>
+
+            {/* Headings */}
+            <div className="new-signin-headings">
+              <h1 className="new-signin-title">Accelerate Your</h1>
+              <h1 className="new-signin-title-blue">Modernization Journey</h1>
+              <p className="new-signin-subtext">
+                AI-driven insights. Automated modernization.<br/>Measurable results.
+              </p>
+            </div>
+
+            {/* Center Graphic */}
+            <div className="new-signin-graphic">
+              <SignInHeroGraphic />
+            </div>
+
+            {/* Footer */}
+            <div className="new-signin-footer">
+              <a href="http://www.javaapex.com" target="_blank" rel="noreferrer">www.javaapex.com</a>
+              <span className="powered-by">powered by <strong>SORIM.AI</strong></span>
+            </div>
+          </div>
+        </div>
+        <div className="new-signin-right">
+          <div className="apex-auth-card">
+            {children}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className={`apex-auth-page ${isSignIn ? "apex-auth-page--signin" : "apex-auth-page--signup"}`}>
+    <div className="apex-auth-page apex-auth-page--signup">
       {/* ── Top Header ── */}
       <header className="apex-auth-topbar">
         <div className="apex-auth-topbar-brand" onClick={() => navigate("/")} style={{ cursor: "pointer" }}>
@@ -167,120 +231,60 @@ const AuthLayout: React.FC<AuthLayoutProps> = ({ mode, children }) => {
             style={{ height: 38, width: "auto", objectFit: "contain", display: "block" }}
           />
         </div>
-
-        {/* <Link to="/" className="apex-auth-back-btn">
-          <FaArrowLeft style={{ fontSize: 11 }} />
-          <span>Back to Home</span>
-        </Link> */}
       </header>
 
       {/* ── Main Content Container ── */}
       <main className="apex-auth-main">
         <div className="apex-auth-container">
           {/* Left Hero Card */}
-          {isSignIn ? (
-            <div className="apex-auth-hero-card apex-auth-hero-card--signin">
-              <div className="apex-auth-hero-content">
-                <h1 className="apex-auth-hero-title">
-                  Welcome <span style={{ color: "#2563eb" }}>back!</span>
-                </h1>
-                <p className="apex-auth-hero-sub">
-                  Sign in to continue your Java modernization journey with Java APEX.
-                </p>
+          <div className="apex-auth-hero-card apex-auth-hero-card--signup">
+            <div className="apex-auth-hero-content">
+              <h1 className="apex-auth-hero-title" style={{ color: "#ffffff" }}>
+                Create your<br />
+                <span style={{ color: "#60a5fa" }}>Java APEX</span> account
+              </h1>
+              <p className="apex-auth-hero-sub" style={{ color: "#93c5fd" }}>
+                Get started with AI-powered Java modernization in minutes.
+              </p>
 
-                <div className="apex-auth-features">
-                  <div className="apex-auth-feature-item">
-                    <div className="apex-auth-feature-icon"><FaSearch /></div>
-                    <div>
-                      <div className="apex-auth-feature-title">AI-Powered Analysis</div>
-                      <div className="apex-auth-feature-desc">Analyze and assess your codebase with intelligent insights</div>
-                    </div>
-                  </div>
-
-                  <div className="apex-auth-feature-item">
-                    <div className="apex-auth-feature-icon"><FaCogs /></div>
-                    <div>
-                      <div className="apex-auth-feature-title">Automated Migration</div>
-                      <div className="apex-auth-feature-desc">Migrate with confidence using AI-driven recommendations</div>
-                    </div>
-                  </div>
-
-                  <div className="apex-auth-feature-item">
-                    <div className="apex-auth-feature-icon"><FaChartLine /></div>
-                    <div>
-                      <div className="apex-auth-feature-title">Smart Reporting</div>
-                      <div className="apex-auth-feature-desc">Get detailed reports and track your modernization progress</div>
-                    </div>
-                  </div>
-
-                  <div className="apex-auth-feature-item">
-                    <div className="apex-auth-feature-icon"><FaShieldAlt /></div>
-                    <div>
-                      <div className="apex-auth-feature-title">Secure &amp; Reliable</div>
-                      <div className="apex-auth-feature-desc">Enterprise-grade security to keep your code safe</div>
-                    </div>
+              <div className="apex-auth-features">
+                <div className="apex-auth-feature-item">
+                  <div className="apex-auth-feature-icon apex-auth-feature-icon--dark"><FaCogs /></div>
+                  <div>
+                    <div className="apex-auth-feature-title" style={{ color: "#ffffff" }}>AI-Driven Modernization</div>
+                    <div className="apex-auth-feature-desc" style={{ color: "#cbd5e1" }}>Leverage AI to modernize your legacy Java applications</div>
                   </div>
                 </div>
 
-                {/* Vector 3D Graphic */}
-                <SignInHeroGraphic />
+                <div className="apex-auth-feature-item">
+                  <div className="apex-auth-feature-icon apex-auth-feature-icon--dark"><FaRandom /></div>
+                  <div>
+                    <div className="apex-auth-feature-title" style={{ color: "#ffffff" }}>End-to-End Automation</div>
+                    <div className="apex-auth-feature-desc" style={{ color: "#cbd5e1" }}>From analysis to migration, we automate it all</div>
+                  </div>
+                </div>
 
-                <div className="apex-auth-security-note">
-                  <FaShieldAlt style={{ color: "#2563eb", flexShrink: 0, fontSize: 13 }} />
-                  <span>Your data is secure with enterprise-grade encryption and best practices.</span>
+                <div className="apex-auth-feature-item">
+                  <div className="apex-auth-feature-icon apex-auth-feature-icon--dark"><FaChartLine /></div>
+                  <div>
+                    <div className="apex-auth-feature-title" style={{ color: "#ffffff" }}>Actionable Insights</div>
+                    <div className="apex-auth-feature-desc" style={{ color: "#cbd5e1" }}>Clear recommendations and detailed reports</div>
+                  </div>
+                </div>
+
+                <div className="apex-auth-feature-item">
+                  <div className="apex-auth-feature-icon apex-auth-feature-icon--dark"><FaUsers /></div>
+                  <div>
+                    <div className="apex-auth-feature-title" style={{ color: "#ffffff" }}>Collaborate Seamlessly</div>
+                    <div className="apex-auth-feature-desc" style={{ color: "#cbd5e1" }}>Invite your team and work together securely</div>
+                  </div>
                 </div>
               </div>
+
+              {/* Vector 3D Graphic */}
+              <SignUpHeroGraphic />
             </div>
-          ) : (
-            <div className="apex-auth-hero-card apex-auth-hero-card--signup">
-              <div className="apex-auth-hero-content">
-                <h1 className="apex-auth-hero-title" style={{ color: "#ffffff" }}>
-                  Create your<br />
-                  <span style={{ color: "#60a5fa" }}>Java APEX</span> account
-                </h1>
-                <p className="apex-auth-hero-sub" style={{ color: "#93c5fd" }}>
-                  Get started with AI-powered Java modernization in minutes.
-                </p>
-
-                <div className="apex-auth-features">
-                  <div className="apex-auth-feature-item">
-                    <div className="apex-auth-feature-icon apex-auth-feature-icon--dark"><FaCogs /></div>
-                    <div>
-                      <div className="apex-auth-feature-title" style={{ color: "#ffffff" }}>AI-Driven Modernization</div>
-                      <div className="apex-auth-feature-desc" style={{ color: "#cbd5e1" }}>Leverage AI to modernize your legacy Java applications</div>
-                    </div>
-                  </div>
-
-                  <div className="apex-auth-feature-item">
-                    <div className="apex-auth-feature-icon apex-auth-feature-icon--dark"><FaRandom /></div>
-                    <div>
-                      <div className="apex-auth-feature-title" style={{ color: "#ffffff" }}>End-to-End Automation</div>
-                      <div className="apex-auth-feature-desc" style={{ color: "#cbd5e1" }}>From analysis to migration, we automate it all</div>
-                    </div>
-                  </div>
-
-                  <div className="apex-auth-feature-item">
-                    <div className="apex-auth-feature-icon apex-auth-feature-icon--dark"><FaChartLine /></div>
-                    <div>
-                      <div className="apex-auth-feature-title" style={{ color: "#ffffff" }}>Actionable Insights</div>
-                      <div className="apex-auth-feature-desc" style={{ color: "#cbd5e1" }}>Clear recommendations and detailed reports</div>
-                    </div>
-                  </div>
-
-                  <div className="apex-auth-feature-item">
-                    <div className="apex-auth-feature-icon apex-auth-feature-icon--dark"><FaUsers /></div>
-                    <div>
-                      <div className="apex-auth-feature-title" style={{ color: "#ffffff" }}>Collaborate Seamlessly</div>
-                      <div className="apex-auth-feature-desc" style={{ color: "#cbd5e1" }}>Invite your team and work together securely</div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Vector 3D Graphic */}
-                <SignUpHeroGraphic />
-              </div>
-            </div>
-          )}
+          </div>
 
           {/* Right Auth Card Form */}
           <div className="apex-auth-card-wrap">

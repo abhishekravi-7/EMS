@@ -100,6 +100,155 @@
 }
 
 /* ── Sign In Left Hero Card (Light Ice Blue Gradient) ── */
+.new-signin-layout {
+  display: flex !important;
+  flex-direction: row !important;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: linear-gradient(135deg, #f0f7ff 0%, #e6f0fa 50%, #f8fafc 100%);
+}
+
+.new-signin-left {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 60px 80px;
+  position: relative;
+}
+
+.new-signin-left-content {
+  max-width: 500px;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  text-align: left;
+}
+
+.new-signin-brand {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+
+.new-signin-logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 28px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.new-signin-logo-icon {
+  color: #2563eb;
+}
+
+.new-signin-logo-blue {
+  color: #2563eb;
+  font-style: italic;
+}
+
+.new-signin-tagline {
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #1e293b;
+  letter-spacing: 0.5px;
+  margin-top: 10px;
+}
+
+.new-signin-headings {
+  margin-top: 0px;
+  margin-bottom: 40px;
+}
+
+.new-signin-title {
+  font-size: 48px;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0;
+  line-height: 1.2;
+}
+
+.new-signin-title-blue {
+  font-size: 48px;
+  font-weight: 800;
+  color: #2563eb;
+  margin: 0;
+  line-height: 1.2;
+}
+
+.new-signin-subtext {
+  margin-top: 20px;
+  font-size: 16px;
+  color: #475569;
+  line-height: 1.6;
+}
+
+.new-signin-graphic {
+  position: relative;
+  width: 100%;
+  height: 300px;
+  margin-top: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.new-signin-svg {
+  width: 100%;
+  max-width: 500px;
+  height: auto;
+}
+
+.new-signin-footer {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: #475569;
+}
+
+.new-signin-footer a {
+  color: #1e293b;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.powered-by {
+  font-size: 11px;
+}
+
+.new-signin-right {
+  flex: 0 0 500px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 40px 40px 40px 10px;
+}
+
+@media (max-width: 900px) {
+  .new-signin-layout {
+    flex-direction: column;
+    height: auto;
+    overflow: auto;
+  }
+  .new-signin-left {
+    flex: none;
+    width: 100%;
+  }
+  .new-signin-right {
+    flex: none;
+    width: 100%;
+  }
+}
+
 .apex-auth-hero-card--signin {
   background: linear-gradient(180deg, #f0f7ff 0%, #e6f0fa 50%, #f4f8fc 100%);
   border-radius: 24px;
@@ -219,23 +368,24 @@
 
 .apex-auth-card {
   width: 100%;
-  max-width: 440px;
+  max-width: 360px;
   background: #ffffff;
   border: 1px solid #e2e8f0;
-  border-radius: 24px;
-  padding: 40px 36px;
+  border-radius: 18px;
+  padding: 12px 24px 16px 24px;
   box-shadow: 0 12px 36px rgba(15, 23, 42, 0.04);
+  margin-top: -24px;
 }
 
 .apex-form-header {
-  margin-bottom: 22px;
+  margin-bottom: 4px;
 }
 
 .apex-form-title {
-  font-size: 22px;
-  font-weight: 800;
+  font-size: 18px;
+  font-weight: 700;
   color: #0f172a;
-  margin: 0 0 6px 0;
+  margin: 0 0 4px 0;
   letter-spacing: -0.02em;
 }
 
@@ -249,7 +399,7 @@
 .auth-form {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
 }
 
 .auth-field {
@@ -270,29 +420,45 @@
   align-items: center;
 }
 
+.auth-input-right-icon {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 2;
+}
+
 .auth-input-left-icon {
   position: absolute;
   left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
   display: flex;
   align-items: center;
+  justify-content: center;
   pointer-events: none;
   z-index: 2;
 }
 
 .auth-input {
   width: 100%;
-  height: 44px;
-  padding: 0 14px;
-  border-radius: 10px;
+  height: 42px;
+  padding: 0 14px 0 38px;
+  border-radius: 8px;
   border: 1px solid #cbd5e1;
-  font-size: 13px;
+  font-size: 14px;
   color: #0f172a;
-  background: #ffffff;
+  background: #eff6ff;
   transition: all 0.2s ease;
 }
 
+
 .auth-input--with-icon {
-  padding-left: 40px;
+  padding-right: 40px;
 }
 
 .auth-input:focus {
@@ -344,13 +510,27 @@
   background: none;
   border: none;
   color: #2563eb;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
+  padding: 0;
+  text-decoration: none;
 }
 
 .auth-link-forgot:hover {
   text-decoration: underline;
+}
+
+.auth-link-forgot:disabled {
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+.auth-forgot-row {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: 2px;
+  margin-bottom: 4px;
 }
 
 /* Password Strength Indicator Bar */
@@ -371,46 +551,11 @@
   background: #e2e8f0;
   transition: all 0.2s ease;
 }
-
-.apex-strength-label {
-  font-size: 11px;
-  color: #64748b;
-  font-weight: 600;
-}
-
-/* Checkbox */
-.auth-terms-checkbox-wrap {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: #64748b;
-  margin-top: 2px;
-}
-
-.auth-terms-checkbox-wrap input {
-  width: 15px;
-  height: 15px;
-  accent-color: #2563eb;
-  cursor: pointer;
-}
-
-.auth-terms-checkbox-wrap a {
-  color: #2563eb;
-  font-weight: 600;
-  text-decoration: none;
-}
-
-.auth-terms-checkbox-wrap a:hover {
-  text-decoration: underline;
-}
-
-/* Primary CTA Button */
 .apex-btn-auth-primary {
   width: 100%;
-  height: 46px;
-  border-radius: 10px;
-  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  height: 42px;
+  border-radius: 8px;
+  background: #2563eb;
   color: #ffffff;
   font-size: 14px;
   font-weight: 700;
@@ -420,53 +565,60 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.28);
   transition: all 0.2s ease;
-  margin-top: 4px;
+  margin-top: 14px;
+  box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.1), 0 2px 4px -1px rgba(37, 99, 235, 0.06);
 }
 
 .apex-btn-auth-primary:hover {
-  background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
-  box-shadow: 0 6px 18px rgba(37, 99, 235, 0.38);
+  background: #1d4ed8;
 }
 
 .apex-btn-auth-primary:disabled {
-  opacity: 0.7;
+  background: #94a3b8;
   cursor: not-allowed;
 }
 
-/* Divider & Social Stack */
 .auth-divider {
+  display: flex;
+  align-items: center;
   text-align: center;
-  font-size: 12px;
+  font-size: 13px;
   color: #94a3b8;
-  margin: 18px 0 14px 0;
-  position: relative;
+  margin: 24px 0 20px 0;
 }
 
 .auth-divider::before,
 .auth-divider::after {
-  content: "";
-  position: absolute;
-  top: 50%;
-  width: 28%;
-  height: 1px;
-  background: #e2e8f0;
+  content: '';
+  flex: 1;
+  border-bottom: 1px solid #e2e8f0;
 }
 
-.auth-divider::before { left: 0; }
-.auth-divider::after { right: 0; }
+.auth-divider::before {
+  margin-right: 15px;
+}
+
+.auth-divider::after {
+  margin-left: 15px;
+}
 
 .auth-social-stack {
   display: flex;
   flex-direction: column;
+  gap: 12px;
+}
+
+.auth-social-row {
+  display: flex;
+  flex-direction: row;
   gap: 10px;
 }
 
 .auth-social-btn {
   width: 100%;
   height: 42px;
-  border-radius: 10px;
+  border-radius: 8px;
   background: #ffffff;
   border: 1px solid #e2e8f0;
   font-size: 13px;
@@ -489,7 +641,7 @@
   text-align: center;
   font-size: 13px;
   color: #64748b;
-  margin-top: 20px;
+  margin-top: 6px;
   margin-bottom: 0;
 }
 
