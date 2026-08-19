@@ -25,21 +25,40 @@ export interface TestResult {
   test_type?: "JUNIT" | "API" | "UI" | "UNKNOWN" | string;
   testType?: "JUNIT" | "API" | "UI" | "UNKNOWN" | string;
   framework?: string;
+  engine?: string;
   failure_message?: string | null;
   stack_trace?: string | null;
   stdout?: string | null;
   stderr?: string | null;
+  error_category?: string | null;
+  errorCategory?: string | null;
+  error_code?: string | null;
+  errorCode?: string | null;
+  root_cause?: string | null;
+  rootCause?: string | null;
+  apex_execution?: string | null;
+  apexExecution?: string | null;
+  unavailable_reason?: string | null;
+  unavailableReason?: string | null;
   details?: {
     stdout?: string | null;
     stderr?: string | null;
     error?: string | null;
     stackTrace?: string | null;
+    errorCategory?: string | null;
+    rootCause?: string | null;
+    apexExecution?: string | null;
   } | null;
   report_url?: string | null;
   screenshot_url?: string | null;
+  screenshotUrl?: string | null;
   video_url?: string | null;
+  videoUrl?: string | null;
   trace_url?: string | null;
+  traceUrl?: string | null;
   api_evidence?: ApiEvidence | null;
+  apiEvidence?: ApiEvidence | null;
+  evidence?: any;
 }
 
 // ── File breakdown ────────────────────────────────────────────────────────────
@@ -71,6 +90,10 @@ export interface ReportAvailability {
 // ── Scan response ─────────────────────────────────────────────────────────────
 
 export interface ExistingTestScanResponse {
+  testCasesFound?: number;
+  status?: "READY" | "NO_TESTS_FOUND" | string;
+  message?: string;
+  tests?: any[];
   total: number;
   framework: string;
   test_cases: any[];
@@ -79,12 +102,15 @@ export interface ExistingTestScanResponse {
 // ── Status response ───────────────────────────────────────────────────────────
 
 export interface ExistingTestStatusResponse {
-  status: "IDLE" | "RUNNING" | "IN_PROGRESS" | "COMPLETED" | "FAILED" | "ERROR" | "STOPPED";
+  status: "IDLE" | "RUNNING" | "IN_PROGRESS" | "COMPLETED" | "FAILED" | "ERROR" | "STOPPED" | "NO_TESTS_FOUND";
   executed: boolean;
   logs: { ts: string; msg: string; level: string }[];
   result?: {
     status: string;
     executed: boolean;
+    testCasesFound?: number;
+    message?: string;
+    tests?: any[];
     metrics?: {
       total: number;
       executed?: number;
@@ -101,7 +127,7 @@ export interface ExistingTestStatusResponse {
     };
     framework_info?: {
       detected_framework: string;
-      build_tool: string;
+      build_tool: string | null;
       test_source_dir: string;
     };
     test_results: TestResult[];

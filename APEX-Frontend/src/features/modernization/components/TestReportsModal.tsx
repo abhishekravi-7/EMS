@@ -5,6 +5,7 @@ import {
   FaLink, FaDownload,
 } from "react-icons/fa";
 import type { ApiEvidence } from "../services/existingTestService";
+import { APP_BASE_URL } from "../../../services/config/env";
 
 // ── Data model ──────────────────────────────────────────────────────────────
 
@@ -19,18 +20,24 @@ export interface TestReportData {
   url?: string | null;
   error?: string | null;
   errorCode?: string | null;
+  errorCategory?: string | null;
+  rootCause?: string | null;
+  apexExecution?: string | null;
+  unavailableReason?: string | null;
   stackTrace?: string | null;
   stdout?: string | null;
   stderr?: string | null;
   type?: string;
   testType?: "JUNIT" | "API" | "UI" | "UNIT" | "UNKNOWN" | string;
   framework?: string;
+  engine?: string;
   // UI evidence
   screenshotUrl?: string | null;
   videoUrl?: string | null;
   traceUrl?: string | null;
   // API evidence
   apiEvidence?: ApiEvidence | null;
+  evidence?: any;
 }
 
 interface TestReportsModalProps {
@@ -42,24 +49,79 @@ interface TestReportsModalProps {
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 const STATUS_COLORS = {
-  PASSED: { bg: "#064e3b", text: "#34d399", border: "#065f46" },
-  FAILED: { bg: "#451a1a", text: "#f87171", border: "#7f1d1d" },
-  SKIPPED: { bg: "#1e1b4b", text: "#a5b4fc", border: "#312e81" },
-  NOT_EXECUTED: { bg: "#1e293b", text: "#94a3b8", border: "#475569" },
-  DEFAULT: { bg: "#1e293b", text: "#94a3b8", border: "#334155" },
+  PASSED: { bg: "#ecfdf5", text: "#059669", border: "#a7f3d0" },
+  FAILED: { bg: "#fef2f2", text: "#dc2626", border: "#fecaca" },
+  ERROR: { bg: "#fef2f2", text: "#dc2626", border: "#fecaca" },
+  SKIPPED: { bg: "#fffbeb", text: "#d97706", border: "#fde68a" },
+  NOT_EXECUTED: { bg: "#f1f5f9", text: "#64748b", border: "#e2e8f0" },
+  DEFAULT: { bg: "#f1f5f9", text: "#64748b", border: "#e2e8f0" },
 };
 
 const METHOD_COLORS: Record<string, string> = {
-  GET: "#3b82f6", POST: "#10b981", PUT: "#f59e0b",
-  PATCH: "#8b5cf6", DELETE: "#ef4444",
+  GET: "#2563eb", POST: "#059669", PUT: "#d97706",
+  PATCH: "#7c3aed", DELETE: "#dc2626",
 };
+
+export function resolveEvidenceUrl(url: string | null | undefined): string | null {
+  if (!url || typeof url !== "string") return null;
+  const trimmed = url.trim();
+  if (!trimmed || trimmed === "undefined" || trimmed === "null" || trimmed.includes("fake")) return null;
+  if (
+    trimmed.startsWith("data:") ||
+    trimmed.startsWith("http://") ||
+    trimmed.startsWith("https://") ||
+    trimmed.startsWith("blob:")
+  ) {
+    return trimmed;
+  }
+  if (trimmed.startsWith("/")) {
+    return `${APP_BASE_URL}${trimmed}`;
+  }
+  return `${APP_BASE_URL}/${trimmed}`;
+}
+
+export function getScreenshotUrl(data: TestReportData | null | undefined): string | null {
+  if (!data) return null;
+  const rawCandidate =
+    data.screenshotUrl ||
+    (data as any)?.screenshot_url ||
+    (data as any)?.screenshot ||
+    (data as any)?.evidence?.screenshotUrl ||
+    (data as any)?.evidence?.screenshot_url ||
+    (data as any)?.evidence?.screenshot ||
+    (data as any)?.evidence?.screenshotPath ||
+    (data as any)?.details?.screenshotUrl ||
+    (data as any)?.details?.screenshot_url ||
+    (data as any)?.details?.evidence?.screenshotUrl ||
+    null;
+
+  if (rawCandidate) {
+    const resolved = resolveEvidenceUrl(rawCandidate);
+    if (resolved) return resolved;
+  }
+
+  const isAvailable =
+    (data as any)?.screenshotAvailable ||
+    (data as any)?.screenshot_available ||
+    (data as any)?.evidence?.screenshotAvailable ||
+    (data as any)?.evidence?.screenshot_available ||
+    false;
+
+  if (isAvailable && (data.executionId || (data as any)?.jobId) && (data.testId || data.title)) {
+    const job = data.executionId || (data as any)?.jobId;
+    const test = data.testId || data.title;
+    return resolveEvidenceUrl(`/api/v1/migration/${encodeURIComponent(job)}/tests/${encodeURIComponent(test)}/evidence/screenshot`);
+  }
+
+  return null;
+}
 
 function StatusBadge({ status }: { status: string }) {
   const c = STATUS_COLORS[status as keyof typeof STATUS_COLORS] ?? STATUS_COLORS.DEFAULT;
   const label = status === "NOT_EXECUTED" ? "NOT EXECUTED" : status;
   return (
     <span style={{
-      fontSize: 10, fontWeight: 900, padding: "2px 10px", borderRadius: 99,
+      fontSize: 10, fontWeight: 900, padding: "3px 10px", borderRadius: 6,
       textTransform: "uppercase", letterSpacing: "0.05em",
       background: c.bg, color: c.text, border: `1px solid ${c.border}`,
     }}>{label}</span>
@@ -78,12 +140,17 @@ function TestExecutionDetails({ data }: { data: TestReportData }) {
   const hasStdout = !!(data.stdout && data.stdout.trim());
   const hasStderr = !!(data.stderr && data.stderr.trim());
 
+  const frameworkVal = data.framework || "JUnit";
+  const rawTestType = (data.testType || (data.type === "UI" || data.type === "API" || data.type === "UNIT" ? data.type : "") || "API").toUpperCase();
+  const testTypeVal = rawTestType === "UNIT" ? "API" : (rawTestType.includes("UI") ? "UI" : "API");
+  const engineVal = data.engine || (testTypeVal === "UI" ? "Playwright" : data.type && data.type !== frameworkVal && data.type !== testTypeVal ? data.type : null);
+
   return (
     <div style={{
-      background: "#1e293b",
+      background: "#f8fafc",
       borderRadius: 14,
       padding: "18px 22px",
-      border: "1px solid #334155",
+      border: "1px solid #e2e8f0",
       display: "flex",
       flexDirection: "column",
       gap: 16,
@@ -91,112 +158,197 @@ function TestExecutionDetails({ data }: { data: TestReportData }) {
       <div style={{
         fontSize: 11,
         fontWeight: 800,
-        color: "#94a3b8",
+        color: "#475569",
         textTransform: "uppercase",
         letterSpacing: "0.08em",
-        borderBottom: "1px solid #334155",
+        borderBottom: "1px solid #e2e8f0",
         paddingBottom: 8,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
       }}>
-        Test Execution Details
+        <span>Test Execution Details</span>
+        <span style={{ fontSize: 10, color: "#64748b", textTransform: "none", fontWeight: 600 }}>APEX Test Discovery &amp; Execution</span>
       </div>
 
-      {/* Two-Column / Multi-Column Grid */}
+      {/* Multi-Column Grid */}
       <div style={{
         display: "grid",
-        gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-        gap: "12px 20px",
+        gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
+        gap: "14px 20px",
       }}>
         <div>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>Test ID</div>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0", fontFamily: "monospace", wordBreak: "break-all" }}>
-            {data.testId || "None"}
-          </div>
-        </div>
-
-        <div>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>Execution ID</div>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0", fontFamily: "monospace", wordBreak: "break-all" }}>
-            {data.executionId || "None"}
-          </div>
-        </div>
-
-        <div>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>Test Method / Name</div>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#38bdf8", fontFamily: "monospace" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 2 }}>Test Name</div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#0f172a", fontFamily: "monospace", wordBreak: "break-all" }}>
             {data.title || "None"}
           </div>
         </div>
 
         <div>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>Class / Suite</div>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#7dd3fc", fontFamily: "monospace", wordBreak: "break-all" }}>
-            {data.spec || "None"}
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 2 }}>Test ID</div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#334155", fontFamily: "monospace", wordBreak: "break-all" }}>
+            {data.testId || "None"}
           </div>
         </div>
 
         <div>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>Status</div>
-          <div style={{ fontSize: 12, fontWeight: 800, color: data.status === "PASSED" ? "#34d399" : data.status === "FAILED" || data.status === "ERROR" ? "#f87171" : "#94a3b8" }}>
-            {data.status || "None"}
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 2 }}>Execution ID</div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#334155", fontFamily: "monospace", wordBreak: "break-all" }}>
+            {data.executionId || "None"}
           </div>
         </div>
 
         <div>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>Duration</div>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#f472b6" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 2 }}>Status</div>
+          <div style={{ marginTop: 2 }}>
+            <StatusBadge status={data.status} />
+          </div>
+        </div>
+
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 2 }}>Duration</div>
+          <div style={{ fontSize: 12, fontWeight: 800, color: "#db2777" }}>
             {data.duration || "None"}
           </div>
         </div>
 
         <div>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>Source File</div>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#cbd5e1", fontFamily: "monospace", wordBreak: "break-all" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 2 }}>Source File</div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#475569", fontFamily: "monospace", wordBreak: "break-all" }}>
             {data.file || "None"}
           </div>
         </div>
 
         <div>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>Framework</div>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#fbbf24" }}>
-            {data.framework || "None"}
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 2 }}>Class / Suite</div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#2563eb", fontFamily: "monospace", wordBreak: "break-all" }}>
+            {data.spec || "None"}
           </div>
         </div>
 
         <div>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>Test Type</div>
-          <div style={{ fontSize: 12, fontWeight: 800, color: "#a78bfa" }}>
-            {data.testType || "None"}
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 2 }}>Framework</div>
+          <div style={{ marginTop: 2 }}>
+            <span style={{
+              fontSize: 10,
+              fontWeight: 700,
+              padding: "2px 8px",
+              borderRadius: 6,
+              background: "#f1f5f9",
+              color: "#334155",
+              border: "1px solid #cbd5e1",
+              letterSpacing: "0.02em",
+              display: "inline-block",
+            }}>
+              {frameworkVal}
+            </span>
           </div>
         </div>
 
         <div>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>Test Type / Framework</div>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#94a3b8" }}>
-            {data.type || "None"}
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 2 }}>Test Type</div>
+          <div style={{ marginTop: 2 }}>
+            <span style={{
+              fontSize: 9,
+              fontWeight: 800,
+              padding: "2px 8px",
+              borderRadius: 4,
+              background: testTypeVal === "UI" ? "#faf5ff" : "#eff6ff",
+              color: testTypeVal === "UI" ? "#9333ea" : "#2563eb",
+              border: `1px solid ${testTypeVal === "UI" ? "#e9d5ff" : "#bfdbfe"}`,
+              letterSpacing: "0.04em",
+              display: "inline-block",
+            }}>
+              {testTypeVal}
+            </span>
           </div>
         </div>
+
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 2 }}>APEX Execution</div>
+          <div style={{ marginTop: 2, display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{
+              fontSize: 10,
+              fontWeight: 800,
+              padding: "2px 8px",
+              borderRadius: 6,
+              background: "#ecfdf5",
+              color: "#059669",
+              border: "1px solid #a7f3d0",
+              letterSpacing: "0.02em",
+              display: "inline-block",
+            }}>
+              {data.apexExecution || (data as any)?.details?.apexExecution || "Started successfully"}
+            </span>
+          </div>
+        </div>
+
+        {engineVal && (
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 2 }}>Engine</div>
+            <div style={{ marginTop: 2 }}>
+              <span style={{
+                fontSize: 10,
+                fontWeight: 700,
+                padding: "2px 8px",
+                borderRadius: 6,
+                background: "#faf5ff",
+                color: "#9333ea",
+                border: "1px solid #e9d5ff",
+                letterSpacing: "0.02em",
+                display: "inline-block",
+              }}>
+                {engineVal}
+              </span>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Expandable Sections for Error, Stack Trace, stdout, stderr */}
+      {/* Expandable Sections for Error, Root Cause, Category, Stack Trace, stdout, stderr */}
       <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 4 }}>
+        {/* Root Cause (when present) */}
+        {(data.rootCause || (data as any)?.details?.rootCause) && (
+          <div style={{ background: "#fffbeb", borderRadius: 8, padding: "10px 14px", border: "1px solid #fde68a" }}>
+            <div style={{ fontSize: 10, fontWeight: 800, color: "#b45309", textTransform: "uppercase", marginBottom: 4, letterSpacing: "0.05em" }}>
+              Root Cause
+            </div>
+            <div style={{ fontSize: 12, color: "#92400e", fontWeight: 700, lineHeight: 1.4 }}>
+              {data.rootCause || (data as any)?.details?.rootCause}
+            </div>
+          </div>
+        )}
+
+        {/* Error Classification / Category (when present) */}
+        {(data.errorCategory || (data as any)?.details?.errorCategory) && (
+          <div style={{ background: "#fef2f2", borderRadius: 8, padding: "10px 14px", border: "1px solid #fecaca" }}>
+            <div style={{ fontSize: 10, fontWeight: 800, color: "#b91c1c", textTransform: "uppercase", marginBottom: 4, letterSpacing: "0.05em" }}>
+              Error Classification
+            </div>
+            <div style={{ fontSize: 12, color: "#dc2626", fontWeight: 700 }}>
+              {data.errorCategory || (data as any)?.details?.errorCategory}
+            </div>
+          </div>
+        )}
+
         {/* Error */}
-        <div style={{ background: "#0f172a", borderRadius: 8, padding: "10px 14px", border: "1px solid #334155" }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", marginBottom: 4 }}>
+        <div style={{ background: hasError ? "#fef2f2" : "#ffffff", borderRadius: 8, padding: "10px 14px", border: `1px solid ${hasError ? "#fecaca" : "#e2e8f0"}` }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: hasError ? "#b91c1c" : "#64748b", textTransform: "uppercase", marginBottom: 4 }}>
             Error
           </div>
-          <div style={{ fontSize: 12, color: hasError ? "#fca5a5" : "#64748b", fontFamily: hasError ? "monospace" : "inherit" }}>
+          <div style={{ fontSize: 12, color: hasError ? "#dc2626" : "#64748b", fontFamily: hasError ? "monospace" : "inherit" }}>
             {hasError ? data.error : "No errors"}
           </div>
         </div>
 
         {/* Stack Trace */}
-        <div style={{ background: "#0f172a", borderRadius: 8, padding: "10px 14px", border: "1px solid #334155" }}>
+        <div style={{ background: "#ffffff", borderRadius: 8, padding: "10px 14px", border: "1px solid #e2e8f0" }}>
           <div
             onClick={() => hasStackTrace && setShowStackTrace(!showStackTrace)}
             style={{
               fontSize: 10,
               fontWeight: 700,
-              color: "#94a3b8",
+              color: "#64748b",
               textTransform: "uppercase",
               display: "flex",
               alignItems: "center",
@@ -206,18 +358,18 @@ function TestExecutionDetails({ data }: { data: TestReportData }) {
           >
             <span>Stack Trace</span>
             {hasStackTrace && (
-              <span style={{ color: "#38bdf8", fontSize: 10, fontWeight: 600 }}>
+              <span style={{ color: "#2563eb", fontSize: 10, fontWeight: 600 }}>
                 {showStackTrace ? "Collapse" : "Expand"}
               </span>
             )}
           </div>
           {!hasStackTrace ? (
-            <div style={{ fontSize: 12, color: "#64748b", marginTop: 4 }}>No stack trace available</div>
+            <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>No stack trace available</div>
           ) : showStackTrace ? (
             <pre style={{
               margin: "8px 0 0 0",
               padding: 10,
-              background: "#020617",
+              background: "#0f172a",
               borderRadius: 6,
               fontSize: 11,
               color: "#fca5a5",
@@ -230,20 +382,20 @@ function TestExecutionDetails({ data }: { data: TestReportData }) {
               {data.stackTrace}
             </pre>
           ) : (
-            <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4, fontFamily: "monospace", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            <div style={{ fontSize: 11, color: "#64748b", marginTop: 4, fontFamily: "monospace", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
               {data.stackTrace?.split("\n")[0]}
             </div>
           )}
         </div>
 
         {/* Standard Output (stdout) */}
-        <div style={{ background: "#0f172a", borderRadius: 8, padding: "10px 14px", border: "1px solid #334155" }}>
+        <div style={{ background: "#ffffff", borderRadius: 8, padding: "10px 14px", border: "1px solid #e2e8f0" }}>
           <div
             onClick={() => hasStdout && setShowStdout(!showStdout)}
             style={{
               fontSize: 10,
               fontWeight: 700,
-              color: "#94a3b8",
+              color: "#64748b",
               textTransform: "uppercase",
               display: "flex",
               alignItems: "center",
@@ -253,21 +405,21 @@ function TestExecutionDetails({ data }: { data: TestReportData }) {
           >
             <span>Standard Output (stdout)</span>
             {hasStdout && (
-              <span style={{ color: "#38bdf8", fontSize: 10, fontWeight: 600 }}>
+              <span style={{ color: "#2563eb", fontSize: 10, fontWeight: 600 }}>
                 {showStdout ? "Collapse" : "Expand"}
               </span>
             )}
           </div>
           {!hasStdout ? (
-            <div style={{ fontSize: 12, color: "#64748b", marginTop: 4 }}>No standard output captured</div>
+            <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>No standard output captured</div>
           ) : showStdout ? (
             <pre style={{
               margin: "8px 0 0 0",
               padding: 10,
-              background: "#020617",
+              background: "#0f172a",
               borderRadius: 6,
               fontSize: 11,
-              color: "#e2e8f0",
+              color: "#f1f5f9",
               whiteSpace: "pre-wrap",
               wordBreak: "break-all",
               maxHeight: 200,
@@ -277,20 +429,20 @@ function TestExecutionDetails({ data }: { data: TestReportData }) {
               {data.stdout}
             </pre>
           ) : (
-            <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4, fontFamily: "monospace", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            <div style={{ fontSize: 11, color: "#64748b", marginTop: 4, fontFamily: "monospace", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
               {data.stdout?.split("\n")[0]}
             </div>
           )}
         </div>
 
         {/* Standard Error (stderr) */}
-        <div style={{ background: "#0f172a", borderRadius: 8, padding: "10px 14px", border: "1px solid #334155" }}>
+        <div style={{ background: "#ffffff", borderRadius: 8, padding: "10px 14px", border: "1px solid #e2e8f0" }}>
           <div
             onClick={() => hasStderr && setShowStderr(!showStderr)}
             style={{
               fontSize: 10,
               fontWeight: 700,
-              color: "#94a3b8",
+              color: "#64748b",
               textTransform: "uppercase",
               display: "flex",
               alignItems: "center",
@@ -300,18 +452,18 @@ function TestExecutionDetails({ data }: { data: TestReportData }) {
           >
             <span>Standard Error (stderr)</span>
             {hasStderr && (
-              <span style={{ color: "#38bdf8", fontSize: 10, fontWeight: 600 }}>
+              <span style={{ color: "#2563eb", fontSize: 10, fontWeight: 600 }}>
                 {showStderr ? "Collapse" : "Expand"}
               </span>
             )}
           </div>
           {!hasStderr ? (
-            <div style={{ fontSize: 12, color: "#64748b", marginTop: 4 }}>No standard error captured</div>
+            <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>No standard error captured</div>
           ) : showStderr ? (
             <pre style={{
               margin: "8px 0 0 0",
               padding: 10,
-              background: "#020617",
+              background: "#0f172a",
               borderRadius: 6,
               fontSize: 11,
               color: "#fca5a5",
@@ -324,7 +476,7 @@ function TestExecutionDetails({ data }: { data: TestReportData }) {
               {data.stderr}
             </pre>
           ) : (
-            <div style={{ fontSize: 11, color: "#fca5a5", marginTop: 4, fontFamily: "monospace", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            <div style={{ fontSize: 11, color: "#dc2626", marginTop: 4, fontFamily: "monospace", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
               {data.stderr?.split("\n")[0]}
             </div>
           )}
@@ -346,35 +498,35 @@ function ApiReportPanel({ data }: { data: TestReportData }) {
     <div style={{ padding: "24px 32px", overflowY: "auto", flex: 1, display: "flex", flexDirection: "column", gap: 20 }}>
       {/* Overview Grid */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 14 }}>
-        <div style={{ background: "#1e293b", borderRadius: 12, padding: "14px 18px", border: "1px solid #334155" }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", marginBottom: 4 }}>Test Name</div>
-          <div style={{ fontSize: 13, fontWeight: 800, color: "#f8fafc", fontFamily: "monospace", wordBreak: "break-all" }}>{data.title}</div>
+        <div style={{ background: "#f8fafc", borderRadius: 12, padding: "14px 18px", border: "1px solid #e2e8f0" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 4 }}>Test Name</div>
+          <div style={{ fontSize: 13, fontWeight: 800, color: "#0f172a", fontFamily: "monospace", wordBreak: "break-all" }}>{data.title}</div>
         </div>
 
-        <div style={{ background: "#1e293b", borderRadius: 12, padding: "14px 18px", border: "1px solid #334155" }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", marginBottom: 4 }}>Spec / File</div>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#7dd3fc", fontFamily: "monospace", wordBreak: "break-all" }}>{data.spec}</div>
+        <div style={{ background: "#f8fafc", borderRadius: 12, padding: "14px 18px", border: "1px solid #e2e8f0" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 4 }}>Spec / File</div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#2563eb", fontFamily: "monospace", wordBreak: "break-all" }}>{data.spec}</div>
         </div>
 
-        <div style={{ background: "#1e293b", borderRadius: 12, padding: "14px 18px", border: "1px solid #334155" }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", marginBottom: 4 }}>Duration</div>
-          <div style={{ fontSize: 13, fontWeight: 800, color: "#f472b6" }}>{data.duration || "N/A"}</div>
+        <div style={{ background: "#f8fafc", borderRadius: 12, padding: "14px 18px", border: "1px solid #e2e8f0" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 4 }}>Duration</div>
+          <div style={{ fontSize: 13, fontWeight: 800, color: "#db2777" }}>{data.duration || "N/A"}</div>
         </div>
 
-        <div style={{ background: "#1e293b", borderRadius: 12, padding: "14px 18px", border: "1px solid #334155" }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", marginBottom: 4 }}>Type</div>
-          <div style={{ fontSize: 12, fontWeight: 800, color: "#10b981" }}>API</div>
+        <div style={{ background: "#f8fafc", borderRadius: 12, padding: "14px 18px", border: "1px solid #e2e8f0" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 4 }}>Type</div>
+          <div style={{ fontSize: 12, fontWeight: 800, color: "#059669" }}>API</div>
         </div>
       </div>
 
       {/* Endpoint Bar */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#020617", padding: "12px 18px", borderRadius: 10, border: "1px solid #1e293b" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#f1f5f9", padding: "12px 18px", borderRadius: 10, border: "1px solid #e2e8f0" }}>
         <span style={{
           background: methodColor, color: "#fff", fontSize: 11, fontWeight: 900,
           padding: "4px 10px", borderRadius: 6, letterSpacing: 1,
         }}>{method}</span>
         <code style={{
-          color: "#7dd3fc", fontSize: 13, fontFamily: "monospace", wordBreak: "break-all",
+          color: "#0f172a", fontSize: 13, fontFamily: "monospace", wordBreak: "break-all", fontWeight: 700,
         }}>{url}</code>
       </div>
 
@@ -382,53 +534,54 @@ function ApiReportPanel({ data }: { data: TestReportData }) {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
         {/* Request */}
         <div>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>
             Request Payload / Headers
           </div>
           <pre style={{
-            margin: 0, background: "#020617", border: "1px solid #1e293b",
+            margin: 0, background: "#0f172a", border: "1px solid #1e293b",
             borderRadius: 10, padding: 14, fontFamily: "monospace", fontSize: 11,
-            color: "#e2e8f0", whiteSpace: "pre-wrap", wordBreak: "break-all", maxHeight: 220, overflowY: "auto",
+            color: "#f1f5f9", whiteSpace: "pre-wrap", wordBreak: "break-all", maxHeight: 220, overflowY: "auto",
           }}>{evidence?.requestBody || "Headers: Content-Type: application/json\n\n(No request body)"}</pre>
         </div>
 
         {/* Response */}
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 0.5 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: 0.5 }}>
               Response
             </div>
             {evidence?.responseStatus && (
               <span style={{
                 fontSize: 11, fontWeight: 800, padding: "1px 8px", borderRadius: 4,
-                background: evidence.responseStatus < 300 ? "#064e3b" : "#451a1a",
-                color: evidence.responseStatus < 300 ? "#34d399" : "#f87171",
+                background: evidence.responseStatus < 300 ? "#ecfdf5" : "#fef2f2",
+                color: evidence.responseStatus < 300 ? "#059669" : "#dc2626",
+                border: `1px solid ${evidence.responseStatus < 300 ? "#a7f3d0" : "#fecaca"}`,
               }}>{evidence.responseStatus} {evidence.responseStatus < 300 ? "OK" : "ERROR"}</span>
             )}
           </div>
           <pre style={{
-            margin: 0, background: "#020617", border: "1px solid #1e293b",
+            margin: 0, background: "#0f172a", border: "1px solid #1e293b",
             borderRadius: 10, padding: 14, fontFamily: "monospace", fontSize: 11,
-            color: "#e2e8f0", whiteSpace: "pre-wrap", wordBreak: "break-all", maxHeight: 220, overflowY: "auto",
+            color: "#f1f5f9", whiteSpace: "pre-wrap", wordBreak: "break-all", maxHeight: 220, overflowY: "auto",
           }}>{evidence?.responseBody || data.error || "(Empty response body)"}</pre>
         </div>
       </div>
 
       {/* Assertions */}
       <div>
-        <div style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
+        <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
           Assertions
         </div>
         {evidence?.assertions && evidence.assertions.length > 0 ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {evidence.assertions.map((a, i) => (
-              <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", borderRadius: 8, background: "#1e293b", border: "1px solid #334155" }}>
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", borderRadius: 8, background: "#ffffff", border: "1px solid #e2e8f0" }}>
                 {a.status === "PASSED"
-                  ? <FaCheckCircle color="#34d399" size={14} />
-                  : <FaTimesCircle color="#f87171" size={14} />
+                  ? <FaCheckCircle color="#059669" size={14} />
+                  : <FaTimesCircle color="#dc2626" size={14} />
                 }
-                <span style={{ fontSize: 12, color: "#e2e8f0", fontWeight: 600 }}>{a.name}</span>
-                <span style={{ marginLeft: "auto", fontSize: 10, fontWeight: 800, color: a.status === "PASSED" ? "#34d399" : "#f87171" }}>
+                <span style={{ fontSize: 12, color: "#0f172a", fontWeight: 600 }}>{a.name}</span>
+                <span style={{ marginLeft: "auto", fontSize: 10, fontWeight: 800, color: a.status === "PASSED" ? "#059669" : "#dc2626" }}>
                   {a.status}
                 </span>
               </div>
@@ -436,13 +589,13 @@ function ApiReportPanel({ data }: { data: TestReportData }) {
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", borderRadius: 8, background: "#1e293b", border: "1px solid #334155" }}>
-              <FaCheckCircle color="#34d399" size={14} />
-              <span style={{ fontSize: 12, color: "#e2e8f0", fontWeight: 600 }}>Status code matched expected HTTP criteria</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", borderRadius: 8, background: "#ffffff", border: "1px solid #e2e8f0" }}>
+              <FaCheckCircle color="#059669" size={14} />
+              <span style={{ fontSize: 12, color: "#0f172a", fontWeight: 600 }}>Status code matched expected HTTP criteria</span>
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", borderRadius: 8, background: "#1e293b", border: "1px solid #334155" }}>
-              <FaCheckCircle color="#34d399" size={14} />
-              <span style={{ fontSize: 12, color: "#e2e8f0", fontWeight: 600 }}>Required API response schema fields present</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", borderRadius: 8, background: "#ffffff", border: "1px solid #e2e8f0" }}>
+              <FaCheckCircle color="#059669" size={14} />
+              <span style={{ fontSize: 12, color: "#0f172a", fontWeight: 600 }}>Required API response schema fields present</span>
             </div>
           </div>
         )}
@@ -455,25 +608,6 @@ function ApiReportPanel({ data }: { data: TestReportData }) {
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", paddingTop: 10 }}>
         <button
           onClick={() => {
-            const rawJson = JSON.stringify(data, null, 2);
-            const blob = new Blob([rawJson], { type: "application/json" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `${data.title}_api_report.json`;
-            a.click();
-            URL.revokeObjectURL(url);
-          }}
-          style={{
-            padding: "8px 14px", background: "#1e293b", color: "#34d399",
-            borderRadius: 8, border: "1px solid #334155", fontSize: 11, fontWeight: 700,
-            display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer"
-          }}
-        >
-          <FaDownload size={11} /> Download API Report
-        </button>
-        <button
-          onClick={() => {
             const logs = data.stdout || data.stderr || "No execution logs recorded.";
             const blob = new Blob([logs], { type: "text/plain" });
             const url = URL.createObjectURL(blob);
@@ -484,12 +618,13 @@ function ApiReportPanel({ data }: { data: TestReportData }) {
             URL.revokeObjectURL(url);
           }}
           style={{
-            padding: "8px 14px", background: "#1e293b", color: "#fbbf24",
-            borderRadius: 8, border: "1px solid #334155", fontSize: 11, fontWeight: 700,
-            display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer"
+            padding: "8px 16px", background: "#ffffff", color: "#0f172a",
+            borderRadius: 8, border: "1px solid #cbd5e1", fontSize: 12, fontWeight: 700,
+            display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer",
+            boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
           }}
         >
-          <FaDownload size={11} /> Download Logs
+          <FaDownload size={11} color="#64748b" /> Download Logs
         </button>
       </div>
     </div>
@@ -497,12 +632,18 @@ function ApiReportPanel({ data }: { data: TestReportData }) {
 }
 
 function UiReportPanel({ data }: { data: TestReportData }) {
-  const screenshotSrc = data.screenshotUrl || (data as any)?.evidence?.screenshotUrl || null;
-  const videoSrc = data.videoUrl || (data as any)?.evidence?.videoUrl || null;
-  const hasScreenshot = !!screenshotSrc && screenshotSrc !== "undefined" && !screenshotSrc.includes("fake");
-  const hasVideo = !!videoSrc && videoSrc !== "undefined" && !videoSrc.includes("fake");
+  const screenshotSrc = getScreenshotUrl(data);
+  const videoSrc = resolveEvidenceUrl(data.videoUrl || (data as any)?.video_url || (data as any)?.evidence?.videoUrl);
+  const hasScreenshot = !!screenshotSrc;
+  const hasVideo = !!videoSrc;
   const [showFullScreenshot, setShowFullScreenshot] = React.useState(false);
   const [imageFailed, setImageFailed] = React.useState(false);
+
+  // Reset state when selected test changes to avoid stale screenshots or stale failure flags
+  React.useEffect(() => {
+    setImageFailed(false);
+    setShowFullScreenshot(false);
+  }, [data.testId, data.title, data.screenshotUrl, (data as any)?.screenshot_url]);
 
   const hasTrace = !!data.traceUrl;
   const hasLogs = !!(data.stdout || data.stderr);
@@ -513,41 +654,41 @@ function UiReportPanel({ data }: { data: TestReportData }) {
     <div style={{ padding: "24px 32px", overflowY: "auto", flex: 1, display: "flex", flexDirection: "column", gap: 20 }}>
       {/* Overview Grid */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 14 }}>
-        <div style={{ background: "#1e293b", borderRadius: 12, padding: "14px 18px", border: "1px solid #334155" }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", marginBottom: 4 }}>Test Method</div>
-          <div style={{ fontSize: 13, fontWeight: 800, color: "#f8fafc", fontFamily: "monospace", wordBreak: "break-all" }}>{data.title}</div>
+        <div style={{ background: "#f8fafc", borderRadius: 12, padding: "14px 18px", border: "1px solid #e2e8f0" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 4 }}>Test Method</div>
+          <div style={{ fontSize: 13, fontWeight: 800, color: "#0f172a", fontFamily: "monospace", wordBreak: "break-all" }}>{data.title}</div>
         </div>
 
-        <div style={{ background: "#1e293b", borderRadius: 12, padding: "14px 18px", border: "1px solid #334155" }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", marginBottom: 4 }}>Class / Suite</div>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#7dd3fc", fontFamily: "monospace", wordBreak: "break-all" }}>{data.spec}</div>
+        <div style={{ background: "#f8fafc", borderRadius: 12, padding: "14px 18px", border: "1px solid #e2e8f0" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 4 }}>Class / Suite</div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#2563eb", fontFamily: "monospace", wordBreak: "break-all" }}>{data.spec}</div>
         </div>
 
-        <div style={{ background: "#1e293b", borderRadius: 12, padding: "14px 18px", border: "1px solid #334155" }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", marginBottom: 4 }}>Duration</div>
-          <div style={{ fontSize: 13, fontWeight: 800, color: "#f472b6" }}>{data.duration || "N/A"}</div>
+        <div style={{ background: "#f8fafc", borderRadius: 12, padding: "14px 18px", border: "1px solid #e2e8f0" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 4 }}>Duration</div>
+          <div style={{ fontSize: 13, fontWeight: 800, color: "#db2777" }}>{data.duration || "N/A"}</div>
         </div>
 
-        <div style={{ background: "#1e293b", borderRadius: 12, padding: "14px 18px", border: "1px solid #334155" }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", marginBottom: 4 }}>Framework</div>
-          <div style={{ fontSize: 12, fontWeight: 800, color: "#fbbf24" }}>{data.framework || "JUnit"}</div>
+        <div style={{ background: "#f8fafc", borderRadius: 12, padding: "14px 18px", border: "1px solid #e2e8f0" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 4 }}>Framework</div>
+          <div style={{ fontSize: 12, fontWeight: 800, color: "#d97706" }}>{data.framework || "JUnit"}</div>
         </div>
 
-        <div style={{ background: "#1e293b", borderRadius: 12, padding: "14px 18px", border: "1px solid #334155" }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", marginBottom: 4 }}>Type</div>
-          <div style={{ fontSize: 12, fontWeight: 800, color: "#6366f1" }}>{data.testType || "UI"}</div>
+        <div style={{ background: "#f8fafc", borderRadius: 12, padding: "14px 18px", border: "1px solid #e2e8f0" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 4 }}>Type</div>
+          <div style={{ fontSize: 12, fontWeight: 800, color: "#9333ea" }}>UI</div>
         </div>
       </div>
 
       {/* Status Banner */}
       <div style={{
-        background: isPassed ? "rgba(6, 78, 59, 0.4)" : isFailed ? "rgba(127, 29, 29, 0.4)" : "#1e293b",
-        borderRadius: 12, padding: "14px 18px", border: `1px solid ${isPassed ? "#065f46" : isFailed ? "#991b1b" : "#334155"}`,
+        background: isPassed ? "#ecfdf5" : isFailed ? "#fef2f2" : "#f8fafc",
+        borderRadius: 12, padding: "14px 18px", border: `1px solid ${isPassed ? "#a7f3d0" : isFailed ? "#fecaca" : "#e2e8f0"}`,
       }}>
-        <div style={{ fontSize: 13, fontWeight: 800, color: isPassed ? "#34d399" : isFailed ? "#f87171" : "#e2e8f0" }}>
+        <div style={{ fontSize: 13, fontWeight: 800, color: isPassed ? "#059669" : isFailed ? "#dc2626" : "#0f172a" }}>
           {isPassed ? "TEST EXECUTED SUCCESSFULLY" : isFailed ? "TEST EXECUTION FAILED" : `STATUS: ${data.status}`}
         </div>
-        <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>
+        <div style={{ fontSize: 12, color: isPassed ? "#065f46" : isFailed ? "#991b1b" : "#64748b", marginTop: 4 }}>
           {isPassed ? "The test method passed successfully." : data.error || "The UI test encountered a failure during execution."}
         </div>
       </div>
@@ -557,13 +698,13 @@ function UiReportPanel({ data }: { data: TestReportData }) {
 
       {/* Screenshot Evidence Section */}
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        <div style={{ fontSize: 11, fontWeight: 800, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 0.5, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <span style={{ display: "flex", alignItems: "center", gap: 6 }}><FaImage color="#6366f1" /> Screenshot Evidence</span>
+        <div style={{ fontSize: 11, fontWeight: 800, color: "#475569", textTransform: "uppercase", letterSpacing: 0.5, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 6 }}><FaImage color="#9333ea" /> Screenshot Evidence</span>
           {hasScreenshot && !imageFailed && (
             <button
               onClick={() => setShowFullScreenshot(true)}
               style={{
-                background: "none", border: "none", color: "#38bdf8", fontSize: 11, fontWeight: 700,
+                background: "none", border: "none", color: "#2563eb", fontSize: 11, fontWeight: 700,
                 cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4, padding: 0
               }}
             >
@@ -573,29 +714,29 @@ function UiReportPanel({ data }: { data: TestReportData }) {
         </div>
 
         {hasScreenshot && !imageFailed ? (
-          <div style={{ position: "relative", borderRadius: 12, overflow: "hidden", border: "1px solid #334155", background: "#020617", textAlign: "center" }}>
+          <div style={{ position: "relative", borderRadius: 12, overflow: "hidden", border: "1px solid #e2e8f0", background: "#f8fafc", textAlign: "center", padding: 10 }}>
             <img
               src={screenshotSrc!}
               alt={`Screenshot for ${data.title}`}
-              style={{ maxWidth: "100%", maxHeight: 420, objectFit: "contain", cursor: "zoom-in", display: "inline-block", margin: "0 auto" }}
+              style={{ maxWidth: "100%", maxHeight: 420, objectFit: "contain", cursor: "zoom-in", display: "inline-block", margin: "0 auto", borderRadius: 8 }}
               onClick={() => setShowFullScreenshot(true)}
               onError={() => setImageFailed(true)}
             />
           </div>
         ) : (
-          <div style={{ background: "#0f172a", padding: "16px 20px", borderRadius: 10, border: "1px solid #334155", color: "#94a3b8", fontSize: 12 }}>
-            No screenshot evidence available for this test.
+          <div style={{ background: "#f8fafc", padding: "16px 20px", borderRadius: 10, border: "1px solid #e2e8f0", color: "#64748b", fontSize: 12 }}>
+            {data.unavailableReason || (data as any)?.evidence?.unavailableReason || "Screenshot evidence unavailable because test failed before or during initialization."}
           </div>
         )}
       </div>
 
       {/* Video Evidence Section */}
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        <div style={{ fontSize: 11, fontWeight: 800, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 0.5, display: "flex", alignItems: "center", gap: 6 }}>
-          <FaPlay color="#10b981" /> Video Evidence
+        <div style={{ fontSize: 11, fontWeight: 800, color: "#475569", textTransform: "uppercase", letterSpacing: 0.5, display: "flex", alignItems: "center", gap: 6 }}>
+          <FaPlay color="#059669" /> Video Evidence
         </div>
         {hasVideo ? (
-          <div style={{ borderRadius: 12, overflow: "hidden", border: "1px solid #334155", background: "#020617" }}>
+          <div style={{ borderRadius: 12, overflow: "hidden", border: "1px solid #e2e8f0", background: "#0f172a" }}>
             <video
               src={videoSrc!}
               controls
@@ -608,8 +749,8 @@ function UiReportPanel({ data }: { data: TestReportData }) {
             </video>
           </div>
         ) : (
-          <div style={{ background: "#0f172a", padding: "16px 20px", borderRadius: 10, border: "1px solid #334155", color: "#94a3b8", fontSize: 12 }}>
-            Video evidence unavailable.
+          <div style={{ background: "#f8fafc", padding: "16px 20px", borderRadius: 10, border: "1px solid #e2e8f0", color: "#64748b", fontSize: 12 }}>
+            {data.unavailableReason || (data as any)?.evidence?.unavailableReason || "Video evidence unavailable."}
           </div>
         )}
       </div>
@@ -617,8 +758,8 @@ function UiReportPanel({ data }: { data: TestReportData }) {
       {/* Trace link */}
       {hasTrace && (
         <div>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
-            <FaTerminal color="#fbbf24" /> Playwright Trace
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+            <FaTerminal color="#d97706" /> Playwright Trace
           </div>
           <a
             href={data.traceUrl!}
@@ -626,12 +767,12 @@ function UiReportPanel({ data }: { data: TestReportData }) {
             rel="noopener noreferrer"
             style={{
               display: "inline-flex", alignItems: "center", gap: 8,
-              padding: "10px 20px", background: "#1e293b", color: "#fbbf24",
+              padding: "10px 20px", background: "#ffffff", color: "#0f172a",
               borderRadius: 10, textDecoration: "none", fontSize: 12, fontWeight: 700,
-              border: "1px solid #334155",
+              border: "1px solid #cbd5e1", boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
             }}
           >
-            <FaExternalLinkAlt size={12} /> View Playwright Trace
+            <FaExternalLinkAlt size={12} color="#d97706" /> View Playwright Trace
           </a>
         </div>
       )}
@@ -639,13 +780,13 @@ function UiReportPanel({ data }: { data: TestReportData }) {
       {/* Logs */}
       {hasLogs && (
         <div>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
             Browser / Test Execution Logs
           </div>
           <pre style={{
-            margin: 0, background: "#020617", border: "1px solid #1e293b",
+            margin: 0, background: "#0f172a", border: "1px solid #1e293b",
             borderRadius: 10, padding: 14, fontFamily: "monospace", fontSize: 11,
-            color: "#e2e8f0", whiteSpace: "pre-wrap", wordBreak: "break-all", maxHeight: 200, overflowY: "auto",
+            color: "#f1f5f9", whiteSpace: "pre-wrap", wordBreak: "break-all", maxHeight: 200, overflowY: "auto",
           }}>{data.stdout || data.stderr}</pre>
         </div>
       )}
@@ -657,9 +798,10 @@ function UiReportPanel({ data }: { data: TestReportData }) {
             href={screenshotSrc!}
             download={`${data.title}-screenshot.png`}
             style={{
-              padding: "8px 14px", background: "#1e293b", color: "#38bdf8",
-              borderRadius: 8, border: "1px solid #334155", fontSize: 11, fontWeight: 700,
-              display: "inline-flex", alignItems: "center", gap: 6, textDecoration: "none"
+              padding: "8px 16px", background: "#ffffff", color: "#2563eb",
+              borderRadius: 8, border: "1px solid #cbd5e1", fontSize: 12, fontWeight: 700,
+              display: "inline-flex", alignItems: "center", gap: 6, textDecoration: "none",
+              boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
             }}
           >
             <FaDownload size={11} /> Download Screenshot
@@ -670,33 +812,15 @@ function UiReportPanel({ data }: { data: TestReportData }) {
             href={videoSrc!}
             download={`${data.title}-video.webm`}
             style={{
-              padding: "8px 14px", background: "#1e293b", color: "#34d399",
-              borderRadius: 8, border: "1px solid #334155", fontSize: 11, fontWeight: 700,
-              display: "inline-flex", alignItems: "center", gap: 6, textDecoration: "none"
+              padding: "8px 16px", background: "#ffffff", color: "#059669",
+              borderRadius: 8, border: "1px solid #cbd5e1", fontSize: 12, fontWeight: 700,
+              display: "inline-flex", alignItems: "center", gap: 6, textDecoration: "none",
+              boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
             }}
           >
             <FaDownload size={11} /> Download Video
           </a>
         )}
-        <button
-          onClick={() => {
-            const rawJson = JSON.stringify(data, null, 2);
-            const blob = new Blob([rawJson], { type: "application/json" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `${data.title}_ui_report.json`;
-            a.click();
-            URL.revokeObjectURL(url);
-          }}
-          style={{
-            padding: "8px 14px", background: "#1e293b", color: "#f1f5f9",
-            borderRadius: 8, border: "1px solid #334155", fontSize: 11, fontWeight: 700,
-            display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer"
-          }}
-        >
-          <FaDownload size={11} /> Download UI Test Report
-        </button>
         <button
           onClick={() => {
             const logs = data.stdout || data.stderr || "No execution logs recorded.";
@@ -709,12 +833,13 @@ function UiReportPanel({ data }: { data: TestReportData }) {
             URL.revokeObjectURL(url);
           }}
           style={{
-            padding: "8px 14px", background: "#1e293b", color: "#fbbf24",
-            borderRadius: 8, border: "1px solid #334155", fontSize: 11, fontWeight: 700,
-            display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer"
+            padding: "8px 16px", background: "#ffffff", color: "#0f172a",
+            borderRadius: 8, border: "1px solid #cbd5e1", fontSize: 12, fontWeight: 700,
+            display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer",
+            boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
           }}
         >
-          <FaDownload size={11} /> Download Logs
+          <FaDownload size={11} color="#64748b" /> Download Logs
         </button>
       </div>
 
@@ -723,7 +848,7 @@ function UiReportPanel({ data }: { data: TestReportData }) {
         <div
           style={{
             position: "fixed", inset: 0, zIndex: 10020,
-            background: "rgba(0, 0, 0, 0.9)", backdropFilter: "blur(8px)",
+            background: "rgba(15, 23, 42, 0.85)", backdropFilter: "blur(8px)",
             display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
           }}
           onClick={() => setShowFullScreenshot(false)}
@@ -735,7 +860,7 @@ function UiReportPanel({ data }: { data: TestReportData }) {
                 position: "absolute", top: -14, right: -14, width: 32, height: 32,
                 borderRadius: "50%", background: "#ef4444", color: "#fff", border: "none",
                 display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", zIndex: 10,
-                boxShadow: "0 4px 12px rgba(0,0,0,0.5)"
+                boxShadow: "0 4px 12px rgba(0,0,0,0.3)"
               }}
             >
               <FaTimes size={14} />
@@ -743,7 +868,7 @@ function UiReportPanel({ data }: { data: TestReportData }) {
             <img
               src={screenshotSrc!}
               alt={`Full screenshot for ${data.title}`}
-              style={{ maxWidth: "90vw", maxHeight: "88vh", objectFit: "contain", borderRadius: 8, border: "1px solid #334155", boxShadow: "0 25px 60px rgba(0,0,0,0.8)" }}
+              style={{ maxWidth: "90vw", maxHeight: "88vh", objectFit: "contain", borderRadius: 8, border: "1px solid #cbd5e1", boxShadow: "0 25px 60px rgba(0,0,0,0.3)" }}
             />
           </div>
         </div>
@@ -751,8 +876,8 @@ function UiReportPanel({ data }: { data: TestReportData }) {
 
       {/* Source File Location Footer */}
       {data.file && (
-        <div style={{ fontSize: 11, color: "#64748b", fontFamily: "monospace", marginTop: "auto", paddingTop: 12, borderTop: "1px solid #1e293b" }}>
-          Source File: <span style={{ color: "#94a3b8" }}>{data.file}</span>
+        <div style={{ fontSize: 11, color: "#64748b", fontFamily: "monospace", marginTop: "auto", paddingTop: 12, borderTop: "1px solid #e2e8f0" }}>
+          Source File: <span style={{ color: "#0f172a" }}>{data.file}</span>
         </div>
       )}
     </div>
@@ -766,6 +891,16 @@ function JUnitReportPanel({ data }: { data: TestReportData }) {
   const isNotExecuted = data.status === "NOT_EXECUTED";
   const isFailed = data.status === "FAILED" || data.status === "ERROR";
 
+  const screenshotSrc = getScreenshotUrl(data);
+  const hasScreenshot = !!screenshotSrc;
+  const [showFullScreenshot, setShowFullScreenshot] = React.useState(false);
+  const [imageFailed, setImageFailed] = React.useState(false);
+
+  React.useEffect(() => {
+    setImageFailed(false);
+    setShowFullScreenshot(false);
+  }, [data.testId, data.title, data.screenshotUrl, (data as any)?.screenshot_url]);
+
   const hasStdout = !!(data.stdout && data.stdout.trim());
   const hasStderr = !!(data.stderr && data.stderr.trim());
 
@@ -773,56 +908,56 @@ function JUnitReportPanel({ data }: { data: TestReportData }) {
     <div style={{ padding: "24px 32px", overflowY: "auto", flex: 1, display: "flex", flexDirection: "column", gap: 20 }}>
       {/* Quick Stats Grid */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 14 }}>
-        <div style={{ background: "#1e293b", borderRadius: 12, padding: "14px 18px", border: "1px solid #334155" }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", marginBottom: 4 }}>Test Method</div>
-          <div style={{ fontSize: 13, fontWeight: 800, color: "#f8fafc", fontFamily: "monospace", wordBreak: "break-all" }}>{data.title}</div>
+        <div style={{ background: "#f8fafc", borderRadius: 12, padding: "14px 18px", border: "1px solid #e2e8f0" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 4 }}>Test Method</div>
+          <div style={{ fontSize: 13, fontWeight: 800, color: "#0f172a", fontFamily: "monospace", wordBreak: "break-all" }}>{data.title}</div>
         </div>
 
-        <div style={{ background: "#1e293b", borderRadius: 12, padding: "14px 18px", border: "1px solid #334155" }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", marginBottom: 4 }}>Class / Suite</div>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#7dd3fc", fontFamily: "monospace", wordBreak: "break-all" }}>{data.spec}</div>
+        <div style={{ background: "#f8fafc", borderRadius: 12, padding: "14px 18px", border: "1px solid #e2e8f0" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 4 }}>Class / Suite</div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#2563eb", fontFamily: "monospace", wordBreak: "break-all" }}>{data.spec}</div>
         </div>
 
-        <div style={{ background: "#1e293b", borderRadius: 12, padding: "14px 18px", border: "1px solid #334155" }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", marginBottom: 4 }}>Duration</div>
-          <div style={{ fontSize: 13, fontWeight: 800, color: "#f472b6" }}>{data.duration || "N/A"}</div>
+        <div style={{ background: "#f8fafc", borderRadius: 12, padding: "14px 18px", border: "1px solid #e2e8f0" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 4 }}>Duration</div>
+          <div style={{ fontSize: 13, fontWeight: 800, color: "#db2777" }}>{data.duration || "N/A"}</div>
         </div>
 
-        <div style={{ background: "#1e293b", borderRadius: 12, padding: "14px 18px", border: "1px solid #334155" }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", marginBottom: 4 }}>Framework / Type</div>
-          <div style={{ fontSize: 12, fontWeight: 800, color: "#fbbf24" }}>{data.framework || "JUnit"}</div>
+        <div style={{ background: "#f8fafc", borderRadius: 12, padding: "14px 18px", border: "1px solid #e2e8f0" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 4 }}>Framework / Type</div>
+          <div style={{ fontSize: 12, fontWeight: 800, color: "#d97706" }}>{data.framework || "JUnit"}</div>
         </div>
       </div>
 
       {/* Status Banner */}
       {isPassed && (
-        <div style={{ background: "rgba(6, 78, 59, 0.4)", border: "1px solid #065f46", borderRadius: 14, padding: "16px 20px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, color: "#34d399", fontWeight: 800, fontSize: 14 }}>
+        <div style={{ background: "#ecfdf5", border: "1px solid #a7f3d0", borderRadius: 14, padding: "16px 20px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, color: "#059669", fontWeight: 800, fontSize: 14 }}>
             <FaCheckCircle size={18} /> Test Executed Successfully
           </div>
-          <p style={{ margin: "6px 0 0 28px", color: "#a7f3d0", fontSize: 12, lineHeight: 1.5 }}>
+          <p style={{ margin: "6px 0 0 28px", color: "#065f46", fontSize: 12, lineHeight: 1.5 }}>
             The test method passed all available assertions.
           </p>
         </div>
       )}
 
       {isFailed && (
-        <div style={{ background: "rgba(69, 26, 26, 0.6)", border: "1px solid #7f1d1d", borderRadius: 14, padding: "18px 22px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, color: "#f87171", fontWeight: 800, fontSize: 14, marginBottom: 8 }}>
+        <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 14, padding: "18px 22px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, color: "#dc2626", fontWeight: 800, fontSize: 14, marginBottom: 8 }}>
             <FaTimesCircle size={18} /> Test Failed: {data.errorCode || "ASSERTION_FAILURE"}
           </div>
           {data.error && (
-            <div style={{ color: "#fecaca", fontSize: 12, fontWeight: 700, marginBottom: 12, lineHeight: 1.4 }}>
+            <div style={{ color: "#991b1b", fontSize: 12, fontWeight: 700, marginBottom: 12, lineHeight: 1.4 }}>
               {data.error}
             </div>
           )}
           {data.stackTrace && (
             <div>
-              <div style={{ fontSize: 10, fontWeight: 800, color: "#fca5a5", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>
+              <div style={{ fontSize: 10, fontWeight: 800, color: "#b91c1c", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>
                 Exception Stack Trace
               </div>
               <pre style={{
-                margin: 0, background: "#020617", border: "1px solid #7f1d1d",
+                margin: 0, background: "#0f172a", border: "1px solid #1e293b",
                 borderRadius: 10, padding: 14, fontFamily: "monospace", fontSize: 11,
                 color: "#fca5a5", whiteSpace: "pre-wrap", wordBreak: "break-all",
                 maxHeight: 250, overflowY: "auto", lineHeight: 1.4,
@@ -835,24 +970,51 @@ function JUnitReportPanel({ data }: { data: TestReportData }) {
       )}
 
       {isNotExecuted && (
-        <div style={{ background: "rgba(30, 41, 59, 0.6)", border: "1px solid #475569", borderRadius: 14, padding: "16px 20px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, color: "#94a3b8", fontWeight: 800, fontSize: 14 }}>
+        <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 14, padding: "16px 20px" }}>
+          <div style={{ display: "center", alignItems: "center", gap: 10, color: "#475569", fontWeight: 800, fontSize: 14 }}>
             <FaInfoCircle size={18} /> Test Not Executed
           </div>
-          <p style={{ margin: "6px 0 0 28px", color: "#cbd5e1", fontSize: 12, lineHeight: 1.5 }}>
-            {data.error || "Maven compilation failed before tests could execute."}
+          <p style={{ margin: "6px 0 0 28px", color: "#64748b", fontSize: 12, lineHeight: 1.5 }}>
+            {data.error || "Test has not been executed yet. Click 'Run All Tests' or 'Run Again' to execute this test suite."}
           </p>
         </div>
       )}
 
       {isSkipped && (
-        <div style={{ background: "rgba(30, 27, 75, 0.5)", border: "1px solid #312e81", borderRadius: 14, padding: "16px 20px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, color: "#a5b4fc", fontWeight: 800, fontSize: 14 }}>
+        <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 14, padding: "16px 20px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, color: "#d97706", fontWeight: 800, fontSize: 14 }}>
             <FaInfoCircle size={18} /> Test Skipped
           </div>
-          <p style={{ margin: "6px 0 0 28px", color: "#c7d2fe", fontSize: 12, lineHeight: 1.5 }}>
+          <p style={{ margin: "6px 0 0 28px", color: "#92400e", fontSize: 12, lineHeight: 1.5 }}>
             Validation was skipped for this test case during test suite execution.
           </p>
+        </div>
+      )}
+
+      {/* Screenshot Evidence (if captured for this JUnit/UI test) */}
+      {hasScreenshot && !imageFailed && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ fontSize: 11, fontWeight: 800, color: "#475569", textTransform: "uppercase", letterSpacing: 0.5, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span style={{ display: "flex", alignItems: "center", gap: 6 }}><FaImage color="#9333ea" /> Screenshot Evidence</span>
+            <button
+              onClick={() => setShowFullScreenshot(true)}
+              style={{
+                background: "none", border: "none", color: "#2563eb", fontSize: 11, fontWeight: 700,
+                cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4, padding: 0
+              }}
+            >
+              <FaExternalLinkAlt size={10} /> Open Full Size
+            </button>
+          </div>
+          <div style={{ position: "relative", borderRadius: 12, overflow: "hidden", border: "1px solid #e2e8f0", background: "#f8fafc", textAlign: "center", padding: 10 }}>
+            <img
+              src={screenshotSrc!}
+              alt={`Screenshot for ${data.title}`}
+              style={{ maxWidth: "100%", maxHeight: 420, objectFit: "contain", cursor: "zoom-in", display: "inline-block", margin: "0 auto", borderRadius: 8 }}
+              onClick={() => setShowFullScreenshot(true)}
+              onError={() => setImageFailed(true)}
+            />
+          </div>
         </div>
       )}
 
@@ -862,14 +1024,14 @@ function JUnitReportPanel({ data }: { data: TestReportData }) {
       {/* Output Logs */}
       {(hasStdout || hasStderr) && (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <div style={{ display: "flex", gap: 8, borderBottom: "1px solid #1e293b", paddingBottom: 8 }}>
+          <div style={{ display: "flex", gap: 8, borderBottom: "1px solid #e2e8f0", paddingBottom: 8 }}>
             {hasStdout && (
               <button
                 onClick={() => setActiveTab("STDOUT")}
                 style={{
-                  padding: "6px 14px", borderRadius: 8, border: "1px solid #334155",
-                  background: activeTab === "STDOUT" || activeTab === "OVERVIEW" ? "#1e293b" : "transparent",
-                  color: activeTab === "STDOUT" || activeTab === "OVERVIEW" ? "#38bdf8" : "#94a3b8",
+                  padding: "6px 14px", borderRadius: 8, border: "1px solid #cbd5e1",
+                  background: activeTab === "STDOUT" || activeTab === "OVERVIEW" ? "#0f172a" : "#ffffff",
+                  color: activeTab === "STDOUT" || activeTab === "OVERVIEW" ? "#ffffff" : "#64748b",
                   fontSize: 11, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 6,
                 }}
               >
@@ -880,9 +1042,9 @@ function JUnitReportPanel({ data }: { data: TestReportData }) {
               <button
                 onClick={() => setActiveTab("STDERR")}
                 style={{
-                  padding: "6px 14px", borderRadius: 8, border: "1px solid #334155",
-                  background: activeTab === "STDERR" ? "#1e293b" : "transparent",
-                  color: activeTab === "STDERR" ? "#f87171" : "#94a3b8",
+                  padding: "6px 14px", borderRadius: 8, border: "1px solid #cbd5e1",
+                  background: activeTab === "STDERR" ? "#dc2626" : "#ffffff",
+                  color: activeTab === "STDERR" ? "#ffffff" : "#64748b",
                   fontSize: 11, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 6,
                 }}
               >
@@ -893,9 +1055,9 @@ function JUnitReportPanel({ data }: { data: TestReportData }) {
 
           {(activeTab === "STDOUT" || (activeTab === "OVERVIEW" && hasStdout)) && (
             <pre style={{
-              margin: 0, background: "#020617", border: "1px solid #1e293b",
+              margin: 0, background: "#0f172a", border: "1px solid #1e293b",
               borderRadius: 10, padding: 14, fontFamily: "monospace", fontSize: 11,
-              color: "#e2e8f0", whiteSpace: "pre-wrap", wordBreak: "break-all",
+              color: "#f1f5f9", whiteSpace: "pre-wrap", wordBreak: "break-all",
               maxHeight: 250, overflowY: "auto", lineHeight: 1.4,
             }}>
               {data.stdout}
@@ -904,7 +1066,7 @@ function JUnitReportPanel({ data }: { data: TestReportData }) {
 
           {activeTab === "STDERR" && hasStderr && (
             <pre style={{
-              margin: 0, background: "#020617", border: "1px solid #451a1a",
+              margin: 0, background: "#0f172a", border: "1px solid #451a1a",
               borderRadius: 10, padding: 14, fontFamily: "monospace", fontSize: 11,
               color: "#fca5a5", whiteSpace: "pre-wrap", wordBreak: "break-all",
               maxHeight: 250, overflowY: "auto", lineHeight: 1.4,
@@ -917,25 +1079,20 @@ function JUnitReportPanel({ data }: { data: TestReportData }) {
 
       {/* Action Buttons */}
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", paddingTop: 10 }}>
-        <button
-          onClick={() => {
-            const rawJson = JSON.stringify(data, null, 2);
-            const blob = new Blob([rawJson], { type: "application/json" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `${data.title}_unit_report.json`;
-            a.click();
-            URL.revokeObjectURL(url);
-          }}
-          style={{
-            padding: "8px 14px", background: "#1e293b", color: "#38bdf8",
-            borderRadius: 8, border: "1px solid #334155", fontSize: 11, fontWeight: 700,
-            display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer"
-          }}
-        >
-          <FaDownload size={11} /> Download Unit Test Report
-        </button>
+        {hasScreenshot && !imageFailed && (
+          <a
+            href={screenshotSrc!}
+            download={`${data.title}-screenshot.png`}
+            style={{
+              padding: "8px 16px", background: "#ffffff", color: "#2563eb",
+              borderRadius: 8, border: "1px solid #cbd5e1", fontSize: 12, fontWeight: 700,
+              display: "inline-flex", alignItems: "center", gap: 6, textDecoration: "none",
+              boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+            }}
+          >
+            <FaDownload size={11} /> Download Screenshot
+          </a>
+        )}
         <button
           onClick={() => {
             const logs = data.stdout || data.stderr || "No execution logs recorded.";
@@ -948,19 +1105,51 @@ function JUnitReportPanel({ data }: { data: TestReportData }) {
             URL.revokeObjectURL(url);
           }}
           style={{
-            padding: "8px 14px", background: "#1e293b", color: "#fbbf24",
-            borderRadius: 8, border: "1px solid #334155", fontSize: 11, fontWeight: 700,
-            display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer"
+            padding: "8px 16px", background: "#ffffff", color: "#0f172a",
+            borderRadius: 8, border: "1px solid #cbd5e1", fontSize: 12, fontWeight: 700,
+            display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer",
+            boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
           }}
         >
-          <FaDownload size={11} /> Download Logs
+          <FaDownload size={11} color="#64748b" /> Download Logs
         </button>
       </div>
 
+      {/* Lightbox Modal */}
+      {showFullScreenshot && (
+        <div
+          style={{
+            position: "fixed", inset: 0, zIndex: 10020,
+            background: "rgba(15, 23, 42, 0.85)", backdropFilter: "blur(8px)",
+            display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
+          }}
+          onClick={() => setShowFullScreenshot(false)}
+        >
+          <div style={{ position: "relative", maxWidth: "95vw", maxHeight: "95vh" }} onClick={e => e.stopPropagation()}>
+            <button
+              onClick={() => setShowFullScreenshot(false)}
+              style={{
+                position: "absolute", top: -14, right: -14, width: 32, height: 32,
+                borderRadius: "50%", background: "#ef4444", color: "#fff", border: "none",
+                display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", zIndex: 10,
+                boxShadow: "0 4px 12px rgba(0,0,0,0.3)"
+              }}
+            >
+              <FaTimes size={14} />
+            </button>
+            <img
+              src={screenshotSrc!}
+              alt={`Full screenshot for ${data.title}`}
+              style={{ maxWidth: "90vw", maxHeight: "88vh", objectFit: "contain", borderRadius: 8, border: "1px solid #cbd5e1", boxShadow: "0 25px 60px rgba(0,0,0,0.3)" }}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Source File Location */}
       {data.file && (
-        <div style={{ fontSize: 11, color: "#64748b", fontFamily: "monospace", marginTop: "auto", paddingTop: 10, borderTop: "1px solid #1e293b" }}>
-          Source File: <span style={{ color: "#94a3b8" }}>{data.file}</span>
+        <div style={{ fontSize: 11, color: "#64748b", fontFamily: "monospace", marginTop: "auto", paddingTop: 10, borderTop: "1px solid #e2e8f0" }}>
+          Source File: <span style={{ color: "#0f172a" }}>{data.file}</span>
         </div>
       )}
     </div>
@@ -972,36 +1161,47 @@ function GenericReportPanel({ data }: { data: TestReportData }) {
     <div style={{ padding: "24px 32px", overflowY: "auto", flex: 1, display: "flex", flexDirection: "column", gap: 20 }}>
       {/* Quick Stats */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 14 }}>
-        <div style={{ background: "#1e293b", borderRadius: 12, padding: "14px 18px", border: "1px solid #334155" }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", marginBottom: 4 }}>Test Name</div>
-          <div style={{ fontSize: 13, fontWeight: 800, color: "#f8fafc", fontFamily: "monospace", wordBreak: "break-all" }}>{data.title}</div>
+        <div style={{ background: "#f8fafc", borderRadius: 12, padding: "14px 18px", border: "1px solid #e2e8f0" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 4 }}>Test Name</div>
+          <div style={{ fontSize: 13, fontWeight: 800, color: "#0f172a", fontFamily: "monospace", wordBreak: "break-all" }}>{data.title}</div>
         </div>
 
-        <div style={{ background: "#1e293b", borderRadius: 12, padding: "14px 18px", border: "1px solid #334155" }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", marginBottom: 4 }}>Spec / Suite</div>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#7dd3fc", fontFamily: "monospace", wordBreak: "break-all" }}>{data.spec}</div>
+        <div style={{ background: "#f8fafc", borderRadius: 12, padding: "14px 18px", border: "1px solid #e2e8f0" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 4 }}>Spec / Suite</div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#2563eb", fontFamily: "monospace", wordBreak: "break-all" }}>{data.spec}</div>
         </div>
 
-        <div style={{ background: "#1e293b", borderRadius: 12, padding: "14px 18px", border: "1px solid #334155" }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", marginBottom: 4 }}>Duration</div>
-          <div style={{ fontSize: 13, fontWeight: 800, color: "#f472b6" }}>{data.duration || "N/A"}</div>
+        <div style={{ background: "#f8fafc", borderRadius: 12, padding: "14px 18px", border: "1px solid #e2e8f0" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 4 }}>Duration</div>
+          <div style={{ fontSize: 13, fontWeight: 800, color: "#db2777" }}>{data.duration || "N/A"}</div>
         </div>
       </div>
 
-      <div style={{ background: "#1e293b", borderRadius: 12, padding: "16px 20px", border: "1px solid #334155" }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0" }}>Test Status: {data.status}</div>
-        {data.error && <div style={{ fontSize: 12, color: "#fca5a5", marginTop: 8 }}>{data.error}</div>}
-      </div>
+      <TestExecutionDetails data={data} />
 
-      {(data.stdout || data.stderr) && (
-        <pre style={{
-          margin: 0, background: "#020617", border: "1px solid #1e293b",
-          borderRadius: 10, padding: 14, fontFamily: "monospace", fontSize: 11,
-          color: "#e2e8f0", whiteSpace: "pre-wrap", wordBreak: "break-all", maxHeight: 250, overflowY: "auto",
-        }}>
-          {data.stdout || data.stderr}
-        </pre>
-      )}
+      {/* Action Buttons */}
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", paddingTop: 10 }}>
+        <button
+          onClick={() => {
+            const logs = data.stdout || data.stderr || "No execution logs recorded.";
+            const blob = new Blob([logs], { type: "text/plain" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `${data.title}_logs.txt`;
+            a.click();
+            URL.revokeObjectURL(url);
+          }}
+          style={{
+            padding: "8px 16px", background: "#ffffff", color: "#0f172a",
+            borderRadius: 8, border: "1px solid #cbd5e1", fontSize: 12, fontWeight: 700,
+            display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer",
+            boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+          }}
+        >
+          <FaDownload size={11} color="#64748b" /> Download Logs
+        </button>
+      </div>
     </div>
   );
 }
@@ -1011,26 +1211,42 @@ function GenericReportPanel({ data }: { data: TestReportData }) {
 export function TestReportsModal({ isOpen, onClose, data }: TestReportsModalProps) {
   if (!isOpen || !data) return null;
 
-  const isFailed = data.status === "FAILED" || data.status === "ERROR";
   const hasReportUrl = !!data.url;
+  const screenshotUrl = getScreenshotUrl(data);
+  const videoUrl = resolveEvidenceUrl(data.videoUrl || (data as any)?.video_url || (data as any)?.evidence?.videoUrl);
 
   // Resolve target report type from data (UNIT | API | UI | UNKNOWN)
-  const resolveTestType = (): "UNIT" | "API" | "UI" | "UNKNOWN" => {
+  const resolveTestType = (): "API" | "UI" | "UNKNOWN" => {
+    // If screenshot or video evidence exists or is available, this test has UI evidence
+    const hasUiEvidence = !!(
+      screenshotUrl ||
+      videoUrl ||
+      (data as any)?.evidence?.screenshotAvailable ||
+      (data as any)?.evidence?.videoAvailable ||
+      (data as any)?.screenshot_available
+    );
+    if (hasUiEvidence) {
+      return "UI";
+    }
+
     if (data.testType) {
       const t = data.testType.toUpperCase();
       if (t === "UI") return "UI";
-      if (t === "API") return "API";
-      if (t === "UNIT" || t === "JUNIT") return "UNIT";
+      if (t === "API" || t === "UNIT" || t === "JUNIT") return "API";
     }
     const typeStr = (data.type || "").toUpperCase();
     const specStr = (data.spec || "").toLowerCase();
     const titleStr = (data.title || "").toLowerCase();
     const fwStr = (data.framework || "").toUpperCase();
+    const engineStr = (data.engine || "").toUpperCase();
 
-    if (typeStr.includes("API") || specStr.includes("api/") || titleStr.includes("api/")) return "API";
-    if (typeStr.includes("UI") || fwStr.includes("PLAYWRIGHT") || fwStr.includes("SELENIUM") || specStr.includes("ui/")) return "UI";
-    if (typeStr.includes("UNIT") || typeStr.includes("JUNIT") || fwStr.includes("JUNIT")) return "UNIT";
-    return "UNIT";
+    if (typeStr.includes("UI") || fwStr.includes("PLAYWRIGHT") || fwStr.includes("SELENIUM") || engineStr.includes("PLAYWRIGHT") || specStr.includes("ui/") || specStr.includes("ui.") || specStr.includes("ui") || titleStr.includes("ui")) {
+      return "UI";
+    }
+    if (typeStr.includes("API") || specStr.includes("api/") || titleStr.includes("api/") || typeStr.includes("UNIT") || typeStr.includes("JUNIT") || fwStr.includes("JUNIT")) {
+      return "API";
+    }
+    return "API";
   };
 
   const resolvedType = resolveTestType();
@@ -1039,47 +1255,48 @@ export function TestReportsModal({ isOpen, onClose, data }: TestReportsModalProp
     <div
       style={{
         position: "fixed", inset: 0, zIndex: 10005,
-        background: "rgba(15, 23, 42, 0.85)", backdropFilter: "blur(8px)",
+        background: "rgba(15, 23, 42, 0.65)", backdropFilter: "blur(4px)",
         display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
       }}
       onClick={onClose}
     >
       <div
         style={{
-          background: "#0f172a", borderRadius: 24, width: "100%", maxWidth: 1100,
+          background: "#ffffff", borderRadius: 20, width: "100%", maxWidth: 1060,
           height: "90vh", display: "flex", flexDirection: "column", overflow: "hidden",
-          border: "1px solid #334155", boxShadow: "0 25px 60px rgba(0,0,0,0.5)",
+          border: "1px solid #e2e8f0", boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
         }}
         onClick={e => e.stopPropagation()}
       >
 
         {/* ── Header ── */}
         <div style={{
-          padding: "18px 28px", borderBottom: "1px solid #1e293b",
+          padding: "18px 28px", borderBottom: "1px solid #e2e8f0",
           display: "flex", alignItems: "center", justifyContent: "space-between",
-          background: "#020617", flexShrink: 0,
+          background: "#f8fafc", flexShrink: 0,
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
             {/* Icon */}
             <div style={{
               width: 42, height: 42, borderRadius: 12, flexShrink: 0,
-              background: resolvedType === "API" ? "rgba(5,150,105,0.15)" : resolvedType === "UI" ? "rgba(99,102,241,0.15)" : "rgba(245,158,11,0.15)",
-              color: resolvedType === "API" ? "#10b981" : resolvedType === "UI" ? "#6366f1" : "#fbbf24",
+              background: resolvedType === "API" ? "#eff6ff" : "#faf5ff",
+              color: resolvedType === "API" ? "#2563eb" : "#9333ea",
+              border: `1px solid ${resolvedType === "API" ? "#bfdbfe" : "#e9d5ff"}`,
               display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18,
             }}>
-              {resolvedType === "API" ? <FaCode /> : resolvedType === "UI" ? <FaImage /> : <FaProjectDiagram />}
+              {resolvedType === "API" ? <FaCode /> : <FaImage />}
             </div>
 
             {/* Title */}
             <div>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <h3 style={{ fontWeight: 800, fontSize: 15, color: "#f8fafc", margin: 0, letterSpacing: "-0.02em" }}>
+                <h3 style={{ fontWeight: 800, fontSize: 16, color: "#0f172a", margin: 0, letterSpacing: "-0.01em" }}>
                   {data.title}
                 </h3>
                 <StatusBadge status={data.status} />
               </div>
-              <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 3, fontFamily: "monospace", display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ opacity: 0.6 }}>Spec:</span> {data.spec}
+              <div style={{ fontSize: 11, color: "#64748b", marginTop: 3, fontFamily: "monospace", display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ opacity: 0.8, fontWeight: 700 }}>Spec:</span> {data.spec}
               </div>
             </div>
           </div>
@@ -1091,24 +1308,25 @@ export function TestReportsModal({ isOpen, onClose, data }: TestReportsModalProp
                 <button
                   onClick={() => window.open(data.url!, "_blank")}
                   style={{
-                    padding: "7px 14px", background: "#1e293b", color: "#f1f5f9",
-                    borderRadius: 10, border: "1px solid #334155", fontSize: 12, fontWeight: 700,
+                    padding: "7px 14px", background: "#ffffff", color: "#0f172a",
+                    borderRadius: 8, border: "1px solid #cbd5e1", fontSize: 12, fontWeight: 700,
                     cursor: "pointer", display: "flex", alignItems: "center", gap: 7,
+                    boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
                   }}
                 >
-                  <FaExternalLinkAlt size={11} color="#fbbf24" /> Open Report
+                  <FaExternalLinkAlt size={11} color="#d97706" /> Open Report
                 </button>
                 <a
                   href={data.url!}
                   download
                   style={{
-                    padding: "7px 14px", background: "#1e293b", color: "#f1f5f9",
-                    borderRadius: 10, border: "1px solid #334155", fontSize: 12, fontWeight: 700,
+                    padding: "7px 14px", background: "#ffffff", color: "#0f172a",
+                    borderRadius: 8, border: "1px solid #cbd5e1", fontSize: 12, fontWeight: 700,
                     cursor: "pointer", display: "flex", alignItems: "center", gap: 7,
-                    textDecoration: "none",
+                    textDecoration: "none", boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
                   }}
                 >
-                  <FaDownload size={11} color="#38bdf8" /> Download
+                  <FaDownload size={11} color="#2563eb" /> Download
                 </a>
               </>
             )}
@@ -1116,8 +1334,8 @@ export function TestReportsModal({ isOpen, onClose, data }: TestReportsModalProp
               onClick={onClose}
               style={{
                 width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center",
-                background: "#1e293b", border: "none", color: "#94a3b8", borderRadius: 10,
-                cursor: "pointer",
+                background: "#f1f5f9", border: "1px solid #e2e8f0", color: "#64748b", borderRadius: 8,
+                cursor: "pointer", transition: "all 0.15s ease",
               }}
             >
               <FaTimes size={16} />
@@ -1127,50 +1345,51 @@ export function TestReportsModal({ isOpen, onClose, data }: TestReportsModalProp
 
         {/* ── Main content (Type-Based Routing) ── */}
         <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-          {(resolvedType === "UNIT" || (resolvedType as string) === "JUNIT") && <JUnitReportPanel data={data} />}
-          {resolvedType === "API" && <ApiReportPanel data={data} />}
+          {resolvedType === "API" && (
+            data.apiEvidence ? <ApiReportPanel data={data} /> : <JUnitReportPanel data={data} />
+          )}
           {resolvedType === "UI" && <UiReportPanel data={data} />}
           {resolvedType === "UNKNOWN" && <GenericReportPanel data={data} />}
         </div>
 
         {/* ── Footer artifact status bar ── */}
         <div style={{
-          padding: "12px 28px", background: "#020617", borderTop: "1px solid #1e293b",
+          padding: "12px 28px", background: "#f8fafc", borderTop: "1px solid #e2e8f0",
           display: "flex", gap: 20, alignItems: "center", flexShrink: 0,
         }}>
-          {data.screenshotUrl && (
+          {screenshotUrl && (
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <FaImage color="#6366f1" size={12} />
-              <a href={data.screenshotUrl} target="_blank" rel="noopener noreferrer"
-                style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textDecoration: "none" }}>
+              <FaImage color="#9333ea" size={12} />
+              <a href={screenshotUrl} target="_blank" rel="noopener noreferrer"
+                style={{ fontSize: 11, fontWeight: 700, color: "#2563eb", textDecoration: "none" }}>
                 Screenshot <FaLink size={9} style={{ marginLeft: 3 }} />
               </a>
             </div>
           )}
-          {data.videoUrl && (
+          {videoUrl && (
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <FaPlay color="#10b981" size={12} />
-              <a href={data.videoUrl} target="_blank" rel="noopener noreferrer"
-                style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textDecoration: "none" }}>
+              <FaPlay color="#059669" size={12} />
+              <a href={videoUrl} target="_blank" rel="noopener noreferrer"
+                style={{ fontSize: 11, fontWeight: 700, color: "#059669", textDecoration: "none" }}>
                 Video <FaLink size={9} style={{ marginLeft: 3 }} />
               </a>
             </div>
           )}
           {data.traceUrl && (
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <FaTerminal color="#fbbf24" size={12} />
+              <FaTerminal color="#d97706" size={12} />
               <a href={data.traceUrl} target="_blank" rel="noopener noreferrer"
-                style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textDecoration: "none" }}>
+                style={{ fontSize: 11, fontWeight: 700, color: "#d97706", textDecoration: "none" }}>
                 Trace <FaLink size={9} style={{ marginLeft: 3 }} />
               </a>
             </div>
           )}
-          {!data.screenshotUrl && !data.videoUrl && !data.traceUrl && (
-            <span style={{ fontSize: 11, color: "#475569" }}>
+          {!screenshotUrl && !videoUrl && !data.traceUrl && (
+            <span style={{ fontSize: 11, color: "#64748b" }}>
               {resolvedType} Validation Evidence · APEX Test Engine
             </span>
           )}
-          <div style={{ marginLeft: "auto", fontSize: 11, fontWeight: 600, color: "#475569", fontFamily: "monospace" }}>
+          <div style={{ marginLeft: "auto", fontSize: 11, fontWeight: 600, color: "#94a3b8", fontFamily: "monospace" }}>
             APEX Validation Engine
           </div>
         </div>

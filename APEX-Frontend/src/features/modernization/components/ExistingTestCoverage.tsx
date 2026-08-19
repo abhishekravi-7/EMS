@@ -98,27 +98,41 @@ interface ExistingTestCoverageProps {
     execution_status?: string;
     compilation_error?: string | null;
   };
+  discoveredTests?: any[];
+  testResults?: any[];
+  isExecuted?: boolean;
   frameworkInfo?: {
     detected_framework?: string;
     build_tool?: string;
     test_source_dir?: string;
   };
   onRunAll: () => void;
-  onOpenReport: () => void;
+  onOpenReport?: () => void;
 }
 
 export function ExistingTestCoverage({
   metrics,
+  discoveredTests = [],
+  testResults = [],
   frameworkInfo,
   onRunAll,
   onOpenReport,
 }: ExistingTestCoverageProps) {
-  const total = metrics.total ?? 0;
+  // Use canonical discovered dataset count (from testResults/discoveredTests/metrics)
+  const canonicalTotal = (testResults && testResults.length > 0)
+    ? testResults.length
+    : (discoveredTests && discoveredTests.length > 0)
+    ? discoveredTests.length
+    : (metrics.total ?? 0);
+
+  const total = canonicalTotal;
   const passed = metrics.passed ?? 0;
   const failed = metrics.failed ?? 0;
   const skipped = metrics.skipped ?? 0;
-  const notExecuted = metrics.not_executed ?? 0;
   const executed = metrics.executed ?? (passed + failed + skipped);
+  const notExecuted = metrics.not_executed !== undefined && metrics.not_executed !== null && metrics.not_executed > 0
+    ? metrics.not_executed
+    : Math.max(0, total - executed);
 
   const rawPassRate = executed > 0 ? Math.round((passed / executed) * 100) : 0;
   const passRateStr = executed > 0 ? (metrics.pass_percentage || `${rawPassRate}%`) : "N/A";
