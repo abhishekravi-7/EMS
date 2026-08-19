@@ -59,22 +59,28 @@ async def lifespan(_app: FastAPI):
     # neither connect to the `postgres` maintenance database this needs nor
     # run CREATE DATABASE. Attempting it there raises RuntimeError and the
     # service never finishes booting.
-    if not settings.is_production:
-        ensure_database_exists()
-    verify_database_connection()
-    # Creates any tables that don't exist yet. Never drops or alters an
-    # existing table, and never touches existing rows — safe to run on every
-    # startup. Alembic is intentionally not used yet (see requirements.txt).
-    Base.metadata.create_all(bind=engine)
-    logger.info("Database tables verified/created.")
+    if settings.database_enabled:
+        if not settings.is_production:
+            ensure_database_exists()
+        verify_database_connection()
+        # Creates any tables that don't exist yet. Never drops or alters an
+        # existing table, and never touches existing rows — safe to run on every
+        # startup. Alembic is intentionally not used yet (see requirements.txt).
+        Base.metadata.create_all(bind=engine)  # type: ignore[arg-type]
+        logger.info("Database tables verified/created.")
+    else:
+        logger.info("Database disabled by configuration — skipping DB startup tasks.")
 
     # Initialize LLM Token Tracing
-    from app.application.services.llm_token_tracing_service import DatabaseTraceSink, ChainedTraceSink
+    from app.application.services.llm_token_tracing_service import ChainedTraceSink
+    sinks = [tt.JsonlTraceSink("logs/llm_usage.jsonl")]
+    if settings.database_enabled:
+        from app.application.services.llm_token_tracing_service import DatabaseTraceSink
+
+        sinks.append(DatabaseTraceSink())
+
     tt.init_token_tracing(
-        sink=ChainedTraceSink([
-            tt.JsonlTraceSink("logs/llm_usage.jsonl"),
-            DatabaseTraceSink()
-        ]),
+        sink=ChainedTraceSink(sinks),
         pricing_provider=tt.ChainedPricingProvider(tt.StaticPricingProvider()),
         provider="groq" if settings.groq_api_key else "ollama",
     )

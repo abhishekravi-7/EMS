@@ -81,6 +81,8 @@ class Settings(BaseSettings):
     # time; Discovery and Migration are unaffected (their indexing calls are
     # already best-effort). Set ENABLE_RAG=true once the instance has the RAM.
     rag_enabled: bool = Field(default=False, alias="ENABLE_RAG")
+    # Master switch for database usage. Default true for backward compatibility.
+    database_enabled: bool = Field(default=True, alias="ENABLE_DATABASE")
     # Number of knowledge chunks retrieved per question.
     rag_top_k: int = 4
     # Timeout (seconds) for a single chat-LLM request (Groq or Ollama).
@@ -287,14 +289,10 @@ class Settings(BaseSettings):
         reports which variable NAMES are missing, never their values, so
         nothing secret reaches the startup log.
         """
-        missing = [
-            name
-            for name, value in (
-                ("DATABASE_URL", self.database_url),
-                ("JWT_SECRET_KEY", self.jwt_secret_key),
-            )
-            if not value
-        ]
+        missing = []
+        if self.database_enabled:
+            missing.append("DATABASE_URL") if not self.database_url else None
+        missing.append("JWT_SECRET_KEY") if not self.jwt_secret_key else None
         if missing:
             raise RuntimeError(
                 "Missing required environment variable(s): "
