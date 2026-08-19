@@ -71,6 +71,27 @@ def get_db() -> Generator[Session, None, None]:
         db.close()
 
 
+def get_db_optional() -> Generator[Session | None, None, None]:
+    """Optional DB dependency: yields a Session when database is enabled,
+    otherwise yields None. Useful for endpoints that may implement a
+    non-database fallback (e.g. a static sign-in) while most endpoints
+    should continue to use `get_db()` and receive HTTP 503 when the DB is
+    disabled.
+    """
+    if not settings.database_enabled or SessionLocal is None:
+        yield None
+        return
+
+    db = SessionLocal()
+    try:
+        yield db
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
 def _quote_identifier(name: str) -> str:
     """Safely quote a Postgres identifier (e.g. a database name) for use
     inside a DDL statement, where SQLAlchemy's normal `:param` bind

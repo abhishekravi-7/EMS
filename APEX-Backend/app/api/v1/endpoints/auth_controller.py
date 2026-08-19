@@ -19,9 +19,9 @@ from app.api.deps import get_current_user
 from app.application.services.auth_service import AuthService
 from app.core import security
 from app.core.config import settings
-from app.core.exceptions import AuthError
+from app.core.exceptions import AuthError, InvalidCredentialsError
 from app.infrastructure.oauth import github_client, google_client
-from app.infrastructure.persistence.database import get_db
+from app.infrastructure.persistence.database import get_db, get_db_optional
 from app.infrastructure.persistence.models import User
 from app.schemas.auth_schema import (
     AuthResponse,
@@ -151,7 +151,42 @@ async def signup(payload: SignupRequest, db: Session = Depends(get_db)) -> JSONR
     response_model=AuthResponse,
     summary="Sign in with email and password.",
 )
-async def login(payload: LoginRequest, db: Session = Depends(get_db)) -> JSONResponse:
+async def login(payload: LoginRequest, db: Session | None = Depends(get_db_optional)) -> JSONResponse:
+    # Special-case: when the database is disabled the backend supports a
+    # single static login for convenience (no persistent users). When the
+    # DB is enabled the normal AuthService flow is used.
+    if db is None:
+        # Static credentials (non-production convenience)
+        static_email = "javaapex@gmail.com"
+        static_password = "javaapex1234"
+        if payload.email != static_email or payload.password != static_password:
+            return _auth_error_response(InvalidCredentialsError())
+
+        # Fabricate a lightweight User-like object for the response body.
+        from datetime import datetime, timezone
+
+        fake_user = User()
+        fake_user.id = 0
+        fake_user.full_name = "Java APEX"
+        fake_user.email = static_email
+        fake_user.role = "USER"
+        fake_user.is_active = True
+        fake_user.is_email_verified = True
+        fake_user.created_at = datetime.now(timezone.utc)
+        fake_user.last_login_at = datetime.now(timezone.utc)
+
+        access_token = security.create_access_token(fake_user.id)
+        # Issue a refresh token for parity, but note refresh/rotation will
+        # not work while DB is disabled (refresh endpoint depends on DB).
+        refresh_token = security.create_refresh_token(fake_user.id)
+
+        logger.info("Static user logged in (email=%s).", fake_user.email)
+        body = AuthResponse(user=UserResponse.model_validate(fake_user), message="Login successful.")
+        response = JSONResponse(status_code=200, content=body.model_dump(by_alias=True, mode="json"))
+        _set_auth_cookies(response, access_token, refresh_token)
+        return response
+
+    # Normal DB-backed flow
     service = AuthService(db)
     try:
         user = service.authenticate(email=payload.email, password=payload.password)
