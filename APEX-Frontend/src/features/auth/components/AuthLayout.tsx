@@ -16,7 +16,17 @@ export interface AuthLayoutProps {
   children: React.ReactNode;
 }
 
-const HexTile = ({ x, y, size = 1, icon: Icon, color, label, isCenter = false }: any) => {
+interface HexTileProps {
+  x: number;
+  y: number;
+  size?: number;
+  icon: React.ComponentType<{ size?: number; style?: React.CSSProperties }>;
+  color: string;
+  label: string;
+  isCenter?: boolean;
+}
+
+const HexTile = ({ x, y, size = 1, icon: Icon, color, label, isCenter = false }: HexTileProps) => {
   const R = 45 * size; // Radius
   const W = R * 0.866;
   const H = R * 0.5;
@@ -95,74 +105,7 @@ const SignInHeroGraphic: React.FC = () => (
   </div>
 );
 
-/* ── 3D SVG Graphic for Sign Up ── */
-const SignUpHeroGraphic: React.FC = () => (
-  <div className="apex-3d-graphic-wrap">
-    <svg width="100%" height="220" viewBox="0 0 320 220" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <defs>
-        <linearGradient id="neonRing" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#a855f7" />
-          <stop offset="100%" stopColor="#2563eb" />
-        </linearGradient>
-        <linearGradient id="terminalBg" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#0f172a" />
-          <stop offset="100%" stopColor="#090d16" />
-        </linearGradient>
-        <filter id="neonGlow" x="-30%" y="-30%" width="160%" height="160%">
-          <feDropShadow dx="0" dy="0" stdDeviation="8" floodColor="#a855f7" floodOpacity="0.5" />
-        </filter>
-      </defs>
-
-      {/* Neon Pedestal Ring */}
-      <ellipse cx="160" cy="180" rx="100" ry="24" fill="none" stroke="url(#neonRing)" strokeWidth="3" filter="url(#neonGlow)" />
-      <ellipse cx="160" cy="180" rx="80" ry="18" fill="url(#neonRing)" opacity="0.15" />
-
-      {/* Main Code Terminal Window */}
-      <g transform="translate(60, 20)">
-        <rect x="0" y="0" width="200" height="135" rx="14" fill="url(#terminalBg)" stroke="#334155" strokeWidth="1.5" />
-        {/* Header Bar */}
-        <path d="M 0 14 C 0 6.3 6.3 0 14 0 L 186 0 C 193.7 0 200 6.3 200 14 L 200 24 L 0 24 Z" fill="#1e293b" />
-        <circle cx="14" cy="12" r="3.5" fill="#ef4444" />
-        <circle cx="24" cy="12" r="3.5" fill="#f59e0b" />
-        <circle cx="34" cy="12" r="3.5" fill="#22c55e" />
-
-        {/* Code Syntax Lines */}
-        <text x="16" y="44" fontFamily="monospace" fontSize="11" fill="#c084fc">public class <tspan fill="#38bdf8">Apex</tspan> &#123;</text>
-        <text x="28" y="62" fontFamily="monospace" fontSize="11" fill="#4ade80">@Modernize</text>
-        <text x="28" y="80" fontFamily="monospace" fontSize="11" fill="#f43f5e">public void <tspan fill="#fbbf24">migrate</tspan>() &#123;</text>
-        <text x="40" y="98" fontFamily="monospace" fontSize="11" fill="#94a3b8">// AI agent active</text>
-        <text x="28" y="116" fontFamily="monospace" fontSize="11" fill="#f43f5e">&#125;</text>
-        <text x="16" y="128" fontFamily="monospace" fontSize="11" fill="#c084fc">&#125;</text>
-      </g>
-
-      {/* Floating Badge 1: Top Right (Gear) */}
-      <g transform="translate(240, 25)" filter="url(#neonGlow)">
-        <rect x="0" y="0" width="38" height="38" rx="10" fill="#1e1b4b" stroke="#6366f1" strokeWidth="1.5" />
-        <foreignObject x="9" y="8" width="20" height="20">
-          <FaCogs style={{ color: "#818cf8", fontSize: 18 }} />
-        </foreignObject>
-      </g>
-
-      {/* Floating Badge 2: Middle Right (Code </>) */}
-      <g transform="translate(260, 95)">
-        <rect x="0" y="0" width="40" height="40" rx="10" fill="#1e293b" stroke="#38bdf8" strokeWidth="1.5" />
-        <foreignObject x="10" y="10" width="20" height="20">
-          <FaCode style={{ color: "#38bdf8", fontSize: 18 }} />
-        </foreignObject>
-      </g>
-
-      {/* Floating Badge 3: Bottom Left (Chart) */}
-      <g transform="translate(25, 120)">
-        <rect x="0" y="0" width="38" height="38" rx="10" fill="#0f172a" stroke="#60a5fa" strokeWidth="1.5" />
-        <foreignObject x="9" y="9" width="20" height="20">
-          <FaChartBar style={{ color: "#60a5fa", fontSize: 18 }} />
-        </foreignObject>
-      </g>
-    </svg>
-  </div>
-);
-
-const AuthLayout: React.FC<AuthLayoutProps> = ({ mode, children }) => {
+const AuthLayout: React.FC<AuthLayoutProps> = ({ children }) => {
   const navigate = useNavigate();
 
   return (

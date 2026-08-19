@@ -1,7 +1,7 @@
 import React from "react";
 import {
   FaExternalLinkAlt, FaTimes, FaInfoCircle, FaTerminal, FaPlay,
-  FaImage, FaProjectDiagram, FaCheckCircle, FaTimesCircle, FaCode,
+  FaImage, FaCheckCircle, FaTimesCircle, FaCode,
   FaLink, FaDownload,
 } from "react-icons/fa";
 import type { ApiEvidence } from "../services/existingTestService";
@@ -9,9 +9,34 @@ import { APP_BASE_URL } from "../../../services/config/env";
 
 // ── Data model ──────────────────────────────────────────────────────────────
 
-export interface TestReportData {
+interface TestReportArtifact {
+  screenshotUrl?: string | null;
+  screenshot_url?: string | null;
+  screenshot?: string | null;
+  screenshotPath?: string | null;
+  screenshotAvailable?: boolean;
+  screenshot_available?: boolean;
+  videoUrl?: string | null;
+  video_url?: string | null;
+  videoAvailable?: boolean;
+  video_available?: boolean;
+  apexExecution?: string | null;
+  rootCause?: string | null;
+  errorCategory?: string | null;
+  stackTrace?: string | null;
+  stdout?: string | null;
+  stderr?: string | null;
+  jobId?: string | null;
+  unavailableReason?: string | null;
+  details?: TestReportArtifact | null;
+  evidence?: TestReportArtifact | null;
+}
+
+export interface TestReportData extends TestReportArtifact {
   testId?: string;
   executionId?: string;
+  name?: string;
+  suite?: string;
   title: string;
   spec: string;
   status: string;
@@ -20,24 +45,13 @@ export interface TestReportData {
   url?: string | null;
   error?: string | null;
   errorCode?: string | null;
-  errorCategory?: string | null;
-  rootCause?: string | null;
-  apexExecution?: string | null;
   unavailableReason?: string | null;
-  stackTrace?: string | null;
-  stdout?: string | null;
-  stderr?: string | null;
   type?: string;
   testType?: "JUNIT" | "API" | "UI" | "UNIT" | "UNKNOWN" | string;
   framework?: string;
   engine?: string;
-  // UI evidence
-  screenshotUrl?: string | null;
-  videoUrl?: string | null;
   traceUrl?: string | null;
-  // API evidence
   apiEvidence?: ApiEvidence | null;
-  evidence?: any;
 }
 
 interface TestReportsModalProps {
@@ -55,11 +69,6 @@ const STATUS_COLORS = {
   SKIPPED: { bg: "#fffbeb", text: "#d97706", border: "#fde68a" },
   NOT_EXECUTED: { bg: "#f1f5f9", text: "#64748b", border: "#e2e8f0" },
   DEFAULT: { bg: "#f1f5f9", text: "#64748b", border: "#e2e8f0" },
-};
-
-const METHOD_COLORS: Record<string, string> = {
-  GET: "#2563eb", POST: "#059669", PUT: "#d97706",
-  PATCH: "#7c3aed", DELETE: "#dc2626",
 };
 
 export function resolveEvidenceUrl(url: string | null | undefined): string | null {
@@ -84,15 +93,15 @@ export function getScreenshotUrl(data: TestReportData | null | undefined): strin
   if (!data) return null;
   const rawCandidate =
     data.screenshotUrl ||
-    (data as any)?.screenshot_url ||
-    (data as any)?.screenshot ||
-    (data as any)?.evidence?.screenshotUrl ||
-    (data as any)?.evidence?.screenshot_url ||
-    (data as any)?.evidence?.screenshot ||
-    (data as any)?.evidence?.screenshotPath ||
-    (data as any)?.details?.screenshotUrl ||
-    (data as any)?.details?.screenshot_url ||
-    (data as any)?.details?.evidence?.screenshotUrl ||
+    data.screenshot_url ||
+    data.screenshot ||
+    data.evidence?.screenshotUrl ||
+    data.evidence?.screenshot_url ||
+    data.evidence?.screenshot ||
+    data.evidence?.screenshotPath ||
+    data.details?.screenshotUrl ||
+    data.details?.screenshot_url ||
+    data.details?.evidence?.screenshotUrl ||
     null;
 
   if (rawCandidate) {
@@ -101,14 +110,15 @@ export function getScreenshotUrl(data: TestReportData | null | undefined): strin
   }
 
   const isAvailable =
-    (data as any)?.screenshotAvailable ||
-    (data as any)?.screenshot_available ||
-    (data as any)?.evidence?.screenshotAvailable ||
-    (data as any)?.evidence?.screenshot_available ||
+    data.screenshotAvailable ||
+    data.screenshot_available ||
+    data.evidence?.screenshotAvailable ||
+    data.evidence?.screenshot_available ||
     false;
 
-  if (isAvailable && (data.executionId || (data as any)?.jobId) && (data.testId || data.title)) {
-    const job = data.executionId || (data as any)?.jobId;
+  if (isAvailable && (data.executionId || data.jobId) && (data.testId || data.title)) {
+    const job = data.executionId || data.jobId;
+    if (!job) return null;
     const test = data.testId || data.title;
     return resolveEvidenceUrl(`/api/v1/migration/${encodeURIComponent(job)}/tests/${encodeURIComponent(test)}/evidence/screenshot`);
   }
@@ -278,7 +288,7 @@ function TestExecutionDetails({ data }: { data: TestReportData }) {
               letterSpacing: "0.02em",
               display: "inline-block",
             }}>
-              {data.apexExecution || (data as any)?.details?.apexExecution || "Started successfully"}
+              {data.apexExecution || data.details?.apexExecution || "Started successfully"}
             </span>
           </div>
         </div>
@@ -308,25 +318,25 @@ function TestExecutionDetails({ data }: { data: TestReportData }) {
       {/* Expandable Sections for Error, Root Cause, Category, Stack Trace, stdout, stderr */}
       <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 4 }}>
         {/* Root Cause (when present) */}
-        {(data.rootCause || (data as any)?.details?.rootCause) && (
+        {(data.rootCause || data.details?.rootCause) && (
           <div style={{ background: "#fffbeb", borderRadius: 8, padding: "10px 14px", border: "1px solid #fde68a" }}>
             <div style={{ fontSize: 10, fontWeight: 800, color: "#b45309", textTransform: "uppercase", marginBottom: 4, letterSpacing: "0.05em" }}>
               Root Cause
             </div>
             <div style={{ fontSize: 12, color: "#92400e", fontWeight: 700, lineHeight: 1.4 }}>
-              {data.rootCause || (data as any)?.details?.rootCause}
+              {data.rootCause || data.details?.rootCause}
             </div>
           </div>
         )}
 
         {/* Error Classification / Category (when present) */}
-        {(data.errorCategory || (data as any)?.details?.errorCategory) && (
+        {(data.errorCategory || data.details?.errorCategory) && (
           <div style={{ background: "#fef2f2", borderRadius: 8, padding: "10px 14px", border: "1px solid #fecaca" }}>
             <div style={{ fontSize: 10, fontWeight: 800, color: "#b91c1c", textTransform: "uppercase", marginBottom: 4, letterSpacing: "0.05em" }}>
               Error Classification
             </div>
             <div style={{ fontSize: 12, color: "#dc2626", fontWeight: 700 }}>
-              {data.errorCategory || (data as any)?.details?.errorCategory}
+              {data.errorCategory || data.details?.errorCategory}
             </div>
           </div>
         )}
@@ -492,7 +502,15 @@ function ApiReportPanel({ data }: { data: TestReportData }) {
   const evidence = data.apiEvidence;
   const method = evidence?.method || "POST";
   const url = evidence?.url || data.title || "/api";
-  const methodColor = METHOD_COLORS[method] ?? "#64748b";
+  const methodColor = (
+    {
+      GET: "#2563eb",
+      POST: "#059669",
+      PUT: "#d97706",
+      PATCH: "#7c3aed",
+      DELETE: "#dc2626",
+    } as Record<string, string>
+  )[method.toUpperCase()] ?? "#64748b";
 
   return (
     <div style={{ padding: "24px 32px", overflowY: "auto", flex: 1, display: "flex", flexDirection: "column", gap: 20 }}>
@@ -633,7 +651,7 @@ function ApiReportPanel({ data }: { data: TestReportData }) {
 
 function UiReportPanel({ data }: { data: TestReportData }) {
   const screenshotSrc = getScreenshotUrl(data);
-  const videoSrc = resolveEvidenceUrl(data.videoUrl || (data as any)?.video_url || (data as any)?.evidence?.videoUrl);
+  const videoSrc = resolveEvidenceUrl(data.videoUrl || data.video_url || data.evidence?.videoUrl);
   const hasScreenshot = !!screenshotSrc;
   const hasVideo = !!videoSrc;
   const [showFullScreenshot, setShowFullScreenshot] = React.useState(false);
@@ -643,7 +661,7 @@ function UiReportPanel({ data }: { data: TestReportData }) {
   React.useEffect(() => {
     setImageFailed(false);
     setShowFullScreenshot(false);
-  }, [data.testId, data.title, data.screenshotUrl, (data as any)?.screenshot_url]);
+  }, [data.testId, data.title, data.screenshotUrl, data.screenshot_url]);
 
   const hasTrace = !!data.traceUrl;
   const hasLogs = !!(data.stdout || data.stderr);
@@ -725,7 +743,7 @@ function UiReportPanel({ data }: { data: TestReportData }) {
           </div>
         ) : (
           <div style={{ background: "#f8fafc", padding: "16px 20px", borderRadius: 10, border: "1px solid #e2e8f0", color: "#64748b", fontSize: 12 }}>
-            {data.unavailableReason || (data as any)?.evidence?.unavailableReason || "Screenshot evidence unavailable because test failed before or during initialization."}
+            {data.unavailableReason || data.evidence?.unavailableReason || "Screenshot evidence unavailable because test failed before or during initialization."}
           </div>
         )}
       </div>
@@ -750,7 +768,7 @@ function UiReportPanel({ data }: { data: TestReportData }) {
           </div>
         ) : (
           <div style={{ background: "#f8fafc", padding: "16px 20px", borderRadius: 10, border: "1px solid #e2e8f0", color: "#64748b", fontSize: 12 }}>
-            {data.unavailableReason || (data as any)?.evidence?.unavailableReason || "Video evidence unavailable."}
+            {data.unavailableReason || data.evidence?.unavailableReason || "Video evidence unavailable."}
           </div>
         )}
       </div>
@@ -899,7 +917,7 @@ function JUnitReportPanel({ data }: { data: TestReportData }) {
   React.useEffect(() => {
     setImageFailed(false);
     setShowFullScreenshot(false);
-  }, [data.testId, data.title, data.screenshotUrl, (data as any)?.screenshot_url]);
+  }, [data.testId, data.title, data.screenshotUrl, data.screenshot_url]);
 
   const hasStdout = !!(data.stdout && data.stdout.trim());
   const hasStderr = !!(data.stderr && data.stderr.trim());
@@ -1213,7 +1231,7 @@ export function TestReportsModal({ isOpen, onClose, data }: TestReportsModalProp
 
   const hasReportUrl = !!data.url;
   const screenshotUrl = getScreenshotUrl(data);
-  const videoUrl = resolveEvidenceUrl(data.videoUrl || (data as any)?.video_url || (data as any)?.evidence?.videoUrl);
+  const videoUrl = resolveEvidenceUrl(data.videoUrl || data.video_url || data.evidence?.videoUrl);
 
   // Resolve target report type from data (UNIT | API | UI | UNKNOWN)
   const resolveTestType = (): "API" | "UI" | "UNKNOWN" => {
@@ -1221,9 +1239,9 @@ export function TestReportsModal({ isOpen, onClose, data }: TestReportsModalProp
     const hasUiEvidence = !!(
       screenshotUrl ||
       videoUrl ||
-      (data as any)?.evidence?.screenshotAvailable ||
-      (data as any)?.evidence?.videoAvailable ||
-      (data as any)?.screenshot_available
+      data.evidence?.screenshotAvailable ||
+      data.evidence?.videoAvailable ||
+      data.screenshot_available
     );
     if (hasUiEvidence) {
       return "UI";

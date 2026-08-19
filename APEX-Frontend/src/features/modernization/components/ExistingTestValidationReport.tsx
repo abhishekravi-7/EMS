@@ -37,6 +37,7 @@ interface ExistingTestValidationReportProps {
     test_source_dir?: string;
   };
   testResults: TestResult[];
+  fileBreakdown?: FileSummary[];
   logs: LogEntry[];
   onSelectTest: (test: TestResult) => void;
   onClose: () => void;
@@ -59,7 +60,6 @@ export function ExistingTestValidationReport({
 }: ExistingTestValidationReportProps) {
   const [activeTab, setActiveTab] = useState<"TABLE" | "LOGS">("TABLE");
 
-  const total = metrics.total ?? 0;
   const executed = metrics.executed ?? (metrics.passed ?? 0) + (metrics.failed ?? 0) + (metrics.skipped ?? 0);
   const passed = metrics.passed ?? 0;
   const failed = metrics.failed ?? 0;
