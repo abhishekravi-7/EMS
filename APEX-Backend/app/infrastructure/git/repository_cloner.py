@@ -63,6 +63,12 @@ class RepositoryCloner:
                 raise CloneFailedError(
                     "Repository clone timed out. Please try again."
                 )
+            if result.exit_code == 130 or "signal" in stderr.lower():
+                logger.warning("Clone interrupted by process signal (exit %s) for %s: %s", result.exit_code, masked_url, stderr)
+                self._log(log_path, f"Clone interrupted by process signal (exit {result.exit_code}): {stderr}")
+                raise CloneFailedError(
+                    "Repository clone was interrupted by a server reload or process signal. Please try again."
+                )
             logger.warning("Clone failed (exit %s) for %s: %s", result.exit_code, masked_url, stderr)
             self._log(log_path, f"Clone failed (exit {result.exit_code}): {stderr}")
             raise CloneFailedError()
