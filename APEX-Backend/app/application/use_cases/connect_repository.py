@@ -12,7 +12,9 @@ stages of the pipeline.
 
 from __future__ import annotations
 
+import logging
 import re
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from uuid import uuid4
@@ -20,6 +22,8 @@ from uuid import uuid4
 from app.core.exceptions import InvalidRepositoryUrlError
 from app.infrastructure.github.repo_access_checker import RepoAccessChecker
 from app.infrastructure.persistence.job_repository import JobRepository
+
+logger = logging.getLogger(__name__)
 
 # Accepts:
 #   https://github.com/owner/repo        (with or without .git / trailing slash)
@@ -95,15 +99,29 @@ class ConnectRepositoryUseCase:
     def _success_message(is_private: bool) -> str:
         if is_private:
             return "Private repository access verified successfully."
-        return "Repository access verified successfully."
-
     async def execute(self, repo_url: str, github_token: str | None) -> ConnectResult:
         # 1. Validate + parse the URL (raises InvalidRepositoryUrlError).
+        t_val = time.perf_counter()
         parsed = parse_github_url(repo_url)
+        logger.info(
+            "[CONNECT REPO VALIDATION] elapsed=%.3fs owner=%s repo=%s",
+            time.perf_counter() - t_val,
+            parsed.owner,
+            parsed.repo,
+        )
 
         # 2. Detect visibility / access (raises NotFound / AccessDenied / ServiceError).
+        t_auth = time.perf_counter()
         access = await self._access_checker.check(
             parsed.owner, parsed.repo, token=github_token
+        )
+        logger.info(
+            "[CONNECT GITHUB ACCESS CHECK] elapsed=%.3fs owner=%s repo=%s visibility=%s access=%s",
+            time.perf_counter() - t_auth,
+            access.owner,
+            access.repo_name,
+            access.visibility,
+            access.access_status,
         )
 
         # 3. Create a unique job id.
@@ -116,6 +134,7 @@ class ConnectRepositoryUseCase:
         # in plaintext JSON is a security risk; instead the later Discovery stage
         # re-receives the token from the client (or the GITHUB_TOKEN env fallback)
         # when it needs to clone a private repository.
+        t_rep = time.perf_counter()
         report = {
             "jobId": job_id,
             "repoUrl": repo_url,
@@ -126,6 +145,11 @@ class ConnectRepositoryUseCase:
             "createdAt": created_at,
         }
         self._job_repository.save_connect_report(job_id, report)
+        logger.info(
+            "[CONNECT REPORT PERSISTENCE] elapsed=%.3fs job_id=%s",
+            time.perf_counter() - t_rep,
+            job_id,
+        )
 
         return ConnectResult(
             job_id=job_id,

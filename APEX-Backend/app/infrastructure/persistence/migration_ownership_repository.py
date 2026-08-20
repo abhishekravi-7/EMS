@@ -18,11 +18,16 @@ from sqlalchemy.orm import Session
 
 from app.infrastructure.persistence.models import MigrationJobOwner
 
+from app.core.config import settings
+
 logger = logging.getLogger(__name__)
 
 
-def record_job_owner(db: Session, *, job_id: str, user_id: int) -> None:
+def record_job_owner(db: Session | None, *, job_id: str, user_id: int) -> None:
     """Called once, immediately after a job is created in POST /connect."""
+    if db is None or not settings.database_enabled:
+        logger.info("[CONNECT] Database unavailable - continuing without persistence (job_id=%s)", job_id)
+        return
     owner = MigrationJobOwner(job_id=job_id, user_id=user_id)
     db.add(owner)
     try:
@@ -33,7 +38,9 @@ def record_job_owner(db: Session, *, job_id: str, user_id: int) -> None:
         raise
 
 
-def get_job_owner_user_id(db: Session, job_id: str) -> int | None:
+def get_job_owner_user_id(db: Session | None, job_id: str) -> int | None:
     """Returns the owning user's id, or None if the job has no owner record."""
+    if db is None or not settings.database_enabled:
+        return None
     statement = select(MigrationJobOwner.user_id).where(MigrationJobOwner.job_id == job_id)
     return db.execute(statement).scalar_one_or_none()

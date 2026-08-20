@@ -8,7 +8,7 @@ only exposes configuration values.
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # APEX-Backend/app/core/config.py -> parents[2] == APEX-Backend/
@@ -81,8 +81,11 @@ class Settings(BaseSettings):
     # time; Discovery and Migration are unaffected (their indexing calls are
     # already best-effort). Set ENABLE_RAG=true once the instance has the RAM.
     rag_enabled: bool = Field(default=False, alias="ENABLE_RAG")
-    # Master switch for database usage. Default true for backward compatibility.
-    database_enabled: bool = Field(default=True, alias="ENABLE_DATABASE")
+    # Master switch for database usage. Supports both ENABLE_DATABASE and DATABASE_ENABLED.
+    database_enabled: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("ENABLE_DATABASE", "DATABASE_ENABLED", "database_enabled"),
+    )
     # Number of knowledge chunks retrieved per question.
     rag_top_k: int = 4
     # Timeout (seconds) for a single chat-LLM request (Groq or Ollama).
