@@ -66,10 +66,30 @@ class RepoCreator:
             return self._created_repo_from_response(profile, repo_name, response.data)
 
         if response.status_code == 422:
-            existing = self._github.get_repository_sync(profile.owner, repo_name, token)
-            if existing.status_code == 200 and isinstance(existing.data, dict):
-                logger.info("Target repo %s/%s already exists; reusing it.", profile.owner, repo_name)
-                return self._created_repo_from_response(profile, repo_name, existing.data)
+            gh_message = ""
+            if isinstance(response.data, dict):
+                gh_message = str(response.data.get("message", ""))
+                for err in response.data.get("errors", []):
+                    if isinstance(err, dict) and "already exists" in str(err.get("message", "")).lower():
+                        gh_message = "already exists"
+                        break
+            if "already exists" in gh_message.lower():
+                # Try fetching existing repo metadata; fall back to constructing URL directly.
+                existing = self._github.get_repository_sync(profile.owner, repo_name, token)
+                if existing.status_code == 200 and isinstance(existing.data, dict):
+                    logger.info("Target repo %s/%s already exists; reusing it.", profile.owner, repo_name)
+                    return self._created_repo_from_response(profile, repo_name, existing.data)
+                # GET failed (private repo or token scope) — construct the URL directly.
+                logger.info(
+                    "Target repo %s/%s already exists (GET returned %s); reusing with constructed URL.",
+                    profile.owner, repo_name, existing.status_code,
+                )
+                return CreatedRepo(
+                    owner=profile.owner,
+                    name=repo_name,
+                    html_url=f"https://{profile.host}/{profile.owner}/{repo_name}",
+                    clone_url=f"https://{profile.host}/{profile.owner}/{repo_name}.git",
+                )
 
         # Log diagnostic info (never log the token value itself)
         gh_message = ""
