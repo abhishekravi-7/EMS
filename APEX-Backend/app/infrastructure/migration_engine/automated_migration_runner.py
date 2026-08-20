@@ -480,18 +480,20 @@ class AutomatedMigrationRunner:
 
         commands = (
             ["init", "-q"],
+            ["config", "core.longpaths", "true"],
             ["config", "user.name", "JavaApex Migration"],
             ["config", "user.email", "migration@javaapex.local"],
             ["add", "-A"],
             ["commit", "--allow-empty", "-q", "-m", "javaapex migration checkpoint"],
         )
         for args in commands:
-            result = run_command([git, *args], cwd=project_dir, timeout=60)
+            cmd = [git, "-c", "core.longpaths=true", *args]
+            result = run_command(cmd, cwd=project_dir, timeout=60)
             if not result.succeeded:
                 logger.warning("Unable to create migration checkpoint: git %s failed", args[0])
                 return GitCheckpoint(revision="", available=False)
 
-        head = run_command([git, "rev-parse", "HEAD"], cwd=project_dir, timeout=30)
+        head = run_command([git, "-c", "core.longpaths=true", "rev-parse", "HEAD"], cwd=project_dir, timeout=30)
         if not head.succeeded:
             return GitCheckpoint(revision="", available=False)
         return GitCheckpoint(revision=head.stdout.strip(), available=True)
@@ -506,11 +508,11 @@ class AutomatedMigrationRunner:
         if not git:
             return False
         reset = run_command(
-            [git, "reset", "--hard", checkpoint.revision],
+            [git, "-c", "core.longpaths=true", "reset", "--hard", checkpoint.revision],
             cwd=project_dir,
             timeout=60,
         )
-        clean = run_command([git, "clean", "-fd"], cwd=project_dir, timeout=60)
+        clean = run_command([git, "-c", "core.longpaths=true", "clean", "-fd"], cwd=project_dir, timeout=60)
         if not reset.succeeded or not clean.succeeded:
             logger.warning("Unable to restore migration checkpoint.")
             return False
