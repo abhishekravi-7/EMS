@@ -28,7 +28,13 @@ if settings.database_enabled:
     # cheap "SELECT 1" before handing it to a request, so a connection the
     # database silently closed (e.g. after being idle) is transparently replaced
     # instead of surfacing as a request-time error.
-    engine = create_engine(settings.database_url, pool_pre_ping=True)
+    # Set explicit connect_timeout and pool_timeout to avoid hanging indefinitely.
+    engine = create_engine(
+        settings.database_url,
+        pool_pre_ping=True,
+        pool_timeout=10,
+        connect_args={"connect_timeout": 10},
+    )
 
     # Factory for `Session` objects — comparable to Hibernate's `SessionFactory`.
     # `autoflush=False`/`autocommit=False` are the SQLAlchemy 2.0 defaults,

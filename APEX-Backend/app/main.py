@@ -59,6 +59,10 @@ async def lifespan(_app: FastAPI):
     # neither connect to the `postgres` maintenance database this needs nor
     # run CREATE DATABASE. Attempting it there raises RuntimeError and the
     # service never finishes booting.
+    logger.info("[DATABASE] PostgreSQL enabled: %s", settings.database_enabled)
+    logger.info("[DATABASE] PostgreSQL configuration loaded: %s", bool(settings.database_url))
+    logger.info("[CONNECT] Database-independent mode: %s", "enabled" if not settings.database_enabled else "disabled")
+
     if settings.database_enabled:
         if not settings.is_production:
             ensure_database_exists()
