@@ -1162,65 +1162,174 @@
 
 /* Left Sidebar */
 .wizard-sidebar {
-  width: 250px;
-  min-width: 250px;
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 1000;
+  width: 72px;
   background: #ffffff;
   border-right: 1px solid #e2e8f0;
-  padding: 32px 18px 24px;
+  padding: 24px 0;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  align-items: center;
   box-sizing: border-box;
   flex-shrink: 0;
-  height: 100%;
-  overflow-y: auto;
+  height: 100% !important;
+  overflow-y: hidden;
+  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.4s ease;
+  box-shadow: 4px 0 15px rgba(0, 0, 0, 0.05);
+}
+
+.wizard-sidebar:hover {
+  width: 280px;
+  align-items: stretch;
+  box-shadow: 15px 0 40px rgba(15, 23, 42, 0.18);
+}
+
+.wizard-sidebar-brand {
+  padding: 0 20px;
+  margin-bottom: 24px;
+  opacity: 0;
+  white-space: nowrap;
+  transition: opacity 0.3s ease;
+  overflow: hidden;
+}
+
+.wizard-sidebar:hover .wizard-sidebar-brand {
+  opacity: 1;
+}
+
+.wizard-sidebar-footer {
+  margin-top: auto;
+  padding: 20px 20px 0;
+  border-top: 1px solid #f1f5f9;
+  opacity: 0;
+  white-space: nowrap;
+  transition: opacity 0.3s ease;
+  overflow: hidden;
+}
+
+.wizard-sidebar:hover .wizard-sidebar-footer {
+  opacity: 1;
 }
 
 .wizard-steps-list {
   display: flex;
   flex-direction: column;
+  width: 100%;
 }
 
 .wizard-step-item {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 10px 14px;
+  padding: 12px 16px;
   border-radius: 14px;
   transition: all 0.25s ease;
   user-select: none;
+  white-space: nowrap;
+  margin: 0 8px;
+}
+
+.wizard-sidebar:hover .wizard-step-item {
+  margin: 0 12px;
 }
 
 .wizard-step-item.is-active {
+  background: transparent;
+  box-shadow: none;
+}
+
+.wizard-sidebar:hover .wizard-step-item.is-active {
   background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%);
   box-shadow: 0 6px 18px rgba(37, 99, 235, 0.22);
 }
 
-.wizard-step-item:not(.is-active):hover {
+.wizard-step-item:not(.is-locked):hover {
   background: #f8fafc;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+  transform: translateX(6px);
+  border-left: 4px solid #2563eb;
 }
 
-.wizard-step-num-badge {
-  width: 32px;
-  height: 32px;
+.wizard-step-item.is-active:hover {
+  background: linear-gradient(135deg, #1d4ed8 0%, #111827 100%);
+  box-shadow: 0 8px 24px rgba(37, 99, 235, 0.35);
+  transform: translateX(6px);
+}
+
+.wizard-step-item.is-locked:hover {
+  background: transparent;
+  box-shadow: none;
+  transform: none;
+}
+
+.wizard-step-icon-wrap {
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 13px;
+  background: #f1f5f9;
+  color: #94a3b8;
+  transition: all 0.25s ease;
+  flex-shrink: 0;
+}
+
+.wizard-step-item.is-active .wizard-step-icon-wrap {
+  background: #eff6ff;
+  color: #2563eb;
+  border: 1.5px solid #2563eb;
+}
+
+.wizard-sidebar:hover .wizard-step-item.is-active .wizard-step-icon-wrap {
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+  border: none;
+}
+
+.wizard-step-item.is-completed .wizard-step-icon-wrap {
+  background: #ecfdf5;
+  color: #16a34a;
+  border: 1px solid #a7f3d0;
+}
+
+.wizard-step-details-reveal {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+  margin-left: 12px;
+}
+
+.wizard-sidebar:hover .wizard-step-details-reveal {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.wizard-step-num-badge {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
   font-weight: 700;
   flex-shrink: 0;
   background: #ffffff;
-  color: #475569;
-  border: 1.5px solid #e2e8f0;
-  transition: all 0.25s ease;
+  color: #64748b;
+  border: 1px solid #e2e8f0;
 }
 
 .wizard-step-item.is-active .wizard-step-num-badge {
   background: #ffffff;
   color: #2563eb;
-  border-color: transparent;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+  border: none;
 }
 
 .wizard-step-item.is-completed .wizard-step-num-badge {
@@ -1232,11 +1341,11 @@
 .wizard-step-text-col {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
 }
 
 .wizard-step-title {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
   color: #1e293b;
   line-height: 1.2;
@@ -1247,7 +1356,7 @@
 }
 
 .wizard-step-subtitle {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 500;
   color: #64748b;
 }
@@ -1258,13 +1367,14 @@
 
 .wizard-step-divider {
   width: 2px;
-  height: 22px;
-  border-left: 2px dashed #cbd5e1;
-  margin-left: 29px;
+  height: 16px;
+  background-color: #e2e8f0;
+  margin-left: 35px; /* Aligned with icon center */
+  opacity: 0.6;
 }
 
 .wizard-step-divider.is-completed {
-  border-left-color: #86efac;
+  background-color: #86efac;
 }
 
 /* Need Help Card */
@@ -1329,7 +1439,7 @@
 .wizard-main-content {
   flex: 1;
   min-width: 0;
-  padding: 32px 40px;
+  padding: 32px 40px 32px 100px; /* Offset for the icon rail */
   box-sizing: border-box;
   height: 100%;
   overflow-y: auto;

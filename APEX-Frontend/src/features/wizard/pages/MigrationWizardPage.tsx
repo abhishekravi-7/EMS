@@ -1,5 +1,13 @@
 import React, { useEffect } from "react";
-import { FaTimes } from "react-icons/fa";
+import {
+  FaTimes,
+  FaLink,
+  FaSearch,
+  FaProjectDiagram,
+  FaRocket,
+  FaCheckCircle,
+} from "react-icons/fa";
+import apexLogo from "../../../assets/logo.jpg";
 import { wizardStyles as styles } from "@/shared/components/wizard/wizardStyles";
 import { useWizardController } from "../hooks/useWizardController";
 import { useChatbot } from "@/shared/context/ChatbotContext";
@@ -18,11 +26,11 @@ import { ResultReportView } from "@/features/result/components/ResultReportView"
 import "./MigrationWizardPage.css";
 
 const WIZARD_SIDEBAR_STEPS = [
-  { id: 1, number: 1, title: "Connect", subtitle: "Repository" },
-  { id: 2, number: 2, title: "Discovery", subtitle: "Dependencies" },
-  { id: 3, number: 3, title: "Strategy", subtitle: "Migration Plan" },
-  { id: 4, number: 4, title: "Migration", subtitle: "Modernization" },
-  { id: 5, number: 5, title: "Results", subtitle: "Validation" },
+  { id: 1, number: 1, title: "Connect", subtitle: "Repository", icon: FaLink },
+  { id: 2, number: 2, title: "Discovery", subtitle: "Dependencies", icon: FaSearch },
+  { id: 3, number: 3, title: "Strategy", subtitle: "Migration Plan", icon: FaProjectDiagram },
+  { id: 4, number: 4, title: "Migration", subtitle: "Modernization", icon: FaRocket },
+  { id: 5, number: 5, title: "Results", subtitle: "Validation", icon: FaCheckCircle },
 ];
 
 export default function MigrationWizardPage() {
@@ -116,6 +124,14 @@ export default function MigrationWizardPage() {
     <div className="wizard-dashboard-layout">
       {/* Left Sidebar Step Navigation */}
       <aside className="wizard-sidebar">
+        <div className="wizard-sidebar-brand">
+          <img
+            src={apexLogo}
+            alt="Java APEX"
+            style={{ height: 32, width: "auto", objectFit: "contain", display: "block", marginBottom: 20 }}
+          />
+        </div>
+
         <div className="wizard-steps-list">
           {WIZARD_SIDEBAR_STEPS.map((s, index) => {
             const isCurrent = activeSidebarStepId === s.id;
@@ -135,7 +151,7 @@ export default function MigrationWizardPage() {
             return (
               <React.Fragment key={s.id}>
                 <div
-                  className={`wizard-step-item ${isCurrent ? "is-active" : ""} ${isCompleted ? "is-completed" : ""}`}
+                  className={`wizard-step-item ${isCurrent ? "is-active" : ""} ${isCompleted ? "is-completed" : ""} ${isLocked ? "is-locked" : ""}`}
                   onClick={() => {
                     if (canClick) {
                       setStep(s.id);
@@ -146,12 +162,18 @@ export default function MigrationWizardPage() {
                   }}
                   title={isLocked ? "Complete the previous step first to unlock this one" : undefined}
                 >
-                  <div className="wizard-step-num-badge">
-                    {s.number}
+                  <div className="wizard-step-icon-wrap">
+                    <s.icon size={18} />
                   </div>
-                  <div className="wizard-step-text-col">
-                    <span className="wizard-step-title">{s.title}</span>
-                    <span className="wizard-step-subtitle">{s.subtitle}</span>
+
+                  <div className="wizard-step-details-reveal">
+                    <div className="wizard-step-num-badge">
+                      {s.number}
+                    </div>
+                    <div className="wizard-step-text-col">
+                      <span className="wizard-step-title">{s.title}</span>
+                      <span className="wizard-step-subtitle">{s.subtitle}</span>
+                    </div>
                   </div>
                 </div>
                 {index < WIZARD_SIDEBAR_STEPS.length - 1 && (
@@ -162,29 +184,10 @@ export default function MigrationWizardPage() {
           })}
         </div>
 
-        {/* Need Help? Card */}
-        <div className="wizard-help-card">
-          <div className="wizard-help-icon">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-            </svg>
+        <div className="wizard-sidebar-footer" style={{ marginTop: "auto", paddingTop: 20, borderTop: "1px solid #f1f5f9" }}>
+          <div style={{ fontSize: 11, color: "#94a3b8", textAlign: "center" }}>
+            © 2026 Powered by <strong style={{ color: "#2563eb" }}>Sorim.ai</strong>
           </div>
-          <div className="wizard-help-title">Need Help?</div>
-          <div className="wizard-help-desc">Check our documentation or contact support team.</div>
-          <button
-            type="button"
-            className="wizard-help-btn"
-            onClick={() => {
-              const docsBtn = document.querySelector('.ui-nav-button') as HTMLButtonElement | null;
-              if (docsBtn) docsBtn.click();
-            }}
-          >
-            <span>Visit Docs</span>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="5" y1="12" x2="19" y2="12"></line>
-              <polyline points="12 5 19 12 12 19"></polyline>
-            </svg>
-          </button>
         </div>
       </aside>
 
