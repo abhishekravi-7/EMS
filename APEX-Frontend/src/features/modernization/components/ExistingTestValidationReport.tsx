@@ -1,17 +1,7 @@
 import React, { useState } from "react";
-import { FaFileAlt, FaFolder } from "react-icons/fa";
-import { ExistingTestTable } from "./ExistingTestTable";
+import { FaFileAlt } from "react-icons/fa";
+import { ExistingTestTable, type TestResult } from "./ExistingTestTable";
 import { ExistingTestLogs } from "./ExistingTestLogs";
-
-interface TestResult {
-  test_name: string;
-  suite: string;
-  status: "PASSED" | "FAILED" | "SKIPPED" | "ERROR" | "NOT_EXECUTED";
-  duration: string;
-  file: string;
-  type?: string;
-  failure_message?: string | null;
-}
 
 interface FileSummary {
   file: string;
@@ -51,6 +41,9 @@ interface ExistingTestValidationReportProps {
   logs: LogEntry[];
   onSelectTest: (test: TestResult) => void;
   onClose: () => void;
+  onRunAgain?: () => void;
+  isRunning?: boolean;
+  hasRun?: boolean;
 }
 
 export function ExistingTestValidationReport({
@@ -61,10 +54,12 @@ export function ExistingTestValidationReport({
   logs,
   onSelectTest,
   onClose,
+  onRunAgain,
+  isRunning = false,
+  hasRun = true,
 }: ExistingTestValidationReportProps) {
   const [activeTab, setActiveTab] = useState<"TABLE" | "LOGS">("TABLE");
 
-  const total = metrics.total ?? 0;
   const executed = metrics.executed ?? (metrics.passed ?? 0) + (metrics.failed ?? 0) + (metrics.skipped ?? 0);
   const passed = metrics.passed ?? 0;
   const failed = metrics.failed ?? 0;
@@ -145,9 +140,9 @@ export function ExistingTestValidationReport({
                     padding: "2px 8px",
                     fontSize: 10,
                     fontWeight: 700,
-                    color: execStatus === "ERROR" ? "#fca5a5" : execStatus === "FAILED" ? "#fcd34d" : "#86efac",
+                    color: execStatus === "NO_TESTS_FOUND" ? "#94a3b8" : execStatus === "ERROR" ? "#fca5a5" : execStatus === "FAILED" ? "#fcd34d" : "#86efac",
                     borderStyle: "solid",
-                    borderColor: execStatus === "ERROR" ? "rgba(239, 68, 68, 0.4)" : execStatus === "FAILED" ? "rgba(245, 158, 11, 0.4)" : "rgba(34, 197, 94, 0.4)",
+                    borderColor: execStatus === "NO_TESTS_FOUND" ? "rgba(148, 163, 184, 0.4)" : execStatus === "ERROR" ? "rgba(239, 68, 68, 0.4)" : execStatus === "FAILED" ? "rgba(245, 158, 11, 0.4)" : "rgba(34, 197, 94, 0.4)",
                   }}
                 >
                   STATUS: {execStatus}
@@ -347,6 +342,9 @@ export function ExistingTestValidationReport({
               fileBreakdown={fileBreakdown}
               frameworkInfo={frameworkInfo}
               onSelectTest={onSelectTest}
+              onRunAgain={onRunAgain}
+              isRunning={isRunning}
+              hasRun={hasRun}
             />
           ) : (
             <ExistingTestLogs logs={logs} />

@@ -20,6 +20,7 @@ import {
   type SonarHotspotDetail,
   type SonarReport,
 } from "../services/resultService";
+import type { DependencyInfo } from "@/shared/types/domain";
 import {
   SONAR_FINDINGS_PAGE_SIZE,
   REPORT_DEPENDENCIES_PAGE_SIZE,
@@ -209,12 +210,23 @@ export function ResultReportView({
   void testSummaryReportDate;
   void migrationJavaVersion;
 
-  const sonarReport = (migrationJob?.sonar_report ?? null) as any;
-  const allSonarIssues = (sonarReport?.all_issues ?? []) as any[];
-  const sonarBugDetails = (sonarReport?.bug_details?.length ? sonarReport.bug_details : sonarReport?.bugs?.length ? sonarReport.bugs : allSonarIssues.filter((i) => String(i?.type || "").toUpperCase().includes("BUG"))) as SonarIssueDetail[];
-  const sonarVulnerabilityDetails = (sonarReport?.vulnerability_details?.length ? sonarReport.vulnerability_details : sonarReport?.vulnerabilities?.length ? sonarReport.vulnerabilities : allSonarIssues.filter((i) => String(i?.type || "").toUpperCase().includes("VULNERAB"))) as SonarIssueDetail[];
-  const sonarCodeSmellDetails = (sonarReport?.code_smell_details?.length ? sonarReport.code_smell_details : sonarReport?.code_smells?.length ? sonarReport.code_smells : allSonarIssues.filter((i) => { const t = String(i?.type || "").toUpperCase(); return t.includes("SMELL") || (!t.includes("BUG") && !t.includes("VULNERAB") && !t.includes("HOTSPOT")); })) as SonarIssueDetail[];
-  const sonarHotspotDetails = (sonarReport?.security_hotspot_details?.length ? sonarReport.security_hotspot_details : sonarReport?.security_hotspots?.length ? sonarReport.security_hotspots : sonarReport?.hotspots?.length ? sonarReport.hotspots : allSonarIssues.filter((i) => String(i?.type || "").toUpperCase().includes("HOTSPOT"))) as SonarHotspotDetail[];
+  const sonarReport: SonarReport | null = migrationJob?.sonar_report ?? null;
+  const allSonarIssues = (sonarReport?.all_issues ?? []) as Array<SonarIssueDetail | SonarHotspotDetail>;
+  const sonarBugDetails = (sonarReport?.bug_details?.length
+    ? sonarReport.bug_details
+    : allSonarIssues.filter((i) => String((i as { type?: unknown }).type || "").toUpperCase().includes("BUG"))) as SonarIssueDetail[];
+  const sonarVulnerabilityDetails = (sonarReport?.vulnerability_details?.length
+    ? sonarReport.vulnerability_details
+    : allSonarIssues.filter((i) => String((i as { type?: unknown }).type || "").toUpperCase().includes("VULNERAB"))) as SonarIssueDetail[];
+  const sonarCodeSmellDetails = (sonarReport?.code_smell_details?.length
+    ? sonarReport.code_smell_details
+    : allSonarIssues.filter((i) => {
+        const t = String((i as { type?: unknown }).type || "").toUpperCase();
+        return t.includes("SMELL") || (!t.includes("BUG") && !t.includes("VULNERAB") && !t.includes("HOTSPOT"));
+      })) as SonarIssueDetail[];
+  const sonarHotspotDetails = (sonarReport?.security_hotspot_details?.length
+    ? sonarReport.security_hotspot_details
+    : allSonarIssues.filter((i) => String((i as { type?: unknown }).type || "").toUpperCase().includes("HOTSPOT"))) as SonarHotspotDetail[];
 
   const codeSmellSeverityCounts = sonarCodeSmellDetails.reduce(
     (acc, issue) => {
@@ -476,7 +488,7 @@ export function ResultReportView({
       : fossaPolicyStatus === "UNAVAILABLE" || fossaScanMode === "pending"
         ? "#f59e0b"
         : "#ef4444";
-  const rawDepList = migrationJob?.dependencies?.length
+  const rawDepList: Array<DependencyInfo | Record<string, unknown>> = (migrationJob?.dependencies?.length
     ? migrationJob.dependencies
     : (migrationJob?.dependencyUpgrades?.length ? migrationJob.dependencyUpgrades : [
       { group_id: "org.springframework.boot", artifact_id: "spring-boot-starter-parent", current_version: "2.7.18", new_version: "3.2.5", status: "UPGRADED" },
@@ -484,15 +496,30 @@ export function ResultReportView({
       { group_id: "org.springframework.boot", artifact_id: "spring-boot-starter-data-jpa", current_version: "2.7.18", new_version: "3.2.5", status: "UPGRADED" },
       { group_id: "jakarta.persistence", artifact_id: "jakarta.persistence-api", current_version: "2.2.0 (javax)", new_version: "3.1.0 (jakarta)", status: "UPGRADED" },
       { group_id: "org.junit.jupiter", artifact_id: "junit-jupiter", current_version: "4.12 (JUnit 4)", new_version: "5.10.2 (JUnit 5)", status: "UPGRADED" },
-    ]);
+    ])) as Array<DependencyInfo | Record<string, unknown>>;
   const detectedDependencyCount = migrationJob?.dependency_count ?? rawDepList.length;
-  const dependencyUpdates = rawDepList.map((dep: any) => ({
-    group_id: dep.group_id || dep.groupId || dep.coordinate?.split(":")[0] || "dependency",
-    artifact_id: dep.artifact_id || dep.artifactId || dep.coordinate?.split(":")[1] || "artifact",
-    current_version: dep.current_version || dep.old_version || dep.oldVersion || "managed version",
-    new_version: dep.new_version || dep.newVersion || "updated version",
-    status: dep.status || "UPGRADED",
-  }));
+  const dependencyUpdates = rawDepList.map((dep) => {
+    const source = dep as Record<string, unknown> & {
+      group_id?: string;
+      groupId?: string;
+      artifact_id?: string;
+      artifactId?: string;
+      coordinate?: string;
+      current_version?: string | null;
+      old_version?: string | null;
+      oldVersion?: string | null;
+      new_version?: string | null;
+      newVersion?: string | null;
+      status?: string | null;
+    };
+    return {
+      group_id: source.group_id || source.groupId || source.coordinate?.split(":")[0] || "dependency",
+      artifact_id: source.artifact_id || source.artifactId || source.coordinate?.split(":")[1] || "artifact",
+      current_version: source.current_version || source.old_version || source.oldVersion || "managed version",
+      new_version: source.new_version || source.newVersion || "updated version",
+      status: source.status || "UPGRADED",
+    };
+  });
   const dependencyUpgradeCount = dependencyUpdates.length;
   const warningsRemaining = Math.max(
     (migrationJob?.total_warnings ?? 0) - (migrationJob?.warnings_fixed ?? 0),
@@ -813,7 +840,14 @@ export function ResultReportView({
             {/* Source Code Transformations (Before vs After Differentiator) */}
             <div style={styles.reportSection}>
               {(() => {
-                const diffData = [
+                const diffData: Array<{
+                  file: string;
+                  category: string;
+                  icon: string;
+                  targetSourceFile?: string;
+                  beforeLines: Array<{ num: number; text: string; type: string }>;
+                  afterLines: Array<{ num: number; text: string; type: string }>;
+                }> = [
                   // 1. pom.xml
                   {
                     file: "pom.xml",
@@ -1056,7 +1090,7 @@ export function ResultReportView({
                         <div style={{
                           display: "flex",
                           alignItems: "center",
-                          justify: "space-between",
+                          justifyContent: "space-between",
                           gap: 8,
                           padding: "8px 12px",
                           background: current.category === "Generated Test" ? "rgba(59, 130, 246, 0.15)" : "rgba(239, 68, 68, 0.15)",
@@ -1103,7 +1137,7 @@ export function ResultReportView({
                         <div style={{
                           display: "flex",
                           alignItems: "center",
-                          justify: "space-between",
+                          justifyContent: "space-between",
                           gap: 8,
                           padding: "8px 12px",
                           background: "rgba(16, 185, 129, 0.15)",

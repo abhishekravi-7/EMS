@@ -63,6 +63,12 @@ export interface SonarReport {
   vulnerability_details?: SonarIssueDetail[];
   code_smell_details?: SonarIssueDetail[];
   security_hotspot_details?: SonarHotspotDetail[];
+  all_issues?: Array<SonarIssueDetail | SonarHotspotDetail>;
+  bugs_list?: SonarIssueDetail[];
+  vulnerabilities_list?: SonarIssueDetail[];
+  code_smells_list?: SonarIssueDetail[];
+  hotspots?: SonarHotspotDetail[];
+  security_hotspots_list?: SonarHotspotDetail[];
   [key: string]: unknown;
 }
 
@@ -149,6 +155,12 @@ export interface FunctionalTesting {
           report_tool?: string;
           report_type?: string;
         }>;
+        executed_test_details?: Array<{
+          test_class?: string;
+          test_method?: string;
+          status?: string;
+          duration?: string | null;
+        }>;
       };
       message?: string;
 }
@@ -207,6 +219,12 @@ export interface MigrationResult {
     deepeval_result?: Record<string, unknown> | null;
     garak_result?: Record<string, unknown> | null;
     coverage_result?: Record<string, unknown> | null;
+    executed_test_details?: Array<{
+      test_class?: string;
+      test_method?: string;
+      status?: string;
+      duration?: string | null;
+    }>;
   } | null;
   functional_pipeline?: FunctionalTesting | null;
   // FOSSA scan results (optional)
@@ -234,6 +252,7 @@ export interface MigrationResult {
   recipe_selection_reasons?: string[];
   build_modernization?: string[];
   dependency_upgrades?: Array<{ coordinate: string; oldVersion: string | null; newVersion: string }>;
+  dependencyUpgrades?: Array<{ coordinate: string; oldVersion: string | null; newVersion: string }>;
   used_fallback?: boolean;
   already_compatible?: boolean;
   build_status?: string | null;

@@ -1,7 +1,20 @@
 import React, { useState, useMemo } from "react";
-import { FaCheckCircle, FaTimesCircle, FaExclamationTriangle, FaSearch } from "react-icons/fa";
+import {
+  FaCheck,
+  FaTimes,
+  FaSearch,
+  FaTable,
+  FaTerminal,
+  FaSort,
+  FaSortUp,
+  FaSortDown,
+  FaChevronLeft,
+  FaChevronRight,
+  FaInfoCircle,
+  FaSpinner,
+  FaRedo,
+} from "react-icons/fa";
 import { ExistingTestLogs } from "./ExistingTestLogs";
-import { FaDownload } from "react-icons/fa";
 
 export interface TestResult {
   testId?: string;
@@ -21,16 +34,22 @@ export interface TestResult {
   type?: string;
   testType?: string;
   test_type?: string;
+  category?: string;
   framework?: string;
   stackTrace?: string | null;
   stack_trace?: string | null;
   stdout?: string | null;
-  stderr?: string | null;
   report_url?: string | null;
   screenshot_url?: string | null;
+  screenshotUrl?: string | null;
   video_url?: string | null;
+  videoUrl?: string | null;
   trace_url?: string | null;
-  api_evidence?: any;
+  traceUrl?: string | null;
+  api_evidence?: Record<string, unknown> | null;
+  evidence?: Record<string, unknown> | null;
+  unavailable_reason?: string | null;
+  unavailableReason?: string | null;
 }
 
 interface FileSummary {
@@ -50,6 +69,7 @@ interface LogEntry {
 
 interface ExistingTestTableProps {
   testResults: TestResult[];
+  title?: string;
   fileBreakdown?: FileSummary[];
   frameworkInfo?: {
     detected_framework?: string;
@@ -58,420 +78,727 @@ interface ExistingTestTableProps {
   };
   logs?: LogEntry[];
   onSelectTest: (test: TestResult) => void;
-  title?: string;
+  onRunAgain?: () => void;
+  isRunning?: boolean;
+  hasRun?: boolean;
 }
+
+type SortField = "NAME" | "DURATION" | "STATUS" | "TYPE" | "CLASS";
+type SortOrder = "ASC" | "DESC";
 
 export function ExistingTestTable({
   testResults,
-  fileBreakdown = [],
   frameworkInfo,
   logs = [],
   onSelectTest,
   title = "Existing Tests Validation Report",
+  onRunAgain,
+  isRunning = false,
+  hasRun = false,
 }: ExistingTestTableProps) {
-  const [activeTab, setActiveTab] = useState<"TABLE" | "LOGS">("TABLE");
-  const [filter, setFilter] = useState<"ALL" | "PASSED" | "FAILED" | "RUNNING" | "PENDING" | "SKIPPED" | "NOT_EXECUTED">("ALL");
+  const [viewMode, setViewMode] = useState<"TABLE" | "LOGS">("TABLE");
+  const [filter, setFilter] = useState<"ALL" | "PASSED" | "FAILED" | "SKIPPED">("ALL");
   const [search, setSearch] = useState("");
+  const pageSize = 10;
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [sortField, setSortField] = useState<SortField | null>(null);
+  const [sortOrder, setSortOrder] = useState<SortOrder>("ASC");
 
   const buildTool = (frameworkInfo?.build_tool || "MAVEN").toUpperCase();
-  const frameworkName = (frameworkInfo?.detected_framework || "JUNIT").toUpperCase();
+  const testSourceDir = frameworkInfo?.test_source_dir || "src/test/java";
 
-  // Counts for filters
+  // Canonical counts computed directly from testResults
   const counts = useMemo(() => {
-    const res = { total: 0, passed: 0, failed: 0, skipped: 0, not_executed: 0, running: 0, pending: 0 };
+    const res = { total: 0, passed: 0, failed: 0, skipped: 0, not_executed: 0 };
     testResults.forEach((t) => {
       res.total++;
-      if (t.status === "PASSED") res.passed++;
-      else if (t.status === "FAILED" || t.status === "ERROR") res.failed++;
-      else if (t.status === "SKIPPED") res.skipped++;
-      else if (t.status === "RUNNING") res.running++;
-      else if (t.status === "PENDING") res.pending++;
-      else if (t.status === "NOT_EXECUTED") res.not_executed++;
+      const st = (t.status || "NOT_EXECUTED").toUpperCase();
+      if (st === "PASSED") res.passed++;
+      else if (st === "FAILED" || st === "ERROR") res.failed++;
+      else if (st === "SKIPPED" || st === "NOT_EXECUTED" || st === "NOT EXECUTED" || st === "PENDING") res.skipped++;
+      else res.not_executed++;
     });
     return res;
   }, [testResults]);
 
   const executedCount = counts.passed + counts.failed + counts.skipped;
-  const passRateVal = executedCount > 0 ? ((counts.passed / executedCount) * 100).toFixed(1) : "N/A";
+  const passRateVal = (counts.passed + counts.failed) > 0 ? `${((counts.passed / (counts.passed + counts.failed)) * 100).toFixed(1)}%` : (executedCount > 0 ? `${((counts.passed / executedCount) * 100).toFixed(1)}%` : "—");
 
-  // Filtered and searched test cases
+  // Filtering & searching
   const filtered = useMemo(() => {
-    return testResults.filter((t) => {
-      // Status Filter
-      if (filter !== "ALL") {
-        if (filter === "PASSED" && t.status !== "PASSED") return false;
-        if (filter === "FAILED" && t.status !== "FAILED" && t.status !== "ERROR") return false;
-        if (filter === "RUNNING" && t.status !== "RUNNING") return false;
-        if (filter === "PENDING" && t.status !== "PENDING") return false;
-        if (filter === "SKIPPED" && t.status !== "SKIPPED") return false;
-        if (filter === "NOT_EXECUTED" && t.status !== "NOT_EXECUTED") return false;
-      }
+    let result = testResults.filter((t) => {
+      const st = (t.status || "NOT_EXECUTED").toUpperCase();
+      if (filter === "PASSED" && st !== "PASSED") return false;
+      if (filter === "FAILED" && st !== "FAILED" && st !== "ERROR") return false;
+      if (filter === "SKIPPED" && st !== "SKIPPED" && st !== "NOT_EXECUTED" && st !== "NOT EXECUTED" && st !== "PENDING") return false;
 
-      // Search Box Filter
       if (search.trim()) {
         const q = search.toLowerCase();
-        const testName = (t.test_name || "").toLowerCase();
-        const testClass = (t.suite || "").toLowerCase();
+        const testName = (t.test_name || t.name || t.title || "").toLowerCase();
+        const testClass = (t.suite || t.spec || "").toLowerCase();
         const testFile = (t.file || "").toLowerCase();
-        return testName.includes(q) || testClass.includes(q) || testFile.includes(q);
+        const rawType = (t.test_type || t.testType || t.type || "").toUpperCase();
+        const testType = (rawType === "UNIT" ? "API" : rawType).toLowerCase();
+        const testFw = (t.framework || "").toLowerCase();
+        return (
+          testName.includes(q) ||
+          testClass.includes(q) ||
+          testFile.includes(q) ||
+          testType.includes(q) ||
+          testFw.includes(q)
+        );
       }
       return true;
     });
-  }, [testResults, filter, search]);
 
-  const hasFailed = counts.failed > 0;
-  const hasNotExecuted = counts.not_executed > 0;
+    // Sorting
+    if (sortField) {
+      result = [...result].sort((a, b) => {
+        let valA = "";
+        let valB = "";
+
+        if (sortField === "NAME") {
+          valA = (a.test_name || a.name || a.title || "").toLowerCase();
+          valB = (b.test_name || b.name || b.title || "").toLowerCase();
+        } else if (sortField === "CLASS") {
+          valA = (a.suite || a.file || "").toLowerCase();
+          valB = (b.suite || b.file || "").toLowerCase();
+        } else if (sortField === "STATUS") {
+          valA = (a.status || "").toLowerCase();
+          valB = (b.status || "").toLowerCase();
+        } else if (sortField === "TYPE") {
+          const rawA = (a.test_type || a.testType || a.type || "").toUpperCase();
+          const rawB = (b.test_type || b.testType || b.type || "").toUpperCase();
+          valA = (rawA === "UNIT" ? "API" : rawA).toLowerCase();
+          valB = (rawB === "UNIT" ? "API" : rawB).toLowerCase();
+        } else if (sortField === "DURATION") {
+          const numA = parseFloat((a.duration || "0").replace(/[^0-9.]/g, "")) || 0;
+          const numB = parseFloat((b.duration || "0").replace(/[^0-9.]/g, "")) || 0;
+          return sortOrder === "ASC" ? numA - numB : numB - numA;
+        }
+
+        if (valA < valB) return sortOrder === "ASC" ? -1 : 1;
+        if (valA > valB) return sortOrder === "ASC" ? 1 : -1;
+        return 0;
+      });
+    }
+
+    return result;
+  }, [testResults, filter, search, sortField, sortOrder]);
+
+  // Pagination calculations
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const startIndex = (currentPage - 1) * pageSize;
+  const paginatedTests = filtered.slice(startIndex, startIndex + pageSize);
+  const startItemNumber = filtered.length === 0 ? 0 : startIndex + 1;
+  const endItemNumber = Math.min(startIndex + pageSize, filtered.length);
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      if (sortOrder === "ASC") {
+        setSortOrder("DESC");
+      } else {
+        setSortField(null);
+        setSortOrder("ASC");
+      }
+    } else {
+      setSortField(field);
+      setSortOrder("ASC");
+    }
+  };
+
+  const renderSortIcon = (field: SortField) => {
+    if (sortField !== field) return <FaSort style={{ opacity: 0.3, fontSize: 10, marginLeft: 4 }} />;
+    return sortOrder === "ASC" ? (
+      <FaSortUp style={{ color: "#4f46e5", fontSize: 10, marginLeft: 4 }} />
+    ) : (
+      <FaSortDown style={{ color: "#4f46e5", fontSize: 10, marginLeft: 4 }} />
+    );
+  };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-      
-      {/* Report Header Bar */}
-      {title && (
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {/* ── 1. Report Header Bar ───────────────────────────────────────────── */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: 14,
+          borderBottom: "1px solid #f1f5f9",
+          paddingBottom: 16,
+        }}
+      >
+        {/* Title & Badges */}
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div
+            style={{
+              width: 38,
+              height: 38,
+              borderRadius: 10,
+              background: "#4f46e5",
+              color: "#fff",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 16,
+            }}
+          >
+            <FaTable />
+          </div>
           <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <h3 style={{ fontSize: 17, fontWeight: 800, color: "#0f172a", margin: 0, letterSpacing: "-0.01em" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <h3 style={{ fontSize: 16, fontWeight: 800, color: "#0f172a", margin: 0 }}>
                 {title}
               </h3>
-              <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 6, background: "#eff6ff", color: "#1d4ed8", border: "1px solid #dbeafe", textTransform: "uppercase" }}>
+              <span
+                style={{
+                  fontSize: 10,
+                  fontWeight: 800,
+                  padding: "2px 8px",
+                  borderRadius: 6,
+                  background: "#f0fdf4",
+                  color: "#16a34a",
+                  border: "1px solid #bbf7d0",
+                }}
+              >
                 {buildTool}
               </span>
-              <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 6, background: "#f0fdf4", color: "#166534", border: "1px solid #bbf7d0", textTransform: "uppercase" }}>
-                {frameworkName}
+              <span
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  padding: "2px 8px",
+                  borderRadius: 6,
+                  background: "#f8fafc",
+                  color: "#64748b",
+                  border: "1px solid #e2e8f0",
+                  fontFamily: "monospace",
+                }}
+              >
+                {testSourceDir}
               </span>
-            </div>
-            <p style={{ fontSize: 12, color: "#64748b", margin: "4px 0 0 0" }}>
-              Comprehensive execution metrics across discovered test suites
-            </p>
-          </div>
-          <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-            <button
-              onClick={() => {
-                const sampleJobId = (testResults[0] as any)?.execution_id || (testResults[0] as any)?.executionId;
-                if (sampleJobId) {
-                  window.open(`/api/v1/migration/${sampleJobId}/tests/report/download`, "_blank");
-                }
-              }}
-              style={{
-                padding: "8px 14px",
-                background: "#f8fafc",
-                border: "1px solid #cbd5e1",
-                borderRadius: 8,
-                fontSize: 11,
-                fontWeight: 700,
-                color: "#1e293b",
-                cursor: "pointer",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-              }}
-              title="Download full existing tests validation report"
-            >
-              <FaDownload size={11} color="#3b82f6" /> Download Full Test Report
-            </button>
-            <div style={{ textAlign: "right" }}>
-              <div style={{ fontSize: 17, fontWeight: 900, color: counts.failed > 0 ? "#dc2626" : "#16a34a" }}>
-                {passRateVal}{passRateVal !== "N/A" ? "%" : ""}
-              </div>
-              <div style={{ fontSize: 9, fontWeight: 800, color: "#64748b", textTransform: "uppercase" }}>
-                PASS RATE
-              </div>
             </div>
           </div>
         </div>
-      )}
 
-      {/* TABS BAR: Test Cases Table & Execution Logs */}
-      <div style={{ display: "flex", gap: 10, borderBottom: "1px solid #e2e8f0", paddingBottom: 12 }}>
-        <button
-          onClick={() => setActiveTab("TABLE")}
-          style={{
-            padding: "8px 18px",
-            fontSize: 12,
-            fontWeight: 700,
-            borderRadius: 8,
-            border: "1px solid #e2e8f0",
-            cursor: "pointer",
-            background: activeTab === "TABLE" ? "#0f172a" : "#fff",
-            color: activeTab === "TABLE" ? "#fff" : "#475569",
-            boxShadow: activeTab === "TABLE" ? "0 2px 4px rgba(0,0,0,0.1)" : "none",
-            transition: "all 0.15s ease",
-          }}
-        >
-          Test Cases Table
-        </button>
-        <button
-          onClick={() => setActiveTab("LOGS")}
-          style={{
-            padding: "8px 18px",
-            fontSize: 12,
-            fontWeight: 700,
-            borderRadius: 8,
-            border: "1px solid #e2e8f0",
-            cursor: "pointer",
-            background: activeTab === "LOGS" ? "#0f172a" : "#fff",
-            color: activeTab === "LOGS" ? "#fff" : "#475569",
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            boxShadow: activeTab === "LOGS" ? "0 2px 4px rgba(0,0,0,0.1)" : "none",
-            transition: "all 0.15s ease",
-          }}
-        >
-          Execution Logs
-          {logs && logs.length > 0 && (
-            <span
-              style={{
-                fontSize: 10,
-                fontWeight: 800,
-                background: activeTab === "LOGS" ? "rgba(255, 255, 255, 0.2)" : "#f1f5f9",
-                color: activeTab === "LOGS" ? "#fff" : "#64748b",
-                padding: "1px 6px",
-                borderRadius: 999,
-              }}
-            >
-              {logs.length}
-            </span>
-          )}
-        </button>
-      </div>
-
-      {activeTab === "LOGS" ? (
-        <ExistingTestLogs logs={logs} />
-      ) : (
-        <>
-          {/* 1. TEST CASE FILTER BAR */}
+        {/* Right Circular Pass Rate Badge, Run Again Button & View Toggle */}
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          {/* Circular Pass Rate Badge */}
           <div
             style={{
+              width: 48,
+              height: 48,
+              borderRadius: "50%",
+              border: "3px solid #10b981",
               display: "flex",
+              flexDirection: "column",
               alignItems: "center",
-              justifyContent: "space-between",
-              flexWrap: "wrap",
-              gap: 12,
-              paddingBottom: 4,
-              borderBottom: "1px solid #f1f5f9",
+              justifyContent: "center",
+              textAlign: "center",
             }}
           >
-            <div style={{ display: "flex", background: "#f1f5f9", borderRadius: 8, padding: 2, flexWrap: "wrap", gap: 2 }}>
-              {([
-                { key: "ALL", label: `All (${counts.total})` },
-                { key: "PASSED", label: `Passed (${counts.passed})` },
-                { key: "FAILED", label: `Failed (${counts.failed})` },
-                ...(counts.running > 0 ? [{ key: "RUNNING" as const, label: `Running (${counts.running})` }] : []),
-                ...(counts.pending > 0 ? [{ key: "PENDING" as const, label: `Pending (${counts.pending})` }] : []),
-                { key: "SKIPPED", label: `Skipped (${counts.skipped})` },
-                ...(counts.not_executed > 0 ? [{ key: "NOT_EXECUTED" as const, label: `Not Executed (${counts.not_executed})` }] : []),
-              ] as const).map((tab) => (
-                <button
-                  key={tab.key}
-                  onClick={() => setFilter(tab.key)}
-                  style={{
-                    padding: "6px 14px",
-                    borderRadius: 6,
-                    border: "none",
-                    fontSize: 12,
-                    fontWeight: 700,
-                    cursor: "pointer",
-                    background: filter === tab.key ? "#fff" : "transparent",
-                    color: filter === tab.key ? "#0f172a" : "#64748b",
-                    boxShadow: filter === tab.key ? "0 1px 3px rgba(0,0,0,0.1)" : "none",
-                    transition: "all 0.15s",
-                  }}
-                >
-                  {tab.label}
-                </button>
-              ))}
+            <span style={{ fontSize: 10, fontWeight: 900, color: "#0f172a", lineHeight: 1 }}>{passRateVal}</span>
+            <span style={{ fontSize: 7, fontWeight: 800, color: "#10b981", textTransform: "uppercase", marginTop: 1 }}>
+              PASS RATE
+            </span>
+          </div>
+
+          {/* Global Run Again Button - rendered only after tests have run (hasRun === true) */}
+          {hasRun && onRunAgain && (
+            <button
+              onClick={onRunAgain}
+              disabled={isRunning}
+              style={{
+                padding: "7px 16px",
+                borderRadius: 8,
+                background: isRunning ? "#64748b" : "#0f172a",
+                color: "#fff",
+                fontWeight: 800,
+                fontSize: 12,
+                border: "none",
+                cursor: isRunning ? "not-allowed" : "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 7,
+                boxShadow: "0 2px 6px rgba(15, 23, 42, 0.15)",
+                transition: "all 0.15s ease",
+              }}
+            >
+              {isRunning ? (
+                <FaSpinner className="animate-spin" size={11} />
+              ) : (
+                <FaRedo size={10} style={{ color: "#22c55e" }} />
+              )}
+              {isRunning ? "Running..." : "Run Again"}
+            </button>
+          )}
+
+          {/* Segmented Toggle: Test Cases Table / Execution Logs */}
+          <div
+            style={{
+              display: "inline-flex",
+              borderRadius: 8,
+              border: "1px solid #e2e8f0",
+              background: "#fff",
+              padding: 2,
+            }}
+          >
+            <button
+              onClick={() => setViewMode("TABLE")}
+              style={{
+                padding: "6px 14px",
+                borderRadius: 6,
+                border: viewMode === "TABLE" ? "1px solid #ddd6fe" : "none",
+                background: viewMode === "TABLE" ? "#f5f3ff" : "transparent",
+                color: viewMode === "TABLE" ? "#6d28d9" : "#64748b",
+                fontWeight: 800,
+                fontSize: 12,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+              }}
+            >
+              <FaTable size={12} /> Test Cases Table
+            </button>
+
+            <button
+              onClick={() => setViewMode("LOGS")}
+              style={{
+                padding: "6px 14px",
+                borderRadius: 6,
+                border: viewMode === "LOGS" ? "1px solid #ddd6fe" : "none",
+                background: viewMode === "LOGS" ? "#f5f3ff" : "transparent",
+                color: viewMode === "LOGS" ? "#6d28d9" : "#64748b",
+                fontWeight: 800,
+                fontSize: 12,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+              }}
+            >
+              <FaTerminal size={12} /> Execution Logs {logs.length > 0 ? `(${logs.length})` : ""}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ── VIEW MODE 1: TEST CASES TABLE ─────────────────────────────────── */}
+      {viewMode === "TABLE" ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {/* Controls: Filter Pills & Search */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+            {/* Filter Pills */}
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {[
+                { key: "ALL", label: `All ${counts.total}` },
+                { key: "PASSED", label: `✓ Passed ${counts.passed}`, count: counts.passed, color: "#16a34a", bg: "#f0fdf4", border: "#bbf7d0" },
+                { key: "FAILED", label: `✕ Failed ${counts.failed}`, count: counts.failed, color: "#dc2626", bg: "#fef2f2", border: "#fecaca" },
+                { key: "SKIPPED", label: `⏸ Skipped ${counts.skipped}`, count: counts.skipped, color: "#64748b", bg: "#f8fafc", border: "#e2e8f0" },
+              ].map((p) => {
+                const isActive = filter === p.key;
+                return (
+                  <button
+                    key={p.key}
+                    onClick={() => {
+                      setFilter(p.key as "ALL" | "PASSED" | "FAILED" | "SKIPPED");
+                      setCurrentPage(1);
+                    }}
+                    style={{
+                      padding: "6px 14px",
+                      borderRadius: 20,
+                      border: isActive ? "none" : "1px solid #e2e8f0",
+                      background: isActive ? "#0f172a" : "#fff",
+                      color: isActive ? "#fff" : "#475569",
+                      fontSize: 12,
+                      fontWeight: 800,
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                      boxShadow: isActive ? "0 2px 6px rgba(15, 23, 42, 0.2)" : "none",
+                      transition: "all 0.15s ease",
+                    }}
+                  >
+                    {p.label}
+                  </button>
+                );
+              })}
             </div>
 
-            {/* Search Box */}
-            <div style={{ position: "relative", minWidth: 240 }}>
-              <FaSearch style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#94a3b8", fontSize: 12 }} />
+            {/* Search Input */}
+            <div style={{ position: "relative" }}>
+              <FaSearch
+                style={{
+                  position: "absolute",
+                  left: 12,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  color: "#94a3b8",
+                  fontSize: 12,
+                }}
+              />
               <input
                 type="text"
-                placeholder="Search test name or class..."
+                placeholder="Search by test name, class, or file..."
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setCurrentPage(1);
+                }}
                 style={{
-                  padding: "7px 12px 7px 32px",
-                  fontSize: 12,
+                  padding: "7px 12px 7px 34px",
                   borderRadius: 8,
-                  border: "1px solid #e2e8f0",
+                  border: "1px solid #cbd5e1",
+                  fontSize: 12,
                   outline: "none",
-                  width: "100%",
+                  width: 260,
                 }}
               />
             </div>
           </div>
 
-          {/* 2. EXECUTED TEST CASES TABLE CONTAINER (With fixed/max-height internal scrolling) */}
-          <div style={{ maxHeight: 420, overflowY: "auto", border: "1px solid #e2e8f0", borderRadius: 12 }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: 12 }}>
-              <thead style={{ position: "sticky", top: 0, zIndex: 2, background: "#f8fafc" }}>
-                <tr style={{ borderBottom: "1px solid #e2e8f0", color: "#475569", fontWeight: 700 }}>
-                  <th style={{ padding: "12px 16px", width: 40 }}>#</th>
-                  <th style={{ padding: "12px 16px", width: 120 }}>STATUS</th>
-                  <th style={{ padding: "12px 16px" }}>TEST CLASS</th>
-                  <th style={{ padding: "12px 16px" }}>TEST NAME</th>
-                  <th style={{ padding: "12px 16px", width: 90 }}>TYPE</th>
-                  <th style={{ padding: "12px 16px" }}>DESCRIPTION</th>
-                  <th style={{ padding: "12px 16px", width: 100 }}>DURATION</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} style={{ padding: 32, textAlign: "center", color: "#94a3b8" }}>
-                      No matching test cases found.
-                    </td>
+          {/* Main Table */}
+          <div style={{ border: "1px solid #e2e8f0", borderRadius: 12, overflow: "hidden", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.02)" }}>
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: 12 }}>
+                <thead>
+                  <tr style={{ background: "#f8fafc", borderBottom: "1px solid #e2e8f0", color: "#64748b", fontWeight: 800, fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                    <th style={{ padding: "10px 14px", width: 40 }}>#</th>
+                    <th
+                      style={{ padding: "10px 14px", width: 110, cursor: "pointer", userSelect: "none" }}
+                      onClick={() => handleSort("STATUS")}
+                    >
+                      <div style={{ display: "flex", alignItems: "center" }}>
+                        STATUS {renderSortIcon("STATUS")}
+                      </div>
+                    </th>
+                    <th
+                      style={{ padding: "10px 14px", width: 180, cursor: "pointer", userSelect: "none" }}
+                      onClick={() => handleSort("CLASS")}
+                    >
+                      <div style={{ display: "flex", alignItems: "center" }}>
+                        TEST CLASS {renderSortIcon("CLASS")}
+                      </div>
+                    </th>
+                    <th
+                      style={{ padding: "10px 14px", minWidth: 200, cursor: "pointer", userSelect: "none" }}
+                      onClick={() => handleSort("NAME")}
+                    >
+                      <div style={{ display: "flex", alignItems: "center" }}>
+                        TEST NAME {renderSortIcon("NAME")}
+                      </div>
+                    </th>
+                    <th
+                      style={{ padding: "10px 14px", width: 80, cursor: "pointer", userSelect: "none" }}
+                      onClick={() => handleSort("TYPE")}
+                    >
+                      <div style={{ display: "flex", alignItems: "center" }}>
+                        TYPE {renderSortIcon("TYPE")}
+                      </div>
+                    </th>
+                    <th style={{ padding: "10px 14px" }}>DESCRIPTION</th>
+                    <th
+                      style={{ padding: "10px 14px", width: 90, textAlign: "right", cursor: "pointer", userSelect: "none" }}
+                      onClick={() => handleSort("DURATION")}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end" }}>
+                        DURATION {renderSortIcon("DURATION")}
+                      </div>
+                    </th>
                   </tr>
-                ) : (
-                  filtered.map((t, idx) => {
-                    const isRunning = t.status === "RUNNING";
-                    const isPending = t.status === "PENDING";
-                    const isPassed = t.status === "PASSED";
-                    const isSkipped = t.status === "SKIPPED";
-                    const isNotExecuted = t.status === "NOT_EXECUTED";
+                </thead>
+                <tbody>
+                  {paginatedTests.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} style={{ padding: "48px 16px", textAlign: "center" }}>
+                        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+                          <FaInfoCircle size={24} style={{ color: "#94a3b8" }} />
+                          <div style={{ fontSize: 14, fontWeight: 800, color: "#0f172a" }}>No test cases found</div>
+                          <div style={{ fontSize: 12, color: "#64748b" }}>
+                            Try changing your search query or filter selection.
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    paginatedTests.map((t, idx) => {
+                      const globalIndex = startIndex + idx + 1;
+                      const st = (t.status || "PASSED").toUpperCase();
+                      const isPassed = st === "PASSED";
+                      const isFailed = st === "FAILED" || st === "ERROR";
+                      const isSkipped = st === "SKIPPED";
+                      const isInProgress = st === "IN_PROGRESS" || st === "RUNNING" || st === "IN PROGRESS";
+                      const isNotExecuted = !isPassed && !isFailed && !isSkipped && !isInProgress;
 
-                    const badgeColor = isRunning ? "#1d4ed8" : isPending ? "#64748b" : isPassed ? "#15803d" : isSkipped ? "#b45309" : isNotExecuted ? "#475569" : "#b91c1c";
-                    const badgeBg = isRunning ? "#eff6ff" : isPending ? "#f8fafc" : isPassed ? "#dcfce7" : isSkipped ? "#fef3c7" : isNotExecuted ? "#f1f5f9" : "#fde8e8";
-                    const displayStatus = isRunning ? "RUNNING" : isPending ? "PENDING" : isNotExecuted ? "NOT EXECUTED" : isPassed ? "✓ PASSED" : isSkipped ? "○ SKIPPED" : t.status === "ERROR" ? "! ERROR" : "✕ FAILED";
-                    const rawType = (t.testType || t.test_type || (t.type === "UI" || t.type === "API" || t.type === "UNIT" ? t.type : "") || (t.category === "UI" ? "UI" : t.category === "API" ? "API" : "") || "UNIT").toUpperCase();
-                    const testTypeDisplay = rawType.includes("UI") ? "UI" : rawType.includes("API") ? "API" : "UNIT";
+                      const badgeBg = isPassed
+                        ? "#f0fdf4"
+                        : isFailed
+                        ? "#fef2f2"
+                        : isInProgress
+                        ? "#eff6ff"
+                        : "#f8fafc";
 
-                    // Generate clean descriptions
-                    const desc = isRunning
-                      ? `Executing scenario "${t.test_name}"...`
-                      : isPending
-                      ? `Pending execution for "${t.test_name}".`
-                      : isPassed
-                      ? `Validates the "${t.test_name}" scenario successfully.`
-                      : isSkipped
-                      ? `Skipped validation for "${t.test_name}".`
-                      : isNotExecuted
-                      ? (t.failure_message || `Maven compilation failed before "${t.test_name}" could execute.`)
-                      : t.failure_message
-                      ? t.failure_message.slice(0, 100) + (t.failure_message.length > 100 ? "..." : "")
-                      : `Validation failed in "${t.test_name}".`;
+                      const badgeColor = isPassed
+                        ? "#16a34a"
+                        : isFailed
+                        ? "#dc2626"
+                        : isInProgress
+                        ? "#2563eb"
+                        : "#64748b";
 
-                    const durationDisplay = isRunning ? "Running..." : isPending ? "--" : isNotExecuted ? "N/A" : (t.duration || "0.0s");
+                      const badgeBorder = isPassed
+                        ? "#bbf7d0"
+                        : isFailed
+                        ? "#fecaca"
+                        : isInProgress
+                        ? "#bfdbfe"
+                        : "#e2e8f0";
+
+                      const rawType = (t.test_type || t.testType || t.type || (t.category === "UI" ? "UI" : t.category === "API" ? "API" : "UNIT")).toUpperCase();
+                      const testType = rawType === "UNIT" ? "API" : rawType;
+
+                      const testName = t.test_name || t.name || t.title || "scenario";
+                      const className = t.suite || t.spec || t.file || "TestSuite";
+                      const shortClass = className.split(".").pop() || className;
+
+                      const desc =
+                        t.failure_message ||
+                        t.error ||
+                        `Validates the "${testName}" scenario in ${shortClass}.`;
+
+                      return (
+                        <tr
+                          key={idx}
+                          onClick={() => onSelectTest(t)}
+                          style={{
+                            borderBottom: "1px solid #f1f5f9",
+                            cursor: "pointer",
+                            background: isFailed ? "#fffafb" : isInProgress ? "#f8faff" : "transparent",
+                            transition: "background 0.15s ease",
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.background = isFailed ? "#fef2f2" : isInProgress ? "#eff6ff" : "#f8fafc";
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = isFailed ? "#fffafb" : isInProgress ? "#f8faff" : "transparent";
+                          }}
+                        >
+                          {/* Row Index */}
+                          <td style={{ padding: "12px 14px", color: "#94a3b8", fontWeight: 700, fontSize: 11 }}>
+                            {globalIndex}
+                          </td>
+
+                          {/* Status Badge */}
+                          <td style={{ padding: "12px 14px" }}>
+                            <span
+                              style={{
+                                fontSize: 10,
+                                fontWeight: 800,
+                                padding: "3px 8px",
+                                borderRadius: 6,
+                                background: badgeBg,
+                                color: badgeColor,
+                                border: `1px solid ${badgeBorder}`,
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 4,
+                              }}
+                            >
+                              {isPassed && <FaCheck size={9} />}
+                              {isFailed && <FaTimes size={9} />}
+                              {isSkipped && <span>⏸</span>}
+                              {isInProgress && <FaSpinner className="animate-spin" size={9} />}
+                              {isNotExecuted && <span>⊘</span>}
+                              {isPassed ? "PASSED" : isFailed ? "FAILED" : isInProgress ? "IN PROGRESS" : isSkipped ? "SKIPPED" : "NOT EXECUTED"}
+                            </span>
+                          </td>
+
+                          {/* Test Class */}
+                          <td
+                            style={{
+                              padding: "12px 14px",
+                              fontFamily: "monospace",
+                              color: "#475569",
+                              fontSize: 11,
+                              maxWidth: 180,
+                              whiteSpace: "nowrap",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                            }}
+                            title={className}
+                          >
+                            {shortClass}
+                          </td>
+
+                          {/* Prominent Test Name */}
+                          <td style={{ padding: "12px 14px", maxWidth: 260 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <span
+                                style={{
+                                  fontSize: 13,
+                                  fontWeight: 800,
+                                  color: "#0f172a",
+                                  whiteSpace: "nowrap",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  display: "block",
+                                }}
+                                title={testName}
+                              >
+                                {testName}
+                              </span>
+                            </div>
+                          </td>
+
+                          {/* Type Badge */}
+                          <td style={{ padding: "12px 14px" }}>
+                            <span
+                              style={{
+                                fontSize: 10,
+                                fontWeight: 800,
+                                padding: "2px 6px",
+                                borderRadius: 4,
+                                background: testType === "UI" ? "#f5f3ff" : "#ecfdf5",
+                                color: testType === "UI" ? "#7c3aed" : "#047857",
+                                border: `1px solid ${testType === "UI" ? "#ddd6fe" : "#a7f3d0"}`,
+                              }}
+                            >
+                              {testType}
+                            </span>
+                          </td>
+
+                          {/* Description */}
+                          <td
+                            style={{
+                              padding: "12px 14px",
+                              color: "#64748b",
+                              fontSize: 11,
+                              maxWidth: 240,
+                              whiteSpace: "nowrap",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                            }}
+                            title={desc}
+                          >
+                            {desc}
+                          </td>
+
+                          {/* Duration */}
+                          <td style={{ padding: "12px 14px", textAlign: "right", color: "#64748b", fontWeight: 700, fontSize: 11 }}>
+                            {isNotExecuted ? "—" : (t.duration && t.duration !== "--" ? t.duration : "—")}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination Controls */}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                padding: "12px 18px",
+                background: "#f8fafc",
+                borderTop: "1px solid #e2e8f0",
+                flexWrap: "wrap",
+                gap: 10,
+              }}
+            >
+              {/* Showing info */}
+              <div style={{ fontSize: 11, color: "#64748b", fontWeight: 700 }}>
+                Showing <span style={{ color: "#0f172a", fontWeight: 800 }}>{startItemNumber}–{endItemNumber}</span> of{" "}
+                <span style={{ color: "#0f172a", fontWeight: 800 }}>{filtered.length}</span> tests
+                {filtered.length !== testResults.length ? ` (filtered from ${testResults.length})` : ""}
+              </div>
+
+              {/* Page Buttons */}
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <button
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  style={{
+                    padding: "5px 10px",
+                    borderRadius: 6,
+                    border: "1px solid #e2e8f0",
+                    background: currentPage === 1 ? "#f1f5f9" : "#fff",
+                    color: currentPage === 1 ? "#94a3b8" : "#0f172a",
+                    fontSize: 11,
+                    fontWeight: 700,
+                    cursor: currentPage === 1 ? "not-allowed" : "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 4,
+                  }}
+                >
+                  <FaChevronLeft size={9} /> Previous
+                </button>
+
+                {/* Page Number Chips */}
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter((p) => p === 1 || p === totalPages || Math.abs(p - currentPage) <= 1)
+                  .map((p, idx, arr) => {
+                    const prev = arr[idx - 1];
+                    const showEllipsis = prev && p - prev > 1;
 
                     return (
-                      <tr
-                        key={idx}
-                        onClick={() => onSelectTest(t)}
-                        style={{
-                          borderBottom: "1px solid #f1f5f9",
-                          cursor: "pointer",
-                          transition: "background 0.15s",
-                          background: isRunning ? "rgba(37, 99, 235, 0.06)" : "transparent",
-                        }}
-                        onMouseEnter={(e) => (e.currentTarget.style.background = isRunning ? "rgba(37, 99, 235, 0.1)" : "#f8fafc")}
-                        onMouseLeave={(e) => (e.currentTarget.style.background = isRunning ? "rgba(37, 99, 235, 0.06)" : "transparent")}
-                      >
-                        <td style={{ padding: "12px 16px", color: "#64748b" }}>{idx + 1}</td>
-                        <td style={{ padding: "12px 16px" }}>
-                          <span
-                            style={{
-                              display: "inline-block",
-                              padding: "2px 8px",
-                              borderRadius: 4,
-                              fontSize: 10,
-                              fontWeight: 700,
-                              color: badgeColor,
-                              background: badgeBg,
-                              textTransform: "uppercase",
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            {displayStatus}
-                          </span>
-                        </td>
-                        <td
+                      <React.Fragment key={p}>
+                        {showEllipsis && <span style={{ padding: "0 4px", color: "#94a3b8", fontSize: 11 }}>...</span>}
+                        <button
+                          onClick={() => setCurrentPage(p)}
                           style={{
-                            padding: "12px 16px",
-                            fontFamily: "'Fira Code', 'Consolas', monospace",
-                            color: "#0f172a",
+                            width: 28,
+                            height: 28,
+                            borderRadius: 6,
+                            border: currentPage === p ? "none" : "1px solid #e2e8f0",
+                            background: currentPage === p ? "#0f172a" : "#fff",
+                            color: currentPage === p ? "#fff" : "#475569",
                             fontSize: 11,
-                            maxWidth: 240,
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
+                            fontWeight: 800,
+                            cursor: "pointer",
                           }}
-                          title={t.suite}
                         >
-                          {t.suite}
-                        </td>
-                        <td style={{ padding: "12px 16px", fontWeight: 600, color: isRunning ? "#1d4ed8" : "#1e293b" }}>
-                          {t.test_name}
-                        </td>
-                        <td style={{ padding: "12px 16px" }}>
-                          <span
-                            style={{
-                              fontSize: 9,
-                              fontWeight: 800,
-                              padding: "1.5px 5.5px",
-                              borderRadius: 4,
-                              background: testTypeDisplay === "UI" ? "#eff6ff" : testTypeDisplay === "API" ? "#f0fdf4" : "#f1f5f9",
-                              color: testTypeDisplay === "UI" ? "#2563eb" : testTypeDisplay === "API" ? "#16a34a" : "#475569",
-                              border: `1px solid ${testTypeDisplay === "UI" ? "#dbeafe" : testTypeDisplay === "API" ? "#dcfce7" : "#e2e8f0"}`,
-                              letterSpacing: "0.04em",
-                            }}
-                          >
-                            {testTypeDisplay}
-                          </span>
-                        </td>
-                        <td style={{ padding: "12px 16px", color: isRunning ? "#2563eb" : "#64748b", maxWidth: 300, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {desc}
-                        </td>
-                        <td style={{ padding: "12px 16px", color: isRunning ? "#2563eb" : "#64748b", fontWeight: isRunning ? 700 : 400 }}>{durationDisplay}</td>
-                      </tr>
+                          {p}
+                        </button>
+                      </React.Fragment>
                     );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
+                  })}
 
-          {/* 3. EXECUTION SUMMARY FOOTER */}
-          <div
-            style={{
-              background: hasFailed ? "#fef2f2" : hasNotExecuted ? "#f8fafc" : "#f0fdf4",
-              border: `1px solid ${hasFailed ? "#fecaca" : hasNotExecuted ? "#cbd5e1" : "#bbf7d0"}`,
-              borderRadius: 12,
-              padding: "16px 20px",
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              flexWrap: "wrap",
-              gap: 12,
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              {hasFailed ? (
-                <FaTimesCircle style={{ color: "#ef4444", fontSize: 18 }} />
-              ) : hasNotExecuted ? (
-                <FaExclamationTriangle style={{ color: "#64748b", fontSize: 18 }} />
-              ) : (
-                <FaCheckCircle style={{ color: "#22c55e", fontSize: 18 }} />
-              )}
-              <div>
-                <div style={{ fontWeight: 800, fontSize: 13, color: hasFailed ? "#991b1b" : hasNotExecuted ? "#334155" : "#166534", textTransform: "uppercase" }}>
-                  {hasFailed
-                    ? `${counts.failed} TESTS FAILED`
-                    : hasNotExecuted
-                    ? `EXECUTION ERROR: ${counts.not_executed} TESTS NOT EXECUTED`
-                    : `${counts.total} TESTS PASSED`}
-                </div>
-                <div style={{ fontSize: 11, color: hasFailed ? "#b91c1c" : hasNotExecuted ? "#64748b" : "#15803d", marginTop: 2 }}>
-                  {counts.passed} passed · {counts.skipped} skipped · {counts.failed} failed · {counts.not_executed} not executed
-                </div>
+                <button
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages || totalPages === 0}
+                  style={{
+                    padding: "5px 10px",
+                    borderRadius: 6,
+                    border: "1px solid #e2e8f0",
+                    background: currentPage === totalPages || totalPages === 0 ? "#f1f5f9" : "#fff",
+                    color: currentPage === totalPages || totalPages === 0 ? "#94a3b8" : "#0f172a",
+                    fontSize: 11,
+                    fontWeight: 700,
+                    cursor: currentPage === totalPages || totalPages === 0 ? "not-allowed" : "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 4,
+                  }}
+                >
+                  Next <FaChevronRight size={9} />
+                </button>
               </div>
             </div>
-            <div style={{ fontSize: 11, color: "#64748b", fontFamily: "monospace" }}>
-              {new Date().toLocaleString()}
-            </div>
           </div>
-        </>
+        </div>
+      ) : (
+        /* ── VIEW MODE 2: EXECUTION LOGS ──────────────────────────────────── */
+        <div>
+          <ExistingTestLogs logs={logs} />
+        </div>
       )}
     </div>
   );
