@@ -369,6 +369,7 @@
 .apex-auth-card {
   width: 100%;
   max-width: 360px;
+  min-height: 480px;
   background: #ffffff;
   border: 1px solid #e2e8f0;
   border-radius: 18px;
@@ -698,3 +699,10 @@
     padding: 24px 16px;
   }
 }
+
+.signup-card-custom {
+  height: 480px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
