@@ -203,7 +203,7 @@ const AuthLayout: React.FC<AuthLayoutProps> = ({ mode, children }) => {
         </div>
       </div>
       <div className="new-signin-right">
-        <div className="apex-auth-card">
+        <div className={`apex-auth-card ${mode === "signup" ? "signup-card-custom" : ""}`}>
           {children}
         </div>
       </div>
