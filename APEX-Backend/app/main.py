@@ -21,6 +21,7 @@ from app.core import watch_exclusions as _watch_exclusions  # noqa: F401
 from app.core.config import settings
 from app.core.context import user_id_ctx, job_id_ctx, repository_url_ctx
 from app.core.logging_config import configure_logging
+from app.infrastructure.java_runtime import log_java_runtime_diagnostics
 from app.infrastructure.persistence.database import (
     Base,
     engine,
@@ -51,6 +52,7 @@ async def lifespan(_app: FastAPI):
     before any request is served.
     """
     settings.validate_auth_settings()
+    log_java_runtime_diagnostics()
     # Local/dev convenience: create the target database itself if it doesn't
     # exist yet (the PostgreSQL user/role must already exist and have
     # CREATEDB — this does not create roles, only the database).
