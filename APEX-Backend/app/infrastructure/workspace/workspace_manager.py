@@ -72,4 +72,5 @@ class WorkspaceManager:
         git = resolve_executable("git")
         if not git:
             return
-        run_command([git, "init", "-q"], cwd=migrated, timeout=30)
+        run_command([git, "-c", "core.longpaths=true", "init", "-q"], cwd=migrated, timeout=30)
+        run_command([git, "-c", "core.longpaths=true", "config", "core.longpaths", "true"], cwd=migrated, timeout=30)

@@ -17,6 +17,7 @@ from app.api.deps import get_db
 from app.api.utility_router import utility_router
 from app.api.utility_llm_monitoring_router import router as llm_monitoring_router
 from app.api.v1.router import api_router
+from app.core import watch_exclusions as _watch_exclusions  # noqa: F401
 from app.core.config import settings
 from app.core.context import user_id_ctx, job_id_ctx, repository_url_ctx
 from app.core.logging_config import configure_logging

@@ -37,6 +37,7 @@ class RepoPusher:
         auth_url = self._build_auth_url(clone_url, token)
 
         self._git(repo_dir, ["init", "-q"])
+        self._git(repo_dir, ["config", "core.longpaths", "true"])
         self._git(repo_dir, ["symbolic-ref", "HEAD", f"refs/heads/{branch}"])
         self._git(repo_dir, ["config", "user.name", settings.migration_commit_author_name])
         self._git(repo_dir, ["config", "user.email", settings.migration_commit_author_email])
@@ -79,13 +80,25 @@ class RepoPusher:
 
     def _run_git(self, cwd: Path, args: list[str]) -> CommandResult:
         git = resolve_executable("git") or "git"
-        return run_command([git, *args], cwd=cwd, timeout=settings.git_clone_timeout_seconds)
+        # Always inject -c core.longpaths=true to ensure Windows path lengths > 260 chars work seamlessly
+        command = [git, "-c", "core.longpaths=true", *args]
+        return run_command(command, cwd=cwd, timeout=settings.git_clone_timeout_seconds)
 
     def _raise_git_failure(self, result: CommandResult, *, action: str) -> None:
         stderr = self._mask(result.stderr.strip())
         logger.warning("git %s failed: %s", action, stderr)
+        lowered_err = stderr.lower()
+        if "filename too long" in lowered_err or "path too long" in lowered_err or "unable to index file" in lowered_err:
+            raise PushFailedError(
+                "Failed to publish the migrated repository because one or more file paths exceed the Windows path length limit. "
+                "Ensure Git long-path support is enabled ('git config --system core.longpaths true') or publish from a long-path supported environment."
+            )
+        if "permission" in lowered_err or "403" in lowered_err or "authentication" in lowered_err or "access denied" in lowered_err or "token" in lowered_err:
+            raise PushFailedError(
+                "Failed to publish the migrated repository. Check the target token/permissions."
+            )
         raise PushFailedError(
-            "Failed to publish the migrated repository. Check the target token/permissions."
+            f"Failed to publish the migrated repository (git {action} failed: {stderr or 'unknown error'})."
         )
 
     @staticmethod
