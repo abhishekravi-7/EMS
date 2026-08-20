@@ -1,0 +1,311 @@
+name: Production CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: production-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/javaapex
+
+jobs:
+  frontend:
+    name: Frontend production gates
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./APEX-Frontend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: APEX-Frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: npm dependency audit
+        id: npm_audit
+        continue-on-error: true
+        run: |
+          npm audit --audit-level=moderate --json > npm-audit-report.json
+
+      - name: ESLint
+        id: eslint
+        continue-on-error: true
+        run: set -o pipefail; npm run lint 2>&1 | tee eslint.log
+
+      - name: TypeScript check
+        id: typecheck
+        continue-on-error: true
+        run: set -o pipefail; npm run typecheck 2>&1 | tee typecheck.log
+
+      - name: Frontend unit tests
+        id: unit_tests
+        continue-on-error: true
+        run: |
+          if find . -type f \( -name "*.test.*" -o -name "*.spec.*" \) | grep -q .; then
+            set -o pipefail; npm test -- --run 2>&1 | tee unit-tests.log
+          else
+            echo "No frontend unit tests detected; skipping." | tee unit-tests.log
+          fi
+
+      - name: Vite production build
+        id: vite_build
+        continue-on-error: true
+        run: set -o pipefail; npm run build 2>&1 | tee vite-build.log
+
+      - name: Upload frontend reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-production-reports
+          path: |
+            APEX-Frontend/npm-audit-report.json
+            APEX-Frontend/eslint.log
+            APEX-Frontend/typecheck.log
+            APEX-Frontend/unit-tests.log
+            APEX-Frontend/vite-build.log
+          if-no-files-found: ignore
+
+      - name: Fail frontend job if any gate failed
+        if: always()
+        shell: bash
+        run: |
+          failed=()
+
+          if [[ "${{ steps.npm_audit.outcome }}" == "failure" ]]; then
+            failed+=("npm audit")
+          fi
+
+          if [[ "${{ steps.eslint.outcome }}" == "failure" ]]; then
+            failed+=("ESLint")
+          fi
+
+          if [[ "${{ steps.typecheck.outcome }}" == "failure" ]]; then
+            failed+=("TypeScript check")
+          fi
+
+          if [[ "${{ steps.unit_tests.outcome }}" == "failure" ]]; then
+            failed+=("Frontend unit tests")
+          fi
+
+          if [[ "${{ steps.vite_build.outcome }}" == "failure" ]]; then
+            failed+=("Vite production build")
+          fi
+
+          if (( ${#failed[@]} > 0 )); then
+            printf 'Frontend production gates failed: %s\n' "${failed[*]}"
+            exit 1
+          fi
+
+  backend:
+    name: Backend production gates
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./APEX-Backend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: APEX-Backend/requirements.txt
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio respx ruff bandit pip-audit
+
+      - name: pip dependency audit
+        id: pip_audit
+        continue-on-error: true
+        run: |
+          pip-audit -r requirements.txt -f json -o pip-audit-report.json
+
+      - name: Ruff lint
+        id: ruff
+        continue-on-error: true
+        run: set -o pipefail; ruff check . 2>&1 | tee ruff.log
+
+      - name: Pytest
+        id: pytest
+        continue-on-error: true
+        run: set -o pipefail; pytest -q 2>&1 | tee pytest.log
+
+      - name: Bandit security scan
+        id: bandit
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          bandit -r app -f txt -o bandit.log
+
+      - name: Upload backend reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-production-reports
+          path: |
+            APEX-Backend/pip-audit-report.json
+            APEX-Backend/ruff.log
+            APEX-Backend/pytest.log
+            APEX-Backend/bandit.log
+          if-no-files-found: ignore
+
+      - name: Fail backend job if any gate failed
+        if: always()
+        shell: bash
+        run: |
+          failed=()
+
+          if [[ "${{ steps.pip_audit.outcome }}" == "failure" ]]; then
+            failed+=("pip audit")
+          fi
+
+          if [[ "${{ steps.ruff.outcome }}" == "failure" ]]; then
+            failed+=("Ruff")
+          fi
+
+          if [[ "${{ steps.pytest.outcome }}" == "failure" ]]; then
+            failed+=("Pytest")
+          fi
+
+          if [[ "${{ steps.bandit.outcome }}" == "failure" ]]; then
+            failed+=("Bandit")
+          fi
+
+          if (( ${#failed[@]} > 0 )); then
+            printf 'Backend production gates failed: %s\n' "${failed[*]}"
+            exit 1
+          fi
+
+  security:
+    name: Security scans
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Gitleaks secret scan
+        id: gitleaks
+        continue-on-error: true
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: detect --source . --no-banner --redact --report-format json --report-path .gitleaks-report.json --exit-code 1
+
+      - name: Trivy filesystem scan
+        id: trivy
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: table
+          output: trivy-results.txt
+          severity: MEDIUM,HIGH,CRITICAL
+          exit-code: 1
+          ignore-unfixed: true
+          version: v0.70.0
+          cache: true
+
+      - name: Upload security scan reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-production-reports
+          path: |
+            .gitleaks-report.json
+            trivy-results.txt
+          if-no-files-found: ignore
+
+      - name: Fail security job if any scan failed
+        if: always()
+        shell: bash
+        run: |
+          failed=()
+
+          if [[ "${{ steps.gitleaks.outcome }}" == "failure" ]]; then
+            failed+=("Gitleaks")
+          fi
+
+          if [[ "${{ steps.trivy.outcome }}" == "failure" ]]; then
+            failed+=("Trivy")
+          fi
+
+          if (( ${#failed[@]} > 0 )); then
+            printf 'Security scans failed: %s\n' "${failed[*]}"
+            exit 1
+          fi
+
+  docker-image:
+    name: Build production image
+    runs-on: ubuntu-latest
+    needs:
+      - frontend
+      - backend
+      - security
+    if: ${{ always() && needs.frontend.result == 'success' && needs.backend.result == 'success' && needs.security.result == 'success' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=tag
+            type=ref,event=branch
+            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push production image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
