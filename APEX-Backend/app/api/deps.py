@@ -1,14 +1,13 @@
-"""Shared FastAPI dependencies for authenticated/protected endpoints.
+"""Shared FastAPI dependencies for the API layer.
 
-`get_current_user` is used like `user: User = Depends(get_current_user)` in
-any route that requires a logged-in user — similar to a Spring Security
-`@AuthenticationPrincipal` argument resolver. `verify_job_ownership` is the
-equivalent for "is this user allowed to see this specific migration job".
+Provides authentication resolvers (`get_current_user`), authorization checks
+(`verify_job_ownership`), and header-extraction utilities
+(`github_token_from_header`).
 """
 
 from __future__ import annotations
 
-from fastapi import Depends, HTTPException, Request
+from fastapi import Depends, Header, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.application.services.auth_service import AuthService
@@ -21,6 +20,7 @@ from app.infrastructure.persistence.migration_ownership_repository import get_jo
 from app.infrastructure.persistence.models import User
 
 ACCESS_TOKEN_COOKIE_NAME = "access_token"
+_BEARER_PREFIX = "bearer "
 
 
 def get_current_user(request: Request, db: Session | None = Depends(get_db_optional)) -> User:
@@ -92,12 +92,6 @@ def verify_job_ownership(db: Session | None, job_id: str, current_user: User) ->
             detail={"code": "FORBIDDEN", "message": "You do not have access to this migration job."},
         )
     job_id_ctx.set(job_id)
-
-"""Shared FastAPI dependencies for the API layer."""
-
-from fastapi import Header
-
-_BEARER_PREFIX = "bearer "
 
 
 def github_token_from_header(authorization: str | None = Header(default=None)) -> str:
