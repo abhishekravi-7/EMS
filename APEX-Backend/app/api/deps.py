@@ -11,11 +11,18 @@ from fastapi import Depends, Header, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.application.services.auth_service import AuthService
+
+from app.core.config import settings
+from app.core.context import user_id_ctx, job_id_ctx
+from app.core.exceptions import NotAuthenticatedError
+from app.infrastructure.auth.firebase_auth import verify_firebase_token
+from app.infrastructure.persistence.database import get_db
 from app.core import security
 from app.core.config import settings
 from app.core.context import user_id_ctx, job_id_ctx
 from app.core.exceptions import NotAuthenticatedError
 from app.infrastructure.persistence.database import get_db, get_db_optional
+
 from app.infrastructure.persistence.migration_ownership_repository import get_job_owner_user_id
 from app.infrastructure.persistence.models import User
 
@@ -23,12 +30,37 @@ ACCESS_TOKEN_COOKIE_NAME = "access_token"
 _BEARER_PREFIX = "bearer "
 
 
+
+async def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
+    """Resolve the logged-in user.
+
+    If Firebase Auth is enabled, it verifies the ID token from the
+    `Authorization: Bearer <token>` header.
+
+    Otherwise, it falls back to the legacy `access_token` HttpOnly cookie.
 def get_current_user(request: Request, db: Session | None = Depends(get_db_optional)) -> User:
     """Resolve the logged-in user from the `access_token` HttpOnly cookie or Authorization header.
 
     When PostgreSQL is enabled, validates the user in the database.
     When PostgreSQL is disabled, validates the JWT signature and extracts the user context without requiring database queries.
+
     """
+    # 1. Try Firebase Authentication (Header-based)
+    if settings.firebase_auth_enabled:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.lower().startswith(_BEARER_PREFIX):
+            token = auth_header[len(_BEARER_PREFIX):].strip()
+            return await verify_firebase_token(db, token)
+
+        # If header is missing but Firebase is required, raise 401
+        # (Unless we want to allow legacy cookie fallback during migration)
+        # For a clean migration, we should require the header.
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required. Please provide a valid Firebase ID token."
+        )
+
+    # 2. Legacy Cookie-based Authentication
     raw_token = request.cookies.get(ACCESS_TOKEN_COOKIE_NAME)
     if not raw_token:
         auth_header = request.headers.get("Authorization", "")
