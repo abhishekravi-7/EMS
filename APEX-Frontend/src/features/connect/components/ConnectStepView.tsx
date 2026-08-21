@@ -186,6 +186,22 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
                 }}
               />
 
+              {/* URL Validation Message */}
+              {repoUrl && (
+                <div style={{
+                  fontSize: 11,
+                  color: urlValidation.valid ? "#16a34a" : "#dc2626",
+                  marginTop: 6,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 4
+                }}>
+                  {urlValidation.valid ? <FaCheckCircle size={12} /> : <FaExclamationTriangle size={12} />}
+                  <span>{urlValidation.valid ? "Valid repository URL" : "Invalid URL format"}</span>
+                </div>
+              )}
+
               {!shouldShowPatInput && (
                 <div style={{ fontSize: 11, color: "#64748b", marginTop: 8, display: "flex", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
                   <span>Public repository or</span>
@@ -476,9 +492,9 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
           </div>
         </div>
 
-        {/* Bottom Grid: Project Intelligence & Migration Readiness */}
+        {/* Bottom Grid: Project Intelligence & Migration Readiness (Temporarily Hidden) */}
+        {/*
         <div className="connect-bottom-grid">
-          {/* Lower Left Card: Project Intelligence */}
           <div className="connect-bottom-card">
             <div>
               <div className="connect-bottom-card-header">
@@ -488,7 +504,6 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
               </div>
 
               <div className="connect-metrics-row">
-                {/* 1. Java Version */}
                 <div className="connect-metric-subcard">
                   <div className="connect-metric-icon" style={{ color: "#2563eb" }}>
                     <FaCoffee />
@@ -498,7 +513,6 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
                   <span className="connect-metric-subtext">Detected</span>
                 </div>
 
-                {/* 2. Build Tool */}
                 <div className="connect-metric-subcard">
                   <div className="connect-metric-icon" style={{ color: "#ea580c", fontWeight: 900, fontStyle: "italic" }}>
                     M
@@ -508,7 +522,6 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
                   <span className="connect-metric-subtext">pom.xml detected</span>
                 </div>
 
-                {/* 3. Test Framework */}
                 <div className="connect-metric-subcard">
                   <div className="connect-metric-icon" style={{ color: "#16a34a" }}>
                     <FaFlask />
@@ -518,7 +531,6 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
                   <span className="connect-metric-subtext" style={{ color: "#16a34a" }}>124 Tests</span>
                 </div>
 
-                {/* 4. Total Files */}
                 <div className="connect-metric-subcard">
                   <div className="connect-metric-icon" style={{ color: "#7c3aed" }}>
                     <FaFileCode />
@@ -528,7 +540,6 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
                   <span className="connect-metric-subtext">Source Files</span>
                 </div>
 
-                {/* 5. Frameworks */}
                 <div className="connect-metric-subcard">
                   <div className="connect-metric-icon" style={{ color: "#0d9488" }}>
                     <FaCode />
@@ -546,7 +557,6 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
             </div>
           </div>
 
-          {/* Lower Right Card: Migration Readiness */}
           <div className="connect-bottom-card">
             <div>
               <div className="connect-bottom-card-header">
@@ -555,7 +565,6 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
               </div>
 
               <div className="connect-readiness-body">
-                {/* Radial Gauge */}
                 <div className="connect-readiness-gauge-col">
                   <div className="connect-readiness-gauge-wrap">
                     <svg width="96" height="96" viewBox="0 0 96 96">
@@ -588,7 +597,6 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
                   </span>
                 </div>
 
-                {/* Checklist */}
                 <div className="connect-readiness-checklist">
                   <div className="connect-checklist-item">
                     <FaCheckCircle className="connect-checklist-item is-check" />
@@ -620,6 +628,7 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
             </div>
           </div>
         </div>
+        */}
       </div>
     </div>
   );

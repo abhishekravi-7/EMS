@@ -22,7 +22,7 @@ const shellStyles: { [key: string]: React.CSSProperties } = {
   header: {
     background: "rgba(255, 255, 255, 0.92)",
     borderBottom: "1px solid #e2e8f0",
-    padding: "14px 28px",
+    padding: "14px 28px 14px 100px",
     width: "100%",
     boxSizing: "border-box",
     display: "flex",

@@ -28,7 +28,13 @@ if settings.database_enabled:
     # cheap "SELECT 1" before handing it to a request, so a connection the
     # database silently closed (e.g. after being idle) is transparently replaced
     # instead of surfacing as a request-time error.
-    engine = create_engine(settings.database_url, pool_pre_ping=True)
+    # Set explicit connect_timeout and pool_timeout to avoid hanging indefinitely.
+    engine = create_engine(
+        settings.database_url,
+        pool_pre_ping=True,
+        pool_timeout=10,
+        connect_args={"connect_timeout": 10},
+    )
 
     # Factory for `Session` objects — comparable to Hibernate's `SessionFactory`.
     # `autoflush=False`/`autocommit=False` are the SQLAlchemy 2.0 defaults,
@@ -47,36 +53,9 @@ class Base(DeclarativeBase):
     """
 
 
-def get_db() -> Generator[Session, None, None]:
-    """FastAPI dependency that yields one database session per request.
-
-    FastAPI calls this as a generator: the code before `yield` runs before
-    the route handler, and the code after `yield` always runs afterward
-    (even if the handler raised) — similar to a try/finally wrapped around a
-    Hibernate session. Use it as `db: Session = Depends(get_db)`.
-    """
-    if not settings.database_enabled or SessionLocal is None:
-        raise HTTPException(
-            status_code=503,
-            detail={"code": "DATABASE_DISABLED", "message": "This feature requires database access and is currently disabled."},
-        )
-
-    db = SessionLocal()
-    try:
-        yield db
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
-
-
-def get_db_optional() -> Generator[Session | None, None, None]:
-    """Optional DB dependency: yields a Session when database is enabled,
-    otherwise yields None. Useful for endpoints that may implement a
-    non-database fallback (e.g. a static sign-in) while most endpoints
-    should continue to use `get_db()` and receive HTTP 503 when the DB is
-    disabled.
+def get_db() -> Generator[Session | None, None, None]:
+    """FastAPI dependency that yields one database session per request when enabled,
+    or None when the database is disabled by configuration.
     """
     if not settings.database_enabled or SessionLocal is None:
         yield None
@@ -90,6 +69,11 @@ def get_db_optional() -> Generator[Session | None, None, None]:
         raise
     finally:
         db.close()
+
+
+def get_db_optional() -> Generator[Session | None, None, None]:
+    """Optional DB dependency (alias for get_db)."""
+    yield from get_db()
 
 
 def _quote_identifier(name: str) -> str:

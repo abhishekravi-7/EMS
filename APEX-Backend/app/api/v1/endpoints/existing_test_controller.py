@@ -4,7 +4,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, verify_job_ownership
-from app.infrastructure.persistence.database import get_db
+from app.infrastructure.persistence.database import get_db_optional
 from app.infrastructure.persistence.models import User
 from app.application.use_cases.existing_test_runner_service import existing_test_runner_service
 
@@ -14,7 +14,7 @@ router = APIRouter(tags=["existing-tests"])
 async def scan_existing_tests_total(
     job_id: str,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session | None = Depends(get_db_optional)
 ):
     """Fast scan — returns total test count before execution (no run)."""
     verify_job_ownership(db, job_id, current_user)
@@ -31,7 +31,7 @@ async def run_existing_tests_endpoint(
     job_id: str,
     test_selection: list[dict] | None = Body(default=None),
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session | None = Depends(get_db_optional)
 ):
     """Start existing tests in the background and return immediately."""
     verify_job_ownership(db, job_id, current_user)
@@ -80,7 +80,7 @@ async def run_existing_tests_endpoint(
 async def get_existing_tests_status_endpoint(
     job_id: str,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session | None = Depends(get_db_optional)
 ):
     """Returns current run status + live logs + final result when done."""
     verify_job_ownership(db, job_id, current_user)
@@ -94,7 +94,7 @@ async def get_existing_tests_status_endpoint(
 async def reset_existing_tests_endpoint(
     job_id: str,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session | None = Depends(get_db_optional)
 ):
     """Reset execution state for a job."""
     verify_job_ownership(db, job_id, current_user)
@@ -108,7 +108,7 @@ async def reset_existing_tests_endpoint(
 async def stop_existing_tests_endpoint(
     job_id: str,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session | None = Depends(get_db_optional)
 ):
     """Aborts/terminates the current execution of existing tests."""
     verify_job_ownership(db, job_id, current_user)

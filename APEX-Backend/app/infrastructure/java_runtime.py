@@ -61,10 +61,21 @@ def build_tool_env(target_major: int | None = None) -> dict[str, str]:
     java_home: str | None = None
     if target_major is not None:
         selected = _select_jdk_for_target(target_major)
-        if selected and selected.java_home:
+        if selected and selected.java_home and _configured_java_executable(selected.java_home):
             java_home = selected.java_home
+
     if not java_home:
-        java_home = (settings.build_java_home or "").strip() or None
+        # Check configured BUILD_JAVA_HOME if valid on this host
+        configured = (settings.build_java_home or "").strip() or None
+        if configured and _configured_java_executable(configured):
+            java_home = configured
+
+    if not java_home:
+        # Fall back to default runtime JDK (discovered from environment/system)
+        default_runtime = build_java_runtime()
+        if default_runtime and default_runtime.java_home:
+            java_home = default_runtime.java_home
+
     if not java_home:
         env["PATH"] = _prepend_tool_dirs(env.get("PATH", ""), *tool_dirs)
         return env
@@ -100,17 +111,32 @@ def resolve_gradle_executable(project_dir: Path) -> str | None:
 
 def build_java_runtime() -> JavaRuntimeInfo:
     """Detect the JDK Maven/Gradle subprocesses use by default (no target)."""
-    java_home = (settings.build_java_home or "").strip() or None
-    executable = _configured_java_executable(java_home) or resolve_executable("java")
+    configured_home = (settings.build_java_home or "").strip() or None
+    executable = _configured_java_executable(configured_home)
+    java_home = configured_home if executable else None
+
+    # If configured path is invalid or absent, check ambient JAVA_HOME
+    if not executable:
+        ambient_home = (os.environ.get("JAVA_HOME") or "").strip() or None
+        executable = _configured_java_executable(ambient_home)
+        if executable:
+            java_home = ambient_home
+
+    # Fall back to PATH java executable and infer its JDK home
+    if not executable:
+        executable = resolve_executable("java")
+        if executable:
+            java_home = _infer_java_home(executable)
+
     if not executable:
         return JavaRuntimeInfo(
             executable=None,
-            java_home=java_home,
+            java_home=None,
             version_text="Java runtime not found",
             major_version=None,
         )
 
-    result = run_command([executable, "-version"], timeout=10, env=build_tool_env())
+    result = run_command([executable, "-version"], timeout=10)
     output = "\n".join(part for part in (result.stdout, result.stderr) if part).strip()
     version_text = output.splitlines()[0] if output else "Java version unavailable"
     return JavaRuntimeInfo(
@@ -118,6 +144,19 @@ def build_java_runtime() -> JavaRuntimeInfo:
         java_home=java_home,
         version_text=version_text,
         major_version=_parse_runtime_major(output),
+    )
+
+
+def log_java_runtime_diagnostics() -> None:
+    """Log safe diagnostics about the detected Java environment at startup."""
+    runtime = build_java_runtime()
+    logger.info(
+        "[JAVA RUNTIME] OS=%s Java=%s JAVA_HOME=%s Executable=%s (Valid=%s)",
+        os.name,
+        runtime.major_version or "unknown",
+        runtime.java_home or "none",
+        runtime.executable or "none",
+        runtime.executable is not None,
     )
 
 
@@ -273,9 +312,19 @@ def _candidate_jdk_dirs() -> list[Path]:
             if path.is_dir():
                 dirs.append(path)
 
+    # Ambient JAVA_HOME if set and exists on disk
+    ambient_home = (os.environ.get("JAVA_HOME") or "").strip()
+    if ambient_home and Path(ambient_home).is_dir():
+        dirs.append(Path(ambient_home))
+
     configured = (settings.build_java_home or "").strip()
-    if configured and Path(configured).is_dir():
-        dirs.append(Path(configured))
+    if configured:
+        try:
+            conf_path = Path(configured)
+            if conf_path.is_dir():
+                dirs.append(conf_path)
+        except OSError:
+            pass
 
     return dirs
 
@@ -298,9 +347,30 @@ def _infer_major_from_name(name: str) -> int | None:
 def _configured_java_executable(java_home: str | None) -> str | None:
     if not java_home:
         return None
-    java_home_path = Path(java_home)
-    java_executable = java_home_path / "bin" / ("java.exe" if os.name == "nt" else "java")
-    return str(java_executable) if java_executable.is_file() else None
+    try:
+        java_home_path = Path(java_home)
+        java_executable = java_home_path / "bin" / ("java.exe" if os.name == "nt" else "java")
+        return str(java_executable) if java_executable.is_file() else None
+    except Exception:
+        return None
+
+
+def _infer_java_home(executable: str | None) -> str | None:
+    """Infer JDK/JRE home directory from a resolved java executable path."""
+    if not executable:
+        return None
+    try:
+        exec_path = Path(executable).resolve()
+        if exec_path.parent.name.lower() == "bin":
+            candidate = exec_path.parent.parent
+            if (candidate / "bin").is_dir():
+                return str(candidate)
+    except Exception:
+        pass
+    ambient_home = (os.environ.get("JAVA_HOME") or "").strip()
+    if ambient_home and Path(ambient_home).is_dir():
+        return ambient_home
+    return None
 
 
 def _prepend_tool_dirs(path_value: str, *tool_dirs: Path) -> str:
