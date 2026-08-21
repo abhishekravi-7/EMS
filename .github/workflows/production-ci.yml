@@ -1,0 +1,518 @@
+name: Production CI/CD
+
+on:
+
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+  # ------------------------------------------------------------
+  # Production build/deployment
+  # Runs after PR is merged and main receives the commit
+  # ------------------------------------------------------------
+  push:
+    branches:
+      - main
+
+    tags:
+      - "v*"
+
+  # ------------------------------------------------------------
+  # Manual execution
+  # ------------------------------------------------------------
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+  pull-requests: read
+
+concurrency:
+  group: production-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "20"
+  PYTHON_VERSION: "3.11"
+
+  # Docker image location in GitHub Container Registry
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/javaapex
+
+
+jobs:
+
+  # ============================================================
+  # FRONTEND PRODUCTION CI
+  # React + TypeScript + Vite
+  # ============================================================
+  frontend:
+    name: Frontend production gates
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: ./APEX-Frontend
+
+    steps:
+
+      # --------------------------------------------------------
+      # Checkout
+      # --------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # --------------------------------------------------------
+      # Node.js
+      # --------------------------------------------------------
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: APEX-Frontend/package-lock.json
+
+      # --------------------------------------------------------
+      # Install dependencies
+      # --------------------------------------------------------
+      - name: Install frontend dependencies
+        run: npm ci
+
+      # --------------------------------------------------------
+      # npm dependency audit
+      # --------------------------------------------------------
+      - name: npm dependency audit
+        run: |
+          set -o pipefail
+          npm audit \
+            --audit-level=moderate \
+            --json \
+            2>&1 | tee npm-audit-report.json
+
+      # --------------------------------------------------------
+      # ESLint
+      # --------------------------------------------------------
+      - name: ESLint
+        run: |
+          set -o pipefail
+          npm run lint 2>&1 | tee eslint.log
+
+      # --------------------------------------------------------
+      # TypeScript
+      # --------------------------------------------------------
+      - name: TypeScript check
+        run: |
+          set -o pipefail
+          npm run typecheck 2>&1 | tee typecheck.log
+
+      # --------------------------------------------------------
+      # Unit Tests
+      # --------------------------------------------------------
+      - name: Frontend unit tests
+        run: |
+          if find . -type f \( -name "*.test.*" -o -name "*.spec.*" \) | grep -q .; then
+            set -o pipefail
+            npm test -- --run 2>&1 | tee unit-tests.log
+          else
+            echo "No frontend unit tests detected; skipping." | tee unit-tests.log
+          fi
+
+      # --------------------------------------------------------
+      # Production build
+      # --------------------------------------------------------
+      - name: Vite production build
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee vite-build.log
+
+      # --------------------------------------------------------
+      # Upload reports
+      # Runs even if a previous step fails
+      # --------------------------------------------------------
+      - name: Upload frontend production reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-production-reports
+          path: |
+            APEX-Frontend/npm-audit-report.json
+            APEX-Frontend/eslint.log
+            APEX-Frontend/typecheck.log
+            APEX-Frontend/unit-tests.log
+            APEX-Frontend/vite-build.log
+          if-no-files-found: ignore
+
+
+  # ============================================================
+  # BACKEND PRODUCTION CI
+  # Python + FastAPI
+  # ============================================================
+  backend:
+    name: Backend production gates
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: ./APEX-Backend
+
+    steps:
+
+      # --------------------------------------------------------
+      # Checkout
+      # --------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # --------------------------------------------------------
+      # Python
+      # --------------------------------------------------------
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: APEX-Backend/requirements.txt
+
+      # --------------------------------------------------------
+      # Install dependencies
+      # --------------------------------------------------------
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio respx ruff bandit pip-audit
+
+      # --------------------------------------------------------
+      # Python dependency vulnerabilities
+      # --------------------------------------------------------
+      - name: pip dependency audit
+        run: |
+          pip-audit \
+            -r requirements.txt \
+            -f json \
+            -o pip-audit-report.json
+
+      # --------------------------------------------------------
+      # Ruff
+      # --------------------------------------------------------
+      - name: Ruff lint
+        run: |
+          set -o pipefail
+          ruff check . 2>&1 | tee ruff.log
+
+      # --------------------------------------------------------
+      # Pytest
+      # --------------------------------------------------------
+      - name: Pytest
+        run: |
+          set -o pipefail
+          pytest -q 2>&1 | tee pytest.log
+
+      # --------------------------------------------------------
+      # Bandit
+      # --------------------------------------------------------
+      - name: Bandit security scan
+        run: |
+          set -o pipefail
+          bandit \
+            -r app \
+            -f txt \
+            -o bandit.log
+
+      # --------------------------------------------------------
+      # Upload backend reports
+      # --------------------------------------------------------
+      - name: Upload backend production reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-production-reports
+          path: |
+            APEX-Backend/pip-audit-report.json
+            APEX-Backend/ruff.log
+            APEX-Backend/pytest.log
+            APEX-Backend/bandit.log
+          if-no-files-found: ignore
+
+
+  # ============================================================
+  # SECURITY
+  # Gitleaks + Trivy
+  # ============================================================
+  security:
+    name: Production security scans
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # --------------------------------------------------------
+      # Full checkout required for Gitleaks
+      # --------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # --------------------------------------------------------
+      # Gitleaks
+      # --------------------------------------------------------
+      - name: Gitleaks secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: >
+            detect
+            --source .
+            --no-banner
+            --redact
+            --report-format json
+            --report-path .gitleaks-report.json
+            --exit-code 1
+
+      # --------------------------------------------------------
+      # Trivy
+      # --------------------------------------------------------
+      - name: Trivy filesystem scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: table
+          output: trivy-results.txt
+          severity: MEDIUM,HIGH,CRITICAL
+          exit-code: 1
+          ignore-unfixed: true
+          version: v0.70.0
+          cache: true
+
+      # --------------------------------------------------------
+      # Upload security reports
+      # --------------------------------------------------------
+      - name: Upload security reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-production-reports
+          path: |
+            .gitleaks-report.json
+            trivy-results.txt
+          if-no-files-found: ignore
+
+
+  # ============================================================
+  # SONARCLOUD
+  #
+  # Run on dev → main PR.
+  # Also runs on push to main so main gets the final branch
+  # analysis after the PR is merged.
+  # ============================================================
+  sonar:
+    name: SonarCloud Quality Gate
+    runs-on: ubuntu-latest
+
+    # Sonar only runs after the other production checks pass.
+    needs:
+      - frontend
+      - backend
+      - security
+
+    if: >-
+      ${{
+        needs.frontend.result == 'success' &&
+        needs.backend.result == 'success' &&
+        needs.security.result == 'success'
+      }}
+
+    steps:
+
+      # --------------------------------------------------------
+      # Checkout complete history
+      # --------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # --------------------------------------------------------
+      # SonarCloud static analysis
+      # --------------------------------------------------------
+      - name: SonarCloud analysis
+        uses: SonarSource/sonarqube-scan-action@v6
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectBaseDir: .
+          args: >
+            -Dsonar.qualitygate.wait=true
+            -Dsonar.qualitygate.timeout=300
+
+
+  # ============================================================
+  # PRODUCTION VALIDATION
+  #
+  # Single final job representing all required CI gates.
+  # Useful as the required GitHub status check.
+  # ============================================================
+  production-validation:
+    name: Production validation
+    runs-on: ubuntu-latest
+
+    needs:
+      - frontend
+      - backend
+      - security
+      - sonar
+
+    if: always()
+
+    steps:
+
+      - name: Validate required production gates
+        shell: bash
+        run: |
+          echo "Frontend:  ${{ needs.frontend.result }}"
+          echo "Backend:   ${{ needs.backend.result }}"
+          echo "Security:  ${{ needs.security.result }}"
+          echo "Sonar:     ${{ needs.sonar.result }}"
+
+          if [[ \
+            "${{ needs.frontend.result }}" != "success" ||
+            "${{ needs.backend.result }}" != "success" ||
+            "${{ needs.security.result }}" != "success" ||
+            "${{ needs.sonar.result }}" != "success"
+          ]]; then
+            echo "One or more required production CI checks failed."
+            exit 1
+          fi
+
+          echo "All required Production CI checks passed."
+
+
+  # ============================================================
+  # DOCKER IMAGE
+  #
+  # IMPORTANT:
+  # This job DOES NOT run for PRs.
+  #
+  # It runs only after code has actually been merged/pushed
+  # into main.
+  # ============================================================
+  docker-image:
+    name: Build and push production image
+    runs-on: ubuntu-latest
+
+    needs:
+      - production-validation
+
+    if: >-
+      ${{
+        github.event_name == 'push' &&
+        github.ref == 'refs/heads/main' &&
+        needs.production-validation.result == 'success'
+      }}
+
+    steps:
+
+      # --------------------------------------------------------
+      # Checkout main
+      # --------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # --------------------------------------------------------
+      # Docker Buildx
+      # --------------------------------------------------------
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # --------------------------------------------------------
+      # Authenticate to GHCR
+      # --------------------------------------------------------
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # --------------------------------------------------------
+      # Docker image metadata / tags
+      # --------------------------------------------------------
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=sha
+            type=raw,value=latest
+
+      # --------------------------------------------------------
+      # Build + Push
+      # --------------------------------------------------------
+      - name: Build and push production image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+
+  # ============================================================
+  # DIGITALOCEAN DEPLOYMENT
+  #
+  # Runs only after Docker/GHCR succeeds.
+  # Reuses your EXISTING DigitalOcean App Platform application.
+  # ============================================================
+  deploy:
+    name: Deploy to DigitalOcean App Platform
+    runs-on: ubuntu-latest
+
+    needs:
+      - docker-image
+
+    if: >-
+      ${{
+        github.event_name == 'push' &&
+        github.ref == 'refs/heads/main' &&
+        needs.docker-image.result == 'success'
+      }}
+
+    environment:
+      name: production
+
+    steps:
+
+      # --------------------------------------------------------
+      # Install doctl
+      # --------------------------------------------------------
+      - name: Set up DigitalOcean CLI
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DO_API_TOKEN }}
+
+      # --------------------------------------------------------
+      # Trigger deployment of existing App Platform app
+      # --------------------------------------------------------
+      - name: Deploy existing DigitalOcean App Platform app
+        shell: bash
+        run: |
+          echo "Triggering deployment for DigitalOcean App ID:"
+          echo "${{ secrets.DO_APP_ID }}"
+
+          doctl apps create-deployment \
+            "${{ secrets.DO_APP_ID }}" \
+            --wait
+
+          echo "DigitalOcean deployment completed successfully."
