@@ -7,6 +7,8 @@ logic lives here.
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Body, Depends
 from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy.orm import Session
@@ -17,6 +19,8 @@ from app.core.exceptions import MigrationConfigError, MigrationExecutionError, M
 from app.infrastructure.persistence.database import get_db
 from app.infrastructure.persistence.models import User
 from app.schemas.migration_execution_schema import MigrationStartRequest
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["migration"])
 
@@ -66,8 +70,11 @@ async def migration_summary(
 ) -> JSONResponse:
     verify_job_ownership(db, job_id, current_user)
     try:
-        return JSONResponse(status_code=200, content=_pipeline.get_summary(job_id))
+        summary = _pipeline.get_summary(job_id)
+        logger.debug("[MIGRATION SUMMARY] job_id=%s found=true storage=available", job_id)
+        return JSONResponse(status_code=200, content=summary)
     except MigrationJobNotFoundError:
+        logger.warning("[MIGRATION SUMMARY] job_id=%s found=false storage=not_found", job_id)
         return _not_found_response()
 
 
@@ -79,8 +86,11 @@ async def migration_detail(
 ) -> JSONResponse:
     verify_job_ownership(db, job_id, current_user)
     try:
-        return JSONResponse(status_code=200, content=_pipeline.get_detail(job_id))
+        detail = _pipeline.get_detail(job_id)
+        logger.debug("[MIGRATION DETAIL] job_id=%s found=true", job_id)
+        return JSONResponse(status_code=200, content=detail)
     except MigrationJobNotFoundError:
+        logger.warning("[MIGRATION DETAIL] job_id=%s found=false", job_id)
         return _not_found_response()
 
 
@@ -92,8 +102,11 @@ async def migration_logs(
 ) -> JSONResponse:
     verify_job_ownership(db, job_id, current_user)
     try:
-        return JSONResponse(status_code=200, content=_pipeline.get_logs(job_id))
+        logs = _pipeline.get_logs(job_id)
+        logger.debug("[MIGRATION LOGS] job_id=%s found=true", job_id)
+        return JSONResponse(status_code=200, content=logs)
     except MigrationJobNotFoundError:
+        logger.warning("[MIGRATION LOGS] job_id=%s found=false", job_id)
         return _not_found_response()
 
 

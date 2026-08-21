@@ -1,0 +1,652 @@
+name: Integration CI - Test Flow
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_result:
+        description: "Choose the test workflow result"
+        required: true
+        default: "success"
+        type: choice
+        options:
+          - success
+          - failure
+
+      failure_area:
+        description: "Choose which area should fail"
+        required: false
+        default: "frontend"
+        type: choice
+        options:
+          - frontend
+          - backend
+          - security
+          - all
+
+permissions:
+  contents: read
+
+jobs:
+
+  # ============================================================
+  # SIMULATED FRONTEND JOB
+  # ============================================================
+  frontend:
+    name: Frontend quality gates
+    runs-on: ubuntu-latest
+
+    outputs:
+      failed_checks: ${{ steps.collect.outputs.failed_checks }}
+
+    steps:
+      - name: Simulate frontend checks
+        id: simulate
+        shell: bash
+        run: |
+          echo "Simulating Frontend CI checks..."
+          echo "npm audit: PASS"
+          echo "ESLint: PASS"
+          echo "TypeScript check: PASS"
+          echo "Frontend unit tests: PASS"
+          echo "Vite production build: PASS"
+
+      - name: Collect frontend result
+        id: collect
+        shell: bash
+        run: |
+          failed_checks=""
+
+          if [[ "${{ inputs.test_result }}" == "failure" ]]; then
+            if [[ "${{ inputs.failure_area }}" == "frontend" || "${{ inputs.failure_area }}" == "all" ]]; then
+              failed_checks="ESLint, Frontend unit tests"
+            fi
+          fi
+
+          echo "failed_checks=$failed_checks" >> "$GITHUB_OUTPUT"
+
+          if [[ -n "$failed_checks" ]]; then
+            echo "Frontend failed checks: $failed_checks"
+          else
+            echo "Frontend checks passed."
+          fi
+
+      - name: Fail frontend job when selected
+        if: always()
+        shell: bash
+        run: |
+          failed="${{ steps.collect.outputs.failed_checks }}"
+
+          if [[ -n "$failed" ]]; then
+            echo "Frontend quality gates failed:"
+            echo "$failed"
+            exit 1
+          fi
+
+          echo "Frontend quality gates passed."
+
+
+  # ============================================================
+  # SIMULATED BACKEND JOB
+  # ============================================================
+  backend:
+    name: Backend quality gates
+    runs-on: ubuntu-latest
+
+    outputs:
+      failed_checks: ${{ steps.collect.outputs.failed_checks }}
+
+    steps:
+      - name: Simulate backend checks
+        id: simulate
+        shell: bash
+        run: |
+          echo "Simulating Backend CI checks..."
+          echo "pip-audit: PASS"
+          echo "Ruff: PASS"
+          echo "Pytest: PASS"
+          echo "Bandit: PASS"
+
+      - name: Collect backend result
+        id: collect
+        shell: bash
+        run: |
+          failed_checks=""
+
+          if [[ "${{ inputs.test_result }}" == "failure" ]]; then
+            if [[ "${{ inputs.failure_area }}" == "backend" || "${{ inputs.failure_area }}" == "all" ]]; then
+              failed_checks="Ruff, Pytest, Bandit"
+            fi
+          fi
+
+          echo "failed_checks=$failed_checks" >> "$GITHUB_OUTPUT"
+
+          if [[ -n "$failed_checks" ]]; then
+            echo "Backend failed checks: $failed_checks"
+          else
+            echo "Backend checks passed."
+          fi
+
+      - name: Fail backend job when selected
+        if: always()
+        shell: bash
+        run: |
+          failed="${{ steps.collect.outputs.failed_checks }}"
+
+          if [[ -n "$failed" ]]; then
+            echo "Backend quality gates failed:"
+            echo "$failed"
+            exit 1
+          fi
+
+          echo "Backend quality gates passed."
+
+
+  # ============================================================
+  # SIMULATED SECURITY JOB
+  # ============================================================
+  security:
+    name: Security scans
+    runs-on: ubuntu-latest
+
+    outputs:
+      failed_checks: ${{ steps.collect.outputs.failed_checks }}
+
+    steps:
+      - name: Simulate security checks
+        id: simulate
+        shell: bash
+        run: |
+          echo "Simulating Security checks..."
+          echo "Gitleaks: PASS"
+          echo "Trivy: PASS"
+
+      - name: Collect security result
+        id: collect
+        shell: bash
+        run: |
+          failed_checks=""
+
+          if [[ "${{ inputs.test_result }}" == "failure" ]]; then
+            if [[ "${{ inputs.failure_area }}" == "security" || "${{ inputs.failure_area }}" == "all" ]]; then
+              failed_checks="Gitleaks, Trivy"
+            fi
+          fi
+
+          echo "failed_checks=$failed_checks" >> "$GITHUB_OUTPUT"
+
+          if [[ -n "$failed_checks" ]]; then
+            echo "Security failed checks: $failed_checks"
+          else
+            echo "Security checks passed."
+          fi
+
+      - name: Fail security job when selected
+        if: always()
+        shell: bash
+        run: |
+          failed="${{ steps.collect.outputs.failed_checks }}"
+
+          if [[ -n "$failed" ]]; then
+            echo "Security scans failed:"
+            echo "$failed"
+            exit 1
+          fi
+
+          echo "Security scans passed."
+
+
+  # ============================================================
+  # FINAL TEST CI STATUS
+  # ============================================================
+  ci-status:
+    name: Integration CI Test status
+    runs-on: ubuntu-latest
+
+    needs:
+      - frontend
+      - backend
+      - security
+
+    if: always()
+
+    steps:
+      - name: Calculate test CI status
+        shell: bash
+        run: |
+          echo "Frontend result: ${{ needs.frontend.result }}"
+          echo "Backend result:  ${{ needs.backend.result }}"
+          echo "Security result: ${{ needs.security.result }}"
+
+          echo "Frontend Failed Checks:"
+          echo "${{ needs.frontend.outputs.failed_checks }}"
+
+          echo "Backend Failed Checks:"
+          echo "${{ needs.backend.outputs.failed_checks }}"
+
+          echo "Security Failed Checks:"
+          echo "${{ needs.security.outputs.failed_checks }}"
+
+          if [[ \
+            "${{ needs.frontend.result }}" != "success" ||
+            "${{ needs.backend.result }}" != "success" ||
+            "${{ needs.security.result }}" != "success"
+          ]]; then
+            echo "Integration CI Test Flow failed."
+            exit 1
+          fi
+
+          echo "Integration CI Test Flow passed."
+
+
+  # ============================================================
+  # MICROSOFT TEAMS NOTIFICATION
+  # ============================================================
+  teams-notify:
+    name: Teams notification
+    runs-on: ubuntu-latest
+
+    needs:
+      - frontend
+      - backend
+      - security
+      - ci-status
+
+    if: always()
+
+    env:
+      TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+
+    steps:
+
+      # ========================================================
+      # TEAMS SUCCESS
+      # ========================================================
+      - name: Send Teams success notification
+        if: >-
+          ${{
+            env.TEAMS_WEBHOOK_URL != '' &&
+            needs.frontend.result == 'success' &&
+            needs.backend.result == 'success' &&
+            needs.security.result == 'success'
+          }}
+        shell: bash
+        run: |
+          payload=$(cat <<'JSON'
+          {
+            "type": "message",
+            "attachments": [
+              {
+                "contentType": "application/vnd.microsoft.card.adaptive",
+                "content": {
+                  "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                  "type": "AdaptiveCard",
+                  "version": "1.5",
+                  "body": [
+                    {
+                      "type": "TextBlock",
+                      "text": "Integration CI Test Flow Passed",
+                      "weight": "Bolder",
+                      "size": "Medium",
+                      "color": "Good"
+                    },
+                    {
+                      "type": "FactSet",
+                      "facts": [
+                        {
+                          "title": "Repository",
+                          "value": "${{ github.repository }}"
+                        },
+                        {
+                          "title": "Branch",
+                          "value": "${{ github.ref_name }}"
+                        },
+                        {
+                          "title": "Workflow",
+                          "value": "${{ github.workflow }}"
+                        },
+                        {
+                          "title": "Frontend",
+                          "value": "Passed"
+                        },
+                        {
+                          "title": "Backend",
+                          "value": "Passed"
+                        },
+                        {
+                          "title": "Security",
+                          "value": "Passed"
+                        },
+                        {
+                          "title": "Run URL",
+                          "value": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "TextBlock",
+                      "text": "The manually triggered Integration CI success flow completed successfully.",
+                      "wrap": true
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+          JSON
+          )
+
+          response_file="$(mktemp)"
+
+          http_code="$(
+            curl -sS \
+              -H "Content-Type: application/json" \
+              -d "$payload" \
+              -o "$response_file" \
+              -w '%{http_code}' \
+              "$TEAMS_WEBHOOK_URL"
+          )"
+
+          if [[ "$http_code" != 2* ]]; then
+            echo "Teams webhook failed with HTTP status: $http_code"
+            cat "$response_file"
+            exit 1
+          fi
+
+      # ========================================================
+      # TEAMS FAILURE
+      # ========================================================
+      - name: Send Teams failure notification
+        if: >-
+          ${{
+            env.TEAMS_WEBHOOK_URL != '' &&
+            (
+              needs.frontend.result == 'failure' ||
+              needs.backend.result == 'failure' ||
+              needs.security.result == 'failure'
+            )
+          }}
+        shell: bash
+        env:
+          FRONTEND_FAILED: ${{ needs.frontend.outputs.failed_checks }}
+          BACKEND_FAILED: ${{ needs.backend.outputs.failed_checks }}
+          SECURITY_FAILED: ${{ needs.security.outputs.failed_checks }}
+
+        run: |
+          failed_jobs=()
+
+          if [[ "${{ needs.frontend.result }}" == "failure" ]]; then
+            failed_jobs+=("Frontend quality gates")
+          fi
+
+          if [[ "${{ needs.backend.result }}" == "failure" ]]; then
+            failed_jobs+=("Backend quality gates")
+          fi
+
+          if [[ "${{ needs.security.result }}" == "failure" ]]; then
+            failed_jobs+=("Security scans")
+          fi
+
+          failed_jobs_text="$(IFS=', '; echo "${failed_jobs[*]}")"
+
+          frontend_failed="${FRONTEND_FAILED:-None}"
+          backend_failed="${BACKEND_FAILED:-None}"
+          security_failed="${SECURITY_FAILED:-None}"
+
+          payload=$(cat <<JSON
+          {
+            "type": "message",
+            "attachments": [
+              {
+                "contentType": "application/vnd.microsoft.card.adaptive",
+                "content": {
+                  "\$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                  "type": "AdaptiveCard",
+                  "version": "1.5",
+                  "body": [
+                    {
+                      "type": "TextBlock",
+                      "text": "Integration CI Test Flow Failed",
+                      "weight": "Bolder",
+                      "size": "Medium",
+                      "color": "Attention"
+                    },
+                    {
+                      "type": "FactSet",
+                      "facts": [
+                        {
+                          "title": "Repository",
+                          "value": "${{ github.repository }}"
+                        },
+                        {
+                          "title": "Branch",
+                          "value": "${{ github.ref_name }}"
+                        },
+                        {
+                          "title": "Workflow",
+                          "value": "${{ github.workflow }}"
+                        },
+                        {
+                          "title": "Failed Jobs",
+                          "value": "$failed_jobs_text"
+                        },
+                        {
+                          "title": "Frontend Failed Checks",
+                          "value": "$frontend_failed"
+                        },
+                        {
+                          "title": "Backend Failed Checks",
+                          "value": "$backend_failed"
+                        },
+                        {
+                          "title": "Security Failed Checks",
+                          "value": "$security_failed"
+                        },
+                        {
+                          "title": "Run URL",
+                          "value": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+          JSON
+          )
+
+          response_file="$(mktemp)"
+
+          http_code="$(
+            curl -sS \
+              -H "Content-Type: application/json" \
+              -d "$payload" \
+              -o "$response_file" \
+              -w '%{http_code}' \
+              "$TEAMS_WEBHOOK_URL"
+          )"
+
+          if [[ "$http_code" != 2* ]]; then
+            echo "Teams webhook failed with HTTP status: $http_code"
+            cat "$response_file"
+            exit 1
+          fi
+
+
+  # ============================================================
+  # EMAIL NOTIFICATION
+  # ============================================================
+  email-notify:
+    name: Email notification
+    runs-on: ubuntu-latest
+
+    needs:
+      - frontend
+      - backend
+      - security
+      - ci-status
+
+    if: always()
+
+    env:
+      SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+      SMTP_PORT: ${{ secrets.SMTP_PORT }}
+      SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+      SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+      ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
+
+    steps:
+
+      # ========================================================
+      # SUCCESS EMAIL
+      # ========================================================
+      - name: Send success email
+        if: >-
+          ${{
+            env.SMTP_SERVER != '' &&
+            env.SMTP_USERNAME != '' &&
+            env.SMTP_PASSWORD != '' &&
+            env.ALERT_EMAIL != '' &&
+            needs.frontend.result == 'success' &&
+            needs.backend.result == 'success' &&
+            needs.security.result == 'success'
+          }}
+
+        uses: dawidd6/action-send-mail@v3
+
+        with:
+          server_address: ${{ env.SMTP_SERVER }}
+          server_port: ${{ env.SMTP_PORT }}
+          secure: false
+
+          username: ${{ env.SMTP_USERNAME }}
+          password: ${{ env.SMTP_PASSWORD }}
+
+          subject: >-
+            JavaAPEX Integration CI Test Passed -
+            ${{ github.ref_name }}
+
+          to: ${{ env.ALERT_EMAIL }}
+
+          from: GitHub Actions <${{ env.SMTP_USERNAME }}>
+
+          body: |
+            Hi Team,
+
+            JavaAPEX Integration CI test workflow completed successfully.
+
+            ==========================================
+            TEST DETAILS
+            ==========================================
+
+            Repository:
+            ${{ github.repository }}
+
+            Branch:
+            ${{ github.ref_name }}
+
+            Workflow:
+            ${{ github.workflow }}
+
+            Trigger:
+            Manual workflow_dispatch
+
+            ==========================================
+            TEST STATUS
+            ==========================================
+
+            Frontend: PASSED
+            Backend: PASSED
+            Security: PASSED
+
+            Run URL:
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            The Integration CI success flow and notification process
+            were validated successfully.
+
+
+      # ========================================================
+      # FAILURE EMAIL
+      # ========================================================
+      - name: Send failure email
+        if: >-
+          ${{
+            env.SMTP_SERVER != '' &&
+            env.SMTP_USERNAME != '' &&
+            env.SMTP_PASSWORD != '' &&
+            env.ALERT_EMAIL != '' &&
+            (
+              needs.frontend.result == 'failure' ||
+              needs.backend.result == 'failure' ||
+              needs.security.result == 'failure'
+            )
+          }}
+
+        uses: dawidd6/action-send-mail@v3
+
+        with:
+          server_address: ${{ env.SMTP_SERVER }}
+          server_port: ${{ env.SMTP_PORT }}
+          secure: false
+
+          username: ${{ env.SMTP_USERNAME }}
+          password: ${{ env.SMTP_PASSWORD }}
+
+          subject: >-
+            JavaAPEX Integration CI Test Failed -
+            ${{ github.ref_name }}
+
+          to: ${{ env.ALERT_EMAIL }}
+
+          from: GitHub Actions <${{ env.SMTP_USERNAME }}>
+
+          body: |
+            Hi Team,
+
+            JavaAPEX Integration CI test workflow failed.
+
+            ==========================================
+            TEST DETAILS
+            ==========================================
+
+            Repository:
+            ${{ github.repository }}
+
+            Branch:
+            ${{ github.ref_name }}
+
+            Workflow:
+            ${{ github.workflow }}
+
+            Trigger:
+            Manual workflow_dispatch
+
+            ==========================================
+            JOB STATUS
+            ==========================================
+
+            Frontend:
+            ${{ needs.frontend.result }}
+
+            Backend:
+            ${{ needs.backend.result }}
+
+            Security:
+            ${{ needs.security.result }}
+
+            ==========================================
+            FAILED CHECKS
+            ==========================================
+
+            Frontend Failed Checks:
+            ${{ needs.frontend.outputs.failed_checks }}
+
+            Backend Failed Checks:
+            ${{ needs.backend.outputs.failed_checks }}
+
+            Security Failed Checks:
+            ${{ needs.security.outputs.failed_checks }}
+
+            Run URL:
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

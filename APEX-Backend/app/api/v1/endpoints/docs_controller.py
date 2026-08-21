@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, verify_job_ownership
 from app.application.use_cases.generate_project_documentation import GenerateProjectDocumentationUseCase
 from app.core.exceptions import CloneFailedError, MigrationJobNotFoundError
-from app.infrastructure.persistence.database import get_db
+from app.infrastructure.persistence.database import get_db_optional
 from app.infrastructure.persistence.models import User
 
 router = APIRouter(tags=["docs"])
@@ -33,7 +33,7 @@ def _not_found_response() -> JSONResponse:
 async def get_docs(
     job_id: str,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: Session | None = Depends(get_db_optional),
 ) -> JSONResponse:
     verify_job_ownership(db, job_id, current_user)
     try:
@@ -47,7 +47,7 @@ async def get_docs(
 async def get_docs_html(
     job_id: str,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: Session | None = Depends(get_db_optional),
 ) -> JSONResponse:
     verify_job_ownership(db, job_id, current_user)
     try:

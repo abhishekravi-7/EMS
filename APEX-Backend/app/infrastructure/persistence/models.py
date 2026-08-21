@@ -198,3 +198,24 @@ class LLMTokenUsage(Base):
     # Additional context
     question_preview: Mapped[str | None] = mapped_column(String(500), nullable=True)  # First 500 chars of question
     repository_url: Mapped[str | None] = mapped_column(String(500), nullable=True)  # Repository being analyzed
+
+
+class PersistedMigrationReport(Base):
+    """Stores the latest migration report JSON for a job in PostgreSQL.
+
+    Ensures that when DigitalOcean load-balances requests across multiple
+    containers or if a container is restarted, any container can immediately
+    read and serve the migration status/summary without returning 404.
+    """
+
+    __tablename__ = "persisted_migration_reports"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    job_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="QUEUED")
+    progress_percent: Mapped[int] = mapped_column(nullable=False, default=0)
+    current_step: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    report_json: Mapped[str] = mapped_column(String, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utc_now, onupdate=_utc_now
+    )

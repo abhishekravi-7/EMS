@@ -19,7 +19,7 @@ from app.application.use_cases.assess_microservice_eligibility import (
 )
 from app.application.use_cases.browse_repository import RepositoryFileBrowser
 from app.core.exceptions import DiscoveryError, RepositoryBrowseError
-from app.infrastructure.persistence.database import get_db
+from app.infrastructure.persistence.database import get_db_optional
 from app.infrastructure.persistence.models import User
 from app.schemas.discovery_schema import DiscoveryRequest, DiscoveryResponse
 
@@ -39,7 +39,7 @@ async def run_discovery(
     job_id: str,
     payload: DiscoveryRequest | None = Body(default=None),
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: Session | None = Depends(get_db_optional),
 ) -> JSONResponse:
     """Clone the connected repository and analyze the project.
 
@@ -70,7 +70,7 @@ async def list_discovery_files(
     job_id: str,
     path: str = Query("", description="Folder path relative to the repository root."),
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: Session | None = Depends(get_db_optional),
 ) -> JSONResponse:
     """Lazily list one directory level of the job's already-cloned repo.
 
@@ -108,7 +108,7 @@ async def get_discovery_file_content(
     job_id: str,
     path: str = Query(..., description="File path relative to the repository root."),
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: Session | None = Depends(get_db_optional),
 ) -> JSONResponse:
     verify_job_ownership(db, job_id, current_user)
     try:
@@ -137,7 +137,7 @@ async def get_discovery_file_content(
 async def get_microservice_eligibility(
     job_id: str,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: Session | None = Depends(get_db_optional),
 ) -> JSONResponse:
     """Real static analysis over the job's cloned repo.
 

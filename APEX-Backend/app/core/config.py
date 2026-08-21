@@ -8,7 +8,7 @@ only exposes configuration values.
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # APEX-Backend/app/core/config.py -> parents[2] == APEX-Backend/
@@ -81,8 +81,11 @@ class Settings(BaseSettings):
     # time; Discovery and Migration are unaffected (their indexing calls are
     # already best-effort). Set ENABLE_RAG=true once the instance has the RAM.
     rag_enabled: bool = Field(default=False, alias="ENABLE_RAG")
-    # Master switch for database usage. Default true for backward compatibility.
-    database_enabled: bool = Field(default=True, alias="ENABLE_DATABASE")
+    # Master switch for database usage. Supports both ENABLE_DATABASE and DATABASE_ENABLED.
+    database_enabled: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("ENABLE_DATABASE", "DATABASE_ENABLED", "database_enabled"),
+    )
     # Number of knowledge chunks retrieved per question.
     rag_top_k: int = 4
     # Timeout (seconds) for a single chat-LLM request (Groq or Ollama).
@@ -150,13 +153,39 @@ class Settings(BaseSettings):
     # --- Quality Gates -------------------------------------------------------
     # SonarQube/SonarCloud token. Required only when the SonarQube quality gate
     # card is active.
-    sonarqube_token: str = Field(default="", alias="SONAR_TOKEN")
+    sonarqube_token: str = Field(
+        default="",
+        validation_alias=AliasChoices("SONAR_TOKEN", "SONARQUBE_TOKEN", "sonarqube_token"),
+    )
     # SonarQube server URL. For SonarCloud use https://sonarcloud.io.
-    sonarqube_host_url: str = Field(default="http://localhost:9000", alias="SONAR_HOST_URL")
+    sonarqube_host_url: str = Field(
+        default="http://localhost:9000",
+        validation_alias=AliasChoices(
+            "SONAR_HOST_URL",
+            "SONAR_URL",
+            "SONARQUBE_HOST_URL",
+            "SONARQUBE_URL",
+            "sonarqube_host_url",
+        ),
+    )
     # Optional fixed project key. Leave empty to derive one from the migration job.
-    sonarqube_project_key: str = Field(default="", alias="SONAR_PROJECT_KEY")
+    sonarqube_project_key: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "SONAR_PROJECT_KEY",
+            "SONARQUBE_PROJECT_KEY",
+            "sonarqube_project_key",
+        ),
+    )
     # Required by SonarCloud; leave empty for local SonarQube.
-    sonarqube_organization: str = Field(default="", alias="SONAR_ORGANIZATION")
+    sonarqube_organization: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "SONAR_ORGANIZATION",
+            "SONARQUBE_ORGANIZATION",
+            "sonarqube_organization",
+        ),
+    )
     sonarqube_project_key_prefix: str = "java-apex"
     sonarqube_scanner_command: str = "sonar-scanner"
 
@@ -225,7 +254,7 @@ class Settings(BaseSettings):
     # empty default is rejected at startup by validate_auth_settings() below.
     jwt_secret_key: str = ""
     jwt_algorithm: str = "HS256"
-    access_token_expire_minutes: int = 30
+    access_token_expire_minutes: int = 120
     refresh_token_expire_days: int = 7
 
     # --- Firebase (New Authentication) ------------------------------------------

@@ -1416,7 +1416,7 @@
 .wizard-help-btn {
   display: inline-flex;
   align-items: center;
-  justifyContent: center;
+  justify-content: center;
   gap: 8px;
   padding: 8px 14px;
   border-radius: 8px;
