@@ -1,53 +1,51 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { getCurrentUser, logOut } from "@/features/auth/services/authService";
+import { onAuthStateChanged, signOut, type User as FirebaseUser } from "firebase/auth";
+import { auth } from "@/firebase/firebase";
 import { AuthContext, type AuthContextValue, type AuthUser } from "./AuthContext";
 
 /**
- * Auth state backed by the real `/api/auth/*` endpoints. The actual session
- * lives in HttpOnly cookies the browser manages automatically — this only
- * mirrors "am I logged in, and as whom" into React state for the UI.
+ * Auth state backed by Firebase Authentication.
+ * This is the single source of truth for the application's authentication state.
  */
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [isAuthLoading, setIsAuthLoading] = useState(true); // starts true
+  const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
 
   useEffect(() => {
-    let cancelled = false;
-    // On first load, ask the backend whether the access_token cookie (if
-    // any, e.g. from a previous visit) still identifies a valid session —
-    // this is what keeps someone logged in across a page refresh.
-    getCurrentUser()
-      .then((me) => {
-        if (!cancelled) setUser({ name: me.fullName, email: me.email });
-      })
-      .catch(() => {
-        // No cookie, or an expired/invalid one — this is the normal state
-        // for a first-time or already-logged-out visitor, not an error.
-      })
-      .finally(() => {
-        if (!cancelled) setIsAuthLoading(false); // check complete either way
-      });
-    return () => {
-      cancelled = true;
-    };
+    // Listen for authentication state changes from Firebase
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
+      setIsAuthLoading(false);
+    });
+
+    // Unsubscribe on unmount
+    return () => unsubscribe();
   }, []);
+
+  const user = useMemo<AuthUser | null>(() => {
+    if (!currentUser) return null;
+    return {
+      name: currentUser.displayName || currentUser.email?.split("@")[0] || "User",
+      email: currentUser.email || "",
+    };
+  }, [currentUser]);
 
   const value = useMemo<AuthContextValue>(
     () => ({
-      isAuthenticated: user !== null,
+      isAuthenticated: currentUser !== null,
       isAuthLoading,
+      loading: isAuthLoading,
       user,
-      login: (nextUser: AuthUser) => setUser(nextUser),
-      logout: () => {
-        setUser(null);
-        // Fire-and-forget: revokes the refresh token and clears both
-        // HttpOnly cookies server-side. Local state is cleared immediately
-        // above regardless of whether this call succeeds, so the UI never
-        // waits on it and logout always "feels" instant.
-        void logOut();
+      currentUser,
+      login: () => {
+          // Firebase maintains state automatically via onAuthStateChanged
+          // This method can be used to manually trigger local state updates if needed
+      },
+      logout: async () => {
+        await signOut(auth);
       },
     }),
-    [user, isAuthLoading]
+    [user, currentUser, isAuthLoading]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

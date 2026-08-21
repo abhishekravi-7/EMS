@@ -26,6 +26,7 @@ from app.infrastructure.persistence.database import (
     ensure_database_exists,
     verify_database_connection,
 )
+from app.infrastructure.auth.firebase_auth import init_firebase
 
 # LLM Token Tracing
 import token_tracing as tt
@@ -70,6 +71,10 @@ async def lifespan(_app: FastAPI):
         logger.info("Database tables verified/created.")
     else:
         logger.info("Database disabled by configuration — skipping DB startup tasks.")
+
+    # Initialize Firebase Admin SDK
+    if settings.firebase_auth_enabled:
+        init_firebase()
 
     # Initialize LLM Token Tracing
     from app.application.services.llm_token_tracing_service import ChainedTraceSink
