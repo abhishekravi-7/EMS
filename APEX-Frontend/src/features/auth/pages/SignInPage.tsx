@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { FaEnvelope, FaArrowRight } from "react-icons/fa";
-import { ApiError } from "@/services/http/client";
 import { useAuth } from "@/shared/context/AuthContext";
 import AuthLayout from "../components/AuthLayout";
 import SocialAuthButtons from "../components/SocialAuthButtons";
@@ -58,18 +57,13 @@ const SignInPage: React.FC = () => {
       setApiError(null);
       setIsSubmitting(true);
       try {
-        const response = await signIn({
+        await signIn({
           email: formValues.email.trim(),
           password: formValues.password,
         });
-        login({ name: response.user.fullName, email: response.user.email });
         navigate("/connect");
-      } catch (err) {
-        if (err instanceof ApiError) {
-          setApiError(err.message || "Sign in failed. Please try again.");
-        } else {
-          setApiError("Unable to reach the server. Check your connection and try again.");
-        }
+      } catch (err: any) {
+        setApiError(err.message || "Sign in failed. Please try again.");
       } finally {
         setIsSubmitting(false);
       }

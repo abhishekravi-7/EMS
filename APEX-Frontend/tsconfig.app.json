@@ -20,12 +20,7 @@
     "baseUrl": ".",
     "ignoreDeprecations": "5.0",
     "paths": {
-      "@/app/*": ["src/app/*"],
-      "@/features/*": ["src/features/*"],
-      "@/shared/*": ["src/shared/*"],
-      "@/services/*": ["src/services/*"],
-      "@/config/*": ["src/config/*"],
-      "@/types/*": ["src/types/*"]
+      "@/*": ["src/*"]
     },
 
     /* Linting */

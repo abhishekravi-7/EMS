@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "@/services/config/env";
+import { getAuthToken } from "@/features/auth/services/authService";
 
 export type ApiQueryValue = string | number | boolean | null | undefined;
 
@@ -173,7 +174,15 @@ function buildRequestInit(options: Omit<ApiRequestOptions, "baseUrl" | "query">)
 
 export async function performRequest(path: string, options: ApiRequestOptions = {}): Promise<Response> {
   const { baseUrl, query, ...requestInit } = options;
-  return fetch(buildApiUrl(path, query, baseUrl), buildRequestInit(requestInit));
+  const init = buildRequestInit(requestInit);
+
+  // Inject Firebase ID token into Authorization header if available
+  const token = await getAuthToken();
+  if (token) {
+    (init.headers as Headers).set("Authorization", `Bearer ${token}`);
+  }
+
+  return fetch(buildApiUrl(path, query, baseUrl), init);
 }
 
 export async function requestJson<T>(
