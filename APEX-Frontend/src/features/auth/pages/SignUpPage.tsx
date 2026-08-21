@@ -2,7 +2,6 @@ import React, { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { FaUser, FaEnvelope, FaCheck, FaArrowRight } from "react-icons/fa";
 import { Button } from "@/shared/components/ui";
-import { ApiError } from "@/services/http/client";
 import AuthLayout from "../components/AuthLayout";
 import SocialAuthButtons from "../components/SocialAuthButtons";
 import PasswordInput from "../components/PasswordInput";
@@ -112,16 +111,8 @@ const SignUpPage: React.FC = () => {
           confirmPassword: formValues.confirmPassword,
         });
         setSubmitted(true);
-      } catch (err) {
-        if (err instanceof ApiError) {
-          if (err.status === 409) {
-            setApiError("An account with this email already exists. Try signing in instead.");
-          } else {
-            setApiError(err.message || "Sign up failed. Please try again.");
-          }
-        } else {
-          setApiError("Unable to reach the server. Check your connection and try again.");
-        }
+      } catch (err: any) {
+        setApiError(err.message || "Sign up failed. Please try again.");
       } finally {
         setIsSubmitting(false);
       }

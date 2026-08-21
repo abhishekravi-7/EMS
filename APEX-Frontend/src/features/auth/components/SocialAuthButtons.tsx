@@ -1,6 +1,7 @@
 import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { FaGithub } from "react-icons/fa";
-import { GITHUB_AUTH_LOGIN_URL, GOOGLE_AUTH_LOGIN_URL } from "@/services/config/env";
+import { signInWithGoogle, signInWithGithub } from "../services/authService";
 
 const GoogleIcon: React.FC = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" style={{ display: "block" }}>
@@ -18,22 +19,51 @@ export interface SocialAuthButtonsProps {
 type Provider = "google" | "github";
 
 const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({ mode }) => {
+  const navigate = useNavigate();
   const isSignIn = mode === "signin";
   const [redirectingTo, setRedirectingTo] = useState<Provider | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const startOAuthRedirect = (provider: Provider, loginUrl: string) => {
+  const handleSocialLogin = async (provider: Provider) => {
     if (redirectingTo) return;
     setRedirectingTo(provider);
-    window.location.href = loginUrl;
+    setError(null);
+
+    try {
+      if (provider === "google") {
+        await signInWithGoogle();
+      } else {
+        await signInWithGithub();
+      }
+      navigate("/connect");
+    } catch (err: any) {
+      setError(err.message);
+      setRedirectingTo(null);
+    }
   };
 
   return (
     <div className="auth-social-stack">
+      {error && (
+        <div style={{
+          fontSize: 12,
+          color: "#dc2626",
+          textAlign: "center",
+          marginBottom: 8,
+          background: "#fef2f2",
+          padding: "6px",
+          borderRadius: "6px",
+          border: "1px solid #fecaca"
+        }}>
+          {error}
+        </div>
+      )}
+
       <button
         type="button"
         className="auth-social-btn"
         disabled={redirectingTo !== null}
-        onClick={() => startOAuthRedirect("google", GOOGLE_AUTH_LOGIN_URL)}
+        onClick={() => handleSocialLogin("google")}
       >
         <GoogleIcon />
         <span>{isSignIn ? "Continue with Google" : "Sign up with Google"}</span>
@@ -43,7 +73,7 @@ const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({ mode }) => {
         type="button"
         className="auth-social-btn"
         disabled={redirectingTo !== null}
-        onClick={() => startOAuthRedirect("github", GITHUB_AUTH_LOGIN_URL)}
+        onClick={() => handleSocialLogin("github")}
       >
         <FaGithub size={18} style={{ color: "#0f172a" }} />
         <span>{isSignIn ? "Continue with GitHub" : "Sign up with GitHub"}</span>

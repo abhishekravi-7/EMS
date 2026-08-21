@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any
 
 from app.core.config import settings
+from app.infrastructure.java_runtime import build_tool_env
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +85,12 @@ class StaticAnalysisRunner:
             )
 
         project_key = self._project_key(job_id, project_name or project_dir.name)
-        host_url = settings.sonarqube_host_url.rstrip("/")
+        raw_host = (settings.sonarqube_host_url or "").strip().rstrip("/")
+        if not raw_host.startswith(("http://", "https://")):
+            host_url = f"https://{raw_host}" if "sonarcloud.io" in raw_host else f"http://{raw_host}"
+        else:
+            host_url = raw_host
+
         analysis_url = f"{host_url}/dashboard?id={urllib.parse.quote(project_key)}"
         display_name = project_name or project_dir.name
 
@@ -111,14 +117,19 @@ class StaticAnalysisRunner:
         if settings.sonarqube_organization.strip():
             command.append(f"-Dsonar.organization={settings.sonarqube_organization.strip()}")
 
+        # Build environment (with correct JDK and Maven toolchain in PATH) -----
+        env = build_tool_env()
+        env["SONAR_TOKEN"] = token
+        env["SONAR_HOST_URL"] = host_url
+
         # Resolve executable --------------------------------------------------
-        resolved_exe = self._resolve_exe(command[0])
+        resolved_exe = self._resolve_exe(command[0], search_path=env.get("PATH"))
         if not resolved_exe:
             error_msg = (
                 f"Executable '{command[0]}' not found in PATH or known locations. "
                 "Ensure Maven or SonarScanner is installed and available."
             )
-            logger.error("SonarQube: %s | PATH=%s", error_msg, os.environ.get("PATH", ""))
+            logger.error("SonarQube: %s | PATH=%s", error_msg, env.get("PATH", ""))
             return SonarScanResult(
                 quality_gate="FAILED",
                 scan_mode="cli_failed",
@@ -141,11 +152,6 @@ class StaticAnalysisRunner:
                 error_message=error_msg,
                 log_lines=[error_msg],
             )
-
-        # Build environment (token via env-var, not CLI arg) ------------------
-        env = os.environ.copy()
-        env["SONAR_TOKEN"] = token
-        env["SONAR_HOST_URL"] = host_url
 
         # Log execution details -----------------------------------------------
         # Redact token from the logged command
@@ -332,7 +338,7 @@ class StaticAnalysisRunner:
     # ------------------------------------------------------------------ #
 
     @staticmethod
-    def _resolve_exe(name: str) -> str | None:
+    def _resolve_exe(name: str, search_path: str | None = None) -> str | None:
         """Resolve an executable name to its full path.
 
         On Windows, ``mvn`` is really ``mvn.cmd``.  We try the name as-is
@@ -341,14 +347,14 @@ class StaticAnalysisRunner:
         """
         # Direct which lookup (works on Linux/macOS; also finds .cmd on Windows
         # if the bin directory is on PATH)
-        found = shutil.which(name)
+        found = shutil.which(name, path=search_path)
         if found:
             return found
 
         # Windows: try explicit extensions
         if os.name == "nt":
             for ext in (".cmd", ".bat", ".exe"):
-                found = shutil.which(name + ext)
+                found = shutil.which(name + ext, path=search_path)
                 if found:
                     return found
 
@@ -370,14 +376,14 @@ class StaticAnalysisRunner:
         return None
 
     @staticmethod
-    def _resolve_command(command: str) -> str | None:
+    def _resolve_command(command: str, search_path: str | None = None) -> str | None:
         """Resolve a command name or path to a full executable path."""
         command = command.strip()
         if not command:
             return None
         if Path(command).is_file():
             return command
-        return shutil.which(command)
+        return shutil.which(command, path=search_path)
 
     # ------------------------------------------------------------------ #
     # Helpers
@@ -681,6 +687,11 @@ class StaticAnalysisRunner:
     @staticmethod
     def _get_json(url: str, token: str) -> dict[str, Any]:
         auth = base64.b64encode(f"{token}:".encode("utf-8")).decode("ascii")
-        request = urllib.request.Request(url, headers={"Authorization": f"Basic {auth}"})
+        headers = {
+            "Authorization": f"Basic {auth}",
+            "User-Agent": "Java-APEX-Platform/1.0",
+            "Accept": "application/json",
+        }
+        request = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(request, timeout=20) as response:  # noqa: S310
             return json.loads(response.read().decode("utf-8"))

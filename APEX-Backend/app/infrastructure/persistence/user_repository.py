@@ -31,8 +31,16 @@ def get_user_by_email(db: Session, email: str) -> User | None:
     return db.execute(statement).scalar_one_or_none()
 
 
-def create_user(db: Session, *, full_name: str, email: str, password_hash: str) -> User:
-    """Insert a new local (email/password) user.
+def create_user(
+    db: Session,
+    *,
+    full_name: str,
+    email: str,
+    password_hash: str | None,
+    auth_provider: str = "local",
+    provider_user_id: str | None = None
+) -> User:
+    """Insert a new user.
 
     Raises `sqlalchemy.exc.IntegrityError` (a subclass of `SQLAlchemyError`)
     if the email unique constraint is violated by a concurrent signup — the
@@ -42,7 +50,8 @@ def create_user(db: Session, *, full_name: str, email: str, password_hash: str) 
         full_name=full_name,
         email=email,
         password_hash=password_hash,
-        auth_provider="local",
+        auth_provider=auth_provider,
+        provider_user_id=provider_user_id
     )
     db.add(user)
     try:
