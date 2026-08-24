@@ -219,3 +219,24 @@ class PersistedMigrationReport(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utc_now, onupdate=_utc_now
     )
+
+
+class PersistedExistingTestState(Base):
+    """Stores the latest existing test execution state and report in PostgreSQL.
+
+    Ensures that when DigitalOcean load-balances requests across multiple
+    containers or if a container is restarted, any container can immediately
+    read and serve the existing-test status/logs/results without returning 404.
+    """
+
+    __tablename__ = "persisted_existing_test_states"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    job_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="IDLE")
+    state_json: Mapped[str] = mapped_column(String, nullable=False)
+    report_json: Mapped[str | None] = mapped_column(String, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utc_now, onupdate=_utc_now
+    )
+
