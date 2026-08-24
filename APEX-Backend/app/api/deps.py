@@ -11,18 +11,11 @@ from fastapi import Depends, Header, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.application.services.auth_service import AuthService
-
-from app.core.config import settings
-from app.core.context import user_id_ctx, job_id_ctx
-from app.core.exceptions import NotAuthenticatedError
-from app.infrastructure.auth.firebase_auth import verify_firebase_token
-from app.infrastructure.persistence.database import get_db
 from app.core import security
 from app.core.config import settings
 from app.core.context import user_id_ctx, job_id_ctx
 from app.core.exceptions import NotAuthenticatedError
 from app.infrastructure.persistence.database import get_db, get_db_optional
-
 from app.infrastructure.persistence.migration_ownership_repository import get_job_owner_user_id
 from app.infrastructure.persistence.models import User
 
@@ -30,42 +23,32 @@ ACCESS_TOKEN_COOKIE_NAME = "access_token"
 _BEARER_PREFIX = "bearer "
 
 
+from app.infrastructure.auth.firebase_auth import is_firebase_token, verify_firebase_token
 
-async def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
+
+async def get_current_user(request: Request, db: Session | None = Depends(get_db_optional)) -> User:
     """Resolve the logged-in user.
 
-    If Firebase Auth is enabled, it verifies the ID token from the
-    `Authorization: Bearer <token>` header.
-
-    Otherwise, it falls back to the legacy `access_token` HttpOnly cookie.
-def get_current_user(request: Request, db: Session | None = Depends(get_db_optional)) -> User:
-    """Resolve the logged-in user from the `access_token` HttpOnly cookie or Authorization header.
-
-    When PostgreSQL is enabled, validates the user in the database.
-    When PostgreSQL is disabled, validates the JWT signature and extracts the user context without requiring database queries.
-
+    Supports:
+    1. Firebase ID token from `Authorization: Bearer <token>` (RS256 / Google JWKS).
+    2. Legacy `access_token` HttpOnly cookie.
+    3. Legacy HMAC access token from `Authorization: Bearer <token>`.
+    4. PostgreSQL-enabled database user lookup / shadow record creation.
+    5. PostgreSQL-disabled JWT signature validation & shadow user context.
     """
-    # 1. Try Firebase Authentication (Header-based)
-    if settings.firebase_auth_enabled:
-        auth_header = request.headers.get("Authorization")
-        if auth_header and auth_header.lower().startswith(_BEARER_PREFIX):
-            token = auth_header[len(_BEARER_PREFIX):].strip()
-            return await verify_firebase_token(db, token)
+    auth_header = request.headers.get("Authorization", "")
+    bearer_token = ""
+    if auth_header.lower().startswith(_BEARER_PREFIX):
+        bearer_token = auth_header[len(_BEARER_PREFIX):].strip()
 
-        # If header is missing but Firebase is required, raise 401
-        # (Unless we want to allow legacy cookie fallback during migration)
-        # For a clean migration, we should require the header.
-        raise HTTPException(
-            status_code=401,
-            detail="Authentication required. Please provide a valid Firebase ID token."
-        )
+    cookie_token = request.cookies.get(ACCESS_TOKEN_COOKIE_NAME, "").strip()
 
-    # 2. Legacy Cookie-based Authentication
-    raw_token = request.cookies.get(ACCESS_TOKEN_COOKIE_NAME)
-    if not raw_token:
-        auth_header = request.headers.get("Authorization", "")
-        if auth_header.lower().startswith("bearer "):
-            raw_token = auth_header[7:].strip()
+    # 1. If bearer token is provided and matches Firebase ID token format
+    if bearer_token and (settings.firebase_auth_enabled or is_firebase_token(bearer_token)):
+        return await verify_firebase_token(db, bearer_token)
+
+    # 2. Extract legacy access token from cookie or bearer header
+    raw_token = cookie_token or bearer_token
 
     if not raw_token:
         raise HTTPException(status_code=401, detail="Missing access token.")
@@ -100,12 +83,13 @@ def get_current_user(request: Request, db: Session | None = Depends(get_db_optio
 def verify_job_ownership(db: Session | None, job_id: str, current_user: User) -> None:
     """Raise 403/404 unless `current_user` is the recorded owner of `job_id`.
 
-    When PostgreSQL is disabled, verifies that the job exists on filesystem storage or in report cache.
+    When PostgreSQL is disabled, verifies that the job exists on filesystem storage, in report cache, or in active existing-test runner.
     """
     if db is None or not settings.database_enabled:
         from app.infrastructure.persistence.job_repository import JobRepository
         from app.application.services.status_service import _REPORT_CACHE
-        if not JobRepository().job_exists(job_id) and job_id not in _REPORT_CACHE:
+        from app.application.use_cases.existing_test_runner_service import existing_test_runner_service
+        if not JobRepository().job_exists(job_id) and job_id not in _REPORT_CACHE and not existing_test_runner_service.has_job(job_id):
             raise HTTPException(
                 status_code=404,
                 detail={"code": "JOB_NOT_FOUND", "message": "No migration job found for this id."},
@@ -117,7 +101,14 @@ def verify_job_ownership(db: Session | None, job_id: str, current_user: User) ->
     if owner_user_id is None:
         from app.infrastructure.persistence.job_repository import JobRepository
         from app.infrastructure.persistence.report_repository import load_report_from_db
-        if JobRepository().job_exists(job_id) or load_report_from_db(job_id) is not None:
+        from app.infrastructure.persistence.existing_test_repository import existing_test_state_exists_in_db
+        from app.application.use_cases.existing_test_runner_service import existing_test_runner_service
+        if (
+            JobRepository().job_exists(job_id)
+            or load_report_from_db(job_id) is not None
+            or existing_test_state_exists_in_db(job_id)
+            or existing_test_runner_service.has_job(job_id)
+        ):
             from app.infrastructure.persistence.migration_ownership_repository import record_job_owner
             try:
                 record_job_owner(db, job_id=job_id, user_id=current_user.id)
