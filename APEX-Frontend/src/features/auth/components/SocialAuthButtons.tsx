@@ -1,6 +1,5 @@
 import React, { useState } from "react";
-import { FaGithub } from "react-icons/fa";
-import { GITHUB_AUTH_LOGIN_URL, GOOGLE_AUTH_LOGIN_URL } from "@/services/config/env";
+import { GOOGLE_AUTH_LOGIN_URL } from "@/services/config/env";
 
 const GoogleIcon: React.FC = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" style={{ display: "block" }}>
@@ -15,7 +14,7 @@ export interface SocialAuthButtonsProps {
   mode: "signin" | "signup";
 }
 
-type Provider = "google" | "github";
+type Provider = "google";
 
 const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({ mode }) => {
   const isSignIn = mode === "signin";
@@ -37,16 +36,6 @@ const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({ mode }) => {
       >
         <GoogleIcon />
         <span>{isSignIn ? "Continue with Google" : "Sign up with Google"}</span>
-      </button>
-
-      <button
-        type="button"
-        className="auth-social-btn"
-        disabled={redirectingTo !== null}
-        onClick={() => startOAuthRedirect("github", GITHUB_AUTH_LOGIN_URL)}
-      >
-        <FaGithub size={18} style={{ color: "#0f172a" }} />
-        <span>{isSignIn ? "Continue with GitHub" : "Sign up with GitHub"}</span>
       </button>
     </div>
   );
