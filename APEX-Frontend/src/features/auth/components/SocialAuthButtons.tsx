@@ -75,7 +75,7 @@ const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({ mode }) => {
         disabled={redirectingTo !== null}
         onClick={() => handleSocialLogin("github")}
       >
-        <FaGithub size={18} style={{ color: "#0f172a" }} />
+        <FaGithub size={18} />
         <span>{isSignIn ? "Continue with GitHub" : "Sign up with GitHub"}</span>
       </button>
     </div>

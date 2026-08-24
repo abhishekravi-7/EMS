@@ -263,8 +263,13 @@ class Settings(BaseSettings):
     firebase_project_id: str = Field(default="", alias="FIREBASE_PROJECT_ID")
     firebase_private_key: str = Field(default="", alias="FIREBASE_PRIVATE_KEY")
     firebase_client_email: str = Field(default="", alias="FIREBASE_CLIENT_EMAIL")
+
+    # Enable/disable Firebase authentication
+    firebase_auth_enabled: bool = Field(default=True, alias="FIREBASE_AUTH_ENABLED")
+
     # Enable/disable Firebase authentication (for migration period or local testing)
     firebase_auth_enabled: bool = Field(default=False, alias="FIREBASE_AUTH_ENABLED")
+
 
     # Frontend origin this deployment's auth cookies/CORS trust.
     frontend_url: str = "http://localhost:5173"

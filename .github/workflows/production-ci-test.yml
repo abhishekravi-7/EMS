@@ -1,0 +1,652 @@
+name: Production CI/CD - Test Flow
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_deploy:
+        description: "Type yes to allow the test deployment to DigitalOcean"
+        required: true
+        default: "no"
+        type: choice
+        options:
+          - "no"
+          - "yes"
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: production-ci-test-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "20"
+  PYTHON_VERSION: "3.11"
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/javaapex
+
+
+jobs:
+
+  # ============================================================
+  # FRONTEND PRODUCTION CHECKS
+  # ============================================================
+  frontend:
+    name: Frontend production gates
+    runs-on: ubuntu-latest
+
+    outputs:
+      failed_checks: ${{ steps.collect_failures.outputs.checks }}
+
+    defaults:
+      run:
+        working-directory: ./APEX-Frontend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: APEX-Frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        id: install
+        continue-on-error: true
+        run: npm ci
+
+      - name: npm dependency audit
+        id: npm_audit
+        continue-on-error: true
+        run: |
+          npm audit \
+            --audit-level=moderate \
+            --json > npm-audit-report.json
+
+      - name: ESLint
+        id: eslint
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          npm run lint 2>&1 | tee eslint.log
+
+      - name: TypeScript check
+        id: typecheck
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          npm run typecheck 2>&1 | tee typecheck.log
+
+      - name: Frontend unit tests
+        id: unit_tests
+        continue-on-error: true
+        run: |
+          if find . -type f \( -name "*.test.*" -o -name "*.spec.*" \) | grep -q .; then
+            set -o pipefail
+            npm test -- --run 2>&1 | tee unit-tests.log
+          else
+            echo "No frontend unit tests detected; skipping." | tee unit-tests.log
+          fi
+
+      - name: Vite production build
+        id: vite_build
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee vite-build.log
+
+      - name: Upload frontend reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-production-test-reports
+          path: |
+            APEX-Frontend/npm-audit-report.json
+            APEX-Frontend/eslint.log
+            APEX-Frontend/typecheck.log
+            APEX-Frontend/unit-tests.log
+            APEX-Frontend/vite-build.log
+          if-no-files-found: ignore
+
+      - name: Collect frontend failures
+        id: collect_failures
+        if: always()
+        shell: bash
+        run: |
+          failed=()
+
+          [[ "${{ steps.install.outcome }}" == "failure" ]] && failed+=("npm ci")
+          [[ "${{ steps.npm_audit.outcome }}" == "failure" ]] && failed+=("npm audit")
+          [[ "${{ steps.eslint.outcome }}" == "failure" ]] && failed+=("ESLint")
+          [[ "${{ steps.typecheck.outcome }}" == "failure" ]] && failed+=("TypeScript check")
+          [[ "${{ steps.unit_tests.outcome }}" == "failure" ]] && failed+=("Frontend unit tests")
+          [[ "${{ steps.vite_build.outcome }}" == "failure" ]] && failed+=("Vite production build")
+
+          checks="$(IFS=', '; echo "${failed[*]}")"
+
+          echo "checks=$checks" >> "$GITHUB_OUTPUT"
+          echo "Frontend failed checks: ${checks:-None}"
+
+      - name: Frontend test-flow status
+        if: always()
+        run: |
+          echo "Frontend test-flow completed."
+          echo "Failures: ${{ steps.collect_failures.outputs.checks }}"
+          echo "Deployment will NOT be blocked in this TEST workflow."
+
+
+  # ============================================================
+  # BACKEND PRODUCTION CHECKS
+  # ============================================================
+  backend:
+    name: Backend production gates
+    runs-on: ubuntu-latest
+
+    outputs:
+      failed_checks: ${{ steps.collect_failures.outputs.checks }}
+
+    defaults:
+      run:
+        working-directory: ./APEX-Backend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: APEX-Backend/requirements.txt
+
+      - name: Install backend dependencies
+        id: install
+        continue-on-error: true
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio respx ruff bandit pip-audit
+
+      - name: pip dependency audit
+        id: pip_audit
+        continue-on-error: true
+        run: |
+          pip-audit \
+            -r requirements.txt \
+            -f json \
+            -o pip-audit-report.json
+
+      - name: Ruff lint
+        id: ruff
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          ruff check . 2>&1 | tee ruff.log
+
+      - name: Pytest
+        id: pytest
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          pytest -q 2>&1 | tee pytest.log
+
+      - name: Bandit security scan
+        id: bandit
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          bandit -r app -f txt -o bandit.log
+
+      - name: Upload backend reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-production-test-reports
+          path: |
+            APEX-Backend/pip-audit-report.json
+            APEX-Backend/ruff.log
+            APEX-Backend/pytest.log
+            APEX-Backend/bandit.log
+          if-no-files-found: ignore
+
+      - name: Collect backend failures
+        id: collect_failures
+        if: always()
+        shell: bash
+        run: |
+          failed=()
+
+          [[ "${{ steps.install.outcome }}" == "failure" ]] && failed+=("Dependency installation")
+          [[ "${{ steps.pip_audit.outcome }}" == "failure" ]] && failed+=("pip-audit")
+          [[ "${{ steps.ruff.outcome }}" == "failure" ]] && failed+=("Ruff")
+          [[ "${{ steps.pytest.outcome }}" == "failure" ]] && failed+=("Pytest")
+          [[ "${{ steps.bandit.outcome }}" == "failure" ]] && failed+=("Bandit")
+
+          checks="$(IFS=', '; echo "${failed[*]}")"
+
+          echo "checks=$checks" >> "$GITHUB_OUTPUT"
+          echo "Backend failed checks: ${checks:-None}"
+
+      - name: Backend test-flow status
+        if: always()
+        run: |
+          echo "Backend test-flow completed."
+          echo "Failures: ${{ steps.collect_failures.outputs.checks }}"
+          echo "Deployment will NOT be blocked in this TEST workflow."
+
+
+  # ============================================================
+  # SECURITY CHECKS
+  # ============================================================
+  security:
+    name: Production security scans
+    runs-on: ubuntu-latest
+
+    outputs:
+      failed_checks: ${{ steps.collect_failures.outputs.checks }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Gitleaks secret scan
+        id: gitleaks
+        continue-on-error: true
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: >
+            detect
+            --source .
+            --no-banner
+            --redact
+            --report-format json
+            --report-path .gitleaks-report.json
+            --exit-code 1
+
+      - name: Trivy filesystem scan
+        id: trivy
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: table
+          output: trivy-results.txt
+          severity: MEDIUM,HIGH,CRITICAL
+          exit-code: 1
+          ignore-unfixed: true
+          version: v0.70.0
+          cache: true
+
+      - name: Upload security reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-production-test-reports
+          path: |
+            .gitleaks-report.json
+            trivy-results.txt
+          if-no-files-found: ignore
+
+      - name: Collect security failures
+        id: collect_failures
+        if: always()
+        shell: bash
+        run: |
+          failed=()
+
+          [[ "${{ steps.gitleaks.outcome }}" == "failure" ]] && failed+=("Gitleaks")
+          [[ "${{ steps.trivy.outcome }}" == "failure" ]] && failed+=("Trivy")
+
+          checks="$(IFS=', '; echo "${failed[*]}")"
+
+          echo "checks=$checks" >> "$GITHUB_OUTPUT"
+          echo "Security failed checks: ${checks:-None}"
+
+      - name: Security test-flow status
+        if: always()
+        run: |
+          echo "Security test-flow completed."
+          echo "Failures: ${{ steps.collect_failures.outputs.checks }}"
+          echo "Deployment will NOT be blocked in this TEST workflow."
+
+
+  # ============================================================
+  # SONARCLOUD
+  #
+  # continue-on-error means Sonar failure is reported,
+  # but the test workflow continues.
+  # ============================================================
+  sonar:
+    name: SonarCloud Quality Gate
+    runs-on: ubuntu-latest
+
+    needs:
+      - frontend
+      - backend
+      - security
+
+    if: always()
+
+    outputs:
+      sonar_result: ${{ steps.collect_sonar.outputs.result }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: SonarCloud analysis
+        id: sonar_scan
+        continue-on-error: true
+        uses: SonarSource/sonarqube-scan-action@v6
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectBaseDir: .
+          args: >
+            -Dsonar.qualitygate.wait=true
+            -Dsonar.qualitygate.timeout=300
+
+      - name: Collect Sonar status
+        id: collect_sonar
+        if: always()
+        shell: bash
+        run: |
+          result="${{ steps.sonar_scan.outcome }}"
+          echo "result=$result" >> "$GITHUB_OUTPUT"
+
+          echo "SonarCloud result: $result"
+          echo "Sonar failure will NOT block this TEST workflow."
+
+
+  # ============================================================
+  # PRODUCTION VALIDATION
+  #
+  # IMPORTANT:
+  # This reports failures but DOES NOT exit 1.
+  # It deliberately allows Docker/CD to continue.
+  # ============================================================
+  production-validation:
+    name: Production validation
+    runs-on: ubuntu-latest
+
+    needs:
+      - frontend
+      - backend
+      - security
+      - sonar
+
+    if: always()
+
+    outputs:
+      validation_status: ${{ steps.validation.outputs.status }}
+
+    steps:
+      - name: Calculate production validation
+        id: validation
+        shell: bash
+        run: |
+          frontend_failed="${{ needs.frontend.outputs.failed_checks }}"
+          backend_failed="${{ needs.backend.outputs.failed_checks }}"
+          security_failed="${{ needs.security.outputs.failed_checks }}"
+          sonar_result="${{ needs.sonar.outputs.sonar_result }}"
+
+          echo "=========================================="
+          echo "PRODUCTION TEST VALIDATION"
+          echo "=========================================="
+
+          echo "Frontend failures: ${frontend_failed:-None}"
+          echo "Backend failures: ${backend_failed:-None}"
+          echo "Security failures: ${security_failed:-None}"
+          echo "Sonar result: ${sonar_result:-Unknown}"
+
+          validation_failed=false
+
+          [[ -n "$frontend_failed" ]] && validation_failed=true
+          [[ -n "$backend_failed" ]] && validation_failed=true
+          [[ -n "$security_failed" ]] && validation_failed=true
+          [[ "$sonar_result" != "success" ]] && validation_failed=true
+
+          if [[ "$validation_failed" == "true" ]]; then
+            echo "status=failed-but-continuing" >> "$GITHUB_OUTPUT"
+
+            echo ""
+            echo "Production validation detected failures."
+            echo "TEST MODE is enabled."
+            echo "Docker and DigitalOcean deployment will continue."
+          else
+            echo "status=passed" >> "$GITHUB_OUTPUT"
+
+            echo ""
+            echo "Production validation passed."
+          fi
+
+          # ----------------------------------------------------
+          # DO NOT exit 1 here.
+          # This is intentionally a test workflow.
+          # ----------------------------------------------------
+          exit 0
+
+
+  # ============================================================
+  # DOCKER BUILD AND GHCR PUSH
+  # ============================================================
+  docker-image:
+    name: Build and push production image
+    runs-on: ubuntu-latest
+
+    needs:
+      - production-validation
+
+    if: ${{ always() }}
+
+    outputs:
+      docker_result: ${{ steps.collect_docker.outputs.result }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        id: ghcr_login
+        continue-on-error: true
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=test-${{ github.run_number }}
+            type=sha,prefix=test-
+            type=raw,value=test-latest
+
+      - name: Build and push production test image
+        id: docker_build
+        continue-on-error: true
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Collect Docker status
+        id: collect_docker
+        if: always()
+        shell: bash
+        run: |
+          echo "GHCR login: ${{ steps.ghcr_login.outcome }}"
+          echo "Docker build/push: ${{ steps.docker_build.outcome }}"
+
+          result="${{ steps.docker_build.outcome }}"
+          echo "result=$result" >> "$GITHUB_OUTPUT"
+
+          echo "Docker stage completed with result: $result"
+
+
+  # ============================================================
+  # DIGITALOCEAN DEPLOYMENT
+  #
+  # This actually triggers deployment when:
+  # confirm_deploy = yes
+  #
+  # It is intentionally independent from CI quality failures.
+  # ============================================================
+  deploy:
+    name: Deploy to DigitalOcean App Platform
+    runs-on: ubuntu-latest
+
+    needs:
+      - frontend
+      - backend
+      - security
+      - sonar
+      - production-validation
+      - docker-image
+
+    if: >-
+      ${{
+        always() &&
+        inputs.confirm_deploy == 'yes'
+      }}
+
+    environment:
+      name: production-test
+
+    steps:
+      - name: Show deployment warning
+        shell: bash
+        run: |
+          echo "=========================================="
+          echo "TEST WORKFLOW DEPLOYMENT"
+          echo "=========================================="
+          echo ""
+          echo "This deployment is intentionally allowed"
+          echo "even when CI checks fail."
+          echo ""
+          echo "Frontend failures:"
+          echo "${{ needs.frontend.outputs.failed_checks }}"
+          echo ""
+          echo "Backend failures:"
+          echo "${{ needs.backend.outputs.failed_checks }}"
+          echo ""
+          echo "Security failures:"
+          echo "${{ needs.security.outputs.failed_checks }}"
+          echo ""
+          echo "Sonar result:"
+          echo "${{ needs.sonar.outputs.sonar_result }}"
+          echo ""
+          echo "Validation:"
+          echo "${{ needs.production-validation.outputs.validation_status }}"
+          echo ""
+          echo "Docker:"
+          echo "${{ needs.docker-image.outputs.docker_result }}"
+
+      - name: Set up DigitalOcean CLI
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DO_API_TOKEN }}
+
+      - name: Validate DigitalOcean App ID
+        shell: bash
+        run: |
+          if [[ -z "${{ secrets.DO_APP_ID }}" ]]; then
+            echo "DO_APP_ID secret is missing."
+            exit 1
+          fi
+
+          echo "DigitalOcean App ID is configured."
+
+      - name: Trigger DigitalOcean deployment
+        shell: bash
+        run: |
+          echo "Triggering deployment for existing DigitalOcean App Platform app..."
+
+          doctl apps create-deployment \
+            "${{ secrets.DO_APP_ID }}" \
+            --wait
+
+          echo "DigitalOcean deployment command completed."
+
+
+  # ============================================================
+  # FINAL TEST SUMMARY
+  # ============================================================
+  test-summary:
+    name: Production CI/CD test summary
+    runs-on: ubuntu-latest
+
+    needs:
+      - frontend
+      - backend
+      - security
+      - sonar
+      - production-validation
+      - docker-image
+      - deploy
+
+    if: always()
+
+    steps:
+      - name: Display final test results
+        shell: bash
+        run: |
+          echo "=========================================="
+          echo "PRODUCTION CI/CD TEST FLOW SUMMARY"
+          echo "=========================================="
+
+          echo ""
+          echo "Frontend failed checks:"
+          echo "${{ needs.frontend.outputs.failed_checks }}"
+
+          echo ""
+          echo "Backend failed checks:"
+          echo "${{ needs.backend.outputs.failed_checks }}"
+
+          echo ""
+          echo "Security failed checks:"
+          echo "${{ needs.security.outputs.failed_checks }}"
+
+          echo ""
+          echo "Sonar:"
+          echo "${{ needs.sonar.outputs.sonar_result }}"
+
+          echo ""
+          echo "Production validation:"
+          echo "${{ needs.production-validation.outputs.validation_status }}"
+
+          echo ""
+          echo "Docker:"
+          echo "${{ needs.docker-image.outputs.docker_result }}"
+
+          echo ""
+          echo "DigitalOcean:"
+          echo "${{ needs.deploy.result }}"
+
+          echo ""
+          echo "=========================================="
+          echo "Test flow completed."
+          echo "=========================================="
