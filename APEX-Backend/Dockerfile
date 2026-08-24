@@ -25,16 +25,23 @@ RUN apt-get update \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+
+# -- FOSSA CLI -------------------------------------------------------------- #
+RUN curl -H 'Cache-Control: no-cache' https://raw.githubusercontent.com/fossas/fossa-cli/master/install-latest.sh | bash
+
+
 # -- Java toolchain --------------------------------------------------------- #
 # Installed under /opt/java/jdk-<major>, which matters: _discover_jdks()
 # (app/infrastructure/java_runtime.py) scans _POSIX_JDK_SEARCH_ROOTS -- which
 # includes "/opt/java" -- and infers the major version from the DIRECTORY NAME
-# via _infer_major_from_name(). So "jdk-17" / "jdk-21" are what make both JDKs
-# discoverable; renaming these directories silently breaks version selection.
+# via _infer_major_from_name(). So "jdk-11" / "jdk-17" / "jdk-21" / "jdk-25"
+# are what make the installed JDKs discoverable; renaming these directories
+# silently breaks version selection.
 #
-# Two JDKs are installed so _select_jdk_for_target() can compile to either 17 or
-# 21 (a JDK can target any older --release, never a newer one).
-ARG JDK_VERSIONS="17 21"
+# Multiple JDKs are installed so _select_jdk_for_target() can compile to older
+# or newer releases as needed (a JDK can target any older --release, never a
+# newer one). This supports migrations to Java 11, 17, 21, and 25.
+ARG JDK_VERSIONS="11 17 21 25"
 RUN set -eux; \
     mkdir -p /opt/java; \
     for major in ${JDK_VERSIONS}; do \

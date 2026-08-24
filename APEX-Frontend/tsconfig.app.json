@@ -26,7 +26,8 @@
       "@/services/*": ["src/services/*"],
       "@/firebase/*": ["src/firebase/*"],
       "@/config/*": ["src/config/*"],
-      "@/types/*": ["src/types/*"]
+      "@/types/*": ["src/types/*"],
+      "@/*": ["src/*"]
     },
 
     /* Linting */

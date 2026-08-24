@@ -16,7 +16,7 @@ from app.core import security
 from app.core.config import settings
 from app.core.context import user_id_ctx, job_id_ctx
 from app.core.exceptions import NotAuthenticatedError
-from app.infrastructure.auth.firebase_auth import verify_firebase_token
+from app.infrastructure.auth.firebase_auth import is_firebase_token, verify_firebase_token
 from app.infrastructure.persistence.database import get_db, get_db_optional
 from app.infrastructure.persistence.migration_ownership_repository import get_job_owner_user_id
 from app.infrastructure.persistence.models import User
@@ -41,35 +41,32 @@ def _get_mock_user() -> User:
 async def get_current_user(request: Request, db: Session | None = Depends(get_db_optional)) -> User:
     """Resolve the logged-in user.
 
-    If Firebase Auth is enabled, it verifies the ID token from the
-    `Authorization: Bearer <token>` header.
-
-    If Firebase is disabled, it falls back to mock user in development or legacy cookies.
+    Supports:
+    1. Firebase ID token from `Authorization: Bearer <token>` (RS256 / Google JWKS).
+    2. Legacy `access_token` HttpOnly cookie.
+    3. Legacy HMAC access token from `Authorization: Bearer <token>`.
+    4. PostgreSQL-enabled database user lookup / shadow record creation.
+    5. PostgreSQL-disabled JWT signature validation & shadow user context.
     """
-    # 1. Try Firebase Authentication (Header-based)
-    if settings.firebase_auth_enabled:
-        auth_header = request.headers.get("Authorization")
-        if auth_header and auth_header.lower().startswith(_BEARER_PREFIX):
-            token = auth_header[len(_BEARER_PREFIX):].strip()
-            if db is None:
-                 raise HTTPException(status_code=503, detail="Database required for Firebase authentication.")
-            return await verify_firebase_token(db, token)
+    auth_header = request.headers.get("Authorization", "")
+    bearer_token = ""
+    if auth_header and auth_header.lower().startswith(_BEARER_PREFIX):
+        bearer_token = auth_header[len(_BEARER_PREFIX):].strip()
 
-        raise HTTPException(
-            status_code=401,
-            detail="Authentication required. Please provide a valid Firebase ID token."
-        )
+    cookie_token = request.cookies.get(ACCESS_TOKEN_COOKIE_NAME, "").strip()
 
-    # 2. Development Bypass (when Firebase is disabled)
-    if not settings.is_production:
+    # 1. If bearer token is provided and matches Firebase ID token format or Firebase Auth is forced
+    if bearer_token and (settings.firebase_auth_enabled or is_firebase_token(bearer_token)):
+        if db is None and settings.firebase_auth_enabled and not is_firebase_token(bearer_token):
+             raise HTTPException(status_code=503, detail="Database required for Firebase authentication.")
+        return await verify_firebase_token(db, bearer_token)
+
+    # 2. Development Bypass (when Firebase is disabled and not in production)
+    if not settings.firebase_auth_enabled and not settings.is_production:
         return _get_mock_user()
 
-    # 3. Legacy Cookie-based Authentication
-    raw_token = request.cookies.get(ACCESS_TOKEN_COOKIE_NAME)
-    if not raw_token:
-        auth_header = request.headers.get("Authorization", "")
-        if auth_header.lower().startswith("bearer "):
-            raw_token = auth_header[7:].strip()
+    # 3. Legacy Extract access token from cookie or bearer header
+    raw_token = cookie_token or bearer_token
 
     if not raw_token:
         raise HTTPException(status_code=401, detail="Missing access token.")
@@ -85,22 +82,53 @@ async def get_current_user(request: Request, db: Session | None = Depends(get_db
 
 
 def verify_job_ownership(db: Session | None, job_id: str, current_user: User) -> None:
-    """Raise 403/404 unless `current_user` is the recorded owner of `job_id`."""
-    if not settings.database_enabled or db is None:
-        # In DB-less mode, we just verify the job exists on disk
+    """Raise 403/404 unless `current_user` is the recorded owner of `job_id`.
+
+    When PostgreSQL is disabled, verifies that the job exists on filesystem storage, in report cache, or in active existing-test runner.
+    """
+    if db is None or not settings.database_enabled:
         from app.infrastructure.persistence.job_repository import JobRepository
-        if not JobRepository().job_exists(job_id):
-            raise HTTPException(status_code=404, detail="Job not found.")
+        from app.application.services.status_service import _REPORT_CACHE
+        from app.application.use_cases.existing_test_runner_service import existing_test_runner_service
+        if not JobRepository().job_exists(job_id) and job_id not in _REPORT_CACHE and not existing_test_runner_service.has_job(job_id):
+            raise HTTPException(
+                status_code=404,
+                detail={"code": "JOB_NOT_FOUND", "message": "No migration job found for this id."},
+            )
         job_id_ctx.set(job_id)
         return
 
     owner_user_id = get_job_owner_user_id(db, job_id)
     if owner_user_id is None:
-        raise HTTPException(status_code=404, detail="Job ownership record not found.")
+        from app.infrastructure.persistence.job_repository import JobRepository
+        from app.infrastructure.persistence.report_repository import load_report_from_db
+        from app.infrastructure.persistence.existing_test_repository import existing_test_state_exists_in_db
+        from app.application.use_cases.existing_test_runner_service import existing_test_runner_service
+        if (
+            JobRepository().job_exists(job_id)
+            or load_report_from_db(job_id) is not None
+            or existing_test_state_exists_in_db(job_id)
+            or existing_test_runner_service.has_job(job_id)
+        ):
+            from app.infrastructure.persistence.migration_ownership_repository import record_job_owner
+            try:
+                record_job_owner(db, job_id=job_id, user_id=current_user.id)
+                owner_user_id = current_user.id
+            except Exception:
+                pass
 
+    if owner_user_id is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "JOB_NOT_FOUND", "message": "No migration job found for this id."},
+        )
+        
     # Allow if the user matches OR if we are in mock-mode (ID 1)
     if owner_user_id != current_user.id and current_user.id != 1:
-        raise HTTPException(status_code=403, detail="Access denied to this job.")
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "FORBIDDEN", "message": "You do not have access to this migration job."},
+        )
 
     job_id_ctx.set(job_id)
 

@@ -15,6 +15,7 @@ export default defineConfig({
       '@/firebase': fileURLToPath(new URL('./src/firebase', import.meta.url)),
       '@/config': fileURLToPath(new URL('./src/config', import.meta.url)),
       '@/types': fileURLToPath(new URL('./src/types', import.meta.url)),
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
   build: {

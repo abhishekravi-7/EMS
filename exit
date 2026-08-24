@@ -1,0 +1,13 @@
+APEX-Backend/app/api/deps.py
+APEX-Backend/app/core/config.py
+APEX-Backend/app/infrastructure/auth/firebase_auth.py
+APEX-Backend/app/main.py
+APEX-Backend/logs/llm_usage.jsonl
+APEX-Frontend/package.json
+APEX-Frontend/src/features/auth/components/SocialAuthButtons.tsx
+APEX-Frontend/src/features/auth/services/authService.ts
+APEX-Frontend/src/firebase/firebase.ts
+APEX-Frontend/src/shared/context/AuthContext.ts
+APEX-Frontend/src/shared/context/AuthProvider.tsx
+APEX-Frontend/tsconfig.app.json
+APEX-Frontend/vite.config.ts

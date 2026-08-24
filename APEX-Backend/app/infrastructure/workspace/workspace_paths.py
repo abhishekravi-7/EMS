@@ -71,3 +71,12 @@ class WorkspacePaths:
     @property
     def migration_log_path(self) -> Path:
         return self.logs_dir / "migration.log"
+
+    @property
+    def existing_test_state_path(self) -> Path:
+        return self.reports_dir / "existing-test-state.json"
+
+    @property
+    def existing_test_report_path(self) -> Path:
+        return self.reports_dir / "existing-test-report.json"
+

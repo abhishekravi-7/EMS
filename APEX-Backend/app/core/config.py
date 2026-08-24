@@ -153,13 +153,39 @@ class Settings(BaseSettings):
     # --- Quality Gates -------------------------------------------------------
     # SonarQube/SonarCloud token. Required only when the SonarQube quality gate
     # card is active.
-    sonarqube_token: str = Field(default="", alias="SONAR_TOKEN")
+    sonarqube_token: str = Field(
+        default="",
+        validation_alias=AliasChoices("SONAR_TOKEN", "SONARQUBE_TOKEN", "sonarqube_token"),
+    )
     # SonarQube server URL. For SonarCloud use https://sonarcloud.io.
-    sonarqube_host_url: str = Field(default="http://localhost:9000", alias="SONAR_HOST_URL")
+    sonarqube_host_url: str = Field(
+        default="http://localhost:9000",
+        validation_alias=AliasChoices(
+            "SONAR_HOST_URL",
+            "SONAR_URL",
+            "SONARQUBE_HOST_URL",
+            "SONARQUBE_URL",
+            "sonarqube_host_url",
+        ),
+    )
     # Optional fixed project key. Leave empty to derive one from the migration job.
-    sonarqube_project_key: str = Field(default="", alias="SONAR_PROJECT_KEY")
+    sonarqube_project_key: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "SONAR_PROJECT_KEY",
+            "SONARQUBE_PROJECT_KEY",
+            "sonarqube_project_key",
+        ),
+    )
     # Required by SonarCloud; leave empty for local SonarQube.
-    sonarqube_organization: str = Field(default="", alias="SONAR_ORGANIZATION")
+    sonarqube_organization: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "SONAR_ORGANIZATION",
+            "SONARQUBE_ORGANIZATION",
+            "sonarqube_organization",
+        ),
+    )
     sonarqube_project_key_prefix: str = "java-apex"
     sonarqube_scanner_command: str = "sonar-scanner"
 
@@ -237,8 +263,13 @@ class Settings(BaseSettings):
     firebase_project_id: str = Field(default="", alias="FIREBASE_PROJECT_ID")
     firebase_private_key: str = Field(default="", alias="FIREBASE_PRIVATE_KEY")
     firebase_client_email: str = Field(default="", alias="FIREBASE_CLIENT_EMAIL")
+
     # Enable/disable Firebase authentication
     firebase_auth_enabled: bool = Field(default=True, alias="FIREBASE_AUTH_ENABLED")
+
+    # Enable/disable Firebase authentication (for migration period or local testing)
+    firebase_auth_enabled: bool = Field(default=False, alias="FIREBASE_AUTH_ENABLED")
+
 
     # Frontend origin this deployment's auth cookies/CORS trust.
     frontend_url: str = "http://localhost:5173"

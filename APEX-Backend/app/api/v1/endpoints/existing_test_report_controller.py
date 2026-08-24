@@ -147,20 +147,32 @@ async def serve_ui_test_screenshot(
     clean_test_id = raw_test_id.replace("\\", "/").strip("/")
     clean_test_id = re.sub(r'/(?:evidence|screenshot|video)(?:\.(?:png|jpg|jpeg|webp|webm|mp4))?$', '', clean_test_id, flags=re.IGNORECASE)
     clean_test_id = clean_test_id.removesuffix(".png").removesuffix(".jpg").removesuffix(".jpeg").removesuffix(".webp")
-    sanitized_id = re.sub(r'[^a-zA-Z0-9_\-\.]', '_', clean_test_id)
     dot_id = clean_test_id.replace("#", ".")
-    short_test = clean_test_id.split("#")[-1].split(".")[-1]
+    dot_sanitized = re.sub(r'[^a-zA-Z0-9_\-\.]', '_', dot_id)
+    sanitized_id = re.sub(r'[^a-zA-Z0-9_\-\.]', '_', clean_test_id)
+
+    from app.application.use_cases.existing_test_runner_service import ExistingTestRunnerService
+    c_key = ExistingTestRunnerService._canonical_test_identifier(clean_test_id, None)
+    canonical_cls, canonical_method = c_key[0], c_key[1]
+    canonical_id = f"{canonical_cls}.{canonical_method}"
+    short_test = canonical_method or clean_test_id.split("#")[-1].split(".")[-1]
 
     candidates = [
+        evidence_dir / "ui" / dot_sanitized / "screenshot.png",
+        evidence_dir / "ui" / dot_sanitized / "screenshot.jpg",
+        evidence_dir / "ui" / dot_sanitized / "screenshot.webp",
         evidence_dir / "ui" / dot_id / "screenshot.png",
         evidence_dir / "ui" / dot_id / "screenshot.jpg",
         evidence_dir / "ui" / sanitized_id / "screenshot.png",
         evidence_dir / "ui" / sanitized_id / "screenshot.jpg",
         evidence_dir / "ui" / clean_test_id / "screenshot.png",
         evidence_dir / "ui" / clean_test_id / "screenshot.jpg",
+        evidence_dir / "ui" / canonical_id / "screenshot.png",
+        evidence_dir / f"{dot_sanitized}.png",
         evidence_dir / f"{dot_id}.png",
         evidence_dir / f"{sanitized_id}.png",
         evidence_dir / f"{clean_test_id}.png",
+        evidence_dir / f"{canonical_id}.png",
     ]
 
     for candidate in candidates:
@@ -170,13 +182,43 @@ async def serve_ui_test_screenshot(
             media_type = "image/png" if suf == ".png" else "image/webp" if suf == ".webp" else "image/jpeg"
             return FileResponse(str(safe_file), media_type=media_type)
 
+    # Search ui/ subdirectories with matching class & method
+    ui_dir = evidence_dir / "ui"
+    if ui_dir.exists():
+        for d in ui_dir.iterdir():
+            if d.is_dir():
+                d_name = d.name.lower()
+                if (
+                    d.name == dot_sanitized or
+                    d.name == sanitized_id or
+                    d_name == dot_sanitized.lower() or
+                    d_name == sanitized_id.lower() or
+                    (canonical_cls and canonical_method and canonical_cls in d_name and canonical_method in d_name) or
+                    (canonical_method and canonical_method in d_name) or
+                    (short_test and short_test.lower() in d_name)
+                ):
+                    for img_name in ["screenshot.png", "screenshot.jpg", "screenshot.jpeg", "screenshot.webp"]:
+                        shot_file = d / img_name
+                        if shot_file.is_file():
+                            safe_file = _safe_resolve(paths.job_dir, str(shot_file.relative_to(paths.job_dir)))
+                            suf = safe_file.suffix.lower()
+                            media_type = "image/png" if suf == ".png" else "image/webp" if suf == ".webp" else "image/jpeg"
+                            return FileResponse(str(safe_file), media_type=media_type)
+
     # Search for any matching screenshot file across test-evidence directory
     if evidence_dir.exists():
         for f in evidence_dir.rglob("*"):
             if f.is_file() and f.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp"):
                 f_name = f.name.lower()
                 f_parent = f.parent.name.lower()
-                if short_test.lower() in f_name or short_test.lower() in f_parent or sanitized_id.lower() in f_parent or dot_id.lower() in f_parent:
+                if (
+                    (short_test and short_test.lower() in f_name) or
+                    (short_test and short_test.lower() in f_parent) or
+                    sanitized_id.lower() in f_parent or
+                    dot_sanitized.lower() in f_parent or
+                    dot_id.lower() in f_parent or
+                    (canonical_cls and canonical_method and canonical_cls in f_parent and canonical_method in f_parent)
+                ):
                     safe_file = _safe_resolve(paths.job_dir, str(f.relative_to(paths.job_dir)))
                     suf = safe_file.suffix.lower()
                     media_type = "image/png" if suf == ".png" else "image/webp" if suf == ".webp" else "image/jpeg"
@@ -186,7 +228,11 @@ async def serve_ui_test_screenshot(
     for search_dir in [paths.migrated_repo_dir, paths.original_repo_dir]:
         if search_dir.exists():
             for f in search_dir.rglob("*.png"):
-                if f.is_file() and (short_test.lower() in f.name.lower() or "screenshot" in f.name.lower()):
+                if f.is_file() and (
+                    (short_test and short_test.lower() in f.name.lower()) or
+                    (canonical_method and canonical_method in f.name.lower()) or
+                    "screenshot" in f.name.lower()
+                ):
                     safe_file = _safe_resolve(paths.job_dir, str(f.relative_to(paths.job_dir)))
                     return FileResponse(str(safe_file), media_type="image/png")
 
@@ -215,17 +261,28 @@ async def serve_ui_test_video(
     clean_test_id = raw_test_id.replace("\\", "/").strip("/")
     clean_test_id = re.sub(r'/(?:evidence|screenshot|video)(?:\.(?:png|jpg|jpeg|webp|webm|mp4))?$', '', clean_test_id, flags=re.IGNORECASE)
     clean_test_id = clean_test_id.removesuffix(".webm").removesuffix(".mp4")
-    sanitized_id = re.sub(r'[^a-zA-Z0-9_\-\.]', '_', clean_test_id)
     dot_id = clean_test_id.replace("#", ".")
-    short_test = clean_test_id.split("#")[-1].split(".")[-1]
+    dot_sanitized = re.sub(r'[^a-zA-Z0-9_\-\.]', '_', dot_id)
+    sanitized_id = re.sub(r'[^a-zA-Z0-9_\-\.]', '_', clean_test_id)
+
+    from app.application.use_cases.existing_test_runner_service import ExistingTestRunnerService
+    c_key = ExistingTestRunnerService._canonical_test_identifier(clean_test_id, None)
+    canonical_cls, canonical_method = c_key[0], c_key[1]
+    canonical_id = f"{canonical_cls}.{canonical_method}"
+    short_test = canonical_method or clean_test_id.split("#")[-1].split(".")[-1]
 
     candidates = [
+        evidence_dir / "ui" / dot_sanitized / "video.webm",
+        evidence_dir / "ui" / dot_sanitized / "video.mp4",
         evidence_dir / "ui" / dot_id / "video.webm",
         evidence_dir / "ui" / dot_id / "video.mp4",
         evidence_dir / "ui" / sanitized_id / "video.webm",
         evidence_dir / "ui" / sanitized_id / "video.mp4",
         evidence_dir / "ui" / clean_test_id / "video.webm",
         evidence_dir / "ui" / clean_test_id / "video.mp4",
+        evidence_dir / "ui" / canonical_id / "video.webm",
+        evidence_dir / "ui" / canonical_id / "video.mp4",
+        evidence_dir / f"{dot_sanitized}.webm",
         evidence_dir / f"{dot_id}.webm",
         evidence_dir / f"{sanitized_id}.webm",
         evidence_dir / f"{clean_test_id}.webm",
@@ -237,12 +294,41 @@ async def serve_ui_test_video(
             media_type = "video/webm" if safe_file.suffix == ".webm" else "video/mp4"
             return _range_stream_video(safe_file, request, media_type=media_type)
 
+    # Search ui/ subdirectories with matching class & method
+    ui_dir = evidence_dir / "ui"
+    if ui_dir.exists():
+        for d in ui_dir.iterdir():
+            if d.is_dir():
+                d_name = d.name.lower()
+                if (
+                    d.name == dot_sanitized or
+                    d.name == sanitized_id or
+                    d_name == dot_sanitized.lower() or
+                    d_name == sanitized_id.lower() or
+                    (canonical_cls and canonical_method and canonical_cls in d_name and canonical_method in d_name) or
+                    (canonical_method and canonical_method in d_name) or
+                    (short_test and short_test.lower() in d_name)
+                ):
+                    for vid_name in ["video.webm", "video.mp4"]:
+                        vid_file = d / vid_name
+                        if vid_file.is_file():
+                            safe_file = _safe_resolve(paths.job_dir, str(vid_file.relative_to(paths.job_dir)))
+                            media_type = "video/webm" if safe_file.suffix == ".webm" else "video/mp4"
+                            return _range_stream_video(safe_file, request, media_type=media_type)
+
     if evidence_dir.exists():
         for f in evidence_dir.rglob("*"):
             if f.is_file() and f.suffix.lower() in (".webm", ".mp4"):
                 f_name = f.name.lower()
                 f_parent = f.parent.name.lower()
-                if short_test.lower() in f_name or short_test.lower() in f_parent or sanitized_id.lower() in f_parent or dot_id.lower() in f_parent:
+                if (
+                    (short_test and short_test.lower() in f_name) or
+                    (short_test and short_test.lower() in f_parent) or
+                    sanitized_id.lower() in f_parent or
+                    dot_sanitized.lower() in f_parent or
+                    dot_id.lower() in f_parent or
+                    (canonical_cls and canonical_method and canonical_cls in f_parent and canonical_method in f_parent)
+                ):
                     safe_file = _safe_resolve(paths.job_dir, str(f.relative_to(paths.job_dir)))
                     media_type = "video/webm" if safe_file.suffix == ".webm" else "video/mp4"
                     return _range_stream_video(safe_file, request, media_type=media_type)

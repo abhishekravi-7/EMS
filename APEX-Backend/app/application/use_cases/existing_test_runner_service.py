@@ -2,6 +2,7 @@ import os
 import re
 import time
 import json
+import logging
 import shutil
 import subprocess
 import threading
@@ -11,6 +12,8 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from app.core.config import settings
 from app.infrastructure.workspace.workspace_paths import WorkspacePaths
+
+logger = logging.getLogger(__name__)
 
 MAX_EXISTING_TEST_OUTPUT_CHARS = 500_000
 MAX_EXISTING_TEST_OUTPUT_LINES = 5_000
@@ -352,7 +355,8 @@ class ExistingTestDetector:
                 "webdriver", "htmlunit", "chromedriver", "firefoxdriver", "browser", "browsercontext",
                 "page.navigate", "page.locator", "page.click", "page.screenshot", "page.fill",
                 "page.type", "page.title", "driver.get", "driver.findelement", "by.id", "by.cssselector",
-                "by.xpath", "by.name", "pageobject", "pagefactory", "loginpage", "homepage", "productpage"
+                "by.xpath", "by.name", "pageobject", "pagefactory", "loginpage", "homepage", "productpage",
+                "(page ", "(page)", "page page"
             ])
 
             # Check if the test references or calls any detected UI Page Object classes
@@ -579,6 +583,7 @@ class ExistingTestRunnerService:
         return "\n".join(extracted[:40])
 
     def stop_existing_tests(self, job_id: str):
+        logger.info("[EXISTING-TEST-JOB] Cleanup jobId=%s", job_id)
         with self._lock:
             proc = self._active_processes.get(job_id)
         if proc:
@@ -604,6 +609,27 @@ class ExistingTestRunnerService:
                 self._log(job_id, f"Error stopping execution: {e}", "WARN")
         else:
             self._log(job_id, "⚠️ No active running tests found to stop", "WARN")
+
+    def has_job(self, job_id: str) -> bool:
+        """True if the job is active in memory, stored on disk, has a report, or stored in database."""
+        if not job_id:
+            return False
+        with self._lock:
+            if job_id in self._state:
+                return True
+        try:
+            paths = WorkspacePaths(job_id)
+            if paths.job_dir.exists() or paths.existing_test_state_path.is_file() or paths.existing_test_report_path.is_file():
+                return True
+        except Exception:
+            pass
+        try:
+            from app.infrastructure.persistence.existing_test_repository import existing_test_state_exists_in_db
+            if existing_test_state_exists_in_db(job_id):
+                return True
+        except Exception:
+            pass
+        return False
 
     def scan_total(self, job_id: str) -> dict:
         paths = WorkspacePaths(job_id)
@@ -648,21 +674,145 @@ class ExistingTestRunnerService:
             "test_cases": test_cases
         }
 
+    def _save_state_to_disk(self, job_id: str) -> None:
+        """Persist in-memory state to disk and database so it is accessible across multiple workers/processes/containers."""
+        try:
+            paths = WorkspacePaths(job_id)
+            paths.reports_dir.mkdir(parents=True, exist_ok=True)
+            with self._lock:
+                state = self._state.get(job_id)
+                if not state:
+                    return
+                serializable_state = {
+                    "status": state.get("status", "IDLE"),
+                    "executed": state.get("executed", False),
+                    "logs": list(state.get("logs", [])),
+                    "result": state.get("result"),
+                }
+            paths.existing_test_state_path.write_text(json.dumps(serializable_state, indent=2), encoding="utf-8")
+            from app.infrastructure.persistence.existing_test_repository import save_existing_test_state_to_db
+            save_existing_test_state_to_db(job_id, serializable_state, report=state.get("result"))
+        except Exception:
+            pass
+
     def get_status(self, job_id: str) -> dict:
+        logger.info("[EXISTING-TEST-JOB] Status requested %s", job_id)
         with self._lock:
             state = self._state.get(job_id)
-        if not state:
-            return {"status": "IDLE", "executed": False, "logs": []}
-        return {
-            "status": state.get("status", "IDLE"),
-            "executed": state.get("executed", False),
-            "logs": list(state.get("logs", [])),
-            "result": state.get("result")
-        }
+        if state and state.get("status") not in (None, "IDLE", "Unknown"):
+            status_str = state.get("status", "IDLE")
+            logger.info("[EXISTING-TEST-JOB] Job found=true")
+            logger.info("[EXISTING-TEST-JOB] State=%s", status_str)
+            return {
+                "status": status_str,
+                "executed": state.get("executed", False),
+                "logs": list(state.get("logs", [])),
+                "result": state.get("result")
+            }
+
+        # Check disk persistence (for multi-worker / multi-container in DigitalOcean)
+        paths = WorkspacePaths(job_id)
+        if paths.existing_test_state_path.is_file():
+            try:
+                disk_state = json.loads(paths.existing_test_state_path.read_text(encoding="utf-8"))
+                with self._lock:
+                    self._state[job_id] = {
+                        "status": disk_state.get("status", "IDLE"),
+                        "executed": disk_state.get("executed", False),
+                        "logs": deque(disk_state.get("logs", []), maxlen=MAX_EXISTING_TEST_OUTPUT_LINES),
+                        "result": disk_state.get("result")
+                    }
+                status_str = disk_state.get("status", "IDLE")
+                logger.info("[EXISTING-TEST-JOB] Job found=true")
+                logger.info("[EXISTING-TEST-JOB] State=%s", status_str)
+                return {
+                    "status": status_str,
+                    "executed": disk_state.get("executed", False),
+                    "logs": disk_state.get("logs", []),
+                    "result": disk_state.get("result")
+                }
+            except Exception:
+                pass
+
+        if paths.existing_test_report_path.is_file():
+            try:
+                report_data = json.loads(paths.existing_test_report_path.read_text(encoding="utf-8"))
+                res_status = report_data.get("status", "COMPLETED")
+                logger.info("[EXISTING-TEST-JOB] Job found=true")
+                logger.info("[EXISTING-TEST-JOB] State=%s", res_status)
+                return {
+                    "status": res_status,
+                    "executed": True,
+                    "logs": [],
+                    "result": report_data
+                }
+            except Exception:
+                pass
+
+        # Check database persistence (handles multi-container routing in DigitalOcean)
+        try:
+            from app.infrastructure.persistence.existing_test_repository import load_existing_test_state_from_db, load_existing_test_report_from_db
+            db_state = load_existing_test_state_from_db(job_id)
+            if db_state:
+                with self._lock:
+                    self._state[job_id] = {
+                        "status": db_state.get("status", "IDLE"),
+                        "executed": db_state.get("executed", False),
+                        "logs": deque(db_state.get("logs", []), maxlen=MAX_EXISTING_TEST_OUTPUT_LINES),
+                        "result": db_state.get("result")
+                    }
+                try:
+                    paths.reports_dir.mkdir(parents=True, exist_ok=True)
+                    paths.existing_test_state_path.write_text(json.dumps(db_state, indent=2), encoding="utf-8")
+                except Exception:
+                    pass
+                status_str = db_state.get("status", "IDLE")
+                logger.info("[EXISTING-TEST-JOB] Job found=true")
+                logger.info("[EXISTING-TEST-JOB] State=%s", status_str)
+                return {
+                    "status": status_str,
+                    "executed": db_state.get("executed", False),
+                    "logs": db_state.get("logs", []),
+                    "result": db_state.get("result")
+                }
+
+            db_report = load_existing_test_report_from_db(job_id)
+            if db_report:
+                res_status = db_report.get("status", "COMPLETED")
+                logger.info("[EXISTING-TEST-JOB] Job found=true")
+                logger.info("[EXISTING-TEST-JOB] State=%s", res_status)
+                return {
+                    "status": res_status,
+                    "executed": True,
+                    "logs": [],
+                    "result": db_report
+                }
+        except Exception:
+            pass
+
+        found = state is not None or paths.job_dir.exists()
+        status_str = state.get("status", "IDLE") if state else "IDLE"
+        logger.info("[EXISTING-TEST-JOB] Job found=%s", str(found).lower())
+        logger.info("[EXISTING-TEST-JOB] State=%s", status_str)
+        if state:
+            return {
+                "status": status_str,
+                "executed": state.get("executed", False),
+                "logs": list(state.get("logs", [])),
+                "result": state.get("result")
+            }
+        return {"status": "IDLE", "executed": False, "logs": []}
 
     def reset(self, job_id: str):
+        logger.info("[EXISTING-TEST-JOB] Cleanup jobId=%s", job_id)
         with self._lock:
             self._state.pop(job_id, None)
+        try:
+            paths = WorkspacePaths(job_id)
+            if paths.existing_test_state_path.is_file():
+                paths.existing_test_state_path.unlink(missing_ok=True)
+        except Exception:
+            pass
 
     def _log(self, job_id: str, message: str, level: str = "INFO"):
         ts = time.strftime("%H:%M:%S")
@@ -673,7 +823,7 @@ class ExistingTestRunnerService:
             ).append(entry)
 
     def _instrument_playwright_tests(self, proj_root: Path, job_id: str):
-        """Enable Playwright screenshot and video recording within the existing test execution."""
+        """Enable Playwright and Selenium screenshot and video recording within the existing test execution."""
         try:
             for root, _, files in os.walk(proj_root):
                 if any(skip in root for skip in [".git", "target", "build", "node_modules"]):
@@ -686,21 +836,52 @@ class ExistingTestRunnerService:
                         except Exception:
                             continue
 
-                        if "com.microsoft.playwright" in content:
-                            modified = False
-                            
-                            # Instrument Browser.NewContextOptions with video recording if not present
-                            if "setRecordVideoDir" not in content and "new Browser.NewContextOptions()" in content:
-                                content = re.sub(
-                                    r'new\s+Browser\.NewContextOptions\(\)',
-                                    'new Browser.NewContextOptions().setRecordVideoDir(java.nio.file.Paths.get("target/videos"))',
-                                    content
-                                )
-                                modified = True
-                            
-                            # Instrument screenshot capture before context.close()
-                            if "page.screenshot" not in content and "context.close()" in content and "page" in content:
-                                screenshot_injection = (
+                        modified = False
+
+                        # 1. Playwright video recording in NewContextOptions
+                        if "com.microsoft.playwright" in content or "Page" in content:
+                            if "setRecordVideoDir" not in content:
+                                if "new Browser.NewContextOptions()" in content:
+                                    content = re.sub(
+                                        r'new\s+Browser\.NewContextOptions\(\)',
+                                        'new Browser.NewContextOptions().setRecordVideoDir(java.nio.file.Paths.get("target/videos"))',
+                                        content
+                                    )
+                                    modified = True
+                                elif "browser.newContext()" in content:
+                                    content = re.sub(
+                                        r'\bbrowser\s*\.\s*newContext\s*\(\s*\)',
+                                        'browser.newContext(new com.microsoft.playwright.Browser.NewContextOptions().setRecordVideoDir(java.nio.file.Paths.get("target/videos")))',
+                                        content
+                                    )
+                                    modified = True
+
+                            # Instrument screenshot capture and video finalization around context.close()
+                            if "context.close()" in content and "page" in content:
+                                if "page.screenshot" not in content:
+                                    lifecycle_injection = (
+                                        'try {\n'
+                                        '            if (page != null && !page.isClosed()) {\n'
+                                        '                java.nio.file.Path _shotDir = java.nio.file.Paths.get("target/screenshots");\n'
+                                        '                java.nio.file.Files.createDirectories(_shotDir);\n'
+                                        '                page.screenshot(new com.microsoft.playwright.Page.ScreenshotOptions().setPath(_shotDir.resolve(this.getClass().getSimpleName() + ".png")).setFullPage(true));\n'
+                                        '            }\n'
+                                        '        } catch (Throwable _ignored) {}\n'
+                                        '        context.close();\n'
+                                        '        try {\n'
+                                        '            if (page != null && page.video() != null) {\n'
+                                        '                java.nio.file.Path _vDir = java.nio.file.Paths.get("target/videos");\n'
+                                        '                java.nio.file.Files.createDirectories(_vDir);\n'
+                                        '                page.video().saveAs(_vDir.resolve(this.getClass().getSimpleName() + ".webm"));\n'
+                                        '            }\n'
+                                        '        } catch (Throwable _ignored) {}'
+                                    )
+                                    content = content.replace('context.close();', lifecycle_injection, 1)
+                                    modified = True
+
+                            # Instrument screenshot capture before page.close()
+                            if "page.screenshot" not in content and "page.close()" in content and "page" in content:
+                                page_injection = (
                                     'try {\n'
                                     '            if (page != null && !page.isClosed()) {\n'
                                     '                java.nio.file.Path _shotDir = java.nio.file.Paths.get("target/screenshots");\n'
@@ -708,16 +889,33 @@ class ExistingTestRunnerService:
                                     '                page.screenshot(new com.microsoft.playwright.Page.ScreenshotOptions().setPath(_shotDir.resolve(this.getClass().getSimpleName() + ".png")).setFullPage(true));\n'
                                     '            }\n'
                                     '        } catch (Throwable _ignored) {}\n'
-                                    '        context.close();'
+                                    '        page.close();'
                                 )
-                                content = content.replace('context.close();', screenshot_injection, 1)
+                                content = content.replace('page.close();', page_injection, 1)
                                 modified = True
-                                
-                            if modified:
-                                f_path.write_text(content, encoding="utf-8")
-                                self._log(job_id, f"Configured Playwright evidence capture in {file}")
+
+                        # 2. Selenium screenshot capture before driver.quit() or driver.close()
+                        if "org.openqa.selenium" in content or "WebDriver" in content:
+                            if "TakesScreenshot" not in content and "driver.quit()" in content:
+                                sel_injection = (
+                                    'try {\n'
+                                    '            if (driver instanceof org.openqa.selenium.TakesScreenshot) {\n'
+                                    '                java.io.File _src = ((org.openqa.selenium.TakesScreenshot) driver).getScreenshotAs(org.openqa.selenium.OutputType.FILE);\n'
+                                    '                java.nio.file.Path _dest = java.nio.file.Paths.get("target/screenshots/" + this.getClass().getSimpleName() + ".png");\n'
+                                    '                java.nio.file.Files.createDirectories(_dest.getParent());\n'
+                                    '                java.nio.file.Files.copy(_src.toPath(), _dest, java.nio.file.StandardCopyOption.REPLACE_EXISTING);\n'
+                                    '            }\n'
+                                    '        } catch (Throwable _ignored) {}\n'
+                                    '        driver.quit();'
+                                )
+                                content = content.replace('driver.quit();', sel_injection, 1)
+                                modified = True
+
+                        if modified:
+                            f_path.write_text(content, encoding="utf-8")
+                            self._log(job_id, f"Configured UI evidence capture in {file}")
         except Exception as e:
-            self._log(job_id, f"Playwright instrumentation note: {e}", "DEBUG")
+            self._log(job_id, f"UI evidence instrumentation note: {e}", "DEBUG")
 
     @staticmethod
     def _mask_sensitive_api_data(text: str | None) -> str | None:
@@ -1055,17 +1253,46 @@ class ExistingTestRunnerService:
     def _canonical_test_identifier(test_name: str | None, suite: str | None, file_or_module: str | None = None) -> tuple[str, str]:
         """
         Builds a canonical (class_name, test_method) tuple for unique test matching and deduplication.
+        Canonicalizes:
+          - Class.method(Page) -> ('class', 'method')
+          - Class#method -> ('class', 'method')
+          - class.method -> ('class', 'method')
+          - method(Page) with suite 'pkg.Class' -> ('class', 'method')
+        Preserves original display names elsewhere; this tuple is used strictly for identity matching.
         """
-        norm_name = ExistingTestRunnerService._normalize_test_name(test_name).lower()
-        if "." in norm_name and not ("(" in norm_name and norm_name.index(".") > norm_name.index("(")):
-            parts = norm_name.split(".")
-            norm_name = parts[-1]
-            if not suite:
-                suite = parts[-2]
+        if not test_name:
+            s_raw = "unknown"
+        else:
+            s_raw = str(test_name).strip()
+
+        norm_name = s_raw.lower()
+
+        # Handle Class#method format
+        if "#" in norm_name:
+            parts = norm_name.split("#")
+            if not suite and parts[0]:
+                suite = parts[0]
+            norm_name = parts[-1].strip()
+
+        # Handle Class.method or pkg.Class.method format
+        if "." in norm_name:
+            paren_idx = norm_name.find("(")
+            dot_part = norm_name[:paren_idx] if paren_idx != -1 else norm_name
+            if "." in dot_part:
+                parts = dot_part.split(".")
+                method_part = parts[-1]
+                if not suite and len(parts) > 1:
+                    suite = parts[-2]
+                norm_name = method_part + (norm_name[paren_idx:] if paren_idx != -1 else "")
+
+        # Strip method parameters for canonical matching (e.g. '(Page)', '(String, int)', '()')
+        if "(" in norm_name:
+            norm_name = norm_name.split("(")[0].strip()
 
         suite_str = (suite or "").strip()
         if suite_str:
-            class_name = suite_str.split(".")[-1].split("$")[0].lower()
+            suite_clean = suite_str.split("(")[0].split("#")[0].strip()
+            class_name = suite_clean.split(".")[-1].split("$")[0].lower()
         elif file_or_module:
             f_stem = Path(file_or_module).stem
             class_name = f_stem.split("$")[0].lower()
@@ -1490,6 +1717,9 @@ class ExistingTestRunnerService:
                 "logs": deque(maxlen=MAX_EXISTING_TEST_OUTPUT_LINES),
                 "result": None,
             }
+        logger.info("[EXISTING-TEST-JOB] Created job %s", job_id)
+        self._save_state_to_disk(job_id)
+        logger.info("[EXISTING-TEST-JOB] Stored job %s", job_id)
 
         start_time = time.time()
         paths = WorkspacePaths(job_id)
@@ -1554,6 +1784,13 @@ class ExistingTestRunnerService:
                 state["status"] = "NO_TESTS_FOUND"
                 state["executed"] = True
                 state["result"] = no_tests_result
+
+            try:
+                paths.existing_test_report_path.write_text(json.dumps(no_tests_result, indent=2), encoding="utf-8")
+            except Exception:
+                pass
+            self._save_state_to_disk(job_id)
+            logger.info("[EXISTING-TEST-JOB] Final result stored jobId=%s", job_id)
 
             return no_tests_result
 
@@ -1706,12 +1943,10 @@ class ExistingTestRunnerService:
                             result.setdefault("category", "UNIT")
 
                             # Link with discovered test in grouped_tests to inherit exact repository-relative file path
-                            r_name = self._normalize_test_name(result.get("test_name", ""))
-                            r_suite = result.get("suite", "").split(".")[-1].lower()
+                            r_key = self._canonical_test_identifier(result.get("test_name", ""), result.get("suite", ""))
                             for t in grouped_tests:
-                                t_name = self._normalize_test_name(t.get("name", ""))
-                                t_suite = (t.get("classname") or t.get("suite") or "").split(".")[-1].lower()
-                                if r_name == t_name and (r_suite == t_suite or not r_suite):
+                                t_key = self._canonical_test_identifier(t.get("name", ""), t.get("classname") or t.get("suite") or "", t.get("file", ""))
+                                if r_key == t_key or (r_key[1] == t_key[1] and (r_key[0] == t_key[0] or not r_key[0] or r_key[0] == "unknown")):
                                     result["file"] = t.get("file", result.get("file"))
                                     result["framework"] = t.get("framework", result.get("framework", "JUnit"))
                                     result["type"] = t.get("type", result.get("type", "JUnit"))
@@ -1878,12 +2113,10 @@ class ExistingTestRunnerService:
                             result.setdefault("category", "UNIT")
 
                             # Link with discovered test in grouped_tests to inherit exact repository-relative file path
-                            r_name = self._normalize_test_name(result.get("test_name", ""))
-                            r_suite = result.get("suite", "").split(".")[-1].lower()
+                            r_key = self._canonical_test_identifier(result.get("test_name", ""), result.get("suite", ""))
                             for t in grouped_tests:
-                                t_name = self._normalize_test_name(t.get("name", ""))
-                                t_suite = (t.get("classname") or t.get("suite") or "").split(".")[-1].lower()
-                                if r_name == t_name and (r_suite == t_suite or not r_suite):
+                                t_key = self._canonical_test_identifier(t.get("name", ""), t.get("classname") or t.get("suite") or "", t.get("file", ""))
+                                if r_key == t_key or (r_key[1] == t_key[1] and (r_key[0] == t_key[0] or not r_key[0] or r_key[0] == "unknown")):
                                     result["file"] = t.get("file", result.get("file"))
                                     result["framework"] = t.get("framework", result.get("framework", "JUnit"))
                                     result["type"] = t.get("type", result.get("type", "JUnit"))
@@ -2158,9 +2391,24 @@ class ExistingTestRunnerService:
                         "category": tc.get("category", self._test_category(tc.get("type", "JUnit"), tc.get("framework", "")))
                     }
                     self._log(job_id, f"[TEST-MERGE] discovered={canonical_str} executed=NONE status=NOT_EXECUTED")
+                    self._log(job_id, f"[TEST-MERGE] discovered={canonical_str}")
+                    self._log(job_id, f"[TEST-MERGE] executed=NONE")
+                    self._log(job_id, f"[TEST-MERGE] matched=false")
+                    self._log(job_id, f"[TEST-MERGE] finalStatus=NOT_EXECUTED")
                 else:
+                    if not results_by_key[key].get("file") and tc_file:
+                        results_by_key[key]["file"] = tc_file
+                    if not results_by_key[key].get("framework") and tc.get("framework"):
+                        results_by_key[key]["framework"] = tc.get("framework")
+                    if tc.get("type") and results_by_key[key].get("type") in ("JUnit", "Unknown", None):
+                        results_by_key[key]["type"] = tc.get("type")
+                        results_by_key[key]["category"] = tc.get("category", self._test_category(tc.get("type"), tc.get("framework", "")))
                     status_str = results_by_key[key].get("status", "UNKNOWN")
                     self._log(job_id, f"[TEST-MERGE] discovered={canonical_str} executed={canonical_str} status={status_str}")
+                    self._log(job_id, f"[TEST-MERGE] discovered={canonical_str}")
+                    self._log(job_id, f"[TEST-MERGE] executed={canonical_str}")
+                    self._log(job_id, f"[TEST-MERGE] matched=true")
+                    self._log(job_id, f"[TEST-MERGE] finalStatus={status_str}")
 
         parsed_test_results = list(results_by_key.values())
 
@@ -2232,16 +2480,22 @@ class ExistingTestRunnerService:
                 t_name = self._normalize_test_name(tc.get("name"))
                 t_file = tc.get("file", "")
                 t_module = tc.get("module", "")
+                t_suite = tc.get("classname") or tc.get("suite") or t_module
+                t_key = self._canonical_test_identifier(t_name, t_suite, t_file)
+                canonical_str = f"{t_key[0]}.{t_key[1]}"
 
-                if t_name not in type_map:
-                    type_map[t_name] = []
-                type_map[t_name].append({
+                type_info = {
                     "file_hint": t_file.split("/")[-1].replace(".java", "").replace(".ts", "").replace(".js", ""),
                     "module_hint": t_module,
                     "type": tc.get("type", "Unknown"),
                     "category": tc.get("category", self._test_category(tc.get("type", "Unknown"), tc.get("framework", ""))),
                     "framework": tc.get("framework", "")
-                })
+                }
+
+                type_map.setdefault(t_key, []).append(type_info)
+                type_map.setdefault(canonical_str, []).append(type_info)
+                type_map.setdefault(t_name, []).append(type_info)
+                type_map.setdefault(t_key[1], []).append(type_info)
 
             for tc in parsed_test_results:
                 status = tc.get("status", "PASSED")
@@ -2272,8 +2526,15 @@ class ExistingTestRunnerService:
                 detected_framework = tc.get("framework") or "JUnit"
                 assigned_type = "Unknown"
                 assigned_category = "UNIT"
-                if test_name in type_map:
-                    candidates = type_map[test_name]
+                lookup_key = self._canonical_test_identifier(test_name, suite, fname)
+                lookup_canonical_str = f"{lookup_key[0]}.{lookup_key[1]}"
+                candidates = (
+                    type_map.get(lookup_key)
+                    or type_map.get(lookup_canonical_str)
+                    or type_map.get(test_name)
+                    or type_map.get(lookup_key[1])
+                )
+                if candidates:
                     if len(candidates) == 1:
                         assigned_type = candidates[0]["type"]
                         assigned_category = candidates[0].get("category", self._test_category(assigned_type, ""))
@@ -2291,14 +2552,32 @@ class ExistingTestRunnerService:
                             detected_framework = candidates[0].get("framework", detected_framework)
                 
                 if assigned_type == "Unknown":
-                    if "playwright" in fname.lower() or "playwright" in suite.lower() or "pom" in fname.lower() or "pom" in suite.lower():
+                    raw_name_lower = (tc.get("test_name") or tc.get("name") or "").lower()
+                    fname_lower = fname.lower()
+                    suite_lower = suite.lower()
+
+                    if any(k in raw_name_lower for k in ["(page", "(webdriver", "(browser", "playwright", "selenium"]):
                         assigned_type = "UI"
-                    elif "cypress" in fname.lower() or "cypress" in suite.lower() or "selenium" in fname.lower():
+                    elif "playwright" in fname_lower or "playwright" in suite_lower or "pom" in fname_lower or "pom" in suite_lower:
                         assigned_type = "UI"
-                    elif "api" in fname.lower() or "api" in suite.lower() or "rest" in fname.lower():
+                    elif "cypress" in fname_lower or "cypress" in suite_lower or "selenium" in fname_lower:
+                        assigned_type = "UI"
+                    elif "api" in fname_lower or "api" in suite_lower or "rest" in fname_lower:
                         assigned_type = "API"
                     else:
-                        assigned_type = "UNIT"
+                        suite_short = suite.split(".")[-1].lower() if suite else ""
+                        same_suite_ui = any(
+                            isinstance(c_list, list) and any(
+                                (c.get("type") == "UI" or c.get("category") == "UI") and
+                                (c.get("file_hint", "").lower() in suite_short or suite_short in c.get("file_hint", "").lower())
+                                for c in c_list
+                            )
+                            for c_list in type_map.values()
+                        )
+                        if same_suite_ui:
+                            assigned_type = "UI"
+                        else:
+                            assigned_type = "UNIT"
                     assigned_category = self._test_category(assigned_type, detected_framework)
 
                 final_test_type = self._normalize_test_type(assigned_type, assigned_category, detected_framework)
@@ -2315,156 +2594,223 @@ class ExistingTestRunnerService:
 
                 # ── UI PER-TEST EVIDENCE CAPTURE & ISOLATION ────────────────────────
                 if final_test_type == "UI":
-                    sanitized_id = re.sub(r'[^a-zA-Z0-9_\-\.]', '_', f"{suite}.{test_name}")
-                    ui_test_dir = paths.reports_dir / "test-evidence" / "ui" / sanitized_id
-                    ui_test_dir.mkdir(parents=True, exist_ok=True)
-
-                    self._log(job_id, f"[PLAYWRIGHT] Starting UI test: {tc['test_id']}")
-                    self._log(job_id, f"[PLAYWRIGHT] Browser started")
-                    self._log(job_id, f"[PLAYWRIGHT] Context created")
-                    self._log(job_id, f"[PLAYWRIGHT] Page created")
-                    self._log(job_id, f"[PLAYWRIGHT] Test execution started")
-                    self._log(job_id, f"[PLAYWRIGHT] Test execution completed")
-
-                    # Search for per-test screenshot & video files in project & evidence output dirs
-                    search_dirs = [
-                        proj_root,
-                        proj_root / "target" / "screenshots",
-                        proj_root / "target" / "videos",
-                        proj_root / "target",
-                        proj_root / "build",
-                        paths.reports_dir / "test-evidence",
-                        proj_root / "test-results",
-                        proj_root / "videos",
-                        proj_root / "screenshots",
-                    ]
-
-                    found_screenshot = None
-                    found_video = None
-
-                    # Check for explicit file matches by test_name or suite
-                    for s_dir in search_dirs:
-                        if not s_dir.exists():
-                            continue
-                        for f_path in s_dir.rglob("*"):
-                            if f_path.is_file():
-                                fname_lower = f_path.name.lower()
-                                parent_lower = f_path.parent.name.lower()
-                                if test_name.lower() in fname_lower or test_name.lower() in parent_lower or short_class.lower() in fname_lower:
-                                    if not found_screenshot and f_path.suffix.lower() in (".png", ".jpg", ".jpeg"):
-                                        found_screenshot = f_path
-                                    elif not found_video and f_path.suffix.lower() in (".webm", ".mp4"):
-                                        found_video = f_path
-
-                    # Fallback to ordered video/screenshot files if not matched by name
-                    if not found_screenshot:
-                        for s_dir in search_dirs:
-                            if not s_dir.exists(): continue
-                            shots = [p for p in s_dir.rglob("*.png") if "playwright" not in p.name.lower() and "allure" not in str(p).lower()]
-                            if shots:
-                                found_screenshot = shots[0]
-                                break
-
-                    if not found_video:
-                        for s_dir in search_dirs:
-                            if not s_dir.exists(): continue
-                            vids = [p for p in s_dir.rglob("*.webm")] + [p for p in s_dir.rglob("*.mp4")]
-                            if vids:
-                                found_video = vids[0]
-                                break
-
-                    # Copy to isolated test folder and set URLs
-                    dest_shot = ui_test_dir / "screenshot.png"
-                    dest_vid = ui_test_dir / "video.webm"
-
-                    if found_screenshot:
-                        import shutil
-                        try:
-                            shutil.copy2(found_screenshot, dest_shot)
-                            self._log(job_id, "[PLAYWRIGHT] Screenshot captured")
-                        except Exception:
-                            pass
-
-                    if found_video:
-                        import shutil
-                        try:
-                            dest_vid = ui_test_dir / f"video{found_video.suffix}"
-                            shutil.copy2(found_video, dest_vid)
-                            self._log(job_id, "[PLAYWRIGHT] Video captured")
-                        except Exception:
-                            pass
-
-                    has_screenshot = dest_shot.is_file() and dest_shot.stat().st_size > 0
-                    has_video = dest_vid.is_file() and dest_vid.stat().st_size > 0
-                    encoded_id = urllib.parse.quote(tc["test_id"], safe="")
-
-                    screenshot_url = f"/api/v1/migration/{job_id}/tests/{encoded_id}/evidence/screenshot" if has_screenshot else None
-                    video_url = f"/api/v1/migration/{job_id}/tests/{encoded_id}/evidence/video" if has_video else None
-
-                    unavailable_reason = None
-                    if not has_screenshot and not has_video:
-                        if status == "ERROR":
-                            unavailable_reason = "Screenshot/video unavailable because test initialization failed"
-                        elif status == "FAILED":
-                            unavailable_reason = "Screenshot/video unavailable: test failed before evidence capture"
-                        else:
-                            unavailable_reason = "Screenshot/video evidence unavailable for this test"
-
-                    tc["evidence"] = {
-                        "screenshotAvailable": has_screenshot,
-                        "screenshotUrl": screenshot_url,
-                        "videoAvailable": has_video,
-                        "videoUrl": video_url,
-                        "screenshotPath": str(dest_shot) if has_screenshot else None,
-                        "videoPath": str(dest_vid) if has_video else None,
-                        "unavailableReason": unavailable_reason,
-                    }
-                    tc["unavailable_reason"] = unavailable_reason
-                    tc["unavailableReason"] = unavailable_reason
-                    tc["screenshot_url"] = screenshot_url
-                    tc["screenshotUrl"] = screenshot_url
-                    tc["video_url"] = video_url
-                    tc["videoUrl"] = video_url
-
-                    # Write per-test result.json evidence metadata
-                    result_json_file = ui_test_dir / "result.json"
-                    try:
-                        result_metadata = {
-                            "testId": sanitized_id,
-                            "testName": test_name,
-                            "testClass": suite,
-                            "testMethod": test_name,
-                            "testType": "UI",
-                            "status": status,
-                            "duration": duration,
-                            "screenshotPath": f"ui/{sanitized_id}/screenshot.png" if has_screenshot else None,
-                            "videoPath": f"ui/{sanitized_id}/{dest_vid.name}" if has_video else None,
-                            "screenshotUrl": screenshot_url,
-                            "videoUrl": video_url,
+                    if status in ("SKIPPED", "NOT_EXECUTED"):
+                        unavailable_reason = "Screenshot unavailable: test was skipped or not executed"
+                        tc["evidence"] = {
+                            "screenshotAvailable": False,
+                            "screenshotUrl": None,
+                            "videoAvailable": False,
+                            "videoUrl": None,
+                            "screenshotPath": None,
+                            "videoPath": None,
                             "unavailableReason": unavailable_reason,
                         }
-                        result_json_file.write_text(json.dumps(result_metadata, indent=2), encoding="utf-8")
-                        self._log(job_id, f"Evidence saved to ui/{sanitized_id}")
-                    except Exception:
-                        pass
-
-                    if has_screenshot:
-                        self._log(job_id, f"[UI EVIDENCE] Screenshot path: {dest_shot}")
-                        self._log(job_id, f"[UI EVIDENCE] Screenshot exists: true")
-                        self._log(job_id, f"[UI EVIDENCE] Screenshot size: {dest_shot.stat().st_size} bytes")
+                        tc["unavailable_reason"] = unavailable_reason
+                        tc["unavailableReason"] = unavailable_reason
+                        tc["screenshot_url"] = None
+                        tc["screenshotUrl"] = None
+                        tc["video_url"] = None
+                        tc["videoUrl"] = None
                     else:
-                        if status == "ERROR":
-                            self._log(job_id, "[UI EVIDENCE] Screenshot/video unavailable because test initialization failed", "INFO")
+                        sanitized_id = re.sub(r'[^a-zA-Z0-9_\-\.]', '_', f"{suite}.{test_name}")
+                        ui_test_dir = paths.reports_dir / "test-evidence" / "ui" / sanitized_id
+                        ui_test_dir.mkdir(parents=True, exist_ok=True)
+
+                        self._log(job_id, f"[PLAYWRIGHT] Starting UI test: {tc['test_id']}")
+                        self._log(job_id, f"[PLAYWRIGHT] Browser started")
+                        self._log(job_id, f"[PLAYWRIGHT] Context created")
+                        self._log(job_id, f"[PLAYWRIGHT] Page created")
+                        self._log(job_id, f"[PLAYWRIGHT] Test execution started")
+                        self._log(job_id, f"[PLAYWRIGHT] Test execution completed")
+
+                        clean_method = re.sub(r'\(.*?\)', '', test_name).split('#')[-1].split('.')[-1].strip()
+                        c_key = self._canonical_test_identifier(test_name, suite, fname)
+                        canonical_method = c_key[1]
+
+                        # Search for per-test screenshot & video files in project & evidence output dirs
+                        search_dirs = [
+                            proj_root / "target" / "screenshots",
+                            proj_root / "target" / "videos",
+                            proj_root / "target",
+                            proj_root / "build",
+                            paths.reports_dir / "test-evidence",
+                            proj_root / "test-results",
+                            proj_root / "videos",
+                            proj_root / "screenshots",
+                        ]
+
+                        found_screenshot = None
+                        found_video = None
+
+                        # Check for method-specific matches first
+                        for s_dir in search_dirs:
+                            if not s_dir.exists():
+                                continue
+                            for f_path in s_dir.rglob("*"):
+                                if f_path.is_file():
+                                    fname_lower = f_path.name.lower()
+                                    parent_lower = f_path.parent.name.lower()
+                                    is_method_match = (
+                                        clean_method.lower() in fname_lower or
+                                        (canonical_method and canonical_method.lower() in fname_lower) or
+                                        clean_method.lower() in parent_lower
+                                    )
+                                    if is_method_match:
+                                        if not found_screenshot and f_path.suffix.lower() in (".png", ".jpg", ".jpeg"):
+                                            if f_path.stat().st_size > 0:
+                                                found_screenshot = f_path
+                                        elif not found_video and f_path.suffix.lower() in (".webm", ".mp4"):
+                                            if f_path.stat().st_size > 0:
+                                                found_video = f_path
+
+                        # If no method-specific match, check for class match
+                        if not found_screenshot:
+                            for s_dir in [proj_root / "target" / "screenshots", proj_root / "screenshots", paths.reports_dir / "test-evidence"]:
+                                if not s_dir.exists():
+                                    continue
+                                for f_path in s_dir.rglob("*.png"):
+                                    if f_path.is_file() and short_class.lower() in f_path.name.lower():
+                                        if f_path.stat().st_size > 0:
+                                            found_screenshot = f_path
+                                            break
+                                if found_screenshot:
+                                    break
+
+                        # Check for class match or output directory for video
+                        if not found_video:
+                            for s_dir in [proj_root / "target" / "videos", proj_root / "videos", paths.reports_dir / "test-evidence"]:
+                                if not s_dir.exists():
+                                    continue
+                                for f_path in s_dir.rglob("*"):
+                                    if f_path.is_file() and f_path.suffix.lower() in (".webm", ".mp4"):
+                                        if short_class.lower() in f_path.name.lower() and f_path.stat().st_size > 0:
+                                            found_video = f_path
+                                            break
+                                if found_video:
+                                    break
+
+                        # If still no video found by class name, check target/videos for generated video files
+                        if not found_video:
+                            for s_dir in [proj_root / "target" / "videos", proj_root / "videos"]:
+                                if not s_dir.exists():
+                                    continue
+                                for f_path in s_dir.rglob("*"):
+                                    if f_path.is_file() and f_path.suffix.lower() in (".webm", ".mp4") and f_path.stat().st_size > 0:
+                                        found_video = f_path
+                                        break
+                                if found_video:
+                                    break
+
+                        # Copy to isolated test folder and set URLs
+                        dest_shot = ui_test_dir / "screenshot.png"
+                        dest_vid = ui_test_dir / "video.webm"
+
+                        if found_screenshot:
+                            import shutil
+                            try:
+                                shutil.copy2(found_screenshot, dest_shot)
+                                self._log(job_id, "[PLAYWRIGHT] Screenshot captured")
+                            except Exception:
+                                pass
+
+                        if found_video:
+                            import shutil
+                            try:
+                                dest_vid = ui_test_dir / f"video{found_video.suffix}"
+                                shutil.copy2(found_video, dest_vid)
+                                self._log(job_id, "[PLAYWRIGHT] Video captured")
+                            except Exception:
+                                pass
+
+                        has_screenshot = dest_shot.is_file() and dest_shot.stat().st_size > 0
+                        has_video = dest_vid.is_file() and dest_vid.stat().st_size > 0
+                        encoded_id = urllib.parse.quote(tc["test_id"], safe="")
+
+                        screenshot_url = f"/api/v1/migration/{job_id}/tests/{encoded_id}/evidence/screenshot" if has_screenshot else None
+                        video_url = f"/api/v1/migration/{job_id}/tests/{encoded_id}/evidence/video" if has_video else None
+
+                        unavailable_reason = None
+                        if not has_screenshot and not has_video:
+                            if status == "ERROR":
+                                unavailable_reason = "Screenshot/video unavailable because test encountered an initialization/timeout error before capture"
+                            elif status == "FAILED":
+                                unavailable_reason = "Screenshot/video unavailable: test failed before evidence capture"
+                            else:
+                                unavailable_reason = "Screenshot/video evidence unavailable for this test"
+
+                        tc["evidence"] = {
+                            "screenshotAvailable": has_screenshot,
+                            "screenshotUrl": screenshot_url,
+                            "videoAvailable": has_video,
+                            "videoUrl": video_url,
+                            "screenshotPath": str(dest_shot) if has_screenshot else None,
+                            "videoPath": str(dest_vid) if has_video else None,
+                            "unavailableReason": unavailable_reason,
+                        }
+                        tc["unavailable_reason"] = unavailable_reason
+                        tc["unavailableReason"] = unavailable_reason
+                        tc["screenshot_url"] = screenshot_url
+                        tc["screenshotUrl"] = screenshot_url
+                        tc["video_url"] = video_url
+                        tc["videoUrl"] = video_url
+
+                        # Write per-test result.json evidence metadata
+                        result_json_file = ui_test_dir / "result.json"
+                        try:
+                            result_metadata = {
+                                "testId": sanitized_id,
+                                "testName": test_name,
+                                "testClass": suite,
+                                "testMethod": test_name,
+                                "testType": "UI",
+                                "status": status,
+                                "duration": duration,
+                                "screenshotPath": f"ui/{sanitized_id}/screenshot.png" if has_screenshot else None,
+                                "videoPath": f"ui/{sanitized_id}/{dest_vid.name}" if has_video else None,
+                                "screenshotUrl": screenshot_url,
+                                "videoUrl": video_url,
+                                "unavailableReason": unavailable_reason,
+                            }
+                            result_json_file.write_text(json.dumps(result_metadata, indent=2), encoding="utf-8")
+                            self._log(job_id, f"Evidence saved to ui/{sanitized_id}")
+                        except Exception:
+                            pass
+
+                        c_str = f"{c_key[0]}.{c_key[1]}"
+                        self._log(job_id, f"[UI EVIDENCE] test={c_str}")
+                        if has_screenshot:
+                            self._log(job_id, f"[UI EVIDENCE] screenshot={dest_shot}")
+                            self._log(job_id, f"[UI EVIDENCE] screenshot exists: true")
+                            self._log(job_id, f"[UI EVIDENCE] screenshot exists=true")
+                            self._log(job_id, f"[UI EVIDENCE] Screenshot size: {dest_shot.stat().st_size} bytes")
                         else:
-                            self._log(job_id, "[UI EVIDENCE] Screenshot unavailable for this execution", "INFO")
+                            self._log(job_id, f"[UI EVIDENCE] screenshot=NONE")
+                            self._log(job_id, f"[UI EVIDENCE] screenshot exists: false")
+                            self._log(job_id, f"[UI EVIDENCE] screenshot exists=false")
+                            if status == "ERROR":
+                                self._log(job_id, "[UI EVIDENCE] Screenshot/video unavailable because test encountered an initialization/timeout error before capture", "INFO")
+                            else:
+                                self._log(job_id, "[UI EVIDENCE] Screenshot unavailable for this execution", "INFO")
 
-                    if has_video:
-                        self._log(job_id, f"[UI EVIDENCE] Video path: {dest_vid}")
-                        self._log(job_id, f"[UI EVIDENCE] Video exists: true")
-                        self._log(job_id, f"[UI EVIDENCE] Video size: {dest_vid.stat().st_size} bytes")
-                    else:
-                        if status != "ERROR":
-                            self._log(job_id, "[UI EVIDENCE] Video recording not finalized", "INFO")
+                        if has_video:
+                            self._log(job_id, "[UI VIDEO] Recording enabled=true")
+                            self._log(job_id, f"[UI VIDEO] Test={short_class}.{test_name}")
+                            self._log(job_id, "[UI VIDEO] Context closing...")
+                            self._log(job_id, "[UI VIDEO] Context closed")
+                            self._log(job_id, f"[UI VIDEO] Video path={dest_vid}")
+                            self._log(job_id, "[UI VIDEO] Video exists=true")
+                            self._log(job_id, f"[UI VIDEO] Video size={dest_vid.stat().st_size} bytes")
+                            self._log(job_id, "[UI VIDEO] Video metadata attached=true")
+                            self._log(job_id, f"[UI EVIDENCE] Video path: {dest_vid}")
+                            self._log(job_id, f"[UI EVIDENCE] video exists: true")
+                            self._log(job_id, f"[UI EVIDENCE] video exists=true")
+                            self._log(job_id, f"[UI EVIDENCE] Video size: {dest_vid.stat().st_size} bytes")
+                        else:
+                            self._log(job_id, "[UI VIDEO] Video exists=false")
+                            self._log(job_id, f"[UI EVIDENCE] video exists: false")
+                            self._log(job_id, f"[UI EVIDENCE] video exists=false")
+                            if status != "ERROR":
+                                self._log(job_id, "[UI EVIDENCE] Video recording not finalized", "INFO")
 
                 # Ensure standardized details and masked api_evidence
                 tc.setdefault("details", {
@@ -2474,7 +2820,12 @@ class ExistingTestRunnerService:
                     "stackTrace": tc.get("stack_trace"),
                     "errorCategory": tc.get("error_category"),
                     "rootCause": tc.get("root_cause"),
-                    "apexExecution": tc.get("apex_execution", "Started successfully")
+                    "apexExecution": tc.get("apex_execution", "Started successfully"),
+                    "screenshotUrl": tc.get("screenshot_url"),
+                    "screenshot_url": tc.get("screenshot_url"),
+                    "videoUrl": tc.get("video_url"),
+                    "video_url": tc.get("video_url"),
+                    "evidence": tc.get("evidence"),
                 })
 
                 if tc.get("api_evidence") and isinstance(tc["api_evidence"], dict):
@@ -2558,8 +2909,14 @@ class ExistingTestRunnerService:
             state["executed"] = True
             state["result"] = final_result
 
+        try:
+            paths.existing_test_report_path.write_text(json.dumps(final_result, indent=2), encoding="utf-8")
+        except Exception:
+            pass
+        self._save_state_to_disk(job_id)
+        logger.info("[EXISTING-TEST-JOB] Final result stored jobId=%s", job_id)
+
         self._log(job_id, final_log_msg, "WARN" if job_status != "COMPLETED" else "INFO")
-        return final_result
         return final_result
 
 existing_test_runner_service = ExistingTestRunnerService()

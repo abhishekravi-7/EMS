@@ -5,16 +5,20 @@ import { AuthContext, type AuthContextValue, type AuthUser } from "./AuthContext
 
 /**
  * Auth state backed by Firebase Authentication.
+ * This is the single source of truth for the application's authentication state.
  */
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
 
   useEffect(() => {
+    // Listen for authentication state changes from Firebase
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setCurrentUser(user);
       setIsAuthLoading(false);
     });
+
+    // Unsubscribe on unmount
     return () => unsubscribe();
   }, []);
 
@@ -33,7 +37,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       loading: isAuthLoading,
       user,
       currentUser,
-      login: () => {},
+      login: () => {
+          // Firebase maintains state automatically via onAuthStateChanged
+          // This method can be used to manually trigger local state updates if needed
+      },
       logout: async () => {
         await signOut(auth);
       },
