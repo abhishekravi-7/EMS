@@ -1,4 +1,5 @@
 import { createContext, useContext } from "react";
+import type { User as FirebaseUser } from "firebase/auth";
 
 export interface AuthUser {
   name: string;
@@ -7,10 +8,12 @@ export interface AuthUser {
 
 export interface AuthContextValue {
   isAuthenticated: boolean;
-  isAuthLoading: boolean;   // true until the initial /api/auth/me check completes
+  isAuthLoading: boolean;
   user: AuthUser | null;
+  currentUser: FirebaseUser | null;
+  loading: boolean;
   login: (user: AuthUser) => void;
-  logout: () => void;
+  logout: () => Promise<void>;
 }
 
 export const AuthContext = createContext<AuthContextValue | undefined>(undefined);

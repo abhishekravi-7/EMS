@@ -1,4 +1,13 @@
-import { requestJson } from "@/services/http/client";
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+  updateProfile,
+  signInWithPopup,
+  GoogleAuthProvider,
+  type User as FirebaseUser
+} from "firebase/auth";
+import { auth } from "@/firebase/firebase";
 
 export interface SignUpRequest {
   fullName: string;
@@ -7,24 +16,41 @@ export interface SignUpRequest {
   confirmPassword: string;
 }
 
-/** Mirrors the backend's UserResponse schema exactly (app/schemas/auth_schema.py). */
-export interface AuthUser {
-  id: number;
-  fullName: string;
-  email: string;
-  role: string;
-  isActive: boolean;
-  isEmailVerified: boolean;
-  createdAt: string;
-  lastLoginAt: string | null;
+export function mapFirebaseError(code: string): string {
+  switch (code) {
+    case "auth/email-already-in-use":
+      return "An account with this email already exists.";
+    case "auth/invalid-email":
+      return "Please enter a valid email address.";
+    case "auth/invalid-credential":
+      return "Invalid email or password.";
+    case "auth/weak-password":
+      return "Password is too weak.";
+    case "auth/user-not-found":
+      return "No account found with this email.";
+    case "auth/wrong-password":
+      return "Invalid email or password.";
+    case "auth/popup-closed-by-user":
+      return "Sign-in was cancelled.";
+    default:
+      return "An unexpected error occurred. Please try again.";
+  }
 }
 
-export async function signUp(payload: SignUpRequest): Promise<AuthUser> {
-  return requestJson<AuthUser>("/auth/signup", "Sign up failed. Please try again.", {
-    method: "POST",
-    body: payload,
-    credentials: "include",
-  });
+export async function signUp(payload: SignUpRequest): Promise<FirebaseUser> {
+  try {
+    const userCredential = await createUserWithEmailAndPassword(
+      auth,
+      payload.email,
+      payload.password
+    );
+    await updateProfile(userCredential.user, {
+      displayName: payload.fullName
+    });
+    return userCredential.user;
+  } catch (error: any) {
+    throw new Error(mapFirebaseError(error.code));
+  }
 }
 
 export interface SignInRequest {
@@ -32,30 +58,34 @@ export interface SignInRequest {
   password: string;
 }
 
-export interface SignInResponse {
-  user: AuthUser;
-  message: string;
+export async function signIn(payload: SignInRequest): Promise<FirebaseUser> {
+  try {
+    const userCredential = await signInWithEmailAndPassword(
+      auth,
+      payload.email,
+      payload.password
+    );
+    return userCredential.user;
+  } catch (error: any) {
+    throw new Error(mapFirebaseError(error.code));
+  }
 }
 
-export async function signIn(payload: SignInRequest): Promise<SignInResponse> {
-  return requestJson<SignInResponse>("/auth/login", "Sign in failed. Please try again.", {
-    method: "POST",
-    body: payload,
-    credentials: "include",
-  });
+export async function signInWithGoogle(): Promise<FirebaseUser> {
+  const provider = new GoogleAuthProvider();
+  try {
+    const result = await signInWithPopup(auth, provider);
+    return result.user;
+  } catch (error: any) {
+    throw new Error(mapFirebaseError(error.code));
+  }
 }
 
-/** Resolves the logged-in user from the access_token cookie, or rejects (401) if none. */
-export async function getCurrentUser(): Promise<AuthUser> {
-  return requestJson<AuthUser>("/auth/me", "Not authenticated", {
-    method: "GET",
-    credentials: "include",
-  });
+export async function logOut(): Promise<void> {
+  await signOut(auth);
 }
 
-export async function logOut(): Promise<{ message: string }> {
-  return requestJson<{ message: string }>("/auth/logout", "Logout failed", {
-    method: "POST",
-    credentials: "include",
-  });
+export async function getAuthToken(): Promise<string | null> {
+  if (!auth.currentUser) return null;
+  return auth.currentUser.getIdToken();
 }

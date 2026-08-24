@@ -39,21 +39,28 @@ _DASHBOARD_HTML_PATH = Path(__file__).resolve().parents[2] / "token_tracing" / "
 async def get_token_usage_summary(
     request: Request,
     days: int = 7,
-    db: Session = Depends(get_db),
+    db: Session | None = Depends(get_db),
 ) -> dict[str, Any]:
-    """Get token usage summary statistics for the user.
+    """Get token usage summary statistics for the user."""
+    if db is None:
+        return {
+            "total_requests": 0,
+            "total_input_tokens": 0,
+            "total_output_tokens": 0,
+            "total_tokens": 0,
+            "ollama_requests": 0,
+            "groq_requests": 0,
+            "successful_requests": 0,
+            "failed_requests": 0,
+            "fallback_count": 0,
+            "average_tokens_per_request": 0,
+            "average_duration_ms": 0,
+            "total_estimated_cost_usd": 0,
+            "period_days": days,
+            "database_disabled": True
+        }
     
-    Returns:
-    - Total requests
-    - Total input/output/total tokens
-    - Provider breakdown (Ollama vs Groq)
-    - Success/failure counts
-    - Fallback statistics
-    - Average tokens per request
-    - Total estimated cost
-    - Average response duration
-    """
-    current_user = get_current_user(request, db)
+    current_user = await get_current_user(request, db)
     summary = LLMTokenRepository.get_summary(db, user_id=current_user.id, days=days)
     return {
         "period_days": days,
@@ -78,10 +85,13 @@ async def get_token_usage_dashboard() -> HTMLResponse:
 async def get_token_usage_dashboard_summary(
     request: Request,
     days: int = 7,
-    db: Session = Depends(get_db),
+    db: Session | None = Depends(get_db),
 ) -> dict[str, Any]:
     """Return dashboard-shaped summary data for the authenticated user."""
-    current_user = get_current_user(request, db)
+    if db is None:
+        return _build_dashboard_summary([])
+
+    current_user = await get_current_user(request, db)
     records = _fetch_dashboard_records(db, user_id=current_user.id, days=days)
     return _build_dashboard_summary(records)
 
@@ -95,11 +105,14 @@ async def get_token_usage_dashboard_records(
     endpoint: str | None = None,
     provider: str | None = None,
     error: str = "",
-    db: Session = Depends(get_db),
+    db: Session | None = Depends(get_db),
 ) -> dict[str, Any]:
     """Return dashboard-shaped recent records for the authenticated user."""
+    if db is None:
+        return {"count": 0, "records": []}
+
     error_only = error.lower() in {"1", "true", "yes"}
-    current_user = get_current_user(request, db)
+    current_user = await get_current_user(request, db)
     records = _fetch_dashboard_records(
         db,
         user_id=current_user.id,
@@ -118,20 +131,16 @@ async def get_token_usage_dashboard_records(
 
 @router.get("/token-usage/recent")
 async def get_recent_token_usage(
+    request: Request,
     limit: int = 50,
     provider: str | None = None,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: Session | None = Depends(get_db),
 ) -> list[dict[str, Any]]:
-    """Get recent token usage records for the user.
-    
-    Args:
-        limit: Maximum number of records to return (default: 50)
-        provider: Filter by provider ("ollama" or "groq", optional)
-    
-    Returns:
-        List of token usage records with details
-    """
+    """Get recent token usage records for the user."""
+    if db is None:
+        return []
+
+    current_user = await get_current_user(request, db)
     records = LLMTokenRepository.get_recent(
         db,
         limit=limit,
@@ -164,24 +173,20 @@ async def get_recent_token_usage(
 
 @router.get("/token-usage/provider/{provider}")
 async def get_provider_usage(
+    request: Request,
     provider: str,
     limit: int = 50,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: Session | None = Depends(get_db),
 ) -> list[dict[str, Any]]:
-    """Get token usage records for a specific provider.
-    
-    Args:
-        provider: Provider name ("ollama" or "groq")
-        limit: Maximum number of records to return
-    
-    Returns:
-        List of token usage records for the provider
-    """
+    """Get token usage records for a specific provider."""
+    if db is None:
+        return []
+
     # Validate provider
     if provider not in ("ollama", "groq"):
         return []
     
+    current_user = await get_current_user(request, db)
     records = LLMTokenRepository.get_by_provider(
         db,
         provider=provider,
@@ -210,18 +215,15 @@ async def get_provider_usage(
 
 @router.get("/token-usage/models")
 async def get_model_statistics(
+    request: Request,
     days: int = 7,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: Session | None = Depends(get_db),
 ) -> list[dict[str, Any]]:
-    """Get token usage statistics grouped by model.
-    
-    Returns statistics for each model including:
-    - Number of requests
-    - Total tokens (input/output)
-    - Average duration
-    - Total estimated cost
-    """
+    """Get token usage statistics grouped by model."""
+    if db is None:
+        return []
+
+    current_user = await get_current_user(request, db)
     stats = LLMTokenRepository.get_model_stats(
         db,
         user_id=current_user.id,
@@ -232,18 +234,15 @@ async def get_model_statistics(
 
 @router.get("/token-usage/hourly")
 async def get_hourly_statistics(
+    request: Request,
     hours: int = 24,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: Session | None = Depends(get_db),
 ) -> list[dict[str, Any]]:
-    """Get token usage statistics grouped by hour.
-    
-    Returns hourly breakdown showing:
-    - Timestamp (hour)
-    - Number of requests
-    - Total tokens used
-    - Total cost
-    """
+    """Get token usage statistics grouped by hour."""
+    if db is None:
+        return []
+
+    current_user = await get_current_user(request, db)
     stats = LLMTokenRepository.get_hourly_stats(
         db,
         user_id=current_user.id,
@@ -254,18 +253,20 @@ async def get_hourly_statistics(
 
 @router.get("/token-usage/fallbacks")
 async def get_fallback_statistics(
+    request: Request,
     days: int = 7,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: Session | None = Depends(get_db),
 ) -> dict[str, Any]:
-    """Get statistics about fallback events (Ollama -> Groq).
-    
-    Returns:
-    - Total fallback events
-    - Breakdown by fallback reason
-    - Total tokens via fallback
-    - Total cost via fallback
-    """
+    """Get statistics about fallback events (Ollama -> Groq)."""
+    if db is None:
+        return {
+            "total_fallback_events": 0,
+            "fallback_reasons": {},
+            "total_tokens_via_fallback": 0,
+            "total_cost_via_fallback": 0,
+        }
+
+    current_user = await get_current_user(request, db)
     stats = LLMTokenRepository.get_fallback_stats(
         db,
         user_id=current_user.id,
@@ -279,12 +280,7 @@ async def get_fallback_statistics(
 
 @router.get("/health/llm-providers")
 async def check_llm_providers() -> dict[str, Any]:
-    """Check the health and availability of configured LLM providers.
-    
-    Returns:
-    - Ollama status (available, model installed)
-    - Groq status (configured)
-    """
+    """Check the health and availability of configured LLM providers."""
     from app.infrastructure.llm.ollama_client import OllamaClient
     from app.infrastructure.llm.groq_client import GroqClient
     
@@ -328,43 +324,51 @@ def _fetch_dashboard_records(
     cutoff = datetime.now(timezone.utc) - timedelta(days=max(days, 1))
     capped_limit = max(0, min(int(limit), _DASHBOARD_MAX_LIMIT))
 
-    query = db.query(LLMTokenUsage).filter(
-        LLMTokenUsage.user_id == user_id,
-        LLMTokenUsage.created_at >= cutoff,
-    )
-    if model:
-        query = query.filter(LLMTokenUsage.model == model)
-    if endpoint:
-        query = query.filter(LLMTokenUsage.endpoint == endpoint)
-    if provider:
-        query = query.filter(LLMTokenUsage.provider == provider)
-    if error_only:
-        query = query.filter(LLMTokenUsage.error_message.isnot(None))
+    try:
+        query = db.query(LLMTokenUsage).filter(
+            LLMTokenUsage.user_id == user_id,
+            LLMTokenUsage.created_at >= cutoff,
+        )
+        if model:
+            query = query.filter(LLMTokenUsage.model == model)
+        if endpoint:
+            query = query.filter(LLMTokenUsage.endpoint == endpoint)
+        if provider:
+            query = query.filter(LLMTokenUsage.provider == provider)
+        if error_only:
+            query = query.filter(LLMTokenUsage.error_message.isnot(None))
 
-    rows = query.order_by(desc(LLMTokenUsage.created_at)).limit(capped_limit).all()
-    return [
-        {
-            "request_id": row.request_id,
-            "timestamp": row.created_at.isoformat(),
-            "provider": row.provider,
-            "model": row.model,
-            "endpoint": row.endpoint,
-            "input_tokens": row.input_tokens or 0,
-            "output_tokens": row.output_tokens or 0,
-            "total_tokens": row.total_tokens or 0,
-            "cached_tokens": row.cached_tokens or 0,
-            "estimated_cost_usd": row.estimated_cost_usd or 0.0,
-            "duration_ms": row.duration_ms,
-            "error": row.error_message,
-            "is_retry": row.is_retry,
-            "fallback_used": row.fallback_used,
-            "fallback_reason": row.fallback_reason,
-            "question_preview": row.question_preview,
-            "status": row.status,
-            "prompt_cache_hit": bool(row.cached_tokens and row.cached_tokens > 0),
-        }
-        for row in rows
-    ]
+        rows = query.order_by(desc(LLMTokenUsage.created_at)).limit(capped_limit).all()
+
+        records = []
+        for row in rows:
+            record = {
+                "request_id": getattr(row, "request_id", "(unknown)"),
+                "timestamp": getattr(row, "created_at", datetime.now(timezone.utc)).isoformat(),
+                "provider": getattr(row, "provider", "(unknown)"),
+                "model": getattr(row, "model", "(unknown)"),
+                "endpoint": getattr(row, "endpoint", None),
+                "input_tokens": getattr(row, "input_tokens", 0) or 0,
+                "output_tokens": getattr(row, "output_tokens", 0) or 0,
+                "total_tokens": getattr(row, "total_tokens", 0) or 0,
+                "cached_tokens": getattr(row, "cached_tokens", 0) or 0,
+                "estimated_cost_usd": getattr(row, "estimated_cost_usd", 0.0) or 0.0,
+                "duration_ms": getattr(row, "duration_ms", None),
+                "error": getattr(row, "error_message", None),
+                "is_retry": getattr(row, "is_retry", False),
+                "fallback_used": getattr(row, "fallback_used", False),
+                "fallback_reason": getattr(row, "fallback_reason", None),
+                "question_preview": getattr(row, "question_preview", None),
+                "status": getattr(row, "status", "success"),
+            }
+            # Calculated field
+            cached = record.get("cached_tokens") or 0
+            record["prompt_cache_hit"] = bool(cached > 0)
+            records.append(record)
+        return records
+    except Exception as e:
+        logger.error(f"Error fetching dashboard records: {e}")
+        return []
 
 
 def _build_dashboard_summary(records: list[dict[str, Any]]) -> dict[str, Any]:

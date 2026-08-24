@@ -66,6 +66,18 @@ RUN set -eux; \
     mv "/opt/gradle-${GRADLE_VERSION}" /opt/gradle; \
     rm /tmp/gradle.zip
 
+# -- Sonar Scanner CLI ------------------------------------------------------ #
+ARG SONAR_SCANNER_VERSION=6.2.1.4610
+RUN set -eux; \
+    curl -fsSL -o /tmp/sonar-scanner.zip \
+        "https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-${SONAR_SCANNER_VERSION}-linux-x64.zip"; \
+    unzip -q /tmp/sonar-scanner.zip -d /opt; \
+    ln -sf "/opt/sonar-scanner-${SONAR_SCANNER_VERSION}-linux-x64/bin/sonar-scanner" /usr/local/bin/sonar-scanner; \
+    rm /tmp/sonar-scanner.zip
+
+# -- FOSSA CLI -------------------------------------------------------------- #
+RUN curl -H 'Cache-Control: no-cache' https://raw.githubusercontent.com/fossas/fossa-cli/master/install-latest.sh | BINDIR=/usr/local/bin bash
+
 # resolve_executable() (app/shared/command_runner.py) is shutil.which, so PATH
 # is the only thing that makes mvn/gradle findable at runtime.
 ENV JAVA_HOME=/opt/java/jdk-17 \
@@ -95,10 +107,18 @@ RUN mkdir -p /app/storage/migration-jobs \
 ENV GRADLE_USER_HOME=/app/storage/.gradle-cache \
     PYTHONUNBUFFERED=1
 
-# Render injects $PORT and expects the process to bind it on 0.0.0.0.
-# Shell form is deliberate so $PORT expands at runtime.
-#
-# --workers 1 is required, not a preference: migrations run as in-process
-# threads (app/application/pipelines/migration_execution_pipeline.py) and job
-# state lives on local disk, so a second worker would poll jobs it cannot see.
-CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1
+# Render/DigitalOcean inject $PORT and expect the process to bind it.
+EXPOSE 8000
+
+# --workers 1 is required: migrations run as in-process threads and job state
+# lives on local disk.
+# DigitalOcean-specific uvicorn flags for large request handling are included.
+CMD uvicorn app.main:app \
+    --host 0.0.0.0 \
+    --port ${PORT:-8000} \
+    --workers 1 \
+    --limit-concurrency 50 \
+    --limit-max-requests 1000 \
+    --timeout-keep-alive 300 \
+    --timeout-graceful-shutdown 30 \
+    --h11-max-incomplete-event-size 1073741824

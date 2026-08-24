@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { GOOGLE_AUTH_LOGIN_URL } from "@/services/config/env";
+import { useNavigate } from "react-router-dom";
+import { signInWithGoogle } from "../services/authService";
 
 const GoogleIcon: React.FC = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" style={{ display: "block" }}>
@@ -17,22 +18,47 @@ export interface SocialAuthButtonsProps {
 type Provider = "google";
 
 const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({ mode }) => {
+  const navigate = useNavigate();
   const isSignIn = mode === "signin";
-  const [redirectingTo, setRedirectingTo] = useState<Provider | null>(null);
+  const [isRedirecting, setIsRedirecting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const startOAuthRedirect = (provider: Provider, loginUrl: string) => {
-    if (redirectingTo) return;
-    setRedirectingTo(provider);
-    window.location.href = loginUrl;
+  const handleGoogleLogin = async () => {
+    if (isRedirecting) return;
+    setIsRedirecting(true);
+    setError(null);
+
+    try {
+      await signInWithGoogle();
+      navigate("/connect");
+    } catch (err: any) {
+      setError(err.message);
+      setIsRedirecting(false);
+    }
   };
 
   return (
     <div className="auth-social-stack">
+      {error && (
+        <div style={{
+          fontSize: 12,
+          color: "#dc2626",
+          textAlign: "center",
+          marginBottom: 8,
+          background: "#fef2f2",
+          padding: "6px",
+          borderRadius: "6px",
+          border: "1px solid #fecaca"
+        }}>
+          {error}
+        </div>
+      )}
+
       <button
         type="button"
         className="auth-social-btn"
-        disabled={redirectingTo !== null}
-        onClick={() => startOAuthRedirect("google", GOOGLE_AUTH_LOGIN_URL)}
+        disabled={isRedirecting}
+        onClick={handleGoogleLogin}
       >
         <GoogleIcon />
         <span>{isSignIn ? "Continue with Google" : "Sign up with Google"}</span>

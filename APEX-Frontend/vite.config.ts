@@ -12,6 +12,7 @@ export default defineConfig({
       '@/features': fileURLToPath(new URL('./src/features', import.meta.url)),
       '@/shared': fileURLToPath(new URL('./src/shared', import.meta.url)),
       '@/services': fileURLToPath(new URL('./src/services', import.meta.url)),
+      '@/firebase': fileURLToPath(new URL('./src/firebase', import.meta.url)),
       '@/config': fileURLToPath(new URL('./src/config', import.meta.url)),
       '@/types': fileURLToPath(new URL('./src/types', import.meta.url)),
     },
