@@ -3,10 +3,15 @@ from fastapi import APIRouter, Body, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
+from collections import deque
+from app.core.config import settings
 from app.api.deps import get_current_user, verify_job_ownership
 from app.infrastructure.persistence.database import get_db_optional
 from app.infrastructure.persistence.models import User
-from app.application.use_cases.existing_test_runner_service import existing_test_runner_service
+from app.application.use_cases.existing_test_runner_service import (
+    existing_test_runner_service,
+    MAX_EXISTING_TEST_OUTPUT_LINES,
+)
 
 router = APIRouter(tags=["existing-tests"])
 
@@ -48,6 +53,24 @@ async def run_existing_tests_endpoint(
                 },
             )
 
+        # Immediately initialize running state and persist so polling is instantly available across all instances
+        with existing_test_runner_service._lock:
+            existing_test_runner_service._state[job_id] = {
+                "status": "RUNNING",
+                "executed": False,
+                "logs": deque([f"Starting existing test execution for job {job_id}..."], maxlen=MAX_EXISTING_TEST_OUTPUT_LINES),
+                "result": None,
+            }
+        existing_test_runner_service._save_state_to_disk(job_id)
+
+        # Ensure database ownership record is persisted
+        if db is not None and settings.database_enabled:
+            from app.infrastructure.persistence.migration_ownership_repository import record_job_owner
+            try:
+                record_job_owner(db, job_id=job_id, user_id=current_user.id)
+            except Exception:
+                pass
+
         async def _run_background():
             try:
                 await asyncio.to_thread(existing_test_runner_service.run_existing_tests, job_id, test_selection)
@@ -62,6 +85,7 @@ async def run_existing_tests_endpoint(
                         "metrics": {"total": 0, "passed": 0, "failed": 0, "skipped": 0},
                         "error": str(bg_err),
                     }
+                existing_test_runner_service._save_state_to_disk(job_id)
                 existing_test_runner_service._log(job_id, f"Existing test background run failed: {bg_err}", "ERROR")
 
         asyncio.create_task(_run_background())

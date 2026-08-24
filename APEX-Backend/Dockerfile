@@ -25,6 +25,11 @@ RUN apt-get update \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+
+# -- FOSSA CLI -------------------------------------------------------------- #
+RUN curl -H 'Cache-Control: no-cache' https://raw.githubusercontent.com/fossas/fossa-cli/master/install-latest.sh | bash
+
+
 # -- Java toolchain --------------------------------------------------------- #
 # Installed under /opt/java/jdk-<major>, which matters: _discover_jdks()
 # (app/infrastructure/java_runtime.py) scans _POSIX_JDK_SEARCH_ROOTS -- which

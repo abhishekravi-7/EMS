@@ -83,13 +83,13 @@ async def get_current_user(request: Request, db: Session | None = Depends(get_db
 def verify_job_ownership(db: Session | None, job_id: str, current_user: User) -> None:
     """Raise 403/404 unless `current_user` is the recorded owner of `job_id`.
 
-    When PostgreSQL is disabled, verifies that the job exists on filesystem storage or in report cache.
-    
+    When PostgreSQL is disabled, verifies that the job exists on filesystem storage, in report cache, or in active existing-test runner.
     """
     if db is None or not settings.database_enabled:
         from app.infrastructure.persistence.job_repository import JobRepository
         from app.application.services.status_service import _REPORT_CACHE
-        if not JobRepository().job_exists(job_id) and job_id not in _REPORT_CACHE:
+        from app.application.use_cases.existing_test_runner_service import existing_test_runner_service
+        if not JobRepository().job_exists(job_id) and job_id not in _REPORT_CACHE and not existing_test_runner_service.has_job(job_id):
             raise HTTPException(
                 status_code=404,
                 detail={"code": "JOB_NOT_FOUND", "message": "No migration job found for this id."},
@@ -101,7 +101,14 @@ def verify_job_ownership(db: Session | None, job_id: str, current_user: User) ->
     if owner_user_id is None:
         from app.infrastructure.persistence.job_repository import JobRepository
         from app.infrastructure.persistence.report_repository import load_report_from_db
-        if JobRepository().job_exists(job_id) or load_report_from_db(job_id) is not None:
+        from app.infrastructure.persistence.existing_test_repository import existing_test_state_exists_in_db
+        from app.application.use_cases.existing_test_runner_service import existing_test_runner_service
+        if (
+            JobRepository().job_exists(job_id)
+            or load_report_from_db(job_id) is not None
+            or existing_test_state_exists_in_db(job_id)
+            or existing_test_runner_service.has_job(job_id)
+        ):
             from app.infrastructure.persistence.migration_ownership_repository import record_job_owner
             try:
                 record_job_owner(db, job_id=job_id, user_id=current_user.id)
