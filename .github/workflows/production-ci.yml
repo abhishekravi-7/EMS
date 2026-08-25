@@ -1,7 +1,10 @@
 name: Production CI/CD
 
 on:
-
+  # ============================================================
+  # PR VALIDATION
+  # dev -> main
+  # ============================================================
   pull_request:
     branches:
       - main
@@ -10,36 +13,37 @@ on:
       - synchronize
       - reopened
 
-  # ------------------------------------------------------------
-  # Production build/deployment
-  # Runs after PR is merged and main receives the commit
-  # ------------------------------------------------------------
+  # ============================================================
+  # PRODUCTION BUILD / DEPLOYMENT
+  # Runs after PR is merged into main
+  # ============================================================
   push:
     branches:
       - main
-
     tags:
       - "v*"
 
-  # ------------------------------------------------------------
-  # Manual execution
-  # ------------------------------------------------------------
+  # ============================================================
+  # MANUAL EXECUTION
+  # ============================================================
   workflow_dispatch:
+
 
 permissions:
   contents: read
   packages: write
   pull-requests: read
 
+
 concurrency:
   group: production-ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
 
 env:
   NODE_VERSION: "20"
   PYTHON_VERSION: "3.11"
 
-  # Docker image location in GitHub Container Registry
   IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/javaapex
 
 
@@ -59,15 +63,10 @@ jobs:
 
     steps:
 
-      # --------------------------------------------------------
-      # Checkout
-      # --------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # --------------------------------------------------------
-      # Node.js
-      # --------------------------------------------------------
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -75,15 +74,11 @@ jobs:
           cache: npm
           cache-dependency-path: APEX-Frontend/package-lock.json
 
-      # --------------------------------------------------------
-      # Install dependencies
-      # --------------------------------------------------------
+
       - name: Install frontend dependencies
         run: npm ci
 
-      # --------------------------------------------------------
-      # npm dependency audit
-      # --------------------------------------------------------
+
       - name: npm dependency audit
         run: |
           set -o pipefail
@@ -92,25 +87,19 @@ jobs:
             --json \
             2>&1 | tee npm-audit-report.json
 
-      # --------------------------------------------------------
-      # ESLint
-      # --------------------------------------------------------
+
       - name: ESLint
         run: |
           set -o pipefail
           npm run lint 2>&1 | tee eslint.log
 
-      # --------------------------------------------------------
-      # TypeScript
-      # --------------------------------------------------------
+
       - name: TypeScript check
         run: |
           set -o pipefail
           npm run typecheck 2>&1 | tee typecheck.log
 
-      # --------------------------------------------------------
-      # Unit Tests
-      # --------------------------------------------------------
+
       - name: Frontend unit tests
         run: |
           if find . -type f \( -name "*.test.*" -o -name "*.spec.*" \) | grep -q .; then
@@ -120,18 +109,13 @@ jobs:
             echo "No frontend unit tests detected; skipping." | tee unit-tests.log
           fi
 
-      # --------------------------------------------------------
-      # Production build
-      # --------------------------------------------------------
+
       - name: Vite production build
         run: |
           set -o pipefail
           npm run build 2>&1 | tee vite-build.log
 
-      # --------------------------------------------------------
-      # Upload reports
-      # Runs even if a previous step fails
-      # --------------------------------------------------------
+
       - name: Upload frontend production reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -160,15 +144,10 @@ jobs:
 
     steps:
 
-      # --------------------------------------------------------
-      # Checkout
-      # --------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # --------------------------------------------------------
-      # Python
-      # --------------------------------------------------------
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -176,18 +155,14 @@ jobs:
           cache: pip
           cache-dependency-path: APEX-Backend/requirements.txt
 
-      # --------------------------------------------------------
-      # Install dependencies
-      # --------------------------------------------------------
+
       - name: Install backend dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pytest pytest-asyncio respx ruff bandit pip-audit
 
-      # --------------------------------------------------------
-      # Python dependency vulnerabilities
-      # --------------------------------------------------------
+
       - name: pip dependency audit
         run: |
           pip-audit \
@@ -195,25 +170,19 @@ jobs:
             -f json \
             -o pip-audit-report.json
 
-      # --------------------------------------------------------
-      # Ruff
-      # --------------------------------------------------------
+
       - name: Ruff lint
         run: |
           set -o pipefail
           ruff check . 2>&1 | tee ruff.log
 
-      # --------------------------------------------------------
-      # Pytest
-      # --------------------------------------------------------
+
       - name: Pytest
         run: |
           set -o pipefail
           pytest -q 2>&1 | tee pytest.log
 
-      # --------------------------------------------------------
-      # Bandit
-      # --------------------------------------------------------
+
       - name: Bandit security scan
         run: |
           set -o pipefail
@@ -222,9 +191,7 @@ jobs:
             -f txt \
             -o bandit.log
 
-      # --------------------------------------------------------
-      # Upload backend reports
-      # --------------------------------------------------------
+
       - name: Upload backend production reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -248,17 +215,12 @@ jobs:
 
     steps:
 
-      # --------------------------------------------------------
-      # Full checkout required for Gitleaks
-      # --------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # --------------------------------------------------------
-      # Gitleaks
-      # --------------------------------------------------------
+
       - name: Gitleaks secret scan
         uses: gitleaks/gitleaks-action@v2
         env:
@@ -273,9 +235,7 @@ jobs:
             --report-path .gitleaks-report.json
             --exit-code 1
 
-      # --------------------------------------------------------
-      # Trivy
-      # --------------------------------------------------------
+
       - name: Trivy filesystem scan
         uses: aquasecurity/trivy-action@v0.36.0
         with:
@@ -289,9 +249,7 @@ jobs:
           version: v0.70.0
           cache: true
 
-      # --------------------------------------------------------
-      # Upload security reports
-      # --------------------------------------------------------
+
       - name: Upload security reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -304,43 +262,43 @@ jobs:
 
 
   # ============================================================
-  # SONARCLOUD
+  # SONARCLOUD STATIC CODE ANALYSIS
   #
-  # Run on dev → main PR.
-  # Also runs on push to main so main gets the final branch
-  # analysis after the PR is merged.
+  # IMPORTANT:
+  # Sonar is attempted even if Frontend, Backend or Security fails.
+  #
+  # This allows developers to inspect SonarCloud findings even
+  # when other CI gates have already detected problems.
   # ============================================================
   sonar:
     name: SonarCloud Quality Gate
     runs-on: ubuntu-latest
 
-    # Sonar only runs after the other production checks pass.
     needs:
       - frontend
       - backend
       - security
 
-    if: >-
-      ${{
-        needs.frontend.result == 'success' &&
-        needs.backend.result == 'success' &&
-        needs.security.result == 'success'
-      }}
+    # CRITICAL CHANGE:
+    # Without always(), GitHub skips this job when a dependency fails.
+    if: ${{ always() }}
 
     steps:
 
-      # --------------------------------------------------------
-      # Checkout complete history
-      # --------------------------------------------------------
+      # ----------------------------------------------------------
+      # Checkout full Git history for SonarCloud
+      # ----------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # --------------------------------------------------------
-      # SonarCloud static analysis
-      # --------------------------------------------------------
+
+      # ----------------------------------------------------------
+      # Run SonarCloud analysis
+      # ----------------------------------------------------------
       - name: SonarCloud analysis
+        id: sonar
         uses: SonarSource/sonarqube-scan-action@v6
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -355,8 +313,10 @@ jobs:
   # ============================================================
   # PRODUCTION VALIDATION
   #
-  # Single final job representing all required CI gates.
-  # Useful as the required GitHub status check.
+  # This job decides whether the complete Production CI passed.
+  #
+  # Sonar running does NOT mean deployment is allowed.
+  # Every required gate must still pass.
   # ============================================================
   production-validation:
     name: Production validation
@@ -368,39 +328,98 @@ jobs:
       - security
       - sonar
 
-    if: always()
+    if: ${{ always() }}
 
     steps:
+
+      - name: Display production gate results
+        shell: bash
+        run: |
+          echo "=========================================="
+          echo "       PRODUCTION CI RESULTS"
+          echo "=========================================="
+          echo ""
+          echo "Frontend : ${{ needs.frontend.result }}"
+          echo "Backend  : ${{ needs.backend.result }}"
+          echo "Security : ${{ needs.security.result }}"
+          echo "Sonar    : ${{ needs.sonar.result }}"
+          echo ""
+          echo "=========================================="
+
 
       - name: Validate required production gates
         shell: bash
         run: |
-          echo "Frontend:  ${{ needs.frontend.result }}"
-          echo "Backend:   ${{ needs.backend.result }}"
-          echo "Security:  ${{ needs.security.result }}"
-          echo "Sonar:     ${{ needs.sonar.result }}"
 
-          if [[ \
-            "${{ needs.frontend.result }}" != "success" ||
-            "${{ needs.backend.result }}" != "success" ||
-            "${{ needs.security.result }}" != "success" ||
-            "${{ needs.sonar.result }}" != "success"
-          ]]; then
-            echo "One or more required production CI checks failed."
-            exit 1
+          failed=0
+
+          if [[ "${{ needs.frontend.result }}" != "success" ]]; then
+            echo "Frontend production gates FAILED"
+            failed=1
+          else
+            echo "Frontend production gates PASSED"
           fi
 
-          echo "All required Production CI checks passed."
+
+          if [[ "${{ needs.backend.result }}" != "success" ]]; then
+            echo "Backend production gates FAILED"
+            failed=1
+          else
+            echo "Backend production gates PASSED"
+          fi
+
+
+          if [[ "${{ needs.security.result }}" != "success" ]]; then
+            echo "Production security scans FAILED"
+            failed=1
+          else
+            echo "Production security scans PASSED"
+          fi
+
+
+          if [[ "${{ needs.sonar.result }}" != "success" ]]; then
+            echo "SonarCloud Quality Gate FAILED"
+            failed=1
+          else
+            echo "SonarCloud Quality Gate PASSED"
+          fi
+
+
+          echo ""
+          echo "=========================================="
+
+
+          if [[ "$failed" -eq 1 ]]; then
+
+            echo "PRODUCTION VALIDATION FAILED"
+            echo ""
+            echo "Docker image will NOT be created."
+            echo "DigitalOcean deployment will NOT run."
+
+            exit 1
+
+          fi
+
+
+          echo "PRODUCTION VALIDATION PASSED"
+          echo ""
+          echo "All required CI checks passed."
 
 
   # ============================================================
   # DOCKER IMAGE
   #
-  # IMPORTANT:
-  # This job DOES NOT run for PRs.
+  # Does NOT run for PR validation.
   #
-  # It runs only after code has actually been merged/pushed
-  # into main.
+  # Runs only after:
+  #
+  # dev -> main PR
+  #          ↓
+  # merge
+  #          ↓
+  # push main
+  #          ↓
+  # Production validation PASS
   # ============================================================
   docker-image:
     name: Build and push production image
@@ -418,21 +437,14 @@ jobs:
 
     steps:
 
-      # --------------------------------------------------------
-      # Checkout main
-      # --------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # --------------------------------------------------------
-      # Docker Buildx
-      # --------------------------------------------------------
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # --------------------------------------------------------
-      # Authenticate to GHCR
-      # --------------------------------------------------------
+
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -440,9 +452,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # --------------------------------------------------------
-      # Docker image metadata / tags
-      # --------------------------------------------------------
+
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -453,15 +463,14 @@ jobs:
             type=sha
             type=raw,value=latest
 
-      # --------------------------------------------------------
-      # Build + Push
-      # --------------------------------------------------------
+
       - name: Build and push production image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
           push: true
+
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
@@ -472,8 +481,8 @@ jobs:
   # ============================================================
   # DIGITALOCEAN DEPLOYMENT
   #
-  # Runs only after Docker/GHCR succeeds.
-  # Reuses your EXISTING DigitalOcean App Platform application.
+  # Runs only when Docker image creation succeeds.
+  # Reuses existing DigitalOcean App Platform application.
   # ============================================================
   deploy:
     name: Deploy to DigitalOcean App Platform
@@ -494,25 +503,27 @@ jobs:
 
     steps:
 
-      # --------------------------------------------------------
-      # Install doctl
-      # --------------------------------------------------------
       - name: Set up DigitalOcean CLI
         uses: digitalocean/action-doctl@v2
         with:
           token: ${{ secrets.DO_API_TOKEN }}
 
-      # --------------------------------------------------------
-      # Trigger deployment of existing App Platform app
-      # --------------------------------------------------------
+
       - name: Deploy existing DigitalOcean App Platform app
         shell: bash
         run: |
-          echo "Triggering deployment for DigitalOcean App ID:"
-          echo "${{ secrets.DO_APP_ID }}"
+
+          echo "=========================================="
+          echo "STARTING DIGITALOCEAN DEPLOYMENT"
+          echo "=========================================="
+
+          echo "Using existing DigitalOcean App Platform app."
 
           doctl apps create-deployment \
             "${{ secrets.DO_APP_ID }}" \
             --wait
 
-          echo "DigitalOcean deployment completed successfully."
+          echo ""
+          echo "=========================================="
+          echo "DIGITALOCEAN DEPLOYMENT COMPLETED"
+          echo "=========================================="
