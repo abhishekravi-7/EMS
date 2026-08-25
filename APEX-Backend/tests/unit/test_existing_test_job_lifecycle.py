@@ -13,6 +13,8 @@ from app.infrastructure.persistence.models import User
 from app.api.deps import verify_job_ownership
 
 
+import uuid
+
 def test_existing_test_runner_has_job_and_disk_persistence(tmp_path, monkeypatch):
     """Verify that job state written by one worker is retrieved by another worker from disk."""
     monkeypatch.setattr("app.core.config.settings.storage_dir", tmp_path)
@@ -20,7 +22,7 @@ def test_existing_test_runner_has_job_and_disk_persistence(tmp_path, monkeypatch
     runner_worker1 = ExistingTestRunnerService()
     runner_worker2 = ExistingTestRunnerService()
 
-    job_id = "job_test_lifecycle_123"
+    job_id = f"job_test_lifecycle_{uuid.uuid4().hex[:8]}"
 
     # Initially neither worker knows about the job
     assert not runner_worker1.has_job(job_id)

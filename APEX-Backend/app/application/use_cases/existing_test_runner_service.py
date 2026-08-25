@@ -339,7 +339,10 @@ class ExistingTestDetector:
             test_names = matches
             
         # Java Test Detection (JUnit, TestNG)
-        elif name.endswith('.java') and ('test' in name or 'tests' in name or '@test' in c_lower):
+        elif name.endswith('.java') and (
+            'test' in name or 'tests' in name or name.endswith('test.java') or name.endswith('it.java')
+            or any(ann in c_lower for ann in ["@test", "@parameterizedtest", "@repeatedtest", "@testfactory", "@testtemplate"])
+        ):
             is_test = True
             language = "Java"
             if "org.junit" in content or "org.junit.jupiter" in content:
@@ -391,15 +394,33 @@ class ExistingTestDetector:
                 test_type = "API"
             else:
                 test_type = "UNIT"
-                
-            matches = re.findall(r'@Test\s*(?:\([^)]*\))?\s*(?:public\s+|private\s+|protected\s+|)?(?:static\s+)?(?:final\s+)?\w+\s+([a-zA-Z0-9_]+)\s*\(', content)
+
+            # Comprehensive pattern matching JUnit 4, JUnit 5 (@Test, @ParameterizedTest, @RepeatedTest, @TestFactory, @TestTemplate) and TestNG
+            # allowing intermediate annotations (e.g. @DisplayName, @ValueSource, @CsvSource, @Order, @Timeout, @Tag, @Disabled, etc.)
+            test_method_pattern = re.compile(
+                r'@(?:Test|ParameterizedTest|RepeatedTest|TestFactory|TestTemplate)\b(?:\([^)]*\))?'
+                r'(?:\s*@[\w.]+(?:\([^)]*\))?)*'
+                r'\s*(?:public\s+|protected\s+|private\s+)?(?:static\s+)?(?:final\s+)?(?:<[\w\s,.<>?]+>\s+)?(?:void|boolean|int|long|String|var|[\w<>[\],.]+)\s+'
+                r'([a-zA-Z0-9_$]+)\s*\(',
+                re.MULTILINE
+            )
+            raw_matches = test_method_pattern.findall(content)
+            matches = [m for m in raw_matches if m not in ("if", "for", "while", "switch", "catch", "new", "return", "class", "interface", "enum")]
+
             if not matches:
-                matches = re.findall(r'@Test[\s\S]{0,100}?(?:void|String|int|boolean|var)\s+([a-zA-Z0-9_]+)\s*\(', content)
+                # Fallback: scan any method declaration following test annotations within 200 chars
+                fallback_matches = re.findall(
+                    r'@(?:Test|ParameterizedTest|RepeatedTest|TestFactory|TestTemplate)[\s\S]{0,200}?(?:void|boolean|int|long|String|var|[\w<>[\],.]+)\s+([a-zA-Z0-9_$]+)\s*\(',
+                    content
+                )
+                matches = [m for m in fallback_matches if m not in ("if", "for", "while", "switch", "catch", "new", "return", "class", "interface", "enum")]
+
             if not matches:
-                test_count = content.count('@Test')
-                if test_count > 0:
-                    matches = [f"testMethod{i}" for i in range(test_count)]
-                    
+                # Last resort annotation counting
+                ann_count = len(re.findall(r'@(?:Test|ParameterizedTest|RepeatedTest|TestFactory|TestTemplate)\b', content))
+                if ann_count > 0:
+                    matches = [f"testMethod{i}" for i in range(ann_count)]
+
             count = len(matches)
             test_names = matches
             
@@ -639,10 +660,15 @@ class ExistingTestRunnerService:
         if not project_dir.exists():
             return {
                 "testCasesFound": 0,
-                "status": "NO_TESTS_FOUND",
-                "message": "No existing test cases found in the repository.",
+                "status": "NO_TESTS_AVAILABLE",
+                "message": "No test cases available",
                 "tests": [],
                 "total": 0,
+                "testCount": 0,
+                "passed": 0,
+                "failed": 0,
+                "skipped": 0,
+                "notExecuted": 0,
                 "framework": "Not Detected",
                 "test_cases": []
             }
@@ -657,10 +683,15 @@ class ExistingTestRunnerService:
         if total == 0 or len(test_cases) == 0:
             return {
                 "testCasesFound": 0,
-                "status": "NO_TESTS_FOUND",
-                "message": "No existing test cases found in the repository.",
+                "status": "NO_TESTS_AVAILABLE",
+                "message": "No test cases available",
                 "tests": [],
                 "total": 0,
+                "testCount": 0,
+                "passed": 0,
+                "failed": 0,
+                "skipped": 0,
+                "notExecuted": 0,
                 "framework": "Not Detected",
                 "test_cases": []
             }
@@ -856,7 +887,12 @@ class ExistingTestRunnerService:
                                     )
                                     modified = True
 
-                            # Instrument screenshot capture and video finalization around context.close()
+                            # 2. Method-level Playwright screenshot capture in @Test / @ParameterizedTest methods
+                            content, method_mod = self._inject_playwright_method_screenshots(content, f_path.stem)
+                            if method_mod:
+                                modified = True
+
+                            # 3. Lifecycle screenshot capture around context.close() if present
                             if "context.close()" in content and "page" in content:
                                 if "page.screenshot" not in content:
                                     lifecycle_injection = (
@@ -879,7 +915,7 @@ class ExistingTestRunnerService:
                                     content = content.replace('context.close();', lifecycle_injection, 1)
                                     modified = True
 
-                            # Instrument screenshot capture before page.close()
+                            # 4. Screenshot capture before page.close() if present
                             if "page.screenshot" not in content and "page.close()" in content and "page" in content:
                                 page_injection = (
                                     'try {\n'
@@ -894,7 +930,7 @@ class ExistingTestRunnerService:
                                 content = content.replace('page.close();', page_injection, 1)
                                 modified = True
 
-                        # 2. Selenium screenshot capture before driver.quit() or driver.close()
+                        # 5. Selenium screenshot capture before driver.quit() or driver.close()
                         if "org.openqa.selenium" in content or "WebDriver" in content:
                             if "TakesScreenshot" not in content and "driver.quit()" in content:
                                 sel_injection = (
@@ -916,6 +952,115 @@ class ExistingTestRunnerService:
                             self._log(job_id, f"Configured UI evidence capture in {file}")
         except Exception as e:
             self._log(job_id, f"UI evidence instrumentation note: {e}", "DEBUG")
+
+    def _inject_playwright_method_screenshots(self, content: str, class_name: str) -> tuple[str, bool]:
+        """
+        Scans a Java test file for test methods that receive a Playwright Page parameter (e.g. Page page)
+        and instruments screenshot capture in a finally block at the end of the test execution.
+        """
+        if "Page" not in content and "com.microsoft.playwright" not in content:
+            return content, False
+
+        # Regex to find test method headers with a Page parameter
+        pattern = re.compile(
+            r'(@(?:Test|ParameterizedTest|RepeatedTest|TestFactory)[\s\S]*?'
+            r'(?:public\s+|protected\s+|private\s+|)?(?:void|[\w<>[\],.]+)\s+'
+            r'([a-zA-Z0-9_$]+)\s*\([^)]*?\bPage\s+([a-zA-Z0-9_$]+)[^)]*\)\s*'
+            r'(?:throws\s+[\w\s,.<>]+)?\s*\{)',
+            re.MULTILINE
+        )
+
+        matches = list(pattern.finditer(content))
+        if not matches:
+            return content, False
+
+        modified = False
+
+        # Process matches in reverse order so character offsets remain valid
+        for match in reversed(matches):
+            header_start = match.start(1)
+            header_end = match.end(1)
+            method_name = match.group(2)
+            page_var = match.group(3)
+
+            # Find matching closing brace for this method
+            brace_count = 1
+            i = header_end
+            in_string = False
+            in_char = False
+            in_line_comment = False
+            in_block_comment = False
+            escape = False
+
+            while i < len(content) and brace_count > 0:
+                ch = content[i]
+                next_ch = content[i+1] if i + 1 < len(content) else ''
+
+                if in_line_comment:
+                    if ch == '\n':
+                        in_line_comment = False
+                elif in_block_comment:
+                    if ch == '*' and next_ch == '/':
+                        in_block_comment = False
+                        i += 1
+                elif in_string:
+                    if escape:
+                        escape = False
+                    elif ch == '\\':
+                        escape = True
+                    elif ch == '"':
+                        in_string = False
+                elif in_char:
+                    if escape:
+                        escape = False
+                    elif ch == '\\':
+                        escape = True
+                    elif ch == "'":
+                        in_char = False
+                else:
+                    if ch == '/' and next_ch == '/':
+                        in_line_comment = True
+                        i += 1
+                    elif ch == '/' and next_ch == '*':
+                        in_block_comment = True
+                        i += 1
+                    elif ch == '"':
+                        in_string = True
+                    elif ch == "'":
+                        in_char = True
+                    elif ch == '{':
+                        brace_count += 1
+                    elif ch == '}':
+                        brace_count -= 1
+                i += 1
+
+            if brace_count == 0:
+                body_end = i - 1
+                original_body = content[header_end:body_end]
+
+                # If already instrumented with target/screenshots, skip
+                if f"{page_var}.screenshot" in original_body and "target/screenshots" in original_body:
+                    continue
+
+                shot_code = (
+                    f"\n        try {{\n"
+                    f"{original_body}\n"
+                    f"        }} finally {{\n"
+                    f"            try {{\n"
+                    f"                if ({page_var} != null && !{page_var}.isClosed()) {{\n"
+                    f"                    java.nio.file.Path _shotDir = java.nio.file.Paths.get(\"target/screenshots\");\n"
+                    f"                    java.nio.file.Files.createDirectories(_shotDir);\n"
+                    f"                    {page_var}.screenshot(new com.microsoft.playwright.Page.ScreenshotOptions()\n"
+                    f"                        .setPath(_shotDir.resolve(this.getClass().getSimpleName() + \".{method_name}.png\"))\n"
+                    f"                        .setFullPage(true));\n"
+                    f"                }}\n"
+                    f"            }} catch (Throwable _ignored) {{}}\n"
+                    f"        }}\n    "
+                )
+                content = content[:header_end] + shot_code + content[body_end:]
+                modified = True
+
+        return content, modified
 
     @staticmethod
     def _mask_sensitive_api_data(text: str | None) -> str | None:
@@ -1233,32 +1378,45 @@ class ExistingTestRunnerService:
     @staticmethod
     def _normalize_test_name(name: str | None) -> str:
         """
-        Normalizes test method/case names by stripping trailing empty parentheses '()'
-        while preserving parameterized signatures like 'testMethod(String, int)' or '[1] arg=val'.
+        Normalizes test method/case names by stripping method parameter types like '(String, Page)'
+        while preserving parameterized execution invocation indices like '[1]', '[2]' or 'testMethod[1]'.
 
         Examples:
             'testGetFeet()' -> 'testGetFeet'
-            'testGetFeet'   -> 'testGetFeet'
-            'test(int, int)' -> 'test(int, int)'
-            'com.example.Class.method()' -> 'com.example.Class.method'
+            'searchByCriteria(String, Page)[1]' -> 'searchByCriteria[1]'
+            'searchByCriteria[1]' -> 'searchByCriteria[1]'
+            'test(int, int)' -> 'test'
+            'authentication(Page)' -> 'authentication'
         """
         if not name:
             return "unknown"
-        s = name.strip()
+        s = str(name).strip()
         if s.endswith("()"):
             return s[:-2].strip()
+
+        # Extract parameterized invocation index if present (e.g. [1], [2], [1: candidate=foo], [2] candidate=radar)
+        bracket_match = re.search(r'\[\s*([^\]]+)\s*\]', s)
+        bracket_part = ""
+        if bracket_match:
+            idx_content = bracket_match.group(1).split(":")[0].strip()
+            bracket_part = f"[{idx_content}]"
+
+        # If it has parameters before brackets: e.g. searchByCriteria(String, Page)[1]
+        if "(" in s:
+            paren_idx = s.find("(")
+            method_base = s[:paren_idx].strip()
+            return f"{method_base}{bracket_part}" if method_base else s
+        elif bracket_match and not s.startswith("["):
+            method_base = s.split("[")[0].strip()
+            return f"{method_base}{bracket_part}" if method_base else s
+
         return s
 
     @staticmethod
     def _canonical_test_identifier(test_name: str | None, suite: str | None, file_or_module: str | None = None) -> tuple[str, str]:
         """
-        Builds a canonical (class_name, test_method) tuple for unique test matching and deduplication.
-        Canonicalizes:
-          - Class.method(Page) -> ('class', 'method')
-          - Class#method -> ('class', 'method')
-          - class.method -> ('class', 'method')
-          - method(Page) with suite 'pkg.Class' -> ('class', 'method')
-        Preserves original display names elsewhere; this tuple is used strictly for identity matching.
+        Builds a canonical (class_name, test_invocation) tuple for unique test execution matching and deduplication.
+        Preserves invocation indices like '[1]', '[2]' so distinct parameterized executions are preserved.
         """
         if not test_name:
             s_raw = "unknown"
@@ -1285,9 +1443,24 @@ class ExistingTestRunnerService:
                     suite = parts[-2]
                 norm_name = method_part + (norm_name[paren_idx:] if paren_idx != -1 else "")
 
-        # Strip method parameters for canonical matching (e.g. '(Page)', '(String, int)', '()')
+        # Extract parameterized invocation index if present (e.g. [1], [2], [1: candidate=foo], [2] candidate=radar)
+        bracket_match = re.search(r'\[\s*([^\]]+)\s*\]', norm_name)
+        bracket_part = ""
+        if bracket_match:
+            idx_content = bracket_match.group(1).split(":")[0].strip()
+            bracket_part = f"[{idx_content}]"
+
+        # Remove parentheses and parameter lists: e.g. (String, Page)[1] -> method_base + [1]
         if "(" in norm_name:
-            norm_name = norm_name.split("(")[0].strip()
+            paren_idx = norm_name.find("(")
+            method_base = norm_name[:paren_idx].strip()
+            norm_name = f"{method_base}{bracket_part}" if method_base else norm_name
+        elif bracket_match and not norm_name.startswith("["):
+            method_base = norm_name.split("[")[0].strip()
+            norm_name = f"{method_base}{bracket_part}" if method_base else norm_name
+
+        # Strip any leftover trailing repetition markers (e.g. 'repetition 1 of 5')
+        norm_name = re.sub(r'\s+repetition\s+\d+\s+of\s+\d+', '', norm_name).strip()
 
         suite_str = (suite or "").strip()
         if suite_str:
@@ -1299,6 +1472,19 @@ class ExistingTestRunnerService:
         else:
             class_name = "unknown"
 
+        return (class_name, norm_name)
+
+    @staticmethod
+    def _base_canonical_test_identifier(test_name: str | None, suite: str | None, file_or_module: str | None = None) -> tuple[str, str]:
+        """
+        Returns the base (class_name, method_name) without parameterized invocation indices ('[1]', '[2]', etc.).
+        Used to match parameterized execution invocations back to their statically discovered method definition.
+        """
+        class_name, norm_name = ExistingTestRunnerService._canonical_test_identifier(test_name, suite, file_or_module)
+        if "[" in norm_name:
+            base_m = norm_name.split("[")[0].strip()
+            if base_m:
+                norm_name = base_m
         return (class_name, norm_name)
 
     @staticmethod
@@ -1742,28 +1928,40 @@ class ExistingTestRunnerService:
 
         # If zero tests found in the entire repository, skip all test runner executions
         if total_tests == 0 or len(test_cases) == 0:
-            self._log(job_id, "No existing test cases found.")
-            self._log(job_id, "Skipping test execution because no existing tests were detected.")
+            self._log(job_id, "Test discovery: Detected 0 test cases")
+            self._log(job_id, "No existing test cases found in this repository.")
+            self._log(job_id, "Status: NO_TESTS_AVAILABLE")
 
             no_tests_result = {
-                "status": "NO_TESTS_FOUND",
+                "status": "NO_TESTS_AVAILABLE",
+                "testCount": 0,
+                "test_count": 0,
+                "passed": 0,
+                "failed": 0,
+                "skipped": 0,
+                "notExecuted": 0,
+                "not_executed": 0,
                 "executed": False,
                 "testCasesFound": 0,
-                "message": "No existing test cases found in the repository.",
+                "message": "No test cases available",
+                "displayMessage": "No test cases available",
                 "tests": [],
                 "metrics": {
                     "total": 0,
+                    "testCount": 0,
                     "executed": 0,
                     "passed": 0,
                     "failed": 0,
                     "skipped": 0,
                     "not_executed": 0,
+                    "notExecuted": 0,
                     "duration": "0.00s",
                     "pass_percentage": "N/A",
                     "type": "Not Detected",
                     "build_tool": None,
                     "existing_coverage": "N/A",
-                    "execution_status": "NO_TESTS_FOUND",
+                    "execution_status": "NO_TESTS_AVAILABLE",
+                    "status": "NO_TESTS_AVAILABLE",
                     "compilation_error": None,
                 },
                 "framework_info": {
@@ -1781,7 +1979,7 @@ class ExistingTestRunnerService:
             }
             with self._lock:
                 state = self._state.setdefault(job_id, {})
-                state["status"] = "NO_TESTS_FOUND"
+                state["status"] = "NO_TESTS_AVAILABLE"
                 state["executed"] = True
                 state["result"] = no_tests_result
 
@@ -1790,7 +1988,7 @@ class ExistingTestRunnerService:
             except Exception:
                 pass
             self._save_state_to_disk(job_id)
-            logger.info("[EXISTING-TEST-JOB] Final result stored jobId=%s", job_id)
+            logger.info("[EXISTING-TEST-JOB] Final result stored jobId=%s status=NO_TESTS_AVAILABLE", job_id)
 
             return no_tests_result
 
@@ -2337,16 +2535,19 @@ class ExistingTestRunnerService:
                 self._log(job_id, f"[TEST-IDENTITY] discovered={orig_name} canonical={canonical_str} module={mod_str}")
 
         # Deduplicate parsed_test_results using canonical test identifiers with priority:
-        # Executed results (PASSED, FAILED, ERROR, SKIPPED) take precedence over NOT_EXECUTED.
+        # Executed results (FAILED, ERROR, PASSED, SKIPPED) take precedence over NOT_EXECUTED.
         STATUS_PRIORITY = {
-            "PASSED": 1,
             "FAILED": 1,
             "ERROR": 1,
-            "SKIPPED": 2,
-            "NOT_EXECUTED": 3,
+            "PASSED": 2,
+            "SKIPPED": 3,
+            "NOT_EXECUTED": 4,
         }
 
         results_by_key = {}
+        duplicate_count = 0
+        raw_execution_count = len(parsed_test_results)
+
         for r in parsed_test_results:
             r_name = self._normalize_test_name(r.get("test_name") or r.get("name", ""))
             r["test_name"] = r_name
@@ -2360,24 +2561,69 @@ class ExistingTestRunnerService:
             if key not in results_by_key:
                 results_by_key[key] = r
             else:
+                duplicate_count += 1
                 existing = results_by_key[key]
-                existing_prio = STATUS_PRIORITY.get(existing.get("status", "NOT_EXECUTED"), 4)
-                new_prio = STATUS_PRIORITY.get(r.get("status", "NOT_EXECUTED"), 4)
+                existing_prio = STATUS_PRIORITY.get(existing.get("status", "NOT_EXECUTED"), 5)
+                new_prio = STATUS_PRIORITY.get(r.get("status", "NOT_EXECUTED"), 5)
                 if new_prio < existing_prio:
                     self._log(job_id, f"[TEST-DEDUP] duplicate={canonical_str} keeping={r.get('status')}")
                     results_by_key[key] = r
                 else:
                     self._log(job_id, f"[TEST-DEDUP] duplicate={canonical_str} keeping={existing.get('status')}")
 
-        # Ensure all discovered test_cases have a corresponding entry if missing
+        # Index executed results by base canonical key for fast parameterized lookup
+        results_by_base_key: dict[tuple[str, str], list[dict]] = {}
+        for k, r in results_by_key.items():
+            base_k = self._base_canonical_test_identifier(k[1], k[0])
+            results_by_base_key.setdefault(base_k, []).append(r)
+
+        # Match discovered test_cases against executed results
+        discovered_base_keys = set()
+        matched_count = 0
+
         if test_cases:
             for tc in test_cases:
                 tc_name = self._normalize_test_name(tc.get("name", "test"))
                 tc_suite = tc.get("classname") or tc.get("suite") or tc.get("module", "")
                 tc_file = tc.get("file", "")
                 key = self._canonical_test_identifier(tc_name, tc_suite, tc_file)
+                base_key = self._base_canonical_test_identifier(tc_name, tc_suite, tc_file)
                 canonical_str = f"{key[0]}.{key[1]}"
-                if key not in results_by_key:
+                discovered_base_keys.add(base_key)
+
+                # Check 1: Direct exact match in results_by_key
+                if key in results_by_key:
+                    matched_count += 1
+                    r = results_by_key[key]
+                    if not r.get("file") and tc_file:
+                        r["file"] = tc_file
+                    if not r.get("framework") and tc.get("framework"):
+                        r["framework"] = tc.get("framework")
+                    if tc.get("type") and r.get("type") in ("JUnit", "Unknown", None):
+                        r["type"] = tc.get("type")
+                        r["category"] = tc.get("category", self._test_category(tc.get("type"), tc.get("framework", "")))
+                    status_str = r.get("status", "UNKNOWN")
+                    self._log(job_id, f"[TEST-MERGE] discovered={canonical_str} executed={canonical_str} status={status_str}")
+                    self._log(job_id, f"[TEST-MERGE] matched=true")
+                    self._log(job_id, f"[TEST-MERGE] finalStatus={status_str}")
+
+                # Check 2: Parameterized execution matches (e.g. method[1], method[2])
+                elif base_key in results_by_base_key:
+                    matched_count += 1
+                    param_results = results_by_base_key[base_key]
+                    for r in param_results:
+                        if not r.get("file") and tc_file:
+                            r["file"] = tc_file
+                        if not r.get("framework") and tc.get("framework"):
+                            r["framework"] = tc.get("framework")
+                        if tc.get("type") and r.get("type") in ("JUnit", "Unknown", None):
+                            r["type"] = tc.get("type")
+                            r["category"] = tc.get("category", self._test_category(tc.get("type"), tc.get("framework", "")))
+                    self._log(job_id, f"[TEST-MERGE] discovered={canonical_str} matched_parameterized_count={len(param_results)}")
+                    self._log(job_id, f"[TEST-MERGE] matched=true")
+
+                # Check 3: Truly unexecuted test case -> add as NOT_EXECUTED
+                else:
                     results_by_key[key] = {
                         "test_name": tc_name,
                         "name": tc_name,
@@ -2391,24 +2637,26 @@ class ExistingTestRunnerService:
                         "category": tc.get("category", self._test_category(tc.get("type", "JUnit"), tc.get("framework", "")))
                     }
                     self._log(job_id, f"[TEST-MERGE] discovered={canonical_str} executed=NONE status=NOT_EXECUTED")
-                    self._log(job_id, f"[TEST-MERGE] discovered={canonical_str}")
-                    self._log(job_id, f"[TEST-MERGE] executed=NONE")
                     self._log(job_id, f"[TEST-MERGE] matched=false")
                     self._log(job_id, f"[TEST-MERGE] finalStatus=NOT_EXECUTED")
-                else:
-                    if not results_by_key[key].get("file") and tc_file:
-                        results_by_key[key]["file"] = tc_file
-                    if not results_by_key[key].get("framework") and tc.get("framework"):
-                        results_by_key[key]["framework"] = tc.get("framework")
-                    if tc.get("type") and results_by_key[key].get("type") in ("JUnit", "Unknown", None):
-                        results_by_key[key]["type"] = tc.get("type")
-                        results_by_key[key]["category"] = tc.get("category", self._test_category(tc.get("type"), tc.get("framework", "")))
-                    status_str = results_by_key[key].get("status", "UNKNOWN")
-                    self._log(job_id, f"[TEST-MERGE] discovered={canonical_str} executed={canonical_str} status={status_str}")
-                    self._log(job_id, f"[TEST-MERGE] discovered={canonical_str}")
-                    self._log(job_id, f"[TEST-MERGE] executed={canonical_str}")
-                    self._log(job_id, f"[TEST-MERGE] matched=true")
-                    self._log(job_id, f"[TEST-MERGE] finalStatus={status_str}")
+
+        # Explicitly log unmatched execution results and test identity summary
+        unmatched_execution_keys = [
+            f"{k[0]}.{k[1]}" for k in results_by_key.keys()
+            if self._base_canonical_test_identifier(k[1], k[0]) not in discovered_base_keys
+        ]
+        for unk in unmatched_execution_keys:
+            self._log(job_id, f"[TEST-IDENTITY] Unmatched execution result added to inventory: {unk}", "WARN")
+
+        initial_discovered_count = len(test_cases) if test_cases else 0
+        final_canonical_count = len(results_by_key)
+
+        self._log(job_id, f"[TEST-IDENTITY] Discovered tests count: {initial_discovered_count}")
+        self._log(job_id, f"[TEST-IDENTITY] Execution-result count: {raw_execution_count}")
+        self._log(job_id, f"[TEST-IDENTITY] Matched count: {matched_count}")
+        self._log(job_id, f"[TEST-IDENTITY] Unmatched execution results: {unmatched_execution_keys}")
+        self._log(job_id, f"[TEST-IDENTITY] Duplicates deduplicated: {duplicate_count}")
+        self._log(job_id, f"[TEST-IDENTITY] Final canonical test count: {final_canonical_count}")
 
         parsed_test_results = list(results_by_key.values())
 
@@ -2464,7 +2712,7 @@ class ExistingTestRunnerService:
         executed_failed = 0
         executed_skipped = 0
         not_executed_count = 0
-        total_discovered = max(len(test_cases), len(parsed_test_results)) if (test_cases or parsed_test_results) else 0
+        total_discovered = len(parsed_test_results)
 
         if parsed_test_results:
             executed_passed = sum(1 for t in parsed_test_results if t.get("status") == "PASSED")
@@ -2626,6 +2874,8 @@ class ExistingTestRunnerService:
                         clean_method = re.sub(r'\(.*?\)', '', test_name).split('#')[-1].split('.')[-1].strip()
                         c_key = self._canonical_test_identifier(test_name, suite, fname)
                         canonical_method = c_key[1]
+                        base_key = self._base_canonical_test_identifier(test_name, suite, fname)
+                        base_method = base_key[1]
 
                         # Search for per-test screenshot & video files in project & evidence output dirs
                         search_dirs = [
@@ -2653,6 +2903,7 @@ class ExistingTestRunnerService:
                                     is_method_match = (
                                         clean_method.lower() in fname_lower or
                                         (canonical_method and canonical_method.lower() in fname_lower) or
+                                        (base_method and base_method.lower() in fname_lower) or
                                         clean_method.lower() in parent_lower
                                     )
                                     if is_method_match:
@@ -2736,7 +2987,14 @@ class ExistingTestRunnerService:
                             elif status == "FAILED":
                                 unavailable_reason = "Screenshot/video unavailable: test failed before evidence capture"
                             else:
-                                unavailable_reason = "Screenshot/video evidence unavailable for this test"
+                                unavailable_reason = "Screenshot evidence is unavailable for this execution."
+                        elif not has_screenshot:
+                            if status == "ERROR":
+                                unavailable_reason = "Screenshot unavailable because test encountered an initialization/timeout error before capture"
+                            elif status == "FAILED":
+                                unavailable_reason = "Screenshot unavailable: test failed before evidence capture"
+                            else:
+                                unavailable_reason = "Screenshot evidence is unavailable for this execution."
 
                         tc["evidence"] = {
                             "screenshotAvailable": has_screenshot,
@@ -2779,10 +3037,13 @@ class ExistingTestRunnerService:
                         c_str = f"{c_key[0]}.{c_key[1]}"
                         self._log(job_id, f"[UI EVIDENCE] test={c_str}")
                         if has_screenshot:
+                            self._log(job_id, "[UI EVIDENCE] Capturing screenshot")
+                            self._log(job_id, f"[UI EVIDENCE] Screenshot path={dest_shot}")
                             self._log(job_id, f"[UI EVIDENCE] screenshot={dest_shot}")
                             self._log(job_id, f"[UI EVIDENCE] screenshot exists: true")
                             self._log(job_id, f"[UI EVIDENCE] screenshot exists=true")
                             self._log(job_id, f"[UI EVIDENCE] Screenshot size: {dest_shot.stat().st_size} bytes")
+                            self._log(job_id, "[UI EVIDENCE] Screenshot metadata attached=true")
                         else:
                             self._log(job_id, f"[UI EVIDENCE] screenshot=NONE")
                             self._log(job_id, f"[UI EVIDENCE] screenshot exists: false")
@@ -2790,7 +3051,7 @@ class ExistingTestRunnerService:
                             if status == "ERROR":
                                 self._log(job_id, "[UI EVIDENCE] Screenshot/video unavailable because test encountered an initialization/timeout error before capture", "INFO")
                             else:
-                                self._log(job_id, "[UI EVIDENCE] Screenshot unavailable for this execution", "INFO")
+                                self._log(job_id, "[UI EVIDENCE] Screenshot evidence is unavailable for this execution.", "INFO")
 
                         if has_video:
                             self._log(job_id, "[UI VIDEO] Recording enabled=true")
