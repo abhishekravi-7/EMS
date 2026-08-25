@@ -15,9 +15,10 @@ on:
       failure_area:
         description: "Choose which area should fail"
         required: false
-        default: "frontend"
+        default: "none"
         type: choice
         options:
+          - none
           - frontend
           - backend
           - security
@@ -40,7 +41,6 @@ jobs:
 
     steps:
       - name: Simulate frontend checks
-        id: simulate
         shell: bash
         run: |
           echo "Simulating Frontend CI checks..."
@@ -97,7 +97,6 @@ jobs:
 
     steps:
       - name: Simulate backend checks
-        id: simulate
         shell: bash
         run: |
           echo "Simulating Backend CI checks..."
@@ -153,7 +152,6 @@ jobs:
 
     steps:
       - name: Simulate security checks
-        id: simulate
         shell: bash
         run: |
           echo "Simulating Security checks..."
@@ -196,7 +194,7 @@ jobs:
 
 
   # ============================================================
-  # FINAL TEST CI STATUS
+  # FINAL CI STATUS
   # ============================================================
   ci-status:
     name: Integration CI Test status
@@ -366,6 +364,7 @@ jobs:
             )
           }}
         shell: bash
+
         env:
           FRONTEND_FAILED: ${{ needs.frontend.outputs.failed_checks }}
           BACKEND_FAILED: ${{ needs.backend.outputs.failed_checks }}
@@ -475,6 +474,7 @@ jobs:
 
   # ============================================================
   # EMAIL NOTIFICATION
+  # Gmail SMTP: SSL/TLS port 465
   # ============================================================
   email-notify:
     name: Email notification
@@ -489,8 +489,6 @@ jobs:
     if: always()
 
     env:
-      SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
-      SMTP_PORT: ${{ secrets.SMTP_PORT }}
       SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
       SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
       ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
@@ -503,7 +501,6 @@ jobs:
       - name: Send success email
         if: >-
           ${{
-            env.SMTP_SERVER != '' &&
             env.SMTP_USERNAME != '' &&
             env.SMTP_PASSWORD != '' &&
             env.ALERT_EMAIL != '' &&
@@ -515,9 +512,9 @@ jobs:
         uses: dawidd6/action-send-mail@v3
 
         with:
-          server_address: ${{ env.SMTP_SERVER }}
-          server_port: ${{ env.SMTP_PORT }}
-          secure: false
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
 
           username: ${{ env.SMTP_USERNAME }}
           password: ${{ env.SMTP_PASSWORD }}
@@ -555,15 +552,23 @@ jobs:
             TEST STATUS
             ==========================================
 
-            Frontend: PASSED
-            Backend: PASSED
-            Security: PASSED
+            Frontend:
+            PASSED
 
-            Run URL:
+            Backend:
+            PASSED
+
+            Security:
+            PASSED
+
+            ==========================================
+            WORKFLOW RUN
+            ==========================================
+
             ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
-            The Integration CI success flow and notification process
-            were validated successfully.
+            The Integration CI success flow and notification
+            process were validated successfully.
 
 
       # ========================================================
@@ -572,7 +577,6 @@ jobs:
       - name: Send failure email
         if: >-
           ${{
-            env.SMTP_SERVER != '' &&
             env.SMTP_USERNAME != '' &&
             env.SMTP_PASSWORD != '' &&
             env.ALERT_EMAIL != '' &&
@@ -586,9 +590,9 @@ jobs:
         uses: dawidd6/action-send-mail@v3
 
         with:
-          server_address: ${{ env.SMTP_SERVER }}
-          server_port: ${{ env.SMTP_PORT }}
-          secure: false
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
 
           username: ${{ env.SMTP_USERNAME }}
           password: ${{ env.SMTP_PASSWORD }}
@@ -648,5 +652,10 @@ jobs:
             Security Failed Checks:
             ${{ needs.security.outputs.failed_checks }}
 
-            Run URL:
+            ==========================================
+            WORKFLOW RUN
+            ==========================================
+
             ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            Please review the failed checks in the workflow run.

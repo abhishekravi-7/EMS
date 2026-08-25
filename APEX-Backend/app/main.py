@@ -83,6 +83,11 @@ async def lifespan(_app: FastAPI):
     if settings.firebase_auth_enabled:
         init_firebase()
 
+
+    else:
+        logger.info("Firebase Auth disabled by configuration — skipping Firebase initialization.")
+
+
     # Initialize LLM Token Tracing
     from app.application.services.llm_token_tracing_service import ChainedTraceSink
     sinks = [tt.JsonlTraceSink("logs/llm_usage.jsonl")]
