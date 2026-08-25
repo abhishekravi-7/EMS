@@ -73,6 +73,7 @@ def init_firebase() -> None:
                     "project_id": settings.firebase_project_id,
                     "private_key": settings.firebase_private_key.replace('\\n', '\n'),
                     "client_email": settings.firebase_client_email,
+                    "token_uri": "https://oauth2.googleapis.com/token",
                 })
                 firebase_admin.initialize_app(cred)
                 logger.info("Firebase Admin initialized with service account.")
