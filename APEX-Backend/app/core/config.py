@@ -5,6 +5,8 @@ sitting at the backend root). Keep this module free of any business logic — it
 only exposes configuration values.
 """
 
+from __future__ import annotations
+
 from functools import lru_cache
 from pathlib import Path
 
@@ -38,12 +40,12 @@ class Settings(BaseSettings):
     # the unauthenticated rate limit, clones private source repos). May be empty.
     github_token: str = ""
     # Target/publish token: used by the Start Migration stage to create and push
-    # migrated repositories under the Javaapex org. Must belong to an account
+    # migrated repositories under the JavaAPEX org. Must belong to an account
     # authorized on that org (repo scope, or fine-grained Administration +
     # Contents: write). May be empty until the Start Migration stage is used.
     github_target_token: str = ""
     # GitHub owner (org/user) that migrated repositories are published under.
-    github_target_owner: str = "Javaapex"
+    github_target_owner: str = "JavaAPEX"
     github_request_timeout_seconds: float = 15.0
 
     # --- Hugging Face LLM (Target Java Version Recommendation) --------------
@@ -58,18 +60,18 @@ class Settings(BaseSettings):
     huggingface_request_timeout_seconds: float = 30.0
 
     # --- Strategy RAG chatbot (JavaApex Assistant) --------------------------
-    # Primary LLM: Groq (OpenAI-compatible chat completions, streaming). Read
-    # from the provider-neutral LLM_2 env var; leave empty to disable Groq and
+    # Primary LLM: GROQ (OpenAI-compatible chat completions, streaming). Read
+    # from the provider-neutral LLM_2 env var; leave empty to disable GROQ and
     # fall straight through to Ollama.
     groq_api_key: str = Field(default="", alias="LLM_2")
     groq_model: str = "llama-3.3-70b-versatile"
     groq_base_url: str = "https://api.groq.com/openai/v1"
-    # Fallback LLM: a local Ollama server. Used only when Groq is unavailable.
+    # Fallback LLM: a local Ollama server. Used only when GROQ is unavailable.
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.2"
     # Sentence-embedding model (384-dim). Downloaded + cached on first use.
     embedding_model_name: str = "BAAI/bge-small-en-v1.5"
-    # Embedded Qdrant vector store — persists to disk (no server/Docker needed).
+    # Embedded Qdrant (Vector Store) — persists to disk (no server/Docker needed).
     # Swap to server mode later by pointing the wrapper at a URL instead.
     qdrant_path: Path = BACKEND_ROOT / "storage" / "vector-store"
     qdrant_collection: str = "repo_knowledge"
@@ -88,7 +90,7 @@ class Settings(BaseSettings):
     )
     # Number of knowledge chunks retrieved per question.
     rag_top_k: int = 4
-    # Timeout (seconds) for a single chat-LLM request (Groq or Ollama).
+    # Timeout (seconds) for a single chat-LLM request (GROQ or Ollama).
     chat_llm_request_timeout_seconds: float = 60.0
     # Timeout (seconds) to wait for the first token before falling back to next provider.
     chat_llm_fallback_timeout_seconds: float = 3.0
@@ -233,8 +235,8 @@ class Settings(BaseSettings):
     def _normalize_database_url(cls, value: str) -> str:
         """Force the psycopg (v3) driver onto the connection string.
 
-        Managed Postgres providers hand out `postgres://...` or
-        `postgresql://...`, but SQLAlchemy maps both onto psycopg2 -- which is
+        Managed PostgreSQL providers hand out `postgresql://...` or
+        `postgres://...`, but SQLAlchemy maps both onto psycopg2 -- which is
         not installed (requirements.txt pins psycopg v3) -- so `create_engine`
         fails at import time with a ModuleNotFoundError. Rewriting the scheme
         here means the URL can be pasted straight from the provider's dashboard
@@ -266,9 +268,6 @@ class Settings(BaseSettings):
 
     # Enable/disable Firebase authentication
     firebase_auth_enabled: bool = Field(default=True, alias="FIREBASE_AUTH_ENABLED")
-
-    # Enable/disable Firebase authentication (for migration period or local testing)
-    firebase_auth_enabled: bool = Field(default=False, alias="FIREBASE_AUTH_ENABLED")
 
 
     # Frontend origin this deployment's auth cookies/CORS trust.
@@ -310,7 +309,7 @@ class Settings(BaseSettings):
 
     @property
     def cookie_samesite(self) -> str:
-        """SameSite policy for the auth cookies, chosen per environment.
+        """Same-Site policy for the auth cookies, chosen per environment.
 
         The deployed frontend and backend live on different hosts, which makes
         every API call cross-site. `SameSite=Lax` tells the browser to withhold

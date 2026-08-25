@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+from typing import Optional, Dict
 import logging
 import jwt
 from jwt import PyJWKClient
@@ -22,7 +24,7 @@ from app.infrastructure.persistence.models import User
 logger = logging.getLogger(__name__)
 
 _GOOGLE_JWKS_URL = "https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com"
-_jwks_client: PyJWKClient | None = None
+_jwks_client: Optional[PyJWKClient] = None
 
 
 def _get_jwks_client() -> PyJWKClient:
@@ -83,7 +85,7 @@ def init_firebase() -> None:
                 raise RuntimeError(f"Firebase Auth is enabled but Admin SDK failed to initialize: {e}") from e
 
 
-def _verify_and_decode_firebase_token(token: str) -> dict:
+def _verify_and_decode_firebase_token(token: str) -> Dict:
     """Verify Firebase ID token via Admin SDK or Google JWKS public keys."""
     # 1. Admin SDK if initialized
     if firebase_auth is not None and firebase_admin is not None and getattr(firebase_admin, "_apps", None):
@@ -112,7 +114,7 @@ def _verify_and_decode_firebase_token(token: str) -> dict:
 
 # Helper to verify token and return local user
 async def verify_firebase_token(
-    db: Session | None,
+    db: Optional[Session],
     token: str
 ) -> User:
     try:
@@ -126,7 +128,6 @@ async def verify_firebase_token(
             raise HTTPException(status_code=401, detail="Firebase token missing email.")
 
         if db is None or not settings.database_enabled:
-            from datetime import datetime, timezone
             fake_user = User()
             fake_user.id = 0
             fake_user.full_name = name
@@ -168,7 +169,7 @@ async def verify_firebase_token(
 auth_scheme = HTTPBearer()
 
 async def get_firebase_user(
-    db: Session | None,
+    db: Optional[Session],
     auth_creds: HTTPAuthorizationCredentials = Security(auth_scheme)
 ) -> User:
     return await verify_firebase_token(db, auth_creds.credentials)
