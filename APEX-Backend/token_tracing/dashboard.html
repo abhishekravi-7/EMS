@@ -96,9 +96,7 @@
       <p>Live LLM token, cost and latency traces for every AI call</p>
     </div>
     <div class="actions">
-      <button id="btn-auto-refresh"><i>🔄</i> Auto-refresh</button>
-      <button id="btn-refresh"><i>🔃</i> Refresh</button>
-      <button class="primary" onclick="window.open('/', '_blank')"><i>🚀</i> Standalone Dashboard</button>
+      <button id="btn-refresh" class="primary"><i>🔃</i> Refresh</button>
     </div>
   </header>
 
@@ -215,8 +213,7 @@
 "use strict";
 
 const API_BASE = window.TOKEN_TRACING_API || "/api";
-const state = { model: "", endpoint: "", provider: "", errorOnly: false, autoRefresh: true };
-let autoTimer = null;
+const state = { model: "", endpoint: "", provider: "", errorOnly: false };
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -371,11 +368,6 @@ async function refresh() {
     $('#count-models').textContent = '0 entries';
     $('#count-endpoints').textContent = '0 entries';
     $('#count-records').textContent = '0 shown - newest first';
-    if (isAuthError) {
-      clearInterval(autoTimer);
-      state.autoRefresh = false;
-      $('#btn-auto-refresh').classList.remove('primary');
-    }
   }
 }
 
@@ -385,15 +377,6 @@ $('#f-endpoint').onchange = (e) => { state.endpoint = e.target.value; refresh();
 $('#f-provider').onchange = (e) => { state.provider = e.target.value; refresh(); };
 $('#f-error').onchange = (e) => { state.errorOnly = e.target.checked; refresh(); };
 
-$('#btn-auto-refresh').onclick = () => {
-  state.autoRefresh = !state.autoRefresh;
-  $('#btn-auto-refresh').classList.toggle('primary', state.autoRefresh);
-  if (state.autoRefresh) autoTimer = setInterval(refresh, 5000);
-  else clearInterval(autoTimer);
-};
-
-autoTimer = setInterval(refresh, 5000);
-$('#btn-auto-refresh').classList.add('primary');
 refresh();
 </script>
 </body>
