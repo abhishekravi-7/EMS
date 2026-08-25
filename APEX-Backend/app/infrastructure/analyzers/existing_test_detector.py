@@ -108,16 +108,20 @@ class ExistingTestDetector:
         # Matches @Test followed by method signature
         methods = []
 
-        # Pattern for JUnit 4/5 (including @ParameterizedTest, @RepeatedTest) and TestNG, allowing intermediate annotations
+        # Pattern for JUnit 4/5 (@Test, @ParameterizedTest, @RepeatedTest, @TestFactory, @TestTemplate) and TestNG, allowing intermediate annotations
         test_method_pattern = re.compile(
-            r"@(?:Test|ParameterizedTest|RepeatedTest)\s*(?:\([^)]*\))?\s*(?:@\w+(?:\([^)]*\))?\s*)*(?:public\s+|protected\s+|private\s+)?(?:static\s+)?(?:final\s+)?\w+\s+([a-zA-Z0-9_]+)\s*\(",
+            r'@(?:Test|ParameterizedTest|RepeatedTest|TestFactory|TestTemplate)\b(?:\([^)]*\))?'
+            r'(?:\s*@[\w.]+(?:\([^)]*\))?)*'
+            r'\s*(?:public\s+|protected\s+|private\s+)?(?:static\s+)?(?:final\s+)?(?:<[\w\s,.<>?]+>\s+)?(?:void|boolean|int|long|String|var|[\w<>[\],.]+)\s+'
+            r'([a-zA-Z0-9_$]+)\s*\(',
             re.MULTILINE
         )
 
         for match in test_method_pattern.finditer(content):
             method_name = match.group(1)
-            if method_name not in methods:
+            if method_name not in methods and method_name not in ("if", "for", "while", "switch", "catch", "new", "return", "class", "interface", "enum"):
                 methods.append(method_name)
+
 
         if not methods:
             # Fallback for methods without explicit @Test if the class name suggests it's a test
