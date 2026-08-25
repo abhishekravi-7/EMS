@@ -245,6 +245,7 @@ class RunDiscoveryUseCase:
                 "frameworks": analysis.frameworks,
                 "hasTests": analysis.has_tests,
                 "javaFileCount": len(analysis.java_files),
+                "totalFileCount": analysis.total_file_count,
                 "defaultBranch": "main",
                 "buildWarning": analysis.build_warning,
                 "frontend": analysis.frontend.to_dict(),

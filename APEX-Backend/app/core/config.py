@@ -277,7 +277,7 @@ class Settings(BaseSettings):
     environment: str = "development"
 
     # --- OAuth (Google / GitHub social login) ---------------------------------
-    # Identity-only login (see app/infrastructure/oauth/). Deliberately separate
+    # identity-only login (see app/infrastructure/oauth/). Deliberately separate
     # from GITHUB_TOKEN/GITHUB_TARGET_TOKEN above, which are unrelated to login
     # and used only for the Connect stage's repository read/publish access.
     google_client_id: str = Field(default="", alias="GOOGLE_CLIENT_ID")

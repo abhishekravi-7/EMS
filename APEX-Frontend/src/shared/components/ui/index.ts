@@ -18,3 +18,9 @@ export type { PageHeaderProps } from "./PageHeader";
 
 export { default as Drawer } from "./Drawer";
 export type { DrawerProps } from "./Drawer";
+
+export { default as Modal } from "./Modal";
+export type { ModalProps } from "./Modal";
+
+export { default as DonutChart } from "./DonutChart";
+export type { DonutChartProps, SliceItem } from "./DonutChart";
