@@ -63,6 +63,8 @@ export interface RepoAnalysis {
   java_version_from_build?: string | null;
   // List of discovered Java source file paths
   java_files?: string[];
+  java_file_count?: number;
+  total_file_count?: number;
   jsp_files?: string[];
   jsf_files?: string[];
   jsp_count?: number;

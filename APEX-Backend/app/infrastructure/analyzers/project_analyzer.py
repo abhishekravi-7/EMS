@@ -54,6 +54,7 @@ class ProjectAnalysis:
     has_src_test: bool
     has_tests: bool
     java_files: list[str] = field(default_factory=list)
+    total_file_count: int = 0
 
     @property
     def dependency_count(self) -> int:
@@ -134,6 +135,7 @@ class ProjectAnalyzer:
         # Scan the whole repo for a frontend (it commonly sits beside the backend,
         # e.g. repo/frontend + repo/backend).
         frontend = self._frontend.detect(root)
+        total_file_count = file_utils.count_files(root, "")
 
         has_src_main = file_utils.exists(project_root, "src", "main")
         has_src_test = file_utils.exists(project_root, "src", "test")
@@ -163,6 +165,7 @@ class ProjectAnalyzer:
             has_src_test=has_src_test,
             has_tests=has_src_test,
             java_files=java_files,
+            total_file_count=total_file_count,
         )
 
     @staticmethod

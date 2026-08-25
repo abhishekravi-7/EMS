@@ -260,7 +260,7 @@ export function DiscoveryFrameworkSection({
   onOpenFramework,
 }: FrameworkSectionProps) {
   return (
-    <>
+    <div id="discovery-frameworks-section">
       {renderDiscoverySectionTitle(
         styles,
         "Detected Frameworks & Libraries",
@@ -491,7 +491,7 @@ export function DiscoveryFrameworkSection({
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 }
 
@@ -516,7 +516,7 @@ export function DiscoveryFileExplorer({
   onEditedContentChange,
 }: DiscoveryFileExplorerProps) {
   return (
-    <>
+    <div id="discovery-file-explorer-section">
       {renderDiscoverySectionTitle(styles, "Repository Files", "#f59e0b", <FaFolder />)}
       <div
         className="discovery-file-explorer"
@@ -857,7 +857,7 @@ export function DiscoveryFileExplorer({
           </div>
         )}
       </div>
-    </>
+    </div>
   );
 }
 
@@ -870,6 +870,7 @@ export function DiscoveryProjectStructureSummary({
   const structureItems: Array<{ key: string; node: React.ReactNode }> = [];
   if (structure?.has_pom_xml) structureItems.push({ key: "pom.xml", node: renderStructureStatusItem(true, "pom.xml") });
   if (structure?.has_build_gradle) structureItems.push({ key: "build.gradle", node: renderStructureStatusItem(true, "build.gradle") });
+  if (structure?.has_build_gradle_kts) structureItems.push({ key: "build.gradle.kts", node: renderStructureStatusItem(true, "build.gradle.kts") });
   if (structure?.has_src_main) structureItems.push({ key: "src/main", node: renderStructureStatusItem(true, "src/main") });
   if (structure?.has_src_test) structureItems.push({ key: "src/test", node: renderStructureStatusItem(true, "src/test") });
   if (detectedJavaVersion) structureItems.push({ key: "detected-java-version", node: renderStructureStatusItem(true, detectedJavaStructureLabel) });
@@ -906,7 +907,7 @@ export function DiscoveryTechnicalSpecificationCard({
   onGenerate,
 }: TechnicalSpecificationCardProps) {
   return (
-    <div style={{ ...styles.documentCard, marginTop: 20 }}>
+    <div id="discovery-technical-spec-section" style={{ ...styles.documentCard, marginTop: 20 }}>
       <div style={styles.documentCardHeader}>
         <div style={styles.documentCardTitleRow}>
           <span
