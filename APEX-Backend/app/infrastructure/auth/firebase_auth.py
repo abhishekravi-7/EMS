@@ -69,6 +69,7 @@ def init_firebase() -> None:
             # Try to initialize with service account if credentials are provided
             if settings.firebase_project_id and settings.firebase_private_key and settings.firebase_client_email:
                 cred = credentials.Certificate({
+                    "type": "service_account",
                     "project_id": settings.firebase_project_id,
                     "private_key": settings.firebase_private_key.replace('\\n', '\n'),
                     "client_email": settings.firebase_client_email,
