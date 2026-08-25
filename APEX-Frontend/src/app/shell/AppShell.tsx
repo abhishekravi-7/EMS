@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import apexLogo from "../../assets/logo.jpg";
 import { DocsPanel } from "@/features/docs";
-import { SupportPanel } from "@/features/support";
+// import { SupportPanel } from "@/features/support";
 import { Button } from "@/shared/components/ui";
 import { useAuth } from "@/shared/context/AuthContext";
 import { TOKEN_TRACING_DASHBOARD_URL } from "@/services/config/env";
@@ -100,11 +100,11 @@ const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           onClose={() => setActivePanel(null)}
           onNavigateToSupport={() => setActivePanel("support")}
         />
-        <SupportPanel
+        {/* <SupportPanel
           open={activePanel === "support"}
           onClose={() => setActivePanel(null)}
           onNavigateToDocs={() => setActivePanel("docs")}
-        />
+        /> */}
       </div>
     );
   }
@@ -150,7 +150,7 @@ const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             <span>Usage</span>
           </button>
 
-          <button
+          {/* <button
             type="button"
             className="ui-nav-button"
             onClick={() => setActivePanel("support")}
@@ -161,7 +161,7 @@ const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
               <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"></path>
             </svg>
             <span>Support</span>
-          </button>
+          </button> */}
 
           {isAuthenticated ? (
             <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 6, marginLeft: 4 }}>
@@ -299,11 +299,11 @@ const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         onClose={() => setActivePanel(null)}
         onNavigateToSupport={() => setActivePanel("support")}
       />
-      <SupportPanel
+      {/* <SupportPanel
         open={activePanel === "support"}
         onClose={() => setActivePanel(null)}
         onNavigateToDocs={() => setActivePanel("docs")}
-      />
+      /> */}
       <FloatingChatbot />
     </div>
   );

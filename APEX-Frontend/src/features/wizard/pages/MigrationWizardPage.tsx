@@ -110,6 +110,7 @@ export default function MigrationWizardPage() {
   } = useWizardController();
 
   const { setContext } = useChatbot();
+  const mainContentRef = React.useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     const nextRepoUrl = repoUrl || null;
@@ -117,6 +118,21 @@ export default function MigrationWizardPage() {
 
     setContext({ repoUrl: nextRepoUrl, strategyContext: nextStrategyContext });
   }, [repoUrl, strategyAssistantContext, setContext]);
+
+  // Scroll to top of the wizard container whenever step changes
+  useEffect(() => {
+    if (mainContentRef.current) {
+      mainContentRef.current.scrollTo({ top: 0, behavior: "auto" });
+      mainContentRef.current.scrollTop = 0;
+    }
+    window.scrollTo({ top: 0, behavior: "auto" });
+    if (document.documentElement) {
+      document.documentElement.scrollTop = 0;
+    }
+    if (document.body) {
+      document.body.scrollTop = 0;
+    }
+  }, [step]);
 
   const activeSidebarStepId = step >= 5 ? 5 : step;
 
@@ -192,7 +208,7 @@ export default function MigrationWizardPage() {
       </aside>
 
       {/* Main Content Area */}
-      <main className="wizard-main-content">
+      <main className="wizard-main-content" ref={mainContentRef}>
         {error && <div style={styles.errorBanner}><span>{error}</span><button style={styles.errorClose} onClick={() => setError("")}><FaTimes /></button></div>}
         {step === 1 && (
           <ConnectPage>

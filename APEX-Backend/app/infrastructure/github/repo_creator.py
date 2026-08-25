@@ -1,4 +1,4 @@
-"""Creates the target repository under the configured owner (Javaapex)."""
+"""Creates the target repository under the configured owner (JavaAPEX)."""
 
 from __future__ import annotations
 
@@ -139,13 +139,13 @@ class RepoCreator:
         if status_code == 403:
             return (
                 "Target token lacks permission to create repositories (HTTP 403). "
-                "Ensure the token has 'repo' scope and — if Javaapex is an org — "
+                "Ensure the token has 'repo' scope and — if JavaAPEX is an org — "
                 "that the token is approved for that organization (SSO / third-party access)."
             )
         if status_code == 404:
             return (
                 "Target owner not found, or the token cannot access it (HTTP 404). "
-                f"Verify GITHUB_TARGET_OWNER='{data.get('message', 'Javaapex') if isinstance(data, dict) else 'Javaapex'}' "
+                f"Verify GITHUB_TARGET_OWNER='{data.get('message', 'JavaAPEX') if isinstance(data, dict) else 'JavaAPEX'}' "
                 "exists and the token has access to it."
             )
         if status_code == 422 and "already exists" in detail.lower():

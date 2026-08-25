@@ -216,6 +216,48 @@ export function ExistingTestTable({
     );
   };
 
+  if (testResults.length === 0) {
+    return (
+      <div
+        style={{
+          background: "#fff",
+          border: "1px solid #e2e8f0",
+          borderRadius: 16,
+          padding: "48px 24px",
+          textAlign: "center",
+          boxShadow: "0 1px 3px rgba(0,0,0,0.02)",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 12,
+        }}
+      >
+        <div
+          style={{
+            width: 56,
+            height: 56,
+            borderRadius: "50%",
+            background: "#f1f5f9",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: "#64748b",
+            fontSize: 22,
+          }}
+        >
+          <FaInfoCircle />
+        </div>
+        <div style={{ fontSize: 16, fontWeight: 800, color: "#0f172a" }}>
+          No Test Cases Available
+        </div>
+        <div style={{ fontSize: 13, color: "#64748b", maxWidth: 360, lineHeight: 1.5 }}>
+          No existing test cases were found in this repository.
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       {/* ── 1. Report Header Bar ───────────────────────────────────────────── */}

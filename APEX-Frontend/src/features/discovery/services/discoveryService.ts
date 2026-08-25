@@ -141,6 +141,8 @@ export function mapDiscoveryToRepoAnalysis(response: DiscoveryResponse): RepoAna
     java_version: javaVersion,
     java_version_from_build: javaVersion,
     java_files: [],
+    java_file_count: project.javaFileCount,
+    total_file_count: project.totalFileCount,
     has_tests: Boolean(project.hasTests),
     dependencies,
     api_endpoints: [],

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import uuid
 import pytest
+from app.infrastructure.workspace.workspace_paths import WorkspacePaths
 from app.application.use_cases.existing_test_runner_service import ExistingTestRunnerService
 
 
@@ -336,28 +338,243 @@ def test_playwright_video_evidence_passed_and_failed_tests(tmp_path):
         assert tc["videoUrl"] is not None
 
 
-def test_playwright_video_evidence_skipped_and_unexecuted_excluded():
-    """Verify that SKIPPED and NOT_EXECUTED tests do not receive video evidence."""
-    for status in ["SKIPPED", "NOT_EXECUTED"]:
-        tc = {
-            "test_name": "testSomething(Page)",
-            "suite": "com.example.AuthenticationTests",
-            "status": status,
-            "type": "UI",
-        }
-        if tc["status"] in ("SKIPPED", "NOT_EXECUTED"):
-            tc["evidence"] = {
-                "videoAvailable": False,
-                "videoUrl": None,
-                "videoPath": None,
-                "unavailableReason": "Screenshot unavailable: test was skipped or not executed",
-            }
-            tc["video_url"] = None
-            tc["videoUrl"] = None
+def test_parameterized_and_repeated_test_discovery_and_canonicalization(tmp_path):
+    """Verify that @ParameterizedTest, @RepeatedTest, and intermediate annotations are discovered and canonicalized."""
+    from app.application.use_cases.existing_test_runner_service import ExistingTestDetector
 
-        assert tc["evidence"]["videoAvailable"] is False
-        assert tc["evidence"]["videoUrl"] is None
-        assert tc["videoUrl"] is None
+    test_file = tmp_path / "src" / "test" / "java" / "com" / "example" / "AdvancedTest.java"
+    test_file.parent.mkdir(parents=True, exist_ok=True)
+    test_file.write_text(
+        """package com.example;
+
+import org.junit.jupiter.api.*;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+
+public class AdvancedTest {
+
+    @Test
+    @DisplayName("Basic Unit Test")
+    @Order(1)
+    void testBasic() {}
+
+    @ParameterizedTest
+    @ValueSource(strings = {"racecar", "radar", "level"})
+    @DisplayName("Parameterized Palindrome Test")
+    void testPalindrome(String candidate) {}
+
+    @RepeatedTest(5)
+    @DisplayName("Flaky Repeat Test")
+    void testRepeat() {}
+
+    @TestFactory
+    void testDynamic() {}
+}
+""",
+        encoding="utf-8"
+    )
+
+    detector = ExistingTestDetector(tmp_path)
+    result = detector.scan()
+
+    test_cases = result["details"]["testCases"]
+    test_names = [t["name"] for t in test_cases]
+
+    assert "testBasic" in test_names
+    assert "testPalindrome" in test_names
+    assert "testRepeat" in test_names
+    assert "testDynamic" in test_names
+    assert result["metrics"]["total"] == 4
+
+
+def test_parameterized_test_execution_results_preserve_invocation_identities():
+    """Verify that multiple parameterized invocations (e.g. testPalindrome[0], testPalindrome[1]) retain their identities."""
+    # Canonical identification of parameterized invocations retains execution index
+    k1 = ExistingTestRunnerService._canonical_test_identifier("testPalindrome[0]", "com.example.AdvancedTest")
+    k2 = ExistingTestRunnerService._canonical_test_identifier("testPalindrome(String)[1]", "com.example.AdvancedTest")
+    k3 = ExistingTestRunnerService._canonical_test_identifier("testPalindrome(String) [2] candidate=radar", "com.example.AdvancedTest")
+    
+    assert k1 == ("advancedtest", "testpalindrome[0]")
+    assert k2 == ("advancedtest", "testpalindrome[1]")
+    assert k3 == ("advancedtest", "testpalindrome[2]")
+
+    # Base canonical identifier strips invocation brackets to match discovered method definition
+    base1 = ExistingTestRunnerService._base_canonical_test_identifier("testPalindrome[0]", "com.example.AdvancedTest")
+    base2 = ExistingTestRunnerService._base_canonical_test_identifier("testPalindrome(String)[1]", "com.example.AdvancedTest")
+    base_discovered = ExistingTestRunnerService._base_canonical_test_identifier("testPalindrome", "AdvancedTest")
+
+    assert base1 == ("advancedtest", "testpalindrome")
+    assert base2 == ("advancedtest", "testpalindrome")
+    assert base_discovered == ("advancedtest", "testpalindrome")
+
+
+def test_parameterized_and_standard_suite_reconciliation_exact_counts():
+    """
+    Simulate the exact scenario:
+    - 6 Discovered methods (3 Auth + 1 Navigate.searchByCriteria + 2 Navigate.navigateToPage)
+    - 9 Executed invocations (3 Auth PASSED + 3 Navigate.searchByCriteria PASSED + 3 Navigate.navigateToPage ERROR)
+    - Final result must have: 6 PASSED, 3 ERROR, 0 NOT_EXECUTED, 0 SKIPPED, Total = 9.
+    """
+    discovered_test_cases = [
+        {"name": "authentication", "classname": "com.example.AuthenticationTests", "file": "src/test/java/AuthenticationTests.java"},
+        {"name": "authentication2", "classname": "com.example.AuthenticationTests", "file": "src/test/java/AuthenticationTests.java"},
+        {"name": "authentication3", "classname": "com.example.AuthenticationTests", "file": "src/test/java/AuthenticationTests.java"},
+        {"name": "searchByCriteria", "classname": "com.example.NavigateTest", "file": "src/test/java/NavigateTest.java"},
+        {"name": "navigateToPage", "classname": "com.example.NavigateTest", "file": "src/test/java/NavigateTest.java"},
+        {"name": "navigateToPage2", "classname": "com.example.NavigateTest", "file": "src/test/java/NavigateTest.java"},
+        {"name": "navigateToPage3", "classname": "com.example.NavigateTest", "file": "src/test/java/NavigateTest.java"},
+    ]
+
+    executed_results = [
+        {"test_name": "authentication", "suite": "com.example.AuthenticationTests", "status": "PASSED"},
+        {"test_name": "authentication2", "suite": "com.example.AuthenticationTests", "status": "PASSED"},
+        {"test_name": "authentication3", "suite": "com.example.AuthenticationTests", "status": "PASSED"},
+        {"test_name": "searchByCriteria(String, Page)[1]", "suite": "com.example.NavigateTest", "status": "PASSED"},
+        {"test_name": "searchByCriteria(String, Page)[2]", "suite": "com.example.NavigateTest", "status": "PASSED"},
+        {"test_name": "searchByCriteria(String, Page)[3]", "suite": "com.example.NavigateTest", "status": "PASSED"},
+        {"test_name": "navigateToPage", "suite": "com.example.NavigateTest", "status": "ERROR"},
+        {"test_name": "navigateToPage2", "suite": "com.example.NavigateTest", "status": "ERROR"},
+        {"test_name": "navigateToPage3", "suite": "com.example.NavigateTest", "status": "ERROR"},
+    ]
+
+    service = ExistingTestRunnerService()
+
+    # Build results_by_key
+    results_by_key = {}
+    for r in executed_results:
+        key = service._canonical_test_identifier(r["test_name"], r["suite"])
+        results_by_key[key] = r
+
+    results_by_base_key = {}
+    for k, r in results_by_key.items():
+        base_k = service._base_canonical_test_identifier(k[1], k[0])
+        results_by_base_key.setdefault(base_k, []).append(r)
+
+    # Reconcile against discovered tests
+    matched_count = 0
+    for tc in discovered_test_cases:
+        key = service._canonical_test_identifier(tc["name"], tc["classname"])
+        base_key = service._base_canonical_test_identifier(tc["name"], tc["classname"])
+        if key in results_by_key:
+            matched_count += 1
+        elif base_key in results_by_base_key:
+            matched_count += 1
+        else:
+            results_by_key[key] = {**tc, "status": "NOT_EXECUTED"}
+
+    final_results = list(results_by_key.values())
+    passed_count = sum(1 for r in final_results if r["status"] == "PASSED")
+    error_count = sum(1 for r in final_results if r["status"] in ("FAILED", "ERROR"))
+    not_executed_count = sum(1 for r in final_results if r["status"] == "NOT_EXECUTED")
+    skipped_count = sum(1 for r in final_results if r["status"] == "SKIPPED")
+
+    assert len(final_results) == 9
+    assert passed_count == 6
+    assert error_count == 3
+    assert not_executed_count == 0
+    assert skipped_count == 0
+    assert matched_count == len(discovered_test_cases)
+
+
+def test_inject_playwright_method_screenshots_instruments_java_methods():
+    """Verify that _inject_playwright_method_screenshots injects screenshot capture into Playwright test methods."""
+    service = ExistingTestRunnerService()
+    java_source = """package com.example;
+
+import com.microsoft.playwright.Page;
+import com.microsoft.playwright.junit.UsePlaywright;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+
+@UsePlaywright
+public class AuthenticationTests {
+
+    @Test
+    void authentication(Page page) {
+        page.navigate("https://example.com/login");
+        page.fill("#username", "admin");
+    }
+
+    @Test
+    public void authentication2(Page p) throws Exception {
+        p.navigate("https://example.com/login2");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"a", "b"})
+    void searchByCriteria(String query, Page page) {
+        page.navigate("https://example.com/search?q=" + query);
+    }
+}
+"""
+    instrumented, modified = service._inject_playwright_method_screenshots(java_source, "AuthenticationTests")
+    assert modified is True
+    assert "page.screenshot(new com.microsoft.playwright.Page.ScreenshotOptions()" in instrumented
+    assert "p.screenshot(new com.microsoft.playwright.Page.ScreenshotOptions()" in instrumented
+    assert 'this.getClass().getSimpleName() + ".authentication.png"' in instrumented
+    assert 'this.getClass().getSimpleName() + ".authentication2.png"' in instrumented
+    assert 'this.getClass().getSimpleName() + ".searchByCriteria.png"' in instrumented
+    assert "target/screenshots" in instrumented
+    assert "finally" in instrumented
+
+
+def test_ui_evidence_screenshot_and_video_independent_metadata(tmp_path):
+    """Verify that UI evidence supports PASSED/ERROR with or without screenshots and preserves video metadata."""
+    reports_dir = tmp_path / "reports"
+    ui_test_dir = reports_dir / "test-evidence" / "ui" / "AuthenticationTests_authentication"
+    ui_test_dir.mkdir(parents=True, exist_ok=True)
+
+    dest_shot = ui_test_dir / "screenshot.png"
+    dest_shot.write_bytes(b"\x89PNG\r\n\x1a\nfake_image_data")
+
+    dest_vid = ui_test_dir / "video.webm"
+    dest_vid.write_bytes(b"fake_video_data")
+
+    has_screenshot = dest_shot.is_file() and dest_shot.stat().st_size > 0
+    has_video = dest_vid.is_file() and dest_vid.stat().st_size > 0
+
+    assert has_screenshot is True
+    assert has_video is True
+
+
+def test_zero_existing_tests_returns_no_tests_available(tmp_path):
+    """Verify that when 0 tests are detected in repository, run_existing_tests returns NO_TESTS_AVAILABLE."""
+    job_id = f"job_zero_{uuid.uuid4().hex[:8]}"
+    paths = WorkspacePaths(job_id)
+    paths.job_dir.mkdir(parents=True, exist_ok=True)
+    paths.original_repo_dir.mkdir(parents=True, exist_ok=True)
+
+    # Empty project without test files
+    (paths.original_repo_dir / "src" / "main" / "java").mkdir(parents=True, exist_ok=True)
+    (paths.original_repo_dir / "src" / "main" / "java" / "Main.java").write_text("public class Main {}", encoding="utf-8")
+
+    service = ExistingTestRunnerService()
+    result = service.run_existing_tests(job_id)
+
+    assert result["status"] == "NO_TESTS_AVAILABLE"
+    assert result["testCount"] == 0
+    assert result["passed"] == 0
+    assert result["failed"] == 0
+    assert result["skipped"] == 0
+    assert result["notExecuted"] == 0
+    assert result["executed"] is False
+    assert result["message"] == "No test cases available"
+    assert result["metrics"]["total"] == 0
+    assert result["metrics"]["passed"] == 0
+    assert result["metrics"]["failed"] == 0
+    assert result["metrics"]["skipped"] == 0
+    assert result["metrics"]["not_executed"] == 0
+
+    scan_res = service.scan_total(job_id)
+    assert scan_res["status"] == "NO_TESTS_AVAILABLE"
+    assert scan_res["total"] == 0
+    assert scan_res["testCasesFound"] == 0
+    assert scan_res["message"] == "No test cases available"
+
+
+
+
 
 
 

@@ -23,7 +23,7 @@ MODE_LOCAL_FOLDER = "LOCAL_FOLDER"
 VALID_MODES = {MODE_CREATE_NEW_REPO, MODE_EXISTING_REPO_BRANCH, MODE_LOCAL_FOLDER}
 
 # Default GitHub owner that migrated repositories are published under.
-DEFAULT_TARGET_OWNER = "Javaapex"
+DEFAULT_TARGET_OWNER = "JavaAPEX"
 DEFAULT_TARGET_HOST = "github.com"
 
 SPRING_BOOT_CONVERSION = "spring_boot"
@@ -106,7 +106,7 @@ class SaveMigrationConfigUseCase:
         destination["mode"] = mode
 
         if mode == MODE_CREATE_NEW_REPO:
-            # Migrated repos are published under the configured owner (Javaapex).
+            # Migrated repos are published under the configured owner (JavaAPEX).
             if not destination.get("targetOwner"):
                 destination["targetOwner"] = DEFAULT_TARGET_OWNER
             if not destination.get("targetHost"):
