@@ -743,7 +743,7 @@ function UiReportPanel({ data }: { data: TestReportData }) {
           </div>
         ) : (
           <div style={{ background: "#f8fafc", padding: "16px 20px", borderRadius: 10, border: "1px solid #e2e8f0", color: "#64748b", fontSize: 12 }}>
-            {data.unavailableReason || data.evidence?.unavailableReason || "Screenshot evidence unavailable because test failed before or during initialization."}
+            {data.unavailableReason || data.evidence?.unavailableReason || (data.status === "ERROR" || data.status === "FAILED" ? "Screenshot evidence unavailable because test failed before or during initialization." : "Screenshot evidence is unavailable for this execution.")}
           </div>
         )}
       </div>

@@ -933,7 +933,7 @@ export function ModernizationStepView({
         </div>
 
         {/* Existing Test Cases Browser (only before execution) */}
-        {discoveredTests.length > 0 && !existingExecResult && !isRunningExisting && (
+        {!existingExecResult && !isRunningExisting && (
           <ExistingTestCasesPanel
             jobId={jobId}
             discoveredTests={discoveredTests}
@@ -1224,66 +1224,110 @@ export function ModernizationStepView({
               }}
             />
 
-            {/* 2. EXISTING TEST COVERAGE (8 Metric Cards) */}
-            <ExistingTestCoverage
-              metrics={{
-                ...existingExecResult.metrics,
-                total: displayTestResults.length || discoveredTests.length || existingExecResult.metrics?.total || 0,
-              }}
-              discoveredTests={discoveredTests}
-              testResults={displayTestResults}
-              frameworkInfo={existingExecResult.framework_info}
-              onRunAll={() => handleRunExistingTests()}
-              onOpenReport={() => setShowValidationReport(true)}
-            />
-
-            {/* 3. EXISTING TESTS VALIDATION REPORT CARD */}
-            {displayTestResults.length > 0 && (
-              <ExistingTestTable
-                title="Existing Tests Validation Report"
-                testResults={displayTestResults}
-                fileBreakdown={existingExecResult.file_breakdown || []}
-                frameworkInfo={existingExecResult.framework_info}
-                logs={existingLogs}
-                onRunAgain={() => handleRunExistingTests()}
-                isRunning={isRunningExisting}
-                hasRun={hasExistingTestsRun}
-                onSelectTest={(t: any) => {
-                  const scUrl = t.screenshot_url || t.screenshotUrl || t.evidence?.screenshotUrl || null;
-                  const vidUrl = t.video_url || t.videoUrl || t.evidence?.videoUrl || null;
-                  setTestDetailReport({
-                    testId: t.test_id || t.testId || `${t.suite}#${t.test_name}`,
-                    executionId: t.execution_id || t.executionId || jobId,
-                    title: t.test_name || t.name || t.title,
-                    name: t.test_name || t.name || t.title,
-                    spec: t.suite || t.spec || t.file,
-                    suite: t.suite || t.spec || t.file,
-                    status: t.status,
-                    duration: t.duration || "0.0s",
-                    file: t.file,
-                    url: t.report_url,
-                    type: t.type || "JUnit",
-                    testType: ((t.test_type || t.testType || t.category || "API").toUpperCase() === "UNIT" ? "API" : (t.test_type || t.testType || (t.category === "UI" ? "UI" : "API"))),
-                    framework: t.framework || existingExecResult?.framework_info?.build_tool || existingExecResult?.framework_info?.detected_framework || "JUnit",
-                    screenshotUrl: scUrl,
-                    videoUrl: vidUrl,
-                    evidence: t.evidence || {
-                      screenshotAvailable: !!scUrl,
-                      screenshotUrl: scUrl,
-                      videoAvailable: !!vidUrl,
-                      videoUrl: vidUrl,
-                    },
-                    traceUrl: t.trace_url,
-                    apiEvidence: t.api_evidence,
-                    error: t.failure_message || t.details?.error || t.error || null,
-                    errorCode: t.status === "FAILED" ? "TEST_FAILED" : t.status === "ERROR" ? "BUILD_ERROR" : t.status === "NOT_EXECUTED" ? "NOT_EXECUTED" : undefined,
-                    stackTrace: t.stack_trace || t.details?.stackTrace || t.stackTrace || null,
-                    stdout: t.stdout || t.details?.stdout || null,
-                    stderr: t.stderr || t.details?.stderr || null,
-                  });
-                  setShowTestDetailModal(true);
+            {/* 2. No Test Cases Available State OR Existing Test Coverage & Table */}
+            {(existingExecResult?.status === "NO_TESTS_AVAILABLE" || (displayTestResults.length === 0 && discoveredTests.length === 0)) ? (
+              <div
+                style={{
+                  background: "#fff",
+                  border: "1px solid #e2e8f0",
+                  borderRadius: 16,
+                  padding: "48px 24px",
+                  textAlign: "center",
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.02)",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 12,
+                  marginTop: 20,
                 }}
-              />
+              >
+                <div
+                  style={{
+                    width: 56,
+                    height: 56,
+                    borderRadius: "50%",
+                    background: "#f1f5f9",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "#64748b",
+                    fontSize: 22,
+                  }}
+                >
+                  <FaInfoCircle />
+                </div>
+                <div style={{ fontSize: 16, fontWeight: 800, color: "#0f172a" }}>
+                  No Test Cases Available
+                </div>
+                <div style={{ fontSize: 13, color: "#64748b", maxWidth: 360, lineHeight: 1.5 }}>
+                  No existing test cases were found in this repository.
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* 2. EXISTING TEST COVERAGE (8 Metric Cards) */}
+                <ExistingTestCoverage
+                  metrics={{
+                    ...existingExecResult.metrics,
+                    total: displayTestResults.length || discoveredTests.length || existingExecResult.metrics?.total || 0,
+                  }}
+                  discoveredTests={discoveredTests}
+                  testResults={displayTestResults}
+                  frameworkInfo={existingExecResult.framework_info}
+                  onRunAll={() => handleRunExistingTests()}
+                  onOpenReport={() => setShowValidationReport(true)}
+                />
+
+                {/* 3. EXISTING TESTS VALIDATION REPORT CARD */}
+                {displayTestResults.length > 0 && (
+                  <ExistingTestTable
+                    title="Existing Tests Validation Report"
+                    testResults={displayTestResults}
+                    fileBreakdown={existingExecResult.file_breakdown || []}
+                    frameworkInfo={existingExecResult.framework_info}
+                    logs={existingLogs}
+                    onRunAgain={() => handleRunExistingTests()}
+                    isRunning={isRunningExisting}
+                    hasRun={hasExistingTestsRun}
+                    onSelectTest={(t: any) => {
+                      const scUrl = t.screenshot_url || t.screenshotUrl || t.evidence?.screenshotUrl || null;
+                      const vidUrl = t.video_url || t.videoUrl || t.evidence?.videoUrl || null;
+                      setTestDetailReport({
+                        testId: t.test_id || t.testId || `${t.suite}#${t.test_name}`,
+                        executionId: t.execution_id || t.executionId || jobId,
+                        title: t.test_name || t.name || t.title,
+                        name: t.test_name || t.name || t.title,
+                        spec: t.suite || t.spec || t.file,
+                        suite: t.suite || t.spec || t.file,
+                        status: t.status,
+                        duration: t.duration || "0.0s",
+                        file: t.file,
+                        url: t.report_url,
+                        type: t.type || "JUnit",
+                        testType: ((t.test_type || t.testType || t.category || "API").toUpperCase() === "UNIT" ? "API" : (t.test_type || t.testType || (t.category === "UI" ? "UI" : "API"))),
+                        framework: t.framework || existingExecResult?.framework_info?.build_tool || existingExecResult?.framework_info?.detected_framework || "JUnit",
+                        screenshotUrl: scUrl,
+                        videoUrl: vidUrl,
+                        evidence: t.evidence || {
+                          screenshotAvailable: !!scUrl,
+                          screenshotUrl: scUrl,
+                          videoAvailable: !!vidUrl,
+                          videoUrl: vidUrl,
+                        },
+                        traceUrl: t.trace_url,
+                        apiEvidence: t.api_evidence,
+                        error: t.failure_message || t.details?.error || t.error || null,
+                        errorCode: t.status === "FAILED" ? "TEST_FAILED" : t.status === "ERROR" ? "BUILD_ERROR" : t.status === "NOT_EXECUTED" ? "NOT_EXECUTED" : undefined,
+                        stackTrace: t.stack_trace || t.details?.stackTrace || t.stackTrace || null,
+                        stdout: t.stdout || t.details?.stdout || null,
+                        stderr: t.stderr || t.details?.stderr || null,
+                      });
+                      setShowTestDetailModal(true);
+                    }}
+                  />
+                )}
+              </>
             )}
           </div>
         )}

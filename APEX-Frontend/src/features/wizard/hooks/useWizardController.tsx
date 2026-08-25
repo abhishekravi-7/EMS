@@ -3025,7 +3025,12 @@ export function useWizardController() {
   }, [step]);
 
   useEffect(() => {
-  window.scrollTo({ top: 0, behavior: "auto" });
+    window.scrollTo({ top: 0, behavior: "auto" });
+    const mainEl = document.querySelector(".wizard-main-content");
+    if (mainEl) {
+      mainEl.scrollTo({ top: 0, behavior: "auto" });
+      mainEl.scrollTop = 0;
+    }
   }, [step]);
 
   useEffect(() => {

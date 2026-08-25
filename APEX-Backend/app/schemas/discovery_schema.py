@@ -77,6 +77,8 @@ class DiscoveryProject(BaseModel):
     multi_module: bool = Field(..., alias="multiModule")
     modules: list[str] = Field(default_factory=list)
     dependencies_count: int = Field(..., alias="dependenciesCount")
+    java_file_count: int = Field(0, alias="javaFileCount")
+    total_file_count: int = Field(0, alias="totalFileCount")
     frontend_detected: bool = Field(..., alias="frontendDetected")
     frontend_type: Optional[str] = Field(None, alias="frontendType")
     spring_framework_version: Optional[str] = Field(None, alias="springFrameworkVersion")
