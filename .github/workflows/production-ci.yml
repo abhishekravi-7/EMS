@@ -1,10 +1,6 @@
 name: Production CI/CD
 
 on:
-  # ============================================================
-  # PR VALIDATION
-  # dev -> main
-  # ============================================================
   pull_request:
     branches:
       - main
@@ -13,19 +9,12 @@ on:
       - synchronize
       - reopened
 
-  # ============================================================
-  # PRODUCTION BUILD / DEPLOYMENT
-  # Runs after PR is merged into main
-  # ============================================================
   push:
     branches:
       - main
     tags:
       - "v*"
 
-  # ============================================================
-  # MANUAL EXECUTION
-  # ============================================================
   workflow_dispatch:
 
 
@@ -43,15 +32,13 @@ concurrency:
 env:
   NODE_VERSION: "20"
   PYTHON_VERSION: "3.11"
-
   IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/javaapex
 
 
 jobs:
 
   # ============================================================
-  # FRONTEND PRODUCTION CI
-  # React + TypeScript + Vite
+  # FRONTEND
   # ============================================================
   frontend:
     name: Frontend production gates
@@ -62,17 +49,9 @@ jobs:
         working-directory: ./APEX-Frontend
 
     steps:
-
-      # --------------------------------------------------------
-      # Checkout
-      # --------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
-
-      # --------------------------------------------------------
-      # Node.js
-      # --------------------------------------------------------
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -80,76 +59,42 @@ jobs:
           cache: npm
           cache-dependency-path: APEX-Frontend/package-lock.json
 
-
-      # --------------------------------------------------------
-      # Install dependencies
-      # --------------------------------------------------------
       - name: Install frontend dependencies
         run: npm ci
 
-
-      # --------------------------------------------------------
-      # npm dependency audit
-      # --------------------------------------------------------
       - name: npm dependency audit
         run: |
           set -o pipefail
-
           npm audit \
             --audit-level=moderate \
             --json \
             2>&1 | tee npm-audit-report.json
 
-
-      # --------------------------------------------------------
-      # ESLint
-      # --------------------------------------------------------
       - name: ESLint
         run: |
           set -o pipefail
           npm run lint 2>&1 | tee eslint.log
 
-
-      # --------------------------------------------------------
-      # TypeScript
-      # --------------------------------------------------------
       - name: TypeScript check
         run: |
           set -o pipefail
           npm run typecheck 2>&1 | tee typecheck.log
 
-
-      # --------------------------------------------------------
-      # Unit Tests
-      # --------------------------------------------------------
       - name: Frontend unit tests
         run: |
           if find . -type f \( -name "*.test.*" -o -name "*.spec.*" \) | grep -q .; then
-
             set -o pipefail
-
             npm test -- --run 2>&1 | tee unit-tests.log
-
           else
-
             echo "No frontend unit tests detected; skipping." | tee unit-tests.log
-
           fi
 
-
-      # --------------------------------------------------------
-      # Vite production build
-      # --------------------------------------------------------
       - name: Vite production build
         run: |
           set -o pipefail
           npm run build 2>&1 | tee vite-build.log
 
-
-      # --------------------------------------------------------
-      # Upload reports
-      # --------------------------------------------------------
-      - name: Upload frontend production reports
+      - name: Upload frontend reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -164,8 +109,7 @@ jobs:
 
 
   # ============================================================
-  # BACKEND PRODUCTION CI
-  # Python + FastAPI
+  # BACKEND
   # ============================================================
   backend:
     name: Backend production gates
@@ -176,17 +120,9 @@ jobs:
         working-directory: ./APEX-Backend
 
     steps:
-
-      # --------------------------------------------------------
-      # Checkout
-      # --------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
-
-      # --------------------------------------------------------
-      # Python
-      # --------------------------------------------------------
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -194,28 +130,12 @@ jobs:
           cache: pip
           cache-dependency-path: APEX-Backend/requirements.txt
 
-
-      # --------------------------------------------------------
-      # Install dependencies
-      # --------------------------------------------------------
       - name: Install backend dependencies
         run: |
           python -m pip install --upgrade pip
-
           pip install -r requirements.txt
+          pip install pytest pytest-asyncio respx ruff bandit pip-audit
 
-          pip install \
-            pytest \
-            pytest-asyncio \
-            respx \
-            ruff \
-            bandit \
-            pip-audit
-
-
-      # --------------------------------------------------------
-      # Python dependency vulnerabilities
-      # --------------------------------------------------------
       - name: pip dependency audit
         run: |
           pip-audit \
@@ -223,42 +143,25 @@ jobs:
             -f json \
             -o pip-audit-report.json
 
-
-      # --------------------------------------------------------
-      # Ruff
-      # --------------------------------------------------------
       - name: Ruff lint
         run: |
           set -o pipefail
           ruff check . 2>&1 | tee ruff.log
 
-
-      # --------------------------------------------------------
-      # Pytest
-      # --------------------------------------------------------
       - name: Pytest
         run: |
           set -o pipefail
           pytest -q 2>&1 | tee pytest.log
 
-
-      # --------------------------------------------------------
-      # Bandit
-      # --------------------------------------------------------
       - name: Bandit security scan
         run: |
           set -o pipefail
-
           bandit \
             -r app \
             -f txt \
             -o bandit.log
 
-
-      # --------------------------------------------------------
-      # Upload backend reports
-      # --------------------------------------------------------
-      - name: Upload backend production reports
+      - name: Upload backend reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -273,26 +176,17 @@ jobs:
 
   # ============================================================
   # SECURITY
-  # Gitleaks + Trivy
   # ============================================================
   security:
     name: Production security scans
     runs-on: ubuntu-latest
 
     steps:
-
-      # --------------------------------------------------------
-      # Checkout full repository history
-      # --------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-
-      # --------------------------------------------------------
-      # Gitleaks
-      # --------------------------------------------------------
       - name: Gitleaks secret scan
         uses: gitleaks/gitleaks-action@v2
         env:
@@ -307,10 +201,6 @@ jobs:
             --report-path .gitleaks-report.json
             --exit-code 1
 
-
-      # --------------------------------------------------------
-      # Trivy
-      # --------------------------------------------------------
       - name: Trivy filesystem scan
         uses: aquasecurity/trivy-action@v0.36.0
         with:
@@ -324,10 +214,6 @@ jobs:
           version: v0.70.0
           cache: true
 
-
-      # --------------------------------------------------------
-      # Upload security reports
-      # --------------------------------------------------------
       - name: Upload security reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -340,9 +226,7 @@ jobs:
 
 
   # ============================================================
-  # SONARCLOUD STATIC CODE ANALYSIS
-  #
-  # Runs even if frontend/backend/security fail.
+  # SONARCLOUD
   # ============================================================
   sonar:
     name: SonarCloud Quality Gate
@@ -356,21 +240,12 @@ jobs:
     if: ${{ always() }}
 
     steps:
-
-      # --------------------------------------------------------
-      # Checkout full history
-      # --------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-
-      # --------------------------------------------------------
-      # SonarCloud
-      # --------------------------------------------------------
       - name: SonarCloud analysis
-        id: sonar
         uses: SonarSource/sonarqube-scan-action@v6
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -384,57 +259,35 @@ jobs:
 
   # ============================================================
   # SEMGREP SAST
-  #
-  # Static Application Security Testing
-  # Python + TypeScript / JavaScript
   # ============================================================
   semgrep:
     name: Semgrep SAST
     runs-on: ubuntu-latest
 
     steps:
-
-      # --------------------------------------------------------
-      # Checkout repository
-      # --------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
-
-      # --------------------------------------------------------
-      # Python required for Semgrep CLI
-      # --------------------------------------------------------
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-
-      # --------------------------------------------------------
-      # Install Semgrep Community Edition
-      # --------------------------------------------------------
       - name: Install Semgrep
         run: |
           python -m pip install --upgrade pip
           pip install semgrep
 
-
-      # --------------------------------------------------------
-      # Verify Semgrep
-      # --------------------------------------------------------
       - name: Check Semgrep version
         run: |
           semgrep --version
 
-
       # --------------------------------------------------------
-      # Run Semgrep
-      #
-      # Observation mode:
-      # Findings are reported but this command is not configured
-      # to block production yet.
+      # Main JSON scan
+      # Observation mode
       # --------------------------------------------------------
       - name: Run Semgrep SAST
+        id: semgrep_scan
         run: |
           semgrep scan \
             --config auto \
@@ -443,23 +296,274 @@ jobs:
             --json \
             --output semgrep-report.json
 
+      # --------------------------------------------------------
+      # Create readable text report
+      # --------------------------------------------------------
+      - name: Generate readable Semgrep report
+        if: always()
+        shell: bash
+        run: |
+          python <<'PYTHON'
+          import json
+          from pathlib import Path
+          from collections import Counter
+
+          report_path = Path("semgrep-report.json")
+          output_path = Path("semgrep-report.txt")
+
+          if not report_path.exists():
+              output_path.write_text(
+                  "Semgrep report was not generated.\n",
+                  encoding="utf-8"
+              )
+              raise SystemExit(0)
+
+          data = json.loads(
+              report_path.read_text(encoding="utf-8")
+          )
+
+          results = data.get("results", [])
+          parser_errors = data.get("errors", [])
+
+          severities = Counter(
+              result.get("extra", {}).get(
+                  "severity",
+                  "UNKNOWN"
+              ).upper()
+              for result in results
+          )
+
+          lines = []
+
+          lines.append("=" * 80)
+          lines.append("                    SEMGREP SAST SECURITY REPORT")
+          lines.append("=" * 80)
+          lines.append("")
+
+          lines.append("SUMMARY")
+          lines.append("-" * 80)
+
+          lines.append(f"Total Findings : {len(results)}")
+          lines.append(f"ERROR          : {severities.get('ERROR', 0)}")
+          lines.append(f"WARNING        : {severities.get('WARNING', 0)}")
+          lines.append(f"INFO           : {severities.get('INFO', 0)}")
+          lines.append(f"Parser Warnings: {len(parser_errors)}")
+          lines.append("")
+
+          if not results:
+              lines.append("No Semgrep security findings detected.")
+          else:
+              lines.append("DETAILED FINDINGS")
+              lines.append("-" * 80)
+
+              for index, result in enumerate(results, start=1):
+                  extra = result.get("extra", {})
+                  metadata = extra.get("metadata", {})
+
+                  severity = extra.get("severity", "UNKNOWN")
+                  path = result.get("path", "Unknown")
+                  line_number = result.get("start", {}).get("line", "Unknown")
+                  rule_id = result.get("check_id", "Unknown")
+                  message = extra.get("message", "No description")
+
+                  vulnerability = metadata.get(
+                      "vulnerability_class",
+                      []
+                  )
+
+                  cwe = metadata.get("cwe", [])
+                  owasp = metadata.get("owasp", [])
+
+                  if isinstance(vulnerability, list):
+                      vulnerability = ", ".join(map(str, vulnerability))
+
+                  if isinstance(cwe, list):
+                      cwe = ", ".join(map(str, cwe))
+
+                  if isinstance(owasp, list):
+                      owasp = ", ".join(map(str, owasp))
+
+                  lines.append("")
+                  lines.append(f"Finding #{index}")
+                  lines.append("-" * 40)
+                  lines.append(f"Severity      : {severity}")
+                  lines.append(f"File          : {path}")
+                  lines.append(f"Line          : {line_number}")
+                  lines.append(f"Rule          : {rule_id}")
+
+                  if vulnerability:
+                      lines.append(f"Vulnerability : {vulnerability}")
+
+                  if cwe:
+                      lines.append(f"CWE           : {cwe}")
+
+                  if owasp:
+                      lines.append(f"OWASP         : {owasp}")
+
+                  lines.append(f"Description   : {message}")
+
+          if parser_errors:
+              lines.append("")
+              lines.append("=" * 80)
+              lines.append("PARSING / ANALYSIS WARNINGS")
+              lines.append("=" * 80)
+
+              for index, error in enumerate(parser_errors, start=1):
+                  lines.append("")
+                  lines.append(f"Warning #{index}")
+                  lines.append(
+                      f"File    : {error.get('path', 'Unknown')}"
+                  )
+                  lines.append(
+                      f"Message : {error.get('message', 'Unknown warning')}"
+                  )
+
+          lines.append("")
+          lines.append("=" * 80)
+          lines.append("END OF SEMGREP REPORT")
+          lines.append("=" * 80)
+
+          output_path.write_text(
+              "\n".join(lines),
+              encoding="utf-8"
+          )
+
+          print("\n".join(lines))
+          PYTHON
+
 
       # --------------------------------------------------------
-      # Upload Semgrep JSON report
+      # Show readable report in GitHub Actions logs
       # --------------------------------------------------------
-      - name: Upload Semgrep report
+      - name: Display Semgrep readable report
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f semgrep-report.txt ]]; then
+            cat semgrep-report.txt
+          else
+            echo "Semgrep readable report was not generated."
+          fi
+
+
+      # --------------------------------------------------------
+      # GitHub Job Summary
+      # --------------------------------------------------------
+      - name: Create Semgrep GitHub summary
+        if: always()
+        shell: bash
+        run: |
+          python <<'PYTHON'
+          import json
+          import os
+          from pathlib import Path
+          from collections import Counter
+
+          report_file = Path("semgrep-report.json")
+          summary_file = Path(os.environ["GITHUB_STEP_SUMMARY"])
+
+          with summary_file.open("a", encoding="utf-8") as summary:
+              summary.write("# Semgrep SAST Report\n\n")
+
+              if not report_file.exists():
+                  summary.write("Semgrep report was not generated.\n")
+                  raise SystemExit(0)
+
+              data = json.loads(
+                  report_file.read_text(encoding="utf-8")
+              )
+
+              results = data.get("results", [])
+              parser_errors = data.get("errors", [])
+
+              severities = Counter(
+                  item.get("extra", {})
+                      .get("severity", "UNKNOWN")
+                      .upper()
+                  for item in results
+              )
+
+              summary.write("## Summary\n\n")
+
+              summary.write("| Metric | Count |\n")
+              summary.write("|---|---:|\n")
+              summary.write(f"| Total findings | {len(results)} |\n")
+              summary.write(f"| ERROR | {severities.get('ERROR', 0)} |\n")
+              summary.write(f"| WARNING | {severities.get('WARNING', 0)} |\n")
+              summary.write(f"| INFO | {severities.get('INFO', 0)} |\n")
+              summary.write(f"| Parser warnings | {len(parser_errors)} |\n\n")
+
+              if not results:
+                  summary.write("No Semgrep security findings detected.\n")
+                  raise SystemExit(0)
+
+              summary.write("## Findings\n\n")
+
+              summary.write(
+                  "| Severity | File | Line | Vulnerability | Description |\n"
+              )
+              summary.write(
+                  "|---|---|---:|---|---|\n"
+              )
+
+              for result in results:
+                  extra = result.get("extra", {})
+                  metadata = extra.get("metadata", {})
+
+                  severity = extra.get("severity", "UNKNOWN")
+                  path = result.get("path", "Unknown")
+                  line = result.get("start", {}).get("line", "?")
+
+                  vulnerability = metadata.get(
+                      "vulnerability_class",
+                      []
+                  )
+
+                  if isinstance(vulnerability, list):
+                      vulnerability = ", ".join(
+                          map(str, vulnerability)
+                      )
+
+                  message = extra.get("message", "")
+
+                  message = (
+                      message
+                      .replace("|", "\\|")
+                      .replace("\n", " ")
+                  )
+
+                  vulnerability = (
+                      str(vulnerability)
+                      .replace("|", "\\|")
+                  )
+
+                  summary.write(
+                      f"| {severity} "
+                      f"| `{path}` "
+                      f"| {line} "
+                      f"| {vulnerability} "
+                      f"| {message} |\n"
+                  )
+
+          PYTHON
+
+
+      # --------------------------------------------------------
+      # Upload JSON + readable TXT report
+      # --------------------------------------------------------
+      - name: Upload Semgrep reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: semgrep-sast-report
-          path: semgrep-report.json
+          name: semgrep-sast-reports
+          path: |
+            semgrep-report.json
+            semgrep-report.txt
           if-no-files-found: ignore
 
 
   # ============================================================
   # PRODUCTION VALIDATION
-  #
-  # Final required CI gate.
   # ============================================================
   production-validation:
     name: Production validation
@@ -475,10 +579,6 @@ jobs:
     if: ${{ always() }}
 
     steps:
-
-      # --------------------------------------------------------
-      # Display results
-      # --------------------------------------------------------
       - name: Display production gate results
         shell: bash
         run: |
@@ -486,115 +586,57 @@ jobs:
           echo "       PRODUCTION CI RESULTS"
           echo "=========================================="
 
-          echo ""
           echo "Frontend : ${{ needs.frontend.result }}"
           echo "Backend  : ${{ needs.backend.result }}"
           echo "Security : ${{ needs.security.result }}"
           echo "Sonar    : ${{ needs.sonar.result }}"
           echo "Semgrep  : ${{ needs.semgrep.result }}"
 
-          echo ""
-          echo "=========================================="
-
-
-      # --------------------------------------------------------
-      # Validate all production gates
-      # --------------------------------------------------------
       - name: Validate required production gates
         shell: bash
         run: |
-
           failed=0
 
-
           if [[ "${{ needs.frontend.result }}" != "success" ]]; then
-
             echo "Frontend production gates FAILED"
             failed=1
-
-          else
-
-            echo "Frontend production gates PASSED"
-
           fi
-
 
           if [[ "${{ needs.backend.result }}" != "success" ]]; then
-
             echo "Backend production gates FAILED"
             failed=1
-
-          else
-
-            echo "Backend production gates PASSED"
-
           fi
-
 
           if [[ "${{ needs.security.result }}" != "success" ]]; then
-
             echo "Production security scans FAILED"
             failed=1
-
-          else
-
-            echo "Production security scans PASSED"
-
           fi
-
 
           if [[ "${{ needs.sonar.result }}" != "success" ]]; then
-
             echo "SonarCloud Quality Gate FAILED"
             failed=1
-
-          else
-
-            echo "SonarCloud Quality Gate PASSED"
-
           fi
-
 
           if [[ "${{ needs.semgrep.result }}" != "success" ]]; then
-
             echo "Semgrep SAST FAILED"
             failed=1
-
-          else
-
-            echo "Semgrep SAST PASSED"
-
           fi
 
-
-          echo ""
-          echo "=========================================="
-
-
           if [[ "$failed" -eq 1 ]]; then
-
             echo ""
             echo "PRODUCTION VALIDATION FAILED"
-            echo ""
             echo "Docker image will NOT be created."
             echo "DigitalOcean deployment will NOT run."
 
             exit 1
-
           fi
-
 
           echo ""
           echo "PRODUCTION VALIDATION PASSED"
-          echo ""
-          echo "All required Production CI checks passed."
 
 
   # ============================================================
-  # DOCKER IMAGE
-  #
-  # Runs only after merge/push to main and after
-  # Production Validation passes.
+  # DOCKER + GHCR
   # ============================================================
   docker-image:
     name: Build and push production image
@@ -611,24 +653,12 @@ jobs:
       }}
 
     steps:
-
-      # --------------------------------------------------------
-      # Checkout
-      # --------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
-
-      # --------------------------------------------------------
-      # Docker Buildx
-      # --------------------------------------------------------
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-
-      # --------------------------------------------------------
-      # GHCR login
-      # --------------------------------------------------------
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -636,10 +666,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-
-      # --------------------------------------------------------
-      # Docker image metadata
-      # --------------------------------------------------------
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -650,30 +676,20 @@ jobs:
             type=sha
             type=raw,value=latest
 
-
-      # --------------------------------------------------------
-      # Docker build + GHCR push
-      # --------------------------------------------------------
       - name: Build and push production image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
-
           push: true
-
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
 
   # ============================================================
-  # DIGITALOCEAN DEPLOYMENT
-  #
-  # Runs only after Docker/GHCR succeeds.
-  # Uses existing App Platform application.
+  # DIGITALOCEAN
   # ============================================================
   deploy:
     name: Deploy to DigitalOcean App Platform
@@ -693,35 +709,342 @@ jobs:
       name: production
 
     steps:
-
-      # --------------------------------------------------------
-      # Set up DigitalOcean CLI
-      # --------------------------------------------------------
       - name: Set up DigitalOcean CLI
         uses: digitalocean/action-doctl@v2
         with:
           token: ${{ secrets.DO_API_TOKEN }}
 
-
-      # --------------------------------------------------------
-      # Deploy existing App Platform application
-      # --------------------------------------------------------
       - name: Deploy existing DigitalOcean App Platform app
         shell: bash
         run: |
-
-          echo "=========================================="
-          echo "STARTING DIGITALOCEAN DEPLOYMENT"
-          echo "=========================================="
-
-          echo ""
-          echo "Using existing DigitalOcean App Platform app."
+          echo "Triggering DigitalOcean deployment..."
 
           doctl apps create-deployment \
             "${{ secrets.DO_APP_ID }}" \
             --wait
 
-          echo ""
-          echo "=========================================="
-          echo "DIGITALOCEAN DEPLOYMENT COMPLETED"
-          echo "=========================================="
+          echo "DigitalOcean deployment completed successfully."
+
+
+  # ============================================================
+  # MICROSOFT TEAMS NOTIFICATION
+  #
+  # Same Teams channel as Integration CI
+  # using TEAMS_WEBHOOK_URL
+  # ============================================================
+  notify:
+    name: Teams notification
+    runs-on: ubuntu-latest
+
+    needs:
+      - frontend
+      - backend
+      - security
+      - sonar
+      - semgrep
+      - production-validation
+      - docker-image
+      - deploy
+
+    if: ${{ always() }}
+
+    env:
+      TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+
+    steps:
+
+      # ========================================================
+      # SUCCESS
+      # ========================================================
+      - name: Send Teams success notification
+        if: >-
+          ${{
+            env.TEAMS_WEBHOOK_URL != '' &&
+            needs.frontend.result == 'success' &&
+            needs.backend.result == 'success' &&
+            needs.security.result == 'success' &&
+            needs.sonar.result == 'success' &&
+            needs.semgrep.result == 'success' &&
+            needs.production-validation.result == 'success' &&
+            (
+              github.event_name == 'pull_request' ||
+              (
+                needs.docker-image.result == 'success' &&
+                needs.deploy.result == 'success'
+              )
+            )
+          }}
+
+        shell: bash
+        run: |
+          payload=$(cat <<JSON
+          {
+            "type": "message",
+            "attachments": [
+              {
+                "contentType": "application/vnd.microsoft.card.adaptive",
+                "content": {
+                  "\$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                  "type": "AdaptiveCard",
+                  "version": "1.5",
+                  "body": [
+                    {
+                      "type": "TextBlock",
+                      "text": "JavaAPEX Production CI/CD Passed",
+                      "weight": "Bolder",
+                      "size": "Medium",
+                      "color": "Good"
+                    },
+                    {
+                      "type": "FactSet",
+                      "facts": [
+                        {
+                          "title": "Repository",
+                          "value": "${{ github.repository }}"
+                        },
+                        {
+                          "title": "Branch",
+                          "value": "${{ github.ref_name }}"
+                        },
+                        {
+                          "title": "Commit",
+                          "value": "${{ github.sha }}"
+                        },
+                        {
+                          "title": "Workflow",
+                          "value": "${{ github.workflow }}"
+                        },
+                        {
+                          "title": "Frontend",
+                          "value": "${{ needs.frontend.result }}"
+                        },
+                        {
+                          "title": "Backend",
+                          "value": "${{ needs.backend.result }}"
+                        },
+                        {
+                          "title": "Security",
+                          "value": "${{ needs.security.result }}"
+                        },
+                        {
+                          "title": "SonarCloud",
+                          "value": "${{ needs.sonar.result }}"
+                        },
+                        {
+                          "title": "Semgrep",
+                          "value": "${{ needs.semgrep.result }}"
+                        },
+                        {
+                          "title": "Production Validation",
+                          "value": "${{ needs.production-validation.result }}"
+                        },
+                        {
+                          "title": "Docker / GHCR",
+                          "value": "${{ needs.docker-image.result }}"
+                        },
+                        {
+                          "title": "DigitalOcean",
+                          "value": "${{ needs.deploy.result }}"
+                        },
+                        {
+                          "title": "Run URL",
+                          "value": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "TextBlock",
+                      "text": "Production CI/CD completed successfully.",
+                      "wrap": true
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+          JSON
+          )
+
+          response_file="$(mktemp)"
+
+          http_code="$(
+            curl -sS \
+              -H "Content-Type: application/json" \
+              -d "$payload" \
+              -o "$response_file" \
+              -w '%{http_code}' \
+              "$TEAMS_WEBHOOK_URL"
+          )"
+
+          if [[ "$http_code" != 2* ]]; then
+            echo "Teams webhook failed with HTTP status: $http_code"
+            cat "$response_file"
+            exit 1
+          fi
+
+
+      # ========================================================
+      # FAILURE
+      # ========================================================
+      - name: Send Teams failure notification
+        if: >-
+          ${{
+            env.TEAMS_WEBHOOK_URL != '' &&
+            (
+              needs.frontend.result == 'failure' ||
+              needs.backend.result == 'failure' ||
+              needs.security.result == 'failure' ||
+              needs.sonar.result == 'failure' ||
+              needs.semgrep.result == 'failure' ||
+              needs.production-validation.result == 'failure' ||
+              needs.docker-image.result == 'failure' ||
+              needs.deploy.result == 'failure'
+            )
+          }}
+
+        shell: bash
+        run: |
+          failed_jobs=()
+
+          if [[ "${{ needs.frontend.result }}" == "failure" ]]; then
+            failed_jobs+=("Frontend production gates")
+          fi
+
+          if [[ "${{ needs.backend.result }}" == "failure" ]]; then
+            failed_jobs+=("Backend production gates")
+          fi
+
+          if [[ "${{ needs.security.result }}" == "failure" ]]; then
+            failed_jobs+=("Production security scans")
+          fi
+
+          if [[ "${{ needs.sonar.result }}" == "failure" ]]; then
+            failed_jobs+=("SonarCloud Quality Gate")
+          fi
+
+          if [[ "${{ needs.semgrep.result }}" == "failure" ]]; then
+            failed_jobs+=("Semgrep SAST")
+          fi
+
+          if [[ "${{ needs.production-validation.result }}" == "failure" ]]; then
+            failed_jobs+=("Production validation")
+          fi
+
+          if [[ "${{ needs.docker-image.result }}" == "failure" ]]; then
+            failed_jobs+=("Docker / GHCR")
+          fi
+
+          if [[ "${{ needs.deploy.result }}" == "failure" ]]; then
+            failed_jobs+=("DigitalOcean deployment")
+          fi
+
+          failed_jobs_text="$(IFS=', '; echo "${failed_jobs[*]}")"
+
+          payload=$(cat <<JSON
+          {
+            "type": "message",
+            "attachments": [
+              {
+                "contentType": "application/vnd.microsoft.card.adaptive",
+                "content": {
+                  "\$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                  "type": "AdaptiveCard",
+                  "version": "1.5",
+                  "body": [
+                    {
+                      "type": "TextBlock",
+                      "text": "JavaAPEX Production CI/CD Failed",
+                      "weight": "Bolder",
+                      "size": "Medium",
+                      "color": "Attention"
+                    },
+                    {
+                      "type": "FactSet",
+                      "facts": [
+                        {
+                          "title": "Repository",
+                          "value": "${{ github.repository }}"
+                        },
+                        {
+                          "title": "Branch",
+                          "value": "${{ github.ref_name }}"
+                        },
+                        {
+                          "title": "Commit",
+                          "value": "${{ github.sha }}"
+                        },
+                        {
+                          "title": "Workflow",
+                          "value": "${{ github.workflow }}"
+                        },
+                        {
+                          "title": "Failed Jobs",
+                          "value": "$failed_jobs_text"
+                        },
+                        {
+                          "title": "Frontend",
+                          "value": "${{ needs.frontend.result }}"
+                        },
+                        {
+                          "title": "Backend",
+                          "value": "${{ needs.backend.result }}"
+                        },
+                        {
+                          "title": "Security",
+                          "value": "${{ needs.security.result }}"
+                        },
+                        {
+                          "title": "SonarCloud",
+                          "value": "${{ needs.sonar.result }}"
+                        },
+                        {
+                          "title": "Semgrep",
+                          "value": "${{ needs.semgrep.result }}"
+                        },
+                        {
+                          "title": "Production Validation",
+                          "value": "${{ needs.production-validation.result }}"
+                        },
+                        {
+                          "title": "Docker / GHCR",
+                          "value": "${{ needs.docker-image.result }}"
+                        },
+                        {
+                          "title": "DigitalOcean",
+                          "value": "${{ needs.deploy.result }}"
+                        },
+                        {
+                          "title": "Run URL",
+                          "value": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "TextBlock",
+                      "text": "Review the failed jobs and security reports in GitHub Actions.",
+                      "wrap": true
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+          JSON
+          )
+
+          response_file="$(mktemp)"
+
+          http_code="$(
+            curl -sS \
+              -H "Content-Type: application/json" \
+              -d "$payload" \
+              -o "$response_file" \
+              -w '%{http_code}' \
+              "$TEAMS_WEBHOOK_URL"
+          )"
+
+          if [[ "$http_code" != 2* ]]; then
+            echo "Teams webhook failed with HTTP status: $http_code"
+            cat "$response_file"
+            exit 1
+          fi
