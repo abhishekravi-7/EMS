@@ -63,10 +63,16 @@ jobs:
 
     steps:
 
+      # --------------------------------------------------------
+      # Checkout
+      # --------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
 
+      # --------------------------------------------------------
+      # Node.js
+      # --------------------------------------------------------
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -75,47 +81,74 @@ jobs:
           cache-dependency-path: APEX-Frontend/package-lock.json
 
 
+      # --------------------------------------------------------
+      # Install dependencies
+      # --------------------------------------------------------
       - name: Install frontend dependencies
         run: npm ci
 
 
+      # --------------------------------------------------------
+      # npm dependency audit
+      # --------------------------------------------------------
       - name: npm dependency audit
         run: |
           set -o pipefail
+
           npm audit \
             --audit-level=moderate \
             --json \
             2>&1 | tee npm-audit-report.json
 
 
+      # --------------------------------------------------------
+      # ESLint
+      # --------------------------------------------------------
       - name: ESLint
         run: |
           set -o pipefail
           npm run lint 2>&1 | tee eslint.log
 
 
+      # --------------------------------------------------------
+      # TypeScript
+      # --------------------------------------------------------
       - name: TypeScript check
         run: |
           set -o pipefail
           npm run typecheck 2>&1 | tee typecheck.log
 
 
+      # --------------------------------------------------------
+      # Unit Tests
+      # --------------------------------------------------------
       - name: Frontend unit tests
         run: |
           if find . -type f \( -name "*.test.*" -o -name "*.spec.*" \) | grep -q .; then
+
             set -o pipefail
+
             npm test -- --run 2>&1 | tee unit-tests.log
+
           else
+
             echo "No frontend unit tests detected; skipping." | tee unit-tests.log
+
           fi
 
 
+      # --------------------------------------------------------
+      # Vite production build
+      # --------------------------------------------------------
       - name: Vite production build
         run: |
           set -o pipefail
           npm run build 2>&1 | tee vite-build.log
 
 
+      # --------------------------------------------------------
+      # Upload reports
+      # --------------------------------------------------------
       - name: Upload frontend production reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -144,10 +177,16 @@ jobs:
 
     steps:
 
+      # --------------------------------------------------------
+      # Checkout
+      # --------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
 
+      # --------------------------------------------------------
+      # Python
+      # --------------------------------------------------------
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -156,13 +195,27 @@ jobs:
           cache-dependency-path: APEX-Backend/requirements.txt
 
 
+      # --------------------------------------------------------
+      # Install dependencies
+      # --------------------------------------------------------
       - name: Install backend dependencies
         run: |
           python -m pip install --upgrade pip
+
           pip install -r requirements.txt
-          pip install pytest pytest-asyncio respx ruff bandit pip-audit
+
+          pip install \
+            pytest \
+            pytest-asyncio \
+            respx \
+            ruff \
+            bandit \
+            pip-audit
 
 
+      # --------------------------------------------------------
+      # Python dependency vulnerabilities
+      # --------------------------------------------------------
       - name: pip dependency audit
         run: |
           pip-audit \
@@ -171,27 +224,40 @@ jobs:
             -o pip-audit-report.json
 
 
+      # --------------------------------------------------------
+      # Ruff
+      # --------------------------------------------------------
       - name: Ruff lint
         run: |
           set -o pipefail
           ruff check . 2>&1 | tee ruff.log
 
 
+      # --------------------------------------------------------
+      # Pytest
+      # --------------------------------------------------------
       - name: Pytest
         run: |
           set -o pipefail
           pytest -q 2>&1 | tee pytest.log
 
 
+      # --------------------------------------------------------
+      # Bandit
+      # --------------------------------------------------------
       - name: Bandit security scan
         run: |
           set -o pipefail
+
           bandit \
             -r app \
             -f txt \
             -o bandit.log
 
 
+      # --------------------------------------------------------
+      # Upload backend reports
+      # --------------------------------------------------------
       - name: Upload backend production reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -215,12 +281,18 @@ jobs:
 
     steps:
 
+      # --------------------------------------------------------
+      # Checkout full repository history
+      # --------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
 
+      # --------------------------------------------------------
+      # Gitleaks
+      # --------------------------------------------------------
       - name: Gitleaks secret scan
         uses: gitleaks/gitleaks-action@v2
         env:
@@ -236,6 +308,9 @@ jobs:
             --exit-code 1
 
 
+      # --------------------------------------------------------
+      # Trivy
+      # --------------------------------------------------------
       - name: Trivy filesystem scan
         uses: aquasecurity/trivy-action@v0.36.0
         with:
@@ -250,6 +325,9 @@ jobs:
           cache: true
 
 
+      # --------------------------------------------------------
+      # Upload security reports
+      # --------------------------------------------------------
       - name: Upload security reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -264,11 +342,7 @@ jobs:
   # ============================================================
   # SONARCLOUD STATIC CODE ANALYSIS
   #
-  # IMPORTANT:
-  # Sonar is attempted even if Frontend, Backend or Security fails.
-  #
-  # This allows developers to inspect SonarCloud findings even
-  # when other CI gates have already detected problems.
+  # Runs even if frontend/backend/security fail.
   # ============================================================
   sonar:
     name: SonarCloud Quality Gate
@@ -279,24 +353,22 @@ jobs:
       - backend
       - security
 
-    # CRITICAL CHANGE:
-    # Without always(), GitHub skips this job when a dependency fails.
     if: ${{ always() }}
 
     steps:
 
-      # ----------------------------------------------------------
-      # Checkout full Git history for SonarCloud
-      # ----------------------------------------------------------
+      # --------------------------------------------------------
+      # Checkout full history
+      # --------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
 
-      # ----------------------------------------------------------
-      # Run SonarCloud analysis
-      # ----------------------------------------------------------
+      # --------------------------------------------------------
+      # SonarCloud
+      # --------------------------------------------------------
       - name: SonarCloud analysis
         id: sonar
         uses: SonarSource/sonarqube-scan-action@v6
@@ -311,12 +383,83 @@ jobs:
 
 
   # ============================================================
+  # SEMGREP SAST
+  #
+  # Static Application Security Testing
+  # Python + TypeScript / JavaScript
+  # ============================================================
+  semgrep:
+    name: Semgrep SAST
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # --------------------------------------------------------
+      # Checkout repository
+      # --------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+
+      # --------------------------------------------------------
+      # Python required for Semgrep CLI
+      # --------------------------------------------------------
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+
+      # --------------------------------------------------------
+      # Install Semgrep Community Edition
+      # --------------------------------------------------------
+      - name: Install Semgrep
+        run: |
+          python -m pip install --upgrade pip
+          pip install semgrep
+
+
+      # --------------------------------------------------------
+      # Verify Semgrep
+      # --------------------------------------------------------
+      - name: Check Semgrep version
+        run: |
+          semgrep --version
+
+
+      # --------------------------------------------------------
+      # Run Semgrep
+      #
+      # Observation mode:
+      # Findings are reported but this command is not configured
+      # to block production yet.
+      # --------------------------------------------------------
+      - name: Run Semgrep SAST
+        run: |
+          semgrep scan \
+            --config auto \
+            APEX-Backend/app \
+            APEX-Frontend/src \
+            --json \
+            --output semgrep-report.json
+
+
+      # --------------------------------------------------------
+      # Upload Semgrep JSON report
+      # --------------------------------------------------------
+      - name: Upload Semgrep report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: semgrep-sast-report
+          path: semgrep-report.json
+          if-no-files-found: ignore
+
+
+  # ============================================================
   # PRODUCTION VALIDATION
   #
-  # This job decides whether the complete Production CI passed.
-  #
-  # Sonar running does NOT mean deployment is allowed.
-  # Every required gate must still pass.
+  # Final required CI gate.
   # ============================================================
   production-validation:
     name: Production validation
@@ -327,61 +470,100 @@ jobs:
       - backend
       - security
       - sonar
+      - semgrep
 
     if: ${{ always() }}
 
     steps:
 
+      # --------------------------------------------------------
+      # Display results
+      # --------------------------------------------------------
       - name: Display production gate results
         shell: bash
         run: |
           echo "=========================================="
           echo "       PRODUCTION CI RESULTS"
           echo "=========================================="
+
           echo ""
           echo "Frontend : ${{ needs.frontend.result }}"
           echo "Backend  : ${{ needs.backend.result }}"
           echo "Security : ${{ needs.security.result }}"
           echo "Sonar    : ${{ needs.sonar.result }}"
+          echo "Semgrep  : ${{ needs.semgrep.result }}"
+
           echo ""
           echo "=========================================="
 
 
+      # --------------------------------------------------------
+      # Validate all production gates
+      # --------------------------------------------------------
       - name: Validate required production gates
         shell: bash
         run: |
 
           failed=0
 
+
           if [[ "${{ needs.frontend.result }}" != "success" ]]; then
+
             echo "Frontend production gates FAILED"
             failed=1
+
           else
+
             echo "Frontend production gates PASSED"
+
           fi
 
 
           if [[ "${{ needs.backend.result }}" != "success" ]]; then
+
             echo "Backend production gates FAILED"
             failed=1
+
           else
+
             echo "Backend production gates PASSED"
+
           fi
 
 
           if [[ "${{ needs.security.result }}" != "success" ]]; then
+
             echo "Production security scans FAILED"
             failed=1
+
           else
+
             echo "Production security scans PASSED"
+
           fi
 
 
           if [[ "${{ needs.sonar.result }}" != "success" ]]; then
+
             echo "SonarCloud Quality Gate FAILED"
             failed=1
+
           else
+
             echo "SonarCloud Quality Gate PASSED"
+
+          fi
+
+
+          if [[ "${{ needs.semgrep.result }}" != "success" ]]; then
+
+            echo "Semgrep SAST FAILED"
+            failed=1
+
+          else
+
+            echo "Semgrep SAST PASSED"
+
           fi
 
 
@@ -391,6 +573,7 @@ jobs:
 
           if [[ "$failed" -eq 1 ]]; then
 
+            echo ""
             echo "PRODUCTION VALIDATION FAILED"
             echo ""
             echo "Docker image will NOT be created."
@@ -401,25 +584,17 @@ jobs:
           fi
 
 
+          echo ""
           echo "PRODUCTION VALIDATION PASSED"
           echo ""
-          echo "All required CI checks passed."
+          echo "All required Production CI checks passed."
 
 
   # ============================================================
   # DOCKER IMAGE
   #
-  # Does NOT run for PR validation.
-  #
-  # Runs only after:
-  #
-  # dev -> main PR
-  #          ↓
-  # merge
-  #          ↓
-  # push main
-  #          ↓
-  # Production validation PASS
+  # Runs only after merge/push to main and after
+  # Production Validation passes.
   # ============================================================
   docker-image:
     name: Build and push production image
@@ -437,14 +612,23 @@ jobs:
 
     steps:
 
+      # --------------------------------------------------------
+      # Checkout
+      # --------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
 
+      # --------------------------------------------------------
+      # Docker Buildx
+      # --------------------------------------------------------
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
 
+      # --------------------------------------------------------
+      # GHCR login
+      # --------------------------------------------------------
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -453,6 +637,9 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
 
+      # --------------------------------------------------------
+      # Docker image metadata
+      # --------------------------------------------------------
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -464,11 +651,15 @@ jobs:
             type=raw,value=latest
 
 
+      # --------------------------------------------------------
+      # Docker build + GHCR push
+      # --------------------------------------------------------
       - name: Build and push production image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
+
           push: true
 
           tags: ${{ steps.meta.outputs.tags }}
@@ -481,8 +672,8 @@ jobs:
   # ============================================================
   # DIGITALOCEAN DEPLOYMENT
   #
-  # Runs only when Docker image creation succeeds.
-  # Reuses existing DigitalOcean App Platform application.
+  # Runs only after Docker/GHCR succeeds.
+  # Uses existing App Platform application.
   # ============================================================
   deploy:
     name: Deploy to DigitalOcean App Platform
@@ -503,12 +694,18 @@ jobs:
 
     steps:
 
+      # --------------------------------------------------------
+      # Set up DigitalOcean CLI
+      # --------------------------------------------------------
       - name: Set up DigitalOcean CLI
         uses: digitalocean/action-doctl@v2
         with:
           token: ${{ secrets.DO_API_TOKEN }}
 
 
+      # --------------------------------------------------------
+      # Deploy existing App Platform application
+      # --------------------------------------------------------
       - name: Deploy existing DigitalOcean App Platform app
         shell: bash
         run: |
@@ -517,6 +714,7 @@ jobs:
           echo "STARTING DIGITALOCEAN DEPLOYMENT"
           echo "=========================================="
 
+          echo ""
           echo "Using existing DigitalOcean App Platform app."
 
           doctl apps create-deployment \
