@@ -192,3 +192,40 @@ def test_existing_test_database_persistence_recovery(tmp_path, monkeypatch):
     assert status["executed"] is False
     assert status["logs"][0]["msg"] == "Running on worker A"
 
+
+@pytest.fixture
+def anyio_backend():
+    return "asyncio"
+
+
+@pytest.mark.anyio
+async def test_existing_test_endpoints_non_blocking_async_execution(tmp_path, monkeypatch):
+    """Verify that run endpoint returns 202 immediately, status returns 200, and execution progresses asynchronously."""
+    monkeypatch.setattr("app.core.config.settings.storage_dir", tmp_path)
+    from app.api.v1.endpoints.existing_test_controller import run_existing_tests_endpoint, get_existing_tests_status_endpoint
+    from app.application.use_cases.existing_test_runner_service import existing_test_runner_service
+
+    job_id = f"job_async_poll_{uuid.uuid4().hex[:8]}"
+    paths = WorkspacePaths(job_id)
+    paths.job_dir.mkdir(parents=True, exist_ok=True)
+    paths.original_repo_dir.mkdir(parents=True, exist_ok=True)
+
+    user = User(id=1, email="test@apex.dev", full_name="Test User")
+
+    # Call run endpoint
+    run_resp = await run_existing_tests_endpoint(job_id=job_id, current_user=user, db=None)
+    assert run_resp.status_code == 202
+    run_data = json.loads(run_resp.body.decode("utf-8"))
+    assert run_data["status"] == "RUNNING"
+    assert run_data["started"] is True
+
+    # Call status endpoint immediately
+    status_resp = await get_existing_tests_status_endpoint(job_id=job_id, current_user=user, db=None)
+    assert status_resp.status_code == 200
+    status_data = json.loads(status_resp.body.decode("utf-8"))
+    assert status_data["status"] in ("RUNNING", "NO_TESTS_AVAILABLE")
+
+    # Clean up state
+    existing_test_runner_service.reset(job_id)
+
+

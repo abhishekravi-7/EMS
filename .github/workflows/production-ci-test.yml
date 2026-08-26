@@ -25,7 +25,6 @@ env:
   PYTHON_VERSION: "3.11"
   IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/javaapex
 
-
 jobs:
 
   # ============================================================
@@ -132,6 +131,7 @@ jobs:
 
       - name: Frontend test-flow status
         if: always()
+        shell: bash
         run: |
           echo "Frontend test-flow completed."
           echo "Failures: ${{ steps.collect_failures.outputs.checks }}"
@@ -233,6 +233,7 @@ jobs:
 
       - name: Backend test-flow status
         if: always()
+        shell: bash
         run: |
           echo "Backend test-flow completed."
           echo "Failures: ${{ steps.collect_failures.outputs.checks }}"
@@ -313,6 +314,7 @@ jobs:
 
       - name: Security test-flow status
         if: always()
+        shell: bash
         run: |
           echo "Security test-flow completed."
           echo "Failures: ${{ steps.collect_failures.outputs.checks }}"
@@ -321,9 +323,6 @@ jobs:
 
   # ============================================================
   # SONARCLOUD
-  #
-  # continue-on-error means Sonar failure is reported,
-  # but the test workflow continues.
   # ============================================================
   sonar:
     name: SonarCloud Quality Gate
@@ -372,10 +371,6 @@ jobs:
 
   # ============================================================
   # PRODUCTION VALIDATION
-  #
-  # IMPORTANT:
-  # This reports failures but DOES NOT exit 1.
-  # It deliberately allows Docker/CD to continue.
   # ============================================================
   production-validation:
     name: Production validation
@@ -432,10 +427,6 @@ jobs:
             echo "Production validation passed."
           fi
 
-          # ----------------------------------------------------
-          # DO NOT exit 1 here.
-          # This is intentionally a test workflow.
-          # ----------------------------------------------------
           exit 0
 
 
@@ -449,7 +440,7 @@ jobs:
     needs:
       - production-validation
 
-    if: ${{ always() }}
+    if: always()
 
     outputs:
       docker_result: ${{ steps.collect_docker.outputs.result }}
@@ -509,11 +500,6 @@ jobs:
 
   # ============================================================
   # DIGITALOCEAN DEPLOYMENT
-  #
-  # This actually triggers deployment when:
-  # confirm_deploy = yes
-  #
-  # It is intentionally independent from CI quality failures.
   # ============================================================
   deploy:
     name: Deploy to DigitalOcean App Platform
@@ -537,59 +523,136 @@ jobs:
       name: production-test
 
     steps:
-      - name: Show deployment warning
+      - name: Show deployment information
         shell: bash
         run: |
           echo "=========================================="
-          echo "TEST WORKFLOW DEPLOYMENT"
+          echo "DIGITALOCEAN TEST DEPLOYMENT"
           echo "=========================================="
-          echo ""
-          echo "This deployment is intentionally allowed"
-          echo "even when CI checks fail."
+
           echo ""
           echo "Frontend failures:"
           echo "${{ needs.frontend.outputs.failed_checks }}"
+
           echo ""
           echo "Backend failures:"
           echo "${{ needs.backend.outputs.failed_checks }}"
+
           echo ""
           echo "Security failures:"
           echo "${{ needs.security.outputs.failed_checks }}"
+
           echo ""
           echo "Sonar result:"
           echo "${{ needs.sonar.outputs.sonar_result }}"
+
           echo ""
-          echo "Validation:"
+          echo "Production validation:"
           echo "${{ needs.production-validation.outputs.validation_status }}"
+
           echo ""
-          echo "Docker:"
+          echo "Docker result:"
           echo "${{ needs.docker-image.outputs.docker_result }}"
 
+
+      # --------------------------------------------------------
+      # Validate DigitalOcean secrets BEFORE doctl
+      # --------------------------------------------------------
+      - name: Validate DigitalOcean secrets
+        shell: bash
+        env:
+          DO_API_TOKEN: ${{ secrets.DO_API_TOKEN }}
+          DO_APP_ID: ${{ secrets.DO_APP_ID }}
+        run: |
+          echo "=========================================="
+          echo "VALIDATING DIGITALOCEAN SECRETS"
+          echo "=========================================="
+
+          if [[ -z "$DO_API_TOKEN" ]]; then
+            echo "ERROR: DO_API_TOKEN is missing."
+            exit 1
+          fi
+
+          echo "DO_API_TOKEN is configured."
+
+          if [[ -z "$DO_APP_ID" ]]; then
+            echo "ERROR: DO_APP_ID is missing."
+            exit 1
+          fi
+
+          echo "DO_APP_ID is configured."
+
+          echo ""
+          echo "DigitalOcean secrets validation passed."
+
+
+      # --------------------------------------------------------
+      # Install and authenticate doctl
+      # --------------------------------------------------------
       - name: Set up DigitalOcean CLI
         uses: digitalocean/action-doctl@v2
         with:
           token: ${{ secrets.DO_API_TOKEN }}
 
-      - name: Validate DigitalOcean App ID
+
+      # --------------------------------------------------------
+      # Verify DigitalOcean token/account
+      # --------------------------------------------------------
+      - name: Verify DigitalOcean authentication
         shell: bash
         run: |
-          if [[ -z "${{ secrets.DO_APP_ID }}" ]]; then
-            echo "DO_APP_ID secret is missing."
-            exit 1
-          fi
+          echo "=========================================="
+          echo "VERIFY DIGITALOCEAN AUTHENTICATION"
+          echo "=========================================="
 
-          echo "DigitalOcean App ID is configured."
+          doctl account get
 
+          echo ""
+          echo "DigitalOcean authentication successful."
+
+
+      # --------------------------------------------------------
+      # Verify existing App Platform application
+      # --------------------------------------------------------
+      - name: Verify existing DigitalOcean App
+        shell: bash
+        env:
+          DO_APP_ID: ${{ secrets.DO_APP_ID }}
+        run: |
+          echo "=========================================="
+          echo "VERIFY EXISTING APP PLATFORM APP"
+          echo "=========================================="
+
+          doctl apps get "$DO_APP_ID"
+
+          echo ""
+          echo "Existing DigitalOcean App verified."
+
+
+      # --------------------------------------------------------
+      # Trigger deployment on the EXISTING App Platform app
+      # --------------------------------------------------------
       - name: Trigger DigitalOcean deployment
         shell: bash
+        env:
+          DO_APP_ID: ${{ secrets.DO_APP_ID }}
         run: |
-          echo "Triggering deployment for existing DigitalOcean App Platform app..."
+          echo "=========================================="
+          echo "START DIGITALOCEAN DEPLOYMENT"
+          echo "=========================================="
+
+          echo ""
+          echo "Triggering deployment for existing"
+          echo "DigitalOcean App Platform app..."
 
           doctl apps create-deployment \
-            "${{ secrets.DO_APP_ID }}" \
+            "$DO_APP_ID" \
             --wait
 
-          echo "DigitalOcean deployment command completed."
+          echo ""
+          echo "=========================================="
+          echo "DIGITALOCEAN DEPLOYMENT COMPLETED"
+          echo "=========================================="
 
 
   # ============================================================
