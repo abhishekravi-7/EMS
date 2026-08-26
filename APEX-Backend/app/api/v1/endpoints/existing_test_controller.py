@@ -1,4 +1,6 @@
 import asyncio
+import logging
+import time
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
@@ -13,6 +15,8 @@ from app.application.use_cases.existing_test_runner_service import (
     MAX_EXISTING_TEST_OUTPUT_LINES,
 )
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(tags=["existing-tests"])
 
 @router.get("/existing-tests/scan/{job_id}")
@@ -22,13 +26,16 @@ async def scan_existing_tests_total(
     db: Session | None = Depends(get_db_optional)
 ):
     """Fast scan — returns total test count before execution (no run)."""
-    verify_job_ownership(db, job_id, current_user)
+    await asyncio.to_thread(verify_job_ownership, db, job_id, current_user)
     try:
         res = await asyncio.to_thread(
             existing_test_runner_service.scan_total, job_id
         )
         return JSONResponse(content=res)
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error("[EXISTING-TEST-JOB] Scan error for %s: %s", job_id, e, exc_info=True)
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 @router.post("/existing-tests/run/{job_id}")
@@ -39,10 +46,11 @@ async def run_existing_tests_endpoint(
     db: Session | None = Depends(get_db_optional)
 ):
     """Start existing tests in the background and return immediately."""
-    verify_job_ownership(db, job_id, current_user)
+    await asyncio.to_thread(verify_job_ownership, db, job_id, current_user)
     try:
-        current = existing_test_runner_service.get_status(job_id)
+        current = await asyncio.to_thread(existing_test_runner_service.get_status, job_id)
         if current.get("status") in {"RUNNING", "IN_PROGRESS"}:
+            logger.info("[EXISTING-TEST-JOB] Existing tests already running for job %s", job_id)
             return JSONResponse(
                 status_code=202,
                 content={
@@ -54,27 +62,36 @@ async def run_existing_tests_endpoint(
             )
 
         # Immediately initialize running state and persist so polling is instantly available across all instances
+        init_log_entry = {
+            "ts": time.strftime("%H:%M:%S"),
+            "msg": f"Starting existing test execution for job {job_id}...",
+            "level": "INFO",
+        }
         with existing_test_runner_service._lock:
             existing_test_runner_service._state[job_id] = {
                 "status": "RUNNING",
                 "executed": False,
-                "logs": deque([f"Starting existing test execution for job {job_id}..."], maxlen=MAX_EXISTING_TEST_OUTPUT_LINES),
+                "logs": deque([init_log_entry], maxlen=MAX_EXISTING_TEST_OUTPUT_LINES),
                 "result": None,
             }
-        existing_test_runner_service._save_state_to_disk(job_id)
+        await asyncio.to_thread(existing_test_runner_service._save_state_to_disk, job_id)
+        logger.info("[EXISTING-TEST-JOB] Created and stored initial RUNNING state for job %s", job_id)
 
         # Ensure database ownership record is persisted
         if db is not None and settings.database_enabled:
             from app.infrastructure.persistence.migration_ownership_repository import record_job_owner
             try:
-                record_job_owner(db, job_id=job_id, user_id=current_user.id)
-            except Exception:
-                pass
+                await asyncio.to_thread(record_job_owner, db, job_id=job_id, user_id=current_user.id)
+            except Exception as rec_err:
+                logger.debug("Non-fatal: could not record job owner for %s: %s", job_id, rec_err)
 
         async def _run_background():
+            logger.info("[EXISTING-TEST-JOB] Background execution task started for job %s", job_id)
             try:
                 await asyncio.to_thread(existing_test_runner_service.run_existing_tests, job_id, test_selection)
+                logger.info("[EXISTING-TEST-JOB] Background execution task completed for job %s", job_id)
             except Exception as bg_err:
+                logger.error("[EXISTING-TEST-JOB] Background execution task failed for job %s: %s", job_id, bg_err, exc_info=True)
                 with existing_test_runner_service._lock:
                     state = existing_test_runner_service._state.setdefault(job_id, {})
                     state["status"] = "FAILED"
@@ -85,7 +102,7 @@ async def run_existing_tests_endpoint(
                         "metrics": {"total": 0, "passed": 0, "failed": 0, "skipped": 0},
                         "error": str(bg_err),
                     }
-                existing_test_runner_service._save_state_to_disk(job_id)
+                await asyncio.to_thread(existing_test_runner_service._save_state_to_disk, job_id)
                 existing_test_runner_service._log(job_id, f"Existing test background run failed: {bg_err}", "ERROR")
 
         asyncio.create_task(_run_background())
@@ -97,7 +114,10 @@ async def run_existing_tests_endpoint(
                 "message": "Existing tests started in the background.",
             },
         )
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error("[EXISTING-TEST-JOB] Failed to start existing tests for job %s: %s", job_id, e, exc_info=True)
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 @router.get("/existing-tests/status/{job_id}")
@@ -107,11 +127,14 @@ async def get_existing_tests_status_endpoint(
     db: Session | None = Depends(get_db_optional)
 ):
     """Returns current run status + live logs + final result when done."""
-    verify_job_ownership(db, job_id, current_user)
+    await asyncio.to_thread(verify_job_ownership, db, job_id, current_user)
     try:
-        res = existing_test_runner_service.get_status(job_id)
+        res = await asyncio.to_thread(existing_test_runner_service.get_status, job_id)
         return JSONResponse(content=res)
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error("[EXISTING-TEST-JOB] Status endpoint error for job %s: %s", job_id, e, exc_info=True)
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 @router.delete("/existing-tests/reset/{job_id}")
@@ -121,11 +144,14 @@ async def reset_existing_tests_endpoint(
     db: Session | None = Depends(get_db_optional)
 ):
     """Reset execution state for a job."""
-    verify_job_ownership(db, job_id, current_user)
+    await asyncio.to_thread(verify_job_ownership, db, job_id, current_user)
     try:
-        existing_test_runner_service.reset(job_id)
+        await asyncio.to_thread(existing_test_runner_service.reset, job_id)
         return JSONResponse(content={"reset": True})
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error("[EXISTING-TEST-JOB] Reset error for job %s: %s", job_id, e, exc_info=True)
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 @router.post("/existing-tests/stop/{job_id}")
@@ -135,9 +161,12 @@ async def stop_existing_tests_endpoint(
     db: Session | None = Depends(get_db_optional)
 ):
     """Aborts/terminates the current execution of existing tests."""
-    verify_job_ownership(db, job_id, current_user)
+    await asyncio.to_thread(verify_job_ownership, db, job_id, current_user)
     try:
-        existing_test_runner_service.stop_existing_tests(job_id)
+        await asyncio.to_thread(existing_test_runner_service.stop_existing_tests, job_id)
         return JSONResponse(content={"stopped": True})
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error("[EXISTING-TEST-JOB] Stop error for job %s: %s", job_id, e, exc_info=True)
         return JSONResponse(status_code=500, content={"error": str(e)})

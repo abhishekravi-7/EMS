@@ -491,8 +491,9 @@ class BoundedLogBuffer:
 class ExistingTestRunnerService:
     def __init__(self):
         self._state: dict[str, dict] = {}
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._active_processes: dict[str, subprocess.Popen] = {}
+        self._last_disk_flush: dict[str, float] = {}
 
     def _test_category(self, test_type: str, framework: str) -> str:
         """Return the semantic category used by the validation UI.
@@ -705,7 +706,7 @@ class ExistingTestRunnerService:
             "test_cases": test_cases
         }
 
-    def _save_state_to_disk(self, job_id: str) -> None:
+    def _save_state_to_disk(self, job_id: str, save_to_db: bool = True) -> None:
         """Persist in-memory state to disk and database so it is accessible across multiple workers/processes/containers."""
         try:
             paths = WorkspacePaths(job_id)
@@ -720,20 +721,24 @@ class ExistingTestRunnerService:
                     "logs": list(state.get("logs", [])),
                     "result": state.get("result"),
                 }
-            paths.existing_test_state_path.write_text(json.dumps(serializable_state, indent=2), encoding="utf-8")
-            from app.infrastructure.persistence.existing_test_repository import save_existing_test_state_to_db
-            save_existing_test_state_to_db(job_id, serializable_state, report=state.get("result"))
-        except Exception:
-            pass
+            temp_path = paths.reports_dir / f".tmp_{job_id}_state.json"
+            temp_path.write_text(json.dumps(serializable_state, indent=2), encoding="utf-8")
+            temp_path.replace(paths.existing_test_state_path)
+
+            if save_to_db:
+                from app.infrastructure.persistence.existing_test_repository import save_existing_test_state_to_db
+                save_existing_test_state_to_db(job_id, serializable_state, report=state.get("result"))
+        except Exception as exc:
+            logger.debug("Non-fatal: could not save state to disk for %s: %s", job_id, exc)
 
     def get_status(self, job_id: str) -> dict:
         logger.info("[EXISTING-TEST-JOB] Status requested %s", job_id)
+        # 1. Fast in-memory check
         with self._lock:
             state = self._state.get(job_id)
         if state and state.get("status") not in (None, "IDLE", "Unknown"):
             status_str = state.get("status", "IDLE")
-            logger.info("[EXISTING-TEST-JOB] Job found=true")
-            logger.info("[EXISTING-TEST-JOB] State=%s", status_str)
+            logger.info("[EXISTING-TEST-JOB] Job found=true State=%s", status_str)
             return {
                 "status": status_str,
                 "executed": state.get("executed", False),
@@ -741,7 +746,7 @@ class ExistingTestRunnerService:
                 "result": state.get("result")
             }
 
-        # Check disk persistence (for multi-worker / multi-container in DigitalOcean)
+        # 2. Check disk persistence (for multi-worker / multi-container in DigitalOcean)
         paths = WorkspacePaths(job_id)
         if paths.existing_test_state_path.is_file():
             try:
@@ -754,8 +759,7 @@ class ExistingTestRunnerService:
                         "result": disk_state.get("result")
                     }
                 status_str = disk_state.get("status", "IDLE")
-                logger.info("[EXISTING-TEST-JOB] Job found=true")
-                logger.info("[EXISTING-TEST-JOB] State=%s", status_str)
+                logger.info("[EXISTING-TEST-JOB] Job found=true (from disk) State=%s", status_str)
                 return {
                     "status": status_str,
                     "executed": disk_state.get("executed", False),
@@ -765,12 +769,12 @@ class ExistingTestRunnerService:
             except Exception:
                 pass
 
+        # 3. Check disk final report file
         if paths.existing_test_report_path.is_file():
             try:
                 report_data = json.loads(paths.existing_test_report_path.read_text(encoding="utf-8"))
                 res_status = report_data.get("status", "COMPLETED")
-                logger.info("[EXISTING-TEST-JOB] Job found=true")
-                logger.info("[EXISTING-TEST-JOB] State=%s", res_status)
+                logger.info("[EXISTING-TEST-JOB] Job found=true (from report) State=%s", res_status)
                 return {
                     "status": res_status,
                     "executed": True,
@@ -780,7 +784,7 @@ class ExistingTestRunnerService:
             except Exception:
                 pass
 
-        # Check database persistence (handles multi-container routing in DigitalOcean)
+        # 4. Check database persistence (handles multi-container routing in DigitalOcean)
         try:
             from app.infrastructure.persistence.existing_test_repository import load_existing_test_state_from_db, load_existing_test_report_from_db
             db_state = load_existing_test_state_from_db(job_id)
@@ -798,8 +802,7 @@ class ExistingTestRunnerService:
                 except Exception:
                     pass
                 status_str = db_state.get("status", "IDLE")
-                logger.info("[EXISTING-TEST-JOB] Job found=true")
-                logger.info("[EXISTING-TEST-JOB] State=%s", status_str)
+                logger.info("[EXISTING-TEST-JOB] Job found=true (from db) State=%s", status_str)
                 return {
                     "status": status_str,
                     "executed": db_state.get("executed", False),
@@ -810,8 +813,7 @@ class ExistingTestRunnerService:
             db_report = load_existing_test_report_from_db(job_id)
             if db_report:
                 res_status = db_report.get("status", "COMPLETED")
-                logger.info("[EXISTING-TEST-JOB] Job found=true")
-                logger.info("[EXISTING-TEST-JOB] State=%s", res_status)
+                logger.info("[EXISTING-TEST-JOB] Job found=true (from db report) State=%s", res_status)
                 return {
                     "status": res_status,
                     "executed": True,
@@ -823,8 +825,7 @@ class ExistingTestRunnerService:
 
         found = state is not None or paths.job_dir.exists()
         status_str = state.get("status", "IDLE") if state else "IDLE"
-        logger.info("[EXISTING-TEST-JOB] Job found=%s", str(found).lower())
-        logger.info("[EXISTING-TEST-JOB] State=%s", status_str)
+        logger.info("[EXISTING-TEST-JOB] Job found=%s State=%s", str(found).lower(), status_str)
         if state:
             return {
                 "status": status_str,
@@ -838,6 +839,7 @@ class ExistingTestRunnerService:
         logger.info("[EXISTING-TEST-JOB] Cleanup jobId=%s", job_id)
         with self._lock:
             self._state.pop(job_id, None)
+            self._last_disk_flush.pop(job_id, None)
         try:
             paths = WorkspacePaths(job_id)
             if paths.existing_test_state_path.is_file():
@@ -852,6 +854,30 @@ class ExistingTestRunnerService:
             self._state.setdefault(job_id, {}).setdefault(
                 "logs", deque(maxlen=MAX_EXISTING_TEST_OUTPUT_LINES)
             ).append(entry)
+
+        # Periodically flush state to disk so multi-worker environments can read live logs
+        now = time.time()
+        last_flush = self._last_disk_flush.get(job_id, 0.0)
+        if level in ("ERROR", "WARN") or (now - last_flush) >= 1.5:
+            self._last_disk_flush[job_id] = now
+            try:
+                paths = WorkspacePaths(job_id)
+                paths.reports_dir.mkdir(parents=True, exist_ok=True)
+                with self._lock:
+                    state = self._state.get(job_id)
+                    if state:
+                        serializable_state = {
+                            "status": state.get("status", "IDLE"),
+                            "executed": state.get("executed", False),
+                            "logs": list(state.get("logs", [])),
+                            "result": state.get("result"),
+                        }
+                if state:
+                    temp_path = paths.reports_dir / f".tmp_{job_id}_state.json"
+                    temp_path.write_text(json.dumps(serializable_state, indent=2), encoding="utf-8")
+                    temp_path.replace(paths.existing_test_state_path)
+            except Exception:
+                pass
 
     def _instrument_playwright_tests(self, proj_root: Path, job_id: str):
         """Enable Playwright and Selenium screenshot and video recording within the existing test execution."""
@@ -1907,6 +1933,57 @@ class ExistingTestRunnerService:
         self._save_state_to_disk(job_id)
         logger.info("[EXISTING-TEST-JOB] Stored job %s", job_id)
 
+        try:
+            return self._execute_existing_tests(job_id, test_selection)
+        except Exception as err:
+            logger.error("[EXISTING-TEST-JOB] Execution failed for job %s: %s", job_id, err, exc_info=True)
+            self._log(job_id, f"Execution failed: {err}", "ERROR")
+            paths = WorkspacePaths(job_id)
+            error_result = {
+                "status": "FAILED",
+                "executed": True,
+                "metrics": {
+                    "total": 0,
+                    "executed": 0,
+                    "passed": 0,
+                    "failed": 0,
+                    "skipped": 0,
+                    "not_executed": 0,
+                    "duration": "0.00s",
+                    "pass_percentage": "0.0%",
+                    "type": "JUnit",
+                    "build_tool": None,
+                    "existing_coverage": "N/A",
+                    "execution_status": "FAILED",
+                    "compilation_error": str(err),
+                },
+                "framework_info": {
+                    "detected_framework": "JUnit",
+                    "build_tool": None,
+                    "test_source_dir": "src/test/java",
+                },
+                "test_results": [],
+                "file_breakdown": [],
+                "report_availability": {
+                    "surefire": {"available": False, "report_url": None, "label": "JUnit (Maven Surefire Report)"},
+                    "playwright": {"available": False, "report_url": None, "label": "Playwright Report"},
+                    "allure": {"available": False, "report_url": None, "label": "Selenium (Allure Report)"},
+                },
+                "error": str(err),
+            }
+            with self._lock:
+                state = self._state.setdefault(job_id, {})
+                state["status"] = "FAILED"
+                state["executed"] = True
+                state["result"] = error_result
+            try:
+                paths.existing_test_report_path.write_text(json.dumps(error_result, indent=2), encoding="utf-8")
+            except Exception:
+                pass
+            self._save_state_to_disk(job_id)
+            return error_result
+
+    def _execute_existing_tests(self, job_id: str, test_selection: list[dict] | None = None) -> dict:
         start_time = time.time()
         paths = WorkspacePaths(job_id)
 
