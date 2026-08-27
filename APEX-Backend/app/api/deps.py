@@ -90,7 +90,11 @@ def verify_job_ownership(db: Session | None, job_id: str, current_user: User) ->
         from app.infrastructure.persistence.job_repository import JobRepository
         from app.application.services.status_service import _REPORT_CACHE
         from app.application.use_cases.existing_test_runner_service import existing_test_runner_service
-        if not JobRepository().job_exists(job_id) and job_id not in _REPORT_CACHE and not existing_test_runner_service.has_job(job_id):
+        if (
+            not JobRepository().job_exists(job_id)
+            and job_id not in _REPORT_CACHE
+            and not existing_test_runner_service.has_job(job_id)
+        ):
             raise HTTPException(
                 status_code=404,
                 detail={"code": "JOB_NOT_FOUND", "message": "No migration job found for this id."},
@@ -103,9 +107,11 @@ def verify_job_ownership(db: Session | None, job_id: str, current_user: User) ->
         from app.infrastructure.persistence.job_repository import JobRepository
         from app.infrastructure.persistence.report_repository import load_report_from_db
         from app.infrastructure.persistence.existing_test_repository import existing_test_state_exists_in_db
+        from app.application.services.status_service import _REPORT_CACHE
         from app.application.use_cases.existing_test_runner_service import existing_test_runner_service
         if (
             JobRepository().job_exists(job_id)
+            or job_id in _REPORT_CACHE
             or load_report_from_db(job_id) is not None
             or existing_test_state_exists_in_db(job_id)
             or existing_test_runner_service.has_job(job_id)
