@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Body, Depends
+import asyncio
+from fastapi import APIRouter, Body, Depends, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy.orm import Session
 
@@ -50,16 +51,26 @@ async def start_migration(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> JSONResponse:
-    verify_job_ownership(db, job_id, current_user)
+    await asyncio.to_thread(verify_job_ownership, db, job_id, current_user)
     request = payload.model_dump() if payload else None
     try:
-        result = _pipeline.start(job_id, request, current_user_id=current_user.id)
+        result = await asyncio.to_thread(_pipeline.start, job_id, request, current_user_id=current_user.id)
+        logger.info("[MIGRATION START] Migration started for job %s by user %s", job_id, current_user.id)
+        return JSONResponse(status_code=200, content=result)
     except (MigrationConfigError, MigrationExecutionError) as exc:
+        logger.warning("[MIGRATION START FAILED] job_id=%s status=%s message=%s", job_id, exc.status, exc.message)
         return JSONResponse(
             status_code=exc.http_status,
             content={"jobId": job_id, "status": exc.status, "message": exc.message},
         )
-    return JSONResponse(status_code=200, content=result)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("[MIGRATION START ERROR] job_id=%s error=%s", job_id, exc, exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"jobId": job_id, "status": "FAILED", "message": str(exc)},
+        )
 
 
 @router.get("/migration/{job_id}/summary", summary="Migration status summary (polled).")
@@ -68,14 +79,19 @@ async def migration_summary(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> JSONResponse:
-    verify_job_ownership(db, job_id, current_user)
+    await asyncio.to_thread(verify_job_ownership, db, job_id, current_user)
     try:
-        summary = _pipeline.get_summary(job_id)
+        summary = await asyncio.to_thread(_pipeline.get_summary, job_id)
         logger.debug("[MIGRATION SUMMARY] job_id=%s found=true storage=available", job_id)
         return JSONResponse(status_code=200, content=summary)
     except MigrationJobNotFoundError:
         logger.warning("[MIGRATION SUMMARY] job_id=%s found=false storage=not_found", job_id)
         return _not_found_response()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("[MIGRATION SUMMARY ERROR] job_id=%s error=%s", job_id, exc, exc_info=True)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
 @router.get("/migration/{job_id}/detail", summary="Full migration result.")
@@ -84,14 +100,19 @@ async def migration_detail(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> JSONResponse:
-    verify_job_ownership(db, job_id, current_user)
+    await asyncio.to_thread(verify_job_ownership, db, job_id, current_user)
     try:
-        detail = _pipeline.get_detail(job_id)
+        detail = await asyncio.to_thread(_pipeline.get_detail, job_id)
         logger.debug("[MIGRATION DETAIL] job_id=%s found=true", job_id)
         return JSONResponse(status_code=200, content=detail)
     except MigrationJobNotFoundError:
         logger.warning("[MIGRATION DETAIL] job_id=%s found=false", job_id)
         return _not_found_response()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("[MIGRATION DETAIL ERROR] job_id=%s error=%s", job_id, exc, exc_info=True)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
 @router.get("/migration/{job_id}/logs", summary="Migration log lines.")
@@ -100,14 +121,19 @@ async def migration_logs(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> JSONResponse:
-    verify_job_ownership(db, job_id, current_user)
+    await asyncio.to_thread(verify_job_ownership, db, job_id, current_user)
     try:
-        logs = _pipeline.get_logs(job_id)
+        logs = await asyncio.to_thread(_pipeline.get_logs, job_id)
         logger.debug("[MIGRATION LOGS] job_id=%s found=true", job_id)
         return JSONResponse(status_code=200, content=logs)
     except MigrationJobNotFoundError:
         logger.warning("[MIGRATION LOGS] job_id=%s found=false", job_id)
         return _not_found_response()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("[MIGRATION LOGS ERROR] job_id=%s error=%s", job_id, exc, exc_info=True)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
 from app.application.use_cases.run_unit_tests import RunUnitTestSuiteUseCase
@@ -121,11 +147,17 @@ async def migration_fossa(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> JSONResponse:
-    verify_job_ownership(db, job_id, current_user)
+    await asyncio.to_thread(verify_job_ownership, db, job_id, current_user)
     try:
-        return JSONResponse(status_code=200, content=_pipeline.get_fossa(job_id))
+        fossa_data = await asyncio.to_thread(_pipeline.get_fossa, job_id)
+        return JSONResponse(status_code=200, content=fossa_data)
     except MigrationJobNotFoundError:
         return _not_found_response()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("[MIGRATION FOSSA ERROR] job_id=%s error=%s", job_id, exc, exc_info=True)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
 @router.post("/migration/{job_id}/rerun-tests", summary="Re-run and regenerate unit tests for migration job.")
@@ -336,8 +368,8 @@ async def download_unit_test_report(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> HTMLResponse:
-    verify_job_ownership(db, job_id, current_user)
-    html_content = _unit_test_report_gen.generate_html_report(job_id)
+    await asyncio.to_thread(verify_job_ownership, db, job_id, current_user)
+    html_content = await asyncio.to_thread(_unit_test_report_gen.generate_html_report, job_id)
     return HTMLResponse(
         content=html_content,
         headers={
@@ -352,8 +384,8 @@ async def download_testcase_report(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> HTMLResponse:
-    verify_job_ownership(db, job_id, current_user)
-    html_content = _unit_test_report_gen.generate_html_report(job_id)
+    await asyncio.to_thread(verify_job_ownership, db, job_id, current_user)
+    html_content = await asyncio.to_thread(_unit_test_report_gen.generate_html_report, job_id)
     return HTMLResponse(
         content=html_content,
         headers={

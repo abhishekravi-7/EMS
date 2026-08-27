@@ -1,13 +1,17 @@
+from __future__ import annotations
+
 import os
 import re
 import time
 import json
 import logging
+import platform
 import shutil
 import subprocess
 import threading
 import signal
 from collections import deque
+from typing import Any
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from app.core.config import settings
@@ -879,9 +883,41 @@ class ExistingTestRunnerService:
             except Exception:
                 pass
 
+    @staticmethod
+    def _detect_os_environment() -> dict[str, Any]:
+        system = platform.system().lower()
+        distro = ""
+        version = ""
+        if system == "linux":
+            try:
+                if os.path.exists("/etc/os-release"):
+                    with open("/etc/os-release", encoding="utf-8") as f:
+                        for line in f:
+                            line = line.strip()
+                            if line.startswith("ID="):
+                                distro = line.split("=", 1)[1].strip().strip('"').lower()
+                            elif line.startswith("VERSION_ID="):
+                                version = line.split("=", 1)[1].strip().strip('"')
+            except Exception:
+                pass
+        is_linux = (system == "linux")
+        is_debian12 = (distro == "debian" and (version.startswith("12") or version == "12"))
+        return {
+            "os": system,
+            "distro": distro,
+            "version": version,
+            "is_linux": is_linux,
+            "is_debian12": is_debian12,
+        }
+
     def _instrument_playwright_tests(self, proj_root: Path, job_id: str):
         """Enable Playwright and Selenium screenshot and video recording within the existing test execution."""
         try:
+            env_info = self._detect_os_environment()
+            target_os_desc = f"{env_info['os'].capitalize()}" + (f" ({env_info['distro']} {env_info['version']})" if env_info['distro'] else "")
+            self._log(job_id, f"[EXISTING TESTS] Target OS: {target_os_desc}")
+            self._log(job_id, f"[EXISTING TESTS] Playwright version: 1.40+")
+
             for root, _, files in os.walk(proj_root):
                 if any(skip in root for skip in [".git", "target", "build", "node_modules"]):
                     continue
@@ -895,8 +931,49 @@ class ExistingTestRunnerService:
 
                         modified = False
 
-                        # 1. Playwright video recording in NewContextOptions
+                        # 1. Playwright browser adaptation & video recording in NewContextOptions
                         if "com.microsoft.playwright" in content or "Page" in content:
+                            has_firefox = bool(re.search(r'\bplaywright\s*\.\s*firefox\s*\(', content, re.IGNORECASE) or re.search(r'BrowserType\s+firefox\b', content, re.IGNORECASE))
+                            if has_firefox:
+                                self._log(job_id, "[EXISTING TESTS] Browser requested: firefox")
+                                if env_info.get("is_debian12") or env_info.get("is_linux"):
+                                    self._log(job_id, "[EXISTING TESTS] Browser supported: chromium (firefox unsupported on debian 12)")
+                                    content = re.sub(r'\bplaywright\s*\.\s*firefox\s*\(', 'playwright.chromium(', content)
+                                    content = re.sub(r'\bBrowserType\s+firefox\b', 'BrowserType chromium', content)
+                                    modified = True
+                                    self._log(job_id, "[EXISTING TESTS] Browser installation status: deterministic headless chromium configured")
+                                else:
+                                    self._log(job_id, "[EXISTING TESTS] Browser supported: firefox")
+                                    self._log(job_id, "[EXISTING TESTS] Browser installation status: native firefox configured")
+                            elif "chromium" in content.lower():
+                                self._log(job_id, "[EXISTING TESTS] Browser requested: chromium")
+                                self._log(job_id, "[EXISTING TESTS] Browser supported: chromium")
+                                self._log(job_id, "[EXISTING TESTS] Browser installation status: headless chromium configured")
+
+                            # On Linux / headless server environments, ensure headless mode is set
+                            if env_info.get("is_linux"):
+                                if "new BrowserType.LaunchOptions()" in content and "setHeadless" not in content:
+                                    content = re.sub(
+                                        r'new\s+BrowserType\.LaunchOptions\(\)',
+                                        'new com.microsoft.playwright.BrowserType.LaunchOptions().setHeadless(true)',
+                                        content
+                                    )
+                                    modified = True
+                                elif "new com.microsoft.playwright.BrowserType.LaunchOptions()" in content and "setHeadless" not in content:
+                                    content = re.sub(
+                                        r'new\s+com\.microsoft\.playwright\.BrowserType\.LaunchOptions\(\)',
+                                        'new com.microsoft.playwright.BrowserType.LaunchOptions().setHeadless(true)',
+                                        content
+                                    )
+                                    modified = True
+                                elif re.search(r'\.launch\(\s*\)', content):
+                                    content = re.sub(
+                                        r'\.launch\(\s*\)',
+                                        '.launch(new com.microsoft.playwright.BrowserType.LaunchOptions().setHeadless(true))',
+                                        content
+                                    )
+                                    modified = True
+
                             if "setRecordVideoDir" not in content:
                                 if "new Browser.NewContextOptions()" in content:
                                     content = re.sub(
@@ -1565,13 +1642,31 @@ class ExistingTestRunnerService:
             root_cause = "Failed to connect to external service endpoint (Connection refused or Timeout)"
             return "ERROR", "External Dependency / Connection", "EXTERNAL_SERVICE_ERROR", root_cause, failure_text
 
-        # 3. Environment & Configuration Failure
+        # 3. Environment & Configuration Failure / Browser Driver Initialization Failure
         if any(k in combined_lower for k in [
-            "playwrightexception: executable doesn't exist", "driver not found", "chromedriver", "geckodriver",
+            "playwright", "failed to create driver", "failed to install browsers",
+            "driver not found", "chromedriver", "geckodriver",
             "display not set", "bindexception", "address already in use"
         ]):
-            root_cause = "Environment / Configuration issue: missing browser executable or port conflict"
-            return "ERROR", "Environment / Configuration", "ENVIRONMENT_CONFIG_ERROR", root_cause, failure_text
+            pw_reason = None
+            for line in combined_text.splitlines():
+                l_strip = line.strip()
+                if any(k in l_strip.lower() for k in ["does not support", "failed to install browsers", "executable doesn't exist", "driver not found"]):
+                    pw_reason = l_strip
+                    break
+            if not pw_reason:
+                for line in combined_text.splitlines():
+                    l_strip = line.strip()
+                    if "failed to create driver" in l_strip.lower() and len(l_strip) > len("Failed to create driver"):
+                        pw_reason = l_strip
+                        break
+            if pw_reason:
+                root_cause = f"Playwright Driver Error: {pw_reason}"
+                clean_msg = pw_reason
+            else:
+                root_cause = "Environment / Configuration issue: missing browser executable or driver initialization failed"
+                clean_msg = failure_text or "Failed to create driver"
+            return "ERROR", "Environment / Configuration", "ENVIRONMENT_CONFIG_ERROR", root_cause, clean_msg
 
         # 4. Missing Dependency / ClassNotFound
         if any(k in combined_lower for k in ["classnotfoundexception", "noclassdeffounderror", "nosuchmethoderror", "unsatisfiedlinkerror"]):
@@ -2654,6 +2749,17 @@ class ExistingTestRunnerService:
             base_k = self._base_canonical_test_identifier(k[1], k[0])
             results_by_base_key.setdefault(base_k, []).append(r)
 
+        # Collect class-level initialization errors (e.g. BaseTest.doInitialSetup failure, @BeforeAll failure)
+        # where Surefire emitted test_name as 'unknown', '', 'initializationError', 'classMethod', etc.
+        class_level_errors: dict[str, dict] = {}
+        for r in parsed_test_results:
+            r_name = self._normalize_test_name(r.get("test_name") or r.get("name", ""))
+            r_suite = r.get("suite") or r.get("classname", "")
+            r_file = r.get("file", "")
+            key = self._canonical_test_identifier(r_name, r_suite, r_file)
+            if key[1] in ("unknown", "", "initializationerror", "classmethod", "beforeall", "setup") and r.get("status") in ("FAILED", "ERROR"):
+                class_level_errors[key[0]] = r
+
         # Match discovered test_cases against executed results
         discovered_base_keys = set()
         matched_count = 0
@@ -2669,7 +2775,7 @@ class ExistingTestRunnerService:
                 discovered_base_keys.add(base_key)
 
                 # Check 1: Direct exact match in results_by_key
-                if key in results_by_key:
+                if key in results_by_key and results_by_key[key].get("test_name") not in ("unknown", "", "initializationerror", "classmethod"):
                     matched_count += 1
                     r = results_by_key[key]
                     if not r.get("file") and tc_file:
@@ -2680,12 +2786,14 @@ class ExistingTestRunnerService:
                         r["type"] = tc.get("type")
                         r["category"] = tc.get("category", self._test_category(tc.get("type"), tc.get("framework", "")))
                     status_str = r.get("status", "UNKNOWN")
+                    self._log(job_id, f"[EXISTING TESTS] Executing: {tc_suite}#{tc_name}")
+                    self._log(job_id, f"[EXISTING TESTS] Result: {status_str}")
                     self._log(job_id, f"[TEST-MERGE] discovered={canonical_str} executed={canonical_str} status={status_str}")
                     self._log(job_id, f"[TEST-MERGE] matched=true")
                     self._log(job_id, f"[TEST-MERGE] finalStatus={status_str}")
 
                 # Check 2: Parameterized execution matches (e.g. method[1], method[2])
-                elif base_key in results_by_base_key:
+                elif base_key in results_by_base_key and all(pr.get("test_name") not in ("unknown", "", "initializationerror", "classmethod") for pr in results_by_base_key[base_key]):
                     matched_count += 1
                     param_results = results_by_base_key[base_key]
                     for r in param_results:
@@ -2696,10 +2804,33 @@ class ExistingTestRunnerService:
                         if tc.get("type") and r.get("type") in ("JUnit", "Unknown", None):
                             r["type"] = tc.get("type")
                             r["category"] = tc.get("category", self._test_category(tc.get("type"), tc.get("framework", "")))
+                    self._log(job_id, f"[EXISTING TESTS] Executing: {tc_suite}#{tc_name}")
+                    self._log(job_id, f"[EXISTING TESTS] Result: {param_results[0].get('status', 'PASSED')}")
                     self._log(job_id, f"[TEST-MERGE] discovered={canonical_str} matched_parameterized_count={len(param_results)}")
                     self._log(job_id, f"[TEST-MERGE] matched=true")
 
-                # Check 3: Truly unexecuted test case -> add as NOT_EXECUTED
+                # Check 3: Inherited Class-Level / Initialization Failure (e.g. driver creation failure in BaseTest)
+                elif key[0] in class_level_errors:
+                    matched_count += 1
+                    err_template = class_level_errors[key[0]]
+                    r_inherited = dict(err_template)
+                    r_inherited["test_name"] = tc_name
+                    r_inherited["name"] = tc_name
+                    r_inherited["suite"] = tc_suite
+                    if tc_file:
+                        r_inherited["file"] = tc_file
+                    r_inherited["framework"] = tc.get("framework", r_inherited.get("framework", "JUnit"))
+                    r_inherited["type"] = tc.get("type", r_inherited.get("type", "JUnit"))
+                    r_inherited["category"] = tc.get("category", self._test_category(tc.get("type", "JUnit"), tc.get("framework", "")))
+                    results_by_key[key] = r_inherited
+                    status_str = r_inherited.get("status", "FAILED")
+                    self._log(job_id, f"[EXISTING TESTS] Executing: {tc_suite}#{tc_name}")
+                    self._log(job_id, f"[EXISTING TESTS] Result: {status_str}")
+                    self._log(job_id, f"[TEST-MERGE] discovered={canonical_str} inherited_class_failure={key[0]} status={status_str}")
+                    self._log(job_id, f"[TEST-MERGE] matched=true")
+                    self._log(job_id, f"[TEST-MERGE] finalStatus={status_str}")
+
+                # Check 4: Truly unexecuted test case -> add as NOT_EXECUTED
                 else:
                     results_by_key[key] = {
                         "test_name": tc_name,
@@ -2713,9 +2844,20 @@ class ExistingTestRunnerService:
                         "type": tc.get("type", "JUnit"),
                         "category": tc.get("category", self._test_category(tc.get("type", "JUnit"), tc.get("framework", "")))
                     }
+                    self._log(job_id, f"[EXISTING TESTS] Executing: {tc_suite}#{tc_name}")
+                    self._log(job_id, f"[EXISTING TESTS] Result: NOT_EXECUTED")
                     self._log(job_id, f"[TEST-MERGE] discovered={canonical_str} executed=NONE status=NOT_EXECUTED")
                     self._log(job_id, f"[TEST-MERGE] matched=false")
                     self._log(job_id, f"[TEST-MERGE] finalStatus=NOT_EXECUTED")
+
+        # Purge any redundant generic class-level failure entries (e.g. ('rawtest', 'unknown')) if the discovered tests in that class have inherited the result
+        keys_to_remove = [
+            k for k in list(results_by_key.keys())
+            if k[1] in ("unknown", "", "initializationerror", "classmethod", "beforeall", "setup")
+            and any(other_k[0] == k[0] and other_k[1] not in ("unknown", "", "initializationerror", "classmethod", "beforeall", "setup") for other_k in results_by_key.keys())
+        ]
+        for k in keys_to_remove:
+            del results_by_key[k]
 
         # Explicitly log unmatched execution results and test identity summary
         unmatched_execution_keys = [
