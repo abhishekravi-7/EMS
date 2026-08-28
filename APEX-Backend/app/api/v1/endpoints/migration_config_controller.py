@@ -15,7 +15,7 @@ from app.application.pipelines.migration_config_pipeline import MigrationConfigP
 from app.core.exceptions import MigrationConfigError
 from app.infrastructure.persistence.database import get_db
 from app.infrastructure.persistence.models import User
-from app.infrastructure.migration_engine.recipe_mapper import load_catalog
+from app.infrastructure.migration_engine.ast_rule_mapper import load_catalog
 from app.schemas.migration_config_schema import (
     MigrationConfigRequest,
     MigrationConfigResponse,
@@ -30,36 +30,14 @@ def _recipe_items() -> list[dict[str, str]]:
     catalog = load_catalog()
     items: list[dict[str, str]] = []
 
-    for rule in catalog.get("javaUpgradeRecipes", []):
-        recipe = str(rule.get("recipe") or "").strip()
-        if recipe:
+    for pack in catalog.get("packs", []):
+        pack_id = str(pack.get("id") or "")
+        if pack_id:
             items.append(
                 {
-                    "id": str(rule.get("id") or recipe.rsplit(".", 1)[-1]),
-                    "name": recipe.rsplit(".", 1)[-1],
-                    "description": f"Upgrade Java compatibility to target {rule.get('minTarget')}",
-                }
-            )
-
-    for rule in catalog.get("conditionalRecipes", []):
-        recipe = str(rule.get("recipe") or "").strip()
-        if recipe:
-            items.append(
-                {
-                    "id": str(rule.get("id") or recipe.rsplit(".", 1)[-1]),
-                    "name": recipe.rsplit(".", 1)[-1],
-                    "description": str(rule.get("id") or "Conditional migration recipe"),
-                }
-            )
-
-    for rule in catalog.get("cleanupRecipes", []):
-        recipe = str(rule.get("recipe") or "").strip()
-        if recipe:
-            items.append(
-                {
-                    "id": str(rule.get("id") or recipe.rsplit(".", 1)[-1]),
-                    "name": recipe.rsplit(".", 1)[-1],
-                    "description": "Source-code cleanup recipe",
+                    "id": pack_id,
+                    "name": pack_id.replace("-", " ").title(),
+                    "description": f"Migration pack: {pack_id}",
                 }
             )
 
