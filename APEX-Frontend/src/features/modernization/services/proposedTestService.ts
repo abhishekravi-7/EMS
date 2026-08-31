@@ -25,18 +25,18 @@ export interface ApiTestSpec {
   method: string;
   endpoint: string;
   headers?: Record<string, string>;
-  request_body?: any;
+  request_body?: unknown;
   expected_status?: number;
-  expected_response?: any;
+  expected_response?: unknown;
   assertions?: string[];
 }
 
 export interface UnitTestSpec {
   target_class?: string;
   target_method?: string;
-  input_data?: any;
-  mock_data?: any;
-  expected_output?: any;
+  input_data?: unknown;
+  mock_data?: unknown;
+  expected_output?: unknown;
   assertions?: string[];
 }
 
@@ -67,7 +67,7 @@ export interface ExecutionResult {
   error?: string | null;
   stack_trace?: string | null;
   actual_status_code?: number | null;
-  actual_response?: any;
+  actual_response?: unknown;
   evidence?: ExecutionEvidence;
   assertions_passed?: number;
   assertions_failed?: number;
@@ -213,8 +213,15 @@ export async function bulkSetProposedTestStatus(
   );
 }
 
-export async function runApprovedProposedTests(jobId: string): Promise<any> {
-  return requestJson<any>(
+export interface ProposedTestRunResponse {
+  status?: string;
+  jobId?: string;
+  message?: string;
+  [key: string]: unknown;
+}
+
+export async function runApprovedProposedTests(jobId: string): Promise<ProposedTestRunResponse> {
+  return requestJson<ProposedTestRunResponse>(
     `/v1/migration/${encodeURIComponent(jobId)}/proposed-tests/run`,
     "Failed to run approved proposed tests",
     { method: "POST" }

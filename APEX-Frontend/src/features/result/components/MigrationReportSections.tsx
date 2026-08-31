@@ -575,21 +575,38 @@ interface MigrationSonarSectionProps {
   renderSonarFindingSection: (section: VisibleSonarSection) => React.ReactNode;
 }
 
+export interface SonarIssueItem {
+  key?: string;
+  type?: string;
+  severity?: string;
+  rule?: string;
+  message?: string;
+  component?: string;
+  file_path?: string;
+  line?: number | string;
+  line_number?: number | string;
+  status?: string;
+  effort?: string;
+  update_date?: string;
+  creation_date?: string;
+  [key: string]: unknown;
+}
+
 export function MigrationSonarSection({
   styles,
   migrationJob,
   isOpen,
   onToggle,
-  sonarDetailsAvailable,
+  sonarDetailsAvailable: _sonarDetailsAvailable,
   sonarTotalFindings,
-  sonarFindingFilter,
-  setSonarFindingFilter,
-  codeSmellSeverityFilter,
-  setCodeSmellSeverityFilter,
-  codeSmellSeverityCounts,
-  sonarCategoryCards,
-  visibleSonarSections,
-  renderSonarFindingSection,
+  sonarFindingFilter: _sonarFindingFilter,
+  setSonarFindingFilter: _setSonarFindingFilter,
+  codeSmellSeverityFilter: _codeSmellSeverityFilter,
+  setCodeSmellSeverityFilter: _setCodeSmellSeverityFilter,
+  codeSmellSeverityCounts: _codeSmellSeverityCounts,
+  sonarCategoryCards: _sonarCategoryCards,
+  visibleSonarSections: _visibleSonarSections,
+  renderSonarFindingSection: _renderSonarFindingSection,
 }: MigrationSonarSectionProps) {
   const [searchQuery, setSearchQuery] = React.useState("");
   const [severityFilter, setSeverityFilter] = React.useState<string>("all");
@@ -611,50 +628,50 @@ export function MigrationSonarSection({
   const [expandedCards, setExpandedCards] = React.useState<Record<string, boolean>>({});
   const [copiedNotification, setCopiedNotification] = React.useState<string | null>(null);
 
-  const sonarReport = migrationJob?.sonar_report as any;
+  const sonarReport = migrationJob?.sonar_report as Record<string, unknown> | undefined;
 
-  const allIssuesList = React.useMemo(() => {
+  const allIssuesList: SonarIssueItem[] = React.useMemo(() => {
     if (sonarReport?.all_issues && Array.isArray(sonarReport.all_issues) && sonarReport.all_issues.length > 0) {
-      return sonarReport.all_issues;
+      return sonarReport.all_issues as SonarIssueItem[];
     }
-    const b = sonarReport?.bug_details || sonarReport?.bugs || [];
-    const v = sonarReport?.vulnerability_details || sonarReport?.vulnerabilities || [];
-    const cs = sonarReport?.code_smell_details || sonarReport?.code_smells || [];
-    const h = sonarReport?.security_hotspot_details || sonarReport?.security_hotspots || [];
+    const b = (sonarReport?.bug_details || sonarReport?.bugs || []) as SonarIssueItem[];
+    const v = (sonarReport?.vulnerability_details || sonarReport?.vulnerabilities || []) as SonarIssueItem[];
+    const cs = (sonarReport?.code_smell_details || sonarReport?.code_smells || []) as SonarIssueItem[];
+    const h = (sonarReport?.security_hotspot_details || sonarReport?.security_hotspots || []) as SonarIssueItem[];
     return [...b, ...v, ...cs, ...h];
   }, [sonarReport]);
 
   const rawBugs = React.useMemo(() => {
-    if (sonarReport?.bug_details?.length) return sonarReport.bug_details;
-    if (sonarReport?.bugs?.length) return sonarReport.bugs;
-    return allIssuesList.filter((i: any) => String(i?.type || "").toUpperCase().includes("BUG"));
+    if (Array.isArray(sonarReport?.bug_details) && sonarReport.bug_details.length) return sonarReport.bug_details as SonarIssueItem[];
+    if (Array.isArray(sonarReport?.bugs) && sonarReport.bugs.length) return sonarReport.bugs as SonarIssueItem[];
+    return allIssuesList.filter((i: SonarIssueItem) => String(i?.type || "").toUpperCase().includes("BUG"));
   }, [sonarReport, allIssuesList]);
 
   const rawVulnerabilities = React.useMemo(() => {
-    if (sonarReport?.vulnerability_details?.length) return sonarReport.vulnerability_details;
-    if (sonarReport?.vulnerabilities?.length) return sonarReport.vulnerabilities;
-    return allIssuesList.filter((i: any) => String(i?.type || "").toUpperCase().includes("VULNERAB"));
+    if (Array.isArray(sonarReport?.vulnerability_details) && sonarReport.vulnerability_details.length) return sonarReport.vulnerability_details as SonarIssueItem[];
+    if (Array.isArray(sonarReport?.vulnerabilities) && sonarReport.vulnerabilities.length) return sonarReport.vulnerabilities as SonarIssueItem[];
+    return allIssuesList.filter((i: SonarIssueItem) => String(i?.type || "").toUpperCase().includes("VULNERAB"));
   }, [sonarReport, allIssuesList]);
 
   const rawCodeSmells = React.useMemo(() => {
-    if (sonarReport?.code_smell_details?.length) return sonarReport.code_smell_details;
-    if (sonarReport?.code_smells?.length) return sonarReport.code_smells;
-    return allIssuesList.filter((i: any) => {
+    if (Array.isArray(sonarReport?.code_smell_details) && sonarReport.code_smell_details.length) return sonarReport.code_smell_details as SonarIssueItem[];
+    if (Array.isArray(sonarReport?.code_smells) && sonarReport.code_smells.length) return sonarReport.code_smells as SonarIssueItem[];
+    return allIssuesList.filter((i: SonarIssueItem) => {
       const t = String(i?.type || "").toUpperCase();
       return t.includes("SMELL") || (!t.includes("BUG") && !t.includes("VULNERAB") && !t.includes("HOTSPOT"));
     });
   }, [sonarReport, allIssuesList]);
 
   const rawHotspots = React.useMemo(() => {
-    if (sonarReport?.security_hotspot_details?.length) return sonarReport.security_hotspot_details;
-    if (sonarReport?.security_hotspots?.length) return sonarReport.security_hotspots;
-    if (sonarReport?.hotspots?.length) return sonarReport.hotspots;
-    return allIssuesList.filter((i: any) => String(i?.type || "").toUpperCase().includes("HOTSPOT"));
+    if (Array.isArray(sonarReport?.security_hotspot_details) && sonarReport.security_hotspot_details.length) return sonarReport.security_hotspot_details as SonarIssueItem[];
+    if (Array.isArray(sonarReport?.security_hotspots) && sonarReport.security_hotspots.length) return sonarReport.security_hotspots as SonarIssueItem[];
+    if (Array.isArray(sonarReport?.hotspots) && sonarReport.hotspots.length) return sonarReport.hotspots as SonarIssueItem[];
+    return allIssuesList.filter((i: SonarIssueItem) => String(i?.type || "").toUpperCase().includes("HOTSPOT"));
   }, [sonarReport, allIssuesList]);
 
   const severityBreakdown = React.useMemo(() => {
     const counts = { blocker: 0, critical: 0, major: 0, minor: 0, info: 0 };
-    allIssuesList.forEach((item: any) => {
+    allIssuesList.forEach((item: SonarIssueItem) => {
       const sev = (item?.severity || "").toLowerCase();
       if (sev.includes("block")) counts.blocker++;
       else if (sev.includes("crit")) counts.critical++;
@@ -701,7 +718,7 @@ export function MigrationSonarSection({
   };
 
   const processCategoryItems = React.useCallback(
-    (items: any[]) => {
+    (items: SonarIssueItem[]) => {
       let result = [...items];
 
       if (searchQuery.trim()) {
@@ -754,7 +771,7 @@ export function MigrationSonarSection({
 
   const handleExportCsv = React.useCallback(() => {
     const headers = ["Key", "Type", "Severity", "Rule", "Message", "File", "Line", "Status", "Effort"];
-    const rows = allIssuesList.map((i: any) => [
+    const rows = allIssuesList.map((i: SonarIssueItem) => [
       `"${i?.key || ""}"`,
       `"${i?.type || ""}"`,
       `"${i?.severity || ""}"`,
@@ -796,7 +813,7 @@ export function MigrationSonarSection({
     setExpandedCards((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
-  const renderIssueCard = (item: any, catKey: string, index: number) => {
+  const renderIssueCard = (item: SonarIssueItem, catKey: string, index: number) => {
     const cardId = item?.key || `${catKey}-${index}`;
     const isExpanded = Boolean(expandedCards[cardId]);
     const filePath = item?.component || item?.file_path || "Unknown File";
@@ -911,7 +928,7 @@ export function MigrationSonarSection({
             </button>
           </div>
           <div><strong style={{ color: "#334155" }}>Package: </strong><code>{pkgName}</code></div>
-          {item?.author && <div><strong style={{ color: "#334155" }}>Author: </strong>{item.author}</div>}
+          {typeof item?.author === "string" && <div><strong style={{ color: "#334155" }}>Author: </strong>{item.author}</div>}
         </div>
 
         {isExpanded && (
@@ -929,7 +946,7 @@ export function MigrationSonarSection({
     );
   };
 
-  const renderCategoryAccordion = (catKey: string, title: string, items: any[], accentColor: string, iconStr: string) => {
+  const renderCategoryAccordion = (catKey: string, title: string, items: SonarIssueItem[], accentColor: string, iconStr: string) => {
     const isCatOpen = Boolean(accordionState[catKey]);
     const currentPage = categoryPages[catKey] || 1;
     const totalPages = Math.ceil(items.length / pageSize) || 1;
@@ -1471,7 +1488,7 @@ export function MigrationUnitTestSection({
   const functionalRunnerCommands = functionalTesting?.runner_commands ?? [];
   const functionalExecution = functionalTesting?.execution ?? null;
   const functionalRunners = functionalExecution?.runners ?? [];
-  const functionalTestCases: Array<Record<string, any>> = functionalTesting?.test_cases ?? [];
+  const functionalTestCases = functionalTesting?.test_cases ?? [];
 
   // Config/scaffolding files to hide from the report list (still included in ZIP download)
   const CONFIG_FILE_NAMES = new Set([
@@ -1556,8 +1573,6 @@ export function MigrationUnitTestSection({
   const existingTestCases = getValueByLabel("EXISTING TEST CASES", 0);
   const generatedTestCases = getValueByLabel("GENERATED TEST CASES", "+0");
   const totalTestCases = getValueByLabel("TOTAL TEST CASES", 0);
-  const blCoverageRaw = getValueByLabel("BL BUSINESS LOGIC", "87.5%");
-  const blCoverage = blCoverageRaw === "N/A" ? "87.5%" : blCoverageRaw;
   const jacocoCoverage = getValueByLabel("JACOCO COVERAGE", "87.5%");
 
   const statusLabel = testsRun > 0 ? "completed" : "awaiting first run";
@@ -1762,7 +1777,7 @@ export function MigrationUnitTestSection({
               </thead>
               <tbody>
                 {(testPipeline?.executed_test_details && testPipeline.executed_test_details.length > 0) ? (
-                  testPipeline.executed_test_details.map((detail: any, idx: number) => (
+                  testPipeline.executed_test_details.map((detail: { test_class?: string; test_method?: string; status?: string; execution_time_seconds?: number | string; [key: string]: unknown }, idx: number) => (
                     <tr key={`exec-detail-${idx}`} style={{ borderBottom: "1px solid #1e293b", color: "#f8fafc" }}>
                       <td style={{ padding: "8px 12px", fontFamily: "'JetBrains Mono', monospace", color: "#60a5fa" }}>{detail.test_class}</td>
                       <td style={{ padding: "8px 12px", fontWeight: 600 }}>{detail.test_method}</td>

@@ -852,7 +852,7 @@ class GenerateTechnicalDocumentUseCase:
 
             # Chapter 17: Risks & Mitigations
             "{{RISK_TECH_1_TITLE}}": f"Legacy Framework Baseline (Java {java_ver} / Spring Boot {spring_ver})",
-            "{{RISK_TECH_1_DESC}}": f"Legacy framework versions face end-of-life support and security vulnerabilities.",
+            "{{RISK_TECH_1_DESC}}": "Legacy framework versions face end-of-life support and security vulnerabilities.",
             "{{RISK_TECH_1_MITIGATION}}": "Execute automated Java APEX modernization pipeline to upgrade to Java 17/21 and Spring Boot 3.x.",
             "{{RISK_TECH_2_TITLE}}": "Package Namespace Deprecations (javax.* to jakarta.*)",
             "{{RISK_TECH_2_DESC}}": "Spring Boot 3 baseline requires jakarta.persistence and jakarta.servlet package namespaces.",
@@ -1006,9 +1006,6 @@ class GenerateTechnicalDocumentUseCase:
             # HTML Injection Containers
             "{{FULL_MODULE_BREAKDOWN}}": full_module_breakdown,
             "{{FULL_TECH_STACK_TABLE}}": full_tech_stack_table,
-            "{{FULL_DB_SCHEMA}}": full_db_schema,
-            "{{ER_GRID_HTML}}": er_grid_html,
-            "{{FULL_CLASS_MODEL}}": full_class_model,
         }
 
     @staticmethod

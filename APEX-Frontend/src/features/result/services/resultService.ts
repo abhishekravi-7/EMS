@@ -302,6 +302,7 @@ export interface MigrationJobSummary {
   sonar_real_scan?: boolean;
   sonar_analysis_url?: string | null;
   sonar_error_message?: string | null;
+  sonar_report?: SonarReport | null;
   fossa_policy_status?: string | null;
   fossa_total_dependencies?: number;
   fossa_license_issues?: number;
@@ -311,6 +312,7 @@ export interface MigrationJobSummary {
   fossa_real_scan?: boolean;
   fossa_analysis_url?: string | null;
   fossa_error_message?: string | null;
+  fossa_report?: FossaScanResult | null;
   error_message: string | null;
   total_errors: number;
   total_warnings: number;

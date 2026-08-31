@@ -1,19 +1,20 @@
 import asyncio
 import logging
 import time
-from fastapi import APIRouter, Body, Depends, HTTPException, status
+from collections import deque
+
+from fastapi import APIRouter, Body, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
-from collections import deque
-from app.core.config import settings
 from app.api.deps import get_current_user, verify_job_ownership
+from app.application.use_cases.existing_test_runner_service import (
+    MAX_EXISTING_TEST_OUTPUT_LINES,
+    existing_test_runner_service,
+)
+from app.core.config import settings
 from app.infrastructure.persistence.database import get_db_optional
 from app.infrastructure.persistence.models import User
-from app.application.use_cases.existing_test_runner_service import (
-    existing_test_runner_service,
-    MAX_EXISTING_TEST_OUTPUT_LINES,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -22,8 +23,8 @@ router = APIRouter(tags=["existing-tests"])
 @router.get("/existing-tests/scan/{job_id}")
 async def scan_existing_tests_total(
     job_id: str,
-    current_user: User = Depends(get_current_user),
-    db: Session | None = Depends(get_db_optional)
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session | None = Depends(get_db_optional)  # noqa: B008
 ):
     """Fast scan — returns total test count before execution (no run)."""
     await asyncio.to_thread(verify_job_ownership, db, job_id, current_user)
@@ -41,9 +42,9 @@ async def scan_existing_tests_total(
 @router.post("/existing-tests/run/{job_id}")
 async def run_existing_tests_endpoint(
     job_id: str,
-    test_selection: list[dict] | None = Body(default=None),
-    current_user: User = Depends(get_current_user),
-    db: Session | None = Depends(get_db_optional)
+    test_selection: list[dict] | None = Body(default=None),  # noqa: B008
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session | None = Depends(get_db_optional)  # noqa: B008
 ):
     """Start existing tests in the background and return immediately."""
     await asyncio.to_thread(verify_job_ownership, db, job_id, current_user)
@@ -82,7 +83,7 @@ async def run_existing_tests_endpoint(
             from app.infrastructure.persistence.migration_ownership_repository import record_job_owner
             try:
                 await asyncio.to_thread(record_job_owner, db, job_id=job_id, user_id=current_user.id)
-            except Exception as rec_err:
+            except Exception as rec_err:  # noqa: BLE001
                 logger.debug("Non-fatal: could not record job owner for %s: %s", job_id, rec_err)
 
         async def _run_background():
@@ -123,8 +124,8 @@ async def run_existing_tests_endpoint(
 @router.get("/existing-tests/status/{job_id}")
 async def get_existing_tests_status_endpoint(
     job_id: str,
-    current_user: User = Depends(get_current_user),
-    db: Session | None = Depends(get_db_optional)
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session | None = Depends(get_db_optional)  # noqa: B008
 ):
     """Returns current run status + live logs + final result when done."""
     await asyncio.to_thread(verify_job_ownership, db, job_id, current_user)
@@ -140,8 +141,8 @@ async def get_existing_tests_status_endpoint(
 @router.delete("/existing-tests/reset/{job_id}")
 async def reset_existing_tests_endpoint(
     job_id: str,
-    current_user: User = Depends(get_current_user),
-    db: Session | None = Depends(get_db_optional)
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session | None = Depends(get_db_optional)  # noqa: B008
 ):
     """Reset execution state for a job."""
     await asyncio.to_thread(verify_job_ownership, db, job_id, current_user)
@@ -157,8 +158,8 @@ async def reset_existing_tests_endpoint(
 @router.post("/existing-tests/stop/{job_id}")
 async def stop_existing_tests_endpoint(
     job_id: str,
-    current_user: User = Depends(get_current_user),
-    db: Session | None = Depends(get_db_optional)
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session | None = Depends(get_db_optional)  # noqa: B008
 ):
     """Aborts/terminates the current execution of existing tests."""
     await asyncio.to_thread(verify_job_ownership, db, job_id, current_user)

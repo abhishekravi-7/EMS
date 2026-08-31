@@ -44,7 +44,7 @@ def save_existing_test_state_to_db(job_id: str, state: dict[str, Any], report: d
                     )
                 )
             session.commit()
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         logger.debug("Non-fatal: could not persist existing test state to db for %s: %s", job_id, exc)
 
 
@@ -60,7 +60,7 @@ def load_existing_test_state_from_db(job_id: str) -> dict[str, Any] | None:
             raw = session.execute(stmt).scalar_one_or_none()
             if raw:
                 return json.loads(raw)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         logger.debug("Non-fatal: could not load existing test state from db for %s: %s", job_id, exc)
     return None
 
@@ -77,7 +77,7 @@ def load_existing_test_report_from_db(job_id: str) -> dict[str, Any] | None:
             raw = session.execute(stmt).scalar_one_or_none()
             if raw:
                 return json.loads(raw)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         logger.debug("Non-fatal: could not load existing test report from db for %s: %s", job_id, exc)
     return None
 
@@ -92,6 +92,6 @@ def existing_test_state_exists_in_db(job_id: str) -> bool:
                 PersistedExistingTestState.job_id == job_id
             )
             return session.execute(stmt).scalar_one_or_none() is not None
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         logger.debug("Non-fatal: could not check existing test state existence in db for %s: %s", job_id, exc)
     return False

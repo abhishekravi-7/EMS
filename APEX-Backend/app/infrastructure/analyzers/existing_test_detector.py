@@ -5,7 +5,8 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
-from typing import TypedDict, List
+from typing import List, TypedDict
+
 
 class TestCaseMethod(TypedDict):
     name: str
@@ -89,7 +90,7 @@ class ExistingTestDetector:
     def _parse_test_file(self, file_path: Path) -> TestClassInfo | None:
         try:
             content = file_path.read_text(encoding="utf-8", errors="replace")
-        except Exception:
+        except Exception:  # noqa: BLE001
             return None
 
         # Basic check if it's likely a test file

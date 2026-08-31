@@ -11,9 +11,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Generator
-from typing import Optional
 
-from fastapi import HTTPException
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
@@ -22,24 +20,29 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Create SQLAlchemy engine/session only when database usage is enabled.
-if settings.database_enabled:
-    # `pool_pre_ping=True` makes SQLAlchemy validate a pooled connection with a
-    # cheap "SELECT 1" before handing it to a request, so a connection the
-    # database silently closed (e.g. after being idle) is transparently replaced
-    # instead of surfacing as a request-time error.
-    # Set explicit connect_timeout and pool_timeout to avoid hanging indefinitely.
-    engine = create_engine(
-        settings.database_url,
-        pool_pre_ping=True,
-        pool_timeout=10,
-        connect_args={"connect_timeout": 10},
-    )
+# Create SQLAlchemy engine/session only when database usage is enabled and configured.
+if settings.database_enabled and bool(settings.database_url):
+    try:
+        # `pool_pre_ping=True` makes SQLAlchemy validate a pooled connection with a
+        # cheap "SELECT 1" before handing it to a request, so a connection the
+        # database silently closed (e.g. after being idle) is transparently replaced
+        # instead of surfacing as a request-time error.
+        # Set explicit connect_timeout and pool_timeout to avoid hanging indefinitely.
+        engine = create_engine(
+            settings.database_url,
+            pool_pre_ping=True,
+            pool_timeout=10,
+            connect_args={"connect_timeout": 10},
+        )
 
-    # Factory for `Session` objects — comparable to Hibernate's `SessionFactory`.
-    # `autoflush=False`/`autocommit=False` are the SQLAlchemy 2.0 defaults,
-    # listed explicitly here for clarity.
-    SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+        # Factory for `Session` objects — comparable to Hibernate's `SessionFactory`.
+        # `autoflush=False`/`autocommit=False` are the SQLAlchemy 2.0 defaults,
+        # listed explicitly here for clarity.
+        SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Could not initialize database engine with provided URL: %s", exc)
+        engine = None
+        SessionLocal = None
 else:
     engine = None  # type: Optional[object]
     SessionLocal = None
@@ -99,11 +102,16 @@ def ensure_database_exists() -> None:
     Called once at startup, before `verify_database_connection()` — see
     `app/main.py`.
     """
-    if not settings.database_enabled:
+    if not settings.database_enabled or not settings.database_url:
         return
 
-    target_url = make_url(settings.database_url)
-    target_db_name = target_url.database
+    try:
+        target_url = make_url(settings.database_url)
+        target_db_name = target_url.database
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Could not parse DATABASE_URL: %s", exc)
+        return
+
     if not target_db_name:
         # Nothing to create against — let verify_database_connection()
         # produce its usual clear error instead.
@@ -146,7 +154,7 @@ def verify_database_connection() -> None:
     obvious startup error instead of a confusing failure on the first
     request.
     """
-    if not settings.database_enabled:
+    if not settings.database_enabled or not settings.database_url or engine is None:
         return
 
     try:

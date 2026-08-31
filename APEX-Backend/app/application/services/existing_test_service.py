@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import threading
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Any, Dict, List
 
+from app.core.exceptions import APEXError
 from app.infrastructure.analyzers.existing_test_detector import ExistingTestDetector
 from app.infrastructure.quality_gates.unit_test_runner import UnitTestRunner
 from app.infrastructure.workspace.workspace_paths import WorkspacePaths
-from app.core.exceptions import APEXError
+
 
 class ExistingTestService:
     def __init__(self):
@@ -34,7 +35,7 @@ class ExistingTestService:
             try:
                 discovery_result = self.discover_tests(job_id)
                 total_discovered = sum(len(t["methods"]) for t in discovery_result["tests"])
-            except Exception:
+            except Exception:  # noqa: BLE001
                 total_discovered = 0
 
             state = {
@@ -139,22 +140,13 @@ class ExistingTestService:
                     "error": error_msg
                 })
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             with self._lock:
                 if job_id in self._execution_states:
                     self._execution_states[job_id].update({
                         "status": "FAILED",
                         "error": str(e),
                         "logs": self._execution_states[job_id].get("logs", []) + [f"Error during execution: {str(e)}"]
-                    })
-
-        except Exception as e:
-            with self._lock:
-                if job_id in self._execution_states:
-                    self._execution_states[job_id].update({
-                        "status": "FAILED",
-                        "error": str(e),
-                        "logs": self._execution_states[job_id].get("logs", []) + [f"Error: {str(e)}"]
                     })
 
     def _resolve_project_dir(self, job_id: str) -> Path:

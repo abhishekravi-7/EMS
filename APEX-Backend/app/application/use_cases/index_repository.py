@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from app.infrastructure.rag import chunker, embedder, repo_index_locator, vector_store
@@ -46,7 +47,6 @@ class IndexRepositoryUseCase:
         job_id = str(report.get("jobId") or "").strip()
         
         from app.infrastructure.workspace.workspace_paths import WorkspacePaths
-        from pathlib import Path
         
         if job_id:
             paths = WorkspacePaths(job_id)
@@ -79,7 +79,7 @@ class IndexRepositoryUseCase:
                                     chunk_type="log_file"
                                 )
                             )
-                    except Exception:
+                    except OSError:
                         pass
 
         texts = [c.text for c in chunks]
@@ -174,8 +174,8 @@ def _crawl_repo_files(repo_path: Path, version: str) -> list[chunker.KnowledgeCh
         
         try:
             content = path.read_text(encoding="utf-8", errors="ignore")
-        except Exception:
-            continue
+        except Exception:  # noqa: BLE001, S112
+            continue  # nosec B112
             
         if not content.strip():
             continue

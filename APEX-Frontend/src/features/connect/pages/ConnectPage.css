@@ -15,22 +15,43 @@
   pointer-events: none;
   overflow: hidden;
   z-index: 0;
+  perspective: 1000px;
 }
 
 .connect-watermark-left {
   position: absolute;
   top: 10px;
   left: 20px;
-  opacity: 0.14;
+  opacity: 0.18;
   color: #3b82f6;
+  animation: floating3D 8s ease-in-out infinite;
+  will-change: transform;
 }
 
 .connect-watermark-right {
   position: absolute;
   top: 15px;
   right: 25px;
-  opacity: 0.14;
+  opacity: 0.18;
   color: #3b82f6;
+  animation: floating3D 10s ease-in-out infinite reverse;
+  animation-delay: -2s;
+  will-change: transform;
+}
+
+@keyframes floating3D {
+  0% {
+    transform: translateY(0px) rotateX(0deg) rotateY(0deg) translateZ(0px);
+  }
+  33% {
+    transform: translateY(-15px) rotateX(10deg) rotateY(5deg) translateZ(20px);
+  }
+  66% {
+    transform: translateY(10px) rotateX(-5deg) rotateY(-10deg) translateZ(-10px);
+  }
+  100% {
+    transform: translateY(0px) rotateX(0deg) rotateY(0deg) translateZ(0px);
+  }
 }
 
 .connect-network-canvas {
@@ -49,28 +70,67 @@
 /* Hero Section */
 .connect-hero {
   text-align: center;
-  margin-bottom: 32px;
+  margin-bottom: 72px;
+  animation: heroReveal 1s cubic-bezier(0.165, 0.84, 0.44, 1);
 }
 
 .connect-hero-title {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  font-size: 32px;
-  font-weight: 800;
+  font-family: 'Inter', sans-serif;
+  font-size: 54px;
+  font-weight: 900;
   color: #0f172a;
-  letter-spacing: -0.03em;
-  margin: 0 0 10px;
+  letter-spacing: -0.05em;
+  margin: 0 0 20px;
+  line-height: 1.05;
+}
+
+.connect-hero-emphasized {
+  color: #2563eb;
+  position: relative;
+  display: inline-block;
+  padding: 0 4px;
+}
+
+/* Precise Hand-drawn Curved Underline for "Migration" */
+.connect-hero-emphasized::after {
+  content: "";
+  position: absolute;
+  left: 2%;
+  right: 2%;
+  bottom: -12px;
+  height: 14px;
+  background-image: url("data:image/svg+xml,%3Csvg width='200' height='14' viewBox='0 0 200 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M4 7C50 11 150 11 196 7' stroke='%232563eb' stroke-width='4' stroke-linecap='round' opacity='0.8'/%3E%3C/svg%3E");
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+  animation: drawCurve 1.2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  transform-origin: left;
 }
 
 .connect-hero-subtitle {
-  font-size: 15px;
+  font-size: 21px;
   color: #475569;
-  margin: 0;
-  line-height: 1.5;
+  font-weight: 500;
+  margin: 0 auto;
+  line-height: 1.7;
+  max-width: 840px;
+  letter-spacing: -0.01em;
 }
 
 .connect-hero-highlight {
   color: #2563eb;
-  font-weight: 600;
+  font-weight: 700;
+  position: relative;
+  display: inline-block;
+}
+
+@keyframes heroReveal {
+  from { opacity: 0; transform: translateY(30px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes drawCurve {
+  from { clip-path: inset(0 100% 0 0); }
+  to { clip-path: inset(0 0 0 0); }
 }
 
 /* Action Cards Grid */
@@ -613,3 +673,5 @@
     flex-direction: column;
   }
 }
+
+

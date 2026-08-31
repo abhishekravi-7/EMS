@@ -12,9 +12,10 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, get_db
+from app.api.deps import get_current_user
 from app.application.use_cases.recommend_java_version import RecommendJavaVersionUseCase
 from app.core.exceptions import JavaVersionRecommendationError
+from app.infrastructure.persistence.database import get_db
 from app.infrastructure.persistence.models import User
 from app.schemas.java_version_schema import (
     JavaVersionRecommendationRequest,
@@ -33,8 +34,8 @@ _use_case = RecommendJavaVersionUseCase()
 )
 async def recommend_java_version(
     payload: JavaVersionRecommendationRequest,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
 ) -> JSONResponse:
     try:
         result = await _use_case.execute(payload, db=db, current_user=current_user)

@@ -19,7 +19,7 @@ from app.core.config import settings
 from app.core.exceptions import OAuthProviderError
 
 AUTHORIZATION_ENDPOINT = "https://github.com/login/oauth/authorize"
-TOKEN_ENDPOINT = "https://github.com/login/oauth/access_token"
+TOKEN_ENDPOINT = "https://github.com/login/oauth/access_token"  # nosec B105
 USER_ENDPOINT = "https://api.github.com/user"
 EMAILS_ENDPOINT = "https://api.github.com/user/emails"
 # Identity-only scopes. Deliberately NOT "repo" (or any repository scope) —

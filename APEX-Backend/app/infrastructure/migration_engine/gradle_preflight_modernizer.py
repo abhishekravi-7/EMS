@@ -11,7 +11,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-
 _GRADLE_8_VERSION = "8.14.3"
 _SPRING_BOOT_2_TRANSITION_VERSION = "2.7.18"
 _SPRING_DEPENDENCY_MANAGEMENT_VERSION = "1.1.7"

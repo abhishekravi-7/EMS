@@ -10,7 +10,7 @@ import {
   FaBullseye,
   FaPlay,
 } from "react-icons/fa";
-import type { DiscoveredOrExecutedTest } from "./ExistingTestAnalytics";
+import type { TestResult, TestSelectionItem } from "../services/existingTestService";
 
 interface MetricCardProps {
   label: string;
@@ -99,12 +99,12 @@ interface ExistingTestCoverageProps {
     execution_status?: string;
     compilation_error?: string | null;
   };
-  discoveredTests?: DiscoveredOrExecutedTest[];
-  testResults?: DiscoveredOrExecutedTest[];
+  discoveredTests?: (TestResult | TestSelectionItem)[];
+  testResults?: TestResult[];
   isExecuted?: boolean;
   frameworkInfo?: {
     detected_framework?: string;
-    build_tool?: string;
+    build_tool?: string | null;
     test_source_dir?: string;
   };
   onRunAll: () => void;
@@ -217,7 +217,7 @@ export function ExistingTestCoverage({
             onMouseEnter={(e) => (e.currentTarget.style.background = "#f1f5f9")}
             onMouseLeave={(e) => (e.currentTarget.style.background = "#f8fafc")}
           >
-            <FaPlay style={{ color: "#22c55e", fontSize: 10 }} /> Run All Again
+            <FaPlay style={{ color: "#22c55e", fontSize: 10 }} /> Run Again
           </button>
         </div>
       </div>

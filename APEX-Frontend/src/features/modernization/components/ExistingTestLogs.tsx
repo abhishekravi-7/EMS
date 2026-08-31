@@ -26,7 +26,7 @@ export function ExistingTestLogs({ logs }: ExistingTestLogsProps) {
   });
 
   const handleCopy = () => {
-    const rawText = logs.map((log, index) => `[${log.ts}] [${log.level}] ${log.msg}`).join("\n");
+    const rawText = logs.map((log) => `[${log.ts}] [${log.level}] ${log.msg}`).join("\n");
     navigator.clipboard.writeText(rawText).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);

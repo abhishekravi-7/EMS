@@ -37,6 +37,7 @@ export interface DiscoveryProject {
   dependencies?: DiscoveryDependency[];
   hasTests?: boolean;
   javaFileCount?: number;
+  totalFileCount?: number;
   defaultBranch?: string;
   buildWarning?: string | null;
   frontend?: { detected: boolean; type: string; path: string | null; packageManager: string | null };

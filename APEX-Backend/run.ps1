@@ -64,5 +64,5 @@ if ($NoReload) {
 } else {
     # --reload-dir app: watch only source, NOT storage/ (cloned repos there would
     # otherwise trigger reloads mid-clone and 502 the Discovery request).
-    uvicorn app.main:app --reload --reload-dir app --reload-exclude "storage/*" --reload-exclude "logs/*" --port $Port
+    uvicorn app.main:app --reload --reload-dir app --port $Port
 }

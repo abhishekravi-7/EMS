@@ -6,11 +6,8 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8000:8000"
-    environment:
-      - DATABASE_URL=postgresql+psycopg://apex_user:apex_pass@db:5432/java_apex_db
-      - LLM_1=${LLM_1:-} # Hugging Face Token
-      - LLM_2=${LLM_2:-} # Groq API Key
-      - ENABLE_RAG=true
+    env_file:
+      - ./APEX-Backend/.env
     volumes:
       - ./APEX-Backend/storage:/app/storage
       - ./APEX-Backend/logs:/app/logs

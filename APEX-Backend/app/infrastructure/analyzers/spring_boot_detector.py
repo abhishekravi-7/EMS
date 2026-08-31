@@ -13,7 +13,7 @@ version (e.g. inherited from a custom parent).
 from __future__ import annotations
 
 import re
-from xml.etree.ElementTree import Element
+from xml.etree.ElementTree import Element  # nosec B405 - type annotation only; callers parse via defusedxml
 
 
 class SpringBootDetector:

@@ -111,8 +111,9 @@ const SignUpPage: React.FC = () => {
           confirmPassword: formValues.confirmPassword,
         });
         setSubmitted(true);
-      } catch (err: any) {
-        setApiError(err.message || "Sign up failed. Please try again.");
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Sign up failed. Please try again.";
+        setApiError(message);
       } finally {
         setIsSubmitting(false);
       }

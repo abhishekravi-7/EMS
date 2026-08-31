@@ -1,4 +1,4 @@
-import { FaCode, FaCogs, FaJava, FaLeaf, FaProjectDiagram } from "react-icons/fa";
+import { FaCode, FaCogs, FaJava, FaLeaf, FaProjectDiagram, FaCheckCircle, FaTimesCircle, FaBoxOpen, FaLayerGroup, FaCubes, FaWrench, FaCoffee } from "react-icons/fa";
 import { wizardStyles as styles } from "@/shared/components/wizard/wizardStyles";
 import {
   renderWizardIconBadge,
@@ -96,7 +96,7 @@ export function StrategyStepView({
   targetRepositoryOwner,
   onBack,
   onContinue,
-  strategyAssistantContext,
+  strategyAssistantContext: _strategyAssistantContext,
 }: StrategyStepViewProps) {
   const {
     selectedSourceVersion,
@@ -205,11 +205,95 @@ export function StrategyStepView({
             </WizardInfoTooltip>
           </div>
 
-          <div style={styles.assessmentGrid}>
-            <div style={styles.assessmentItem}><div style={styles.assessmentLabel}>Build Tool</div><div style={styles.assessmentValue}>{buildToolDisplayLabel}</div></div>
-            <div style={styles.assessmentItem}><div style={styles.assessmentLabel}>Java Version</div><div style={styles.assessmentValue}>{repoAnalysis.java_version || "Unknown"}</div></div>
-            <div style={styles.assessmentItem}><div style={styles.assessmentLabel}>Has Tests</div><div style={styles.assessmentValue}>{repoAnalysis.has_tests ? "Yes" : "No"}</div></div>
-            <div style={styles.assessmentItem}><div style={styles.assessmentLabel}>Dependencies</div><div style={styles.assessmentValue}>{repoAnalysis.dependencies?.length || 0} found</div></div>
+          {/* ── Enhanced Assessment Cards ─────────────────────────── */}
+          <div className="strat-assessment-grid">
+
+            {/* 1. Build Tool */}
+            {(() => {
+              const tool = buildToolDisplayLabel.toLowerCase();
+              const isMaven  = tool.includes("maven");
+              const isGradle = tool.includes("gradle");
+              const isAnt    = tool.includes("ant");
+              const toolIcon = isMaven  ? <FaLayerGroup /> :
+                               isGradle ? <FaWrench />    :
+                               isAnt    ? <FaCogs />      :
+                                          <FaBoxOpen />;
+              const toolColor = isMaven ? "#c2185b" : isGradle ? "#02a699" : isAnt ? "#f59e0b" : "#8b5cf6";
+              const toolBg    = isMaven ? "#fce4ec" : isGradle ? "#e0f7fa" : isAnt ? "#fef3c7" : "#ede9fe";
+              return (
+                <div className="strat-assessment-card" style={{ animationDelay: "0.05s" }}>
+                  <div className="strat-assessment-icon-wrap" style={{ background: toolBg, color: toolColor }}>
+                    {toolIcon}
+                  </div>
+                  <div className="strat-assessment-info">
+                    <div className="strat-assessment-label">Build Tool</div>
+                    <div className="strat-assessment-value" style={{ color: toolColor }}>{buildToolDisplayLabel}</div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* 2. Java Version */}
+            {(() => {
+              const ver = parseInt(repoAnalysis.java_version || "0") || 0;
+              const isModern = ver >= 17;
+              const vColor = isModern ? "#2563eb" : ver >= 11 ? "#f97316" : "#ef4444";
+              const vBg    = isModern ? "#eff6ff"  : ver >= 11 ? "#fff7ed"  : "#fef2f2";
+              const vLabel = ver === 0 ? "Unknown" : `Java ${ver}`;
+              return (
+                <div className="strat-assessment-card" style={{ animationDelay: "0.12s" }}>
+                  <div className="strat-assessment-icon-wrap" style={{ background: vBg, color: vColor }}>
+                    <FaCoffee />
+                  </div>
+                  <div className="strat-assessment-info">
+                    <div className="strat-assessment-label">Java Version</div>
+                    <div className="strat-assessment-value" style={{ color: vColor }}>{vLabel}</div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* 3. Has Tests */}
+            {(() => {
+              const hasTests = repoAnalysis.has_tests;
+              const tColor = hasTests ? "#16a34a" : "#dc2626";
+              const tBg    = hasTests ? "#f0fdf4"  : "#fef2f2";
+              return (
+                <div className={`strat-assessment-card ${hasTests ? "strat-tests-pass" : "strat-tests-fail"}`} style={{ animationDelay: "0.19s" }}>
+                  <div className="strat-assessment-icon-wrap" style={{ background: tBg, color: tColor }}>
+                    {hasTests ? <FaCheckCircle /> : <FaTimesCircle />}
+                  </div>
+                  <div className="strat-assessment-info">
+                    <div className="strat-assessment-label">Has Tests</div>
+                    <div className="strat-assessment-value" style={{ color: tColor }}>
+                      {hasTests ? "Yes ✔" : "No ✘"}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* 4. Dependencies */}
+            {(() => {
+              const count = repoAnalysis.dependencies?.length || 0;
+              const isHigh = count > 30;
+              const isMed  = count > 10;
+              const dColor = isHigh ? "#7c3aed" : isMed ? "#2563eb" : "#0ea5e9";
+              const dBg    = isHigh ? "#ede9fe"  : isMed ? "#eff6ff"  : "#f0f9ff";
+              const dLabel = count === 0 ? "None" : isHigh ? `${count} · Complex` : isMed ? `${count} · Moderate` : `${count} · Light`;
+              return (
+                <div className="strat-assessment-card" style={{ animationDelay: "0.26s" }}>
+                  <div className="strat-assessment-icon-wrap" style={{ background: dBg, color: dColor }}>
+                    <FaCubes />
+                  </div>
+                  <div className="strat-assessment-info">
+                    <div className="strat-assessment-label">Dependencies</div>
+                    <div className="strat-assessment-value" style={{ color: dColor }}>{dLabel}</div>
+                  </div>
+                </div>
+              );
+            })()}
+
           </div>
 
           {repoAnalysis.dependencies && repoAnalysis.dependencies.length > 0 && (
@@ -244,10 +328,6 @@ export function StrategyStepView({
             </div>
 
             <div style={{ height: 1, background: "#dbe3ef", marginBottom: 18 }} />
-
-            <p style={{ fontSize: 17, color: "#475569", margin: "0 0 22px" }}>
-              Available modernization pathways for your project:
-            </p>
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 14 }}>
               {[

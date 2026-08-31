@@ -16,7 +16,7 @@ from app.core.config import settings
 from app.core.exceptions import OAuthProviderError
 
 AUTHORIZATION_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth"
-TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"
+TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"  # nosec B105
 USERINFO_ENDPOINT = "https://openidconnect.googleapis.com/v1/userinfo"
 # Identity-only scopes — no Drive/Calendar/etc access is ever requested.
 SCOPES = "openid email profile"

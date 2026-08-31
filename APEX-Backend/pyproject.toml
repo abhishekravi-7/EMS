@@ -1,0 +1,31 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+filterwarnings = [
+    "ignore::DeprecationWarning:starlette.testclient.*",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "F",
+    "I",
+    "B",
+    "BLE",
+    "S",
+]
+ignore = [
+    "E501", # line length
+    "E701", # multiple statements on one line (colon)
+    "E741", # ambiguous variable name
+    "F841", # local variable assigned but never used
+    "S101", # Use of assert detected (many tests use assert)
+    "S105", # hardcoded password (addressed via Bandit and nosec)
+    "S110", # try-except-pass (addressed via Bandit)
+    "S112", # try-except-continue (addressed via Bandit)
+]
