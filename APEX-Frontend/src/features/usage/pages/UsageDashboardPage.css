@@ -1,0 +1,134 @@
+/* ── JavaAPEX Usage - Immersive Design ── */
+
+.usage-console-layout {
+  display: flex;
+  width: 100%;
+  height: calc(100vh - 67px);
+  background: #ffffff;
+  font-family: 'Inter', sans-serif;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Main Surface Styling */
+.usage-main-surface {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #f8fafc;
+}
+
+.usage-main-header {
+  height: 80px;
+  padding: 0 40px;
+  background: #ffffff;
+  border-bottom: 1px solid #f1f5f9;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+.header-title-group {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.header-icon-wrap {
+  width: 38px;
+  height: 38px;
+  background: #f5f3ff;
+  border: 1.5px solid #7c3aed;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #7c3aed;
+  font-size: 18px;
+}
+
+.header-text-col {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.header-heading {
+  font-size: 24px;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.header-subtitle {
+  font-size: 13px;
+  color: #64748b;
+  margin: 0;
+  font-weight: 500;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.refresh-btn-modern,
+.back-btn-modern {
+  border: none;
+  padding: 10px 20px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.refresh-btn-modern {
+  background: #7c3aed;
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.25);
+}
+
+.back-btn-modern {
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+}
+
+.refresh-btn-modern:hover {
+  background: #6d28d9;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(124, 58, 237, 0.35);
+}
+
+.back-btn-modern:hover {
+  background: #e2e8f0;
+  color: #1e293b;
+  transform: translateY(-1px);
+}
+
+.usage-canvas {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  animation: contentFadeUp 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.usage-iframe-view {
+  width: 100%;
+  height: calc(100% + 80px);
+  margin-top: -80px;
+  border: none;
+}
+
+@keyframes contentFadeUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}

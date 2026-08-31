@@ -1,88 +1,484 @@
-/* ── Modernization Page (Step 4) ───────────────────────── */
+/* ================================================================
+   Modernization Page (Step 4) – Full UI Enhancement with 3D & Animations
+   ================================================================ */
 
+/* ── Page entry ─────────────────────────────────────────────────── */
 .page-modernization {
-  animation: pageSlideIn 0.3s ease-out;
+  animation: modPageIn 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-@keyframes pageSlideIn {
-  from {
-    opacity: 0;
-    transform: translateY(12px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+@keyframes modPageIn {
+  from { opacity: 0; transform: translateY(22px) scale(0.988); }
+  to   { opacity: 1; transform: translateY(0)    scale(1); }
 }
 
-/* Modernization feature cards */
+/* ── Step header ────────────────────────────────────────────────── */
+.page-modernization [style*="stepHeader"],
+.page-modernization > div > div:first-child {
+  animation: modHeaderSlide 0.48s 0.07s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes modHeaderSlide {
+  from { opacity: 0; transform: translateX(-16px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* ── Staggered section animations ───────────────────────────────── */
+.page-modernization > * :nth-child(1) { animation-delay: 0.04s; }
+.page-modernization > * :nth-child(2) { animation-delay: 0.09s; }
+.page-modernization > * :nth-child(3) { animation-delay: 0.14s; }
+.page-modernization > * :nth-child(4) { animation-delay: 0.19s; }
+.page-modernization > * :nth-child(5) { animation-delay: 0.24s; }
+.page-modernization > * :nth-child(6) { animation-delay: 0.29s; }
+
+@keyframes modFadeUp {
+  from { opacity: 0; transform: translateY(16px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0)    scale(1); }
+}
+
+/* ================================================================
+   CI/CD & Quality Gates Cards – 3D enhancement
+   ================================================================ */
+
+/* The 3-column grid perspective container */
+.page-modernization [style*="gridTemplateColumns: \"1fr 1fr 1fr\""] {
+  perspective: 1000px;
+}
+
+/* Each CI/CD card */
+.page-modernization [style*="gridTemplateColumns: \"1fr 1fr 1fr\""] > div {
+  animation: mod3DCardIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+              box-shadow 0.3s ease,
+              border-color 0.2s ease !important;
+  transform-style: preserve-3d;
+  position: relative;
+  overflow: hidden;
+}
+
+.page-modernization [style*="gridTemplateColumns: \"1fr 1fr 1fr\""] > div:nth-child(1) {
+  animation-delay: 0.08s;
+}
+.page-modernization [style*="gridTemplateColumns: \"1fr 1fr 1fr\""] > div:nth-child(2) {
+  animation-delay: 0.16s;
+}
+.page-modernization [style*="gridTemplateColumns: \"1fr 1fr 1fr\""] > div:nth-child(3) {
+  animation-delay: 0.24s;
+}
+
+@keyframes mod3DCardIn {
+  from { opacity: 0; transform: translateY(22px) rotateX(-10deg) scale(0.92); }
+  to   { opacity: 1; transform: translateY(0)    rotateX(0deg)   scale(1); }
+}
+
+/* Shimmer sweep on hover */
+.page-modernization [style*="gridTemplateColumns: \"1fr 1fr 1fr\""] > div::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    115deg,
+    transparent 30%,
+    rgba(255,255,255,0.45) 50%,
+    transparent 70%
+  );
+  transform: translateX(-120%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.page-modernization [style*="gridTemplateColumns: \"1fr 1fr 1fr\""] > div:hover::before {
+  transform: translateX(120%);
+  transition: transform 0.55s ease;
+}
+
+/* 3D tilt on hover */
+.page-modernization [style*="gridTemplateColumns: \"1fr 1fr 1fr\""] > div:hover {
+  transform: translateY(-7px) rotateX(5deg) scale(1.02);
+  box-shadow: 0 22px 50px rgba(15, 23, 42, 0.13),
+              0 4px 14px rgba(15, 23, 42, 0.06) !important;
+}
+
+/* CI card – blue top accent */
+.page-modernization [style*="gridTemplateColumns: \"1fr 1fr 1fr\""] > div:nth-child(1)::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #2563eb, #7c3aed);
+  border-radius: 14px 14px 0 0;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+/* CD card – orange top accent */
+.page-modernization [style*="gridTemplateColumns: \"1fr 1fr 1fr\""] > div:nth-child(2)::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #f97316, #f59e0b);
+  border-radius: 14px 14px 0 0;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.page-modernization [style*="gridTemplateColumns: \"1fr 1fr 1fr\""] > div:hover::after {
+  opacity: 1;
+}
+
+/* "Coming Soon" badge float animation */
+.page-modernization [style*="\"Coming Soon\""],
+.page-modernization span[style*="Coming Soon"] {
+  animation: comingSoonFloat 3s ease-in-out infinite;
+}
+
+@keyframes comingSoonFloat {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-2px); }
+}
+
+/* ================================================================
+   Quality Gates Toggles (SonarQube / FOSSA)
+   ================================================================ */
+
+/* The Quality Gate card inner toggles */
+.page-modernization [style*="borderRadius: 10"][style*="border: `2px solid"] {
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1),
+              box-shadow 0.25s ease,
+              border-color 0.2s ease,
+              background 0.2s ease !important;
+  position: relative;
+  overflow: hidden;
+}
+
+.page-modernization [style*="borderRadius: 10"][style*="border: `2px solid"]:hover {
+  transform: translateY(-3px) scale(1.02);
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.1);
+}
+
+/* Active (green) status dot pulse */
+.page-modernization span[style*="borderRadius: \"50%\""][style*="#22c55e"] {
+  animation: dotGreenPulse 2s ease-in-out infinite;
+}
+
+@keyframes dotGreenPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.4); }
+  50%       { box-shadow: 0 0 0 5px rgba(34,197,94,0); }
+}
+
+/* Inactive dot */
+.page-modernization span[style*="borderRadius: \"50%\""][style*="#94a3b8"] {
+  opacity: 0.6;
+}
+
+/* ================================================================
+   Test Suites Section
+   ================================================================ */
+
+/* Test suite section heading icon */
+.page-modernization [style*="FaVial"],
+.page-modernization svg[style*="fontSize: 18, color: \"#0f172a\""] {
+  animation: iconBounceIn 0.5s 0.2s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@keyframes iconBounceIn {
+  from { transform: scale(0.4) rotate(-20deg); opacity: 0; }
+  to   { transform: scale(1)   rotate(0deg);   opacity: 1; }
+}
+
+/* Run Unit Test Suite toggle row */
+.page-modernization [style*="border: `2px solid"][style*="borderRadius: 12"] {
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1),
+              box-shadow 0.25s ease,
+              border-color 0.2s ease,
+              background 0.2s ease !important;
+  position: relative;
+  overflow: hidden;
+}
+
+.page-modernization [style*="border: `2px solid"][style*="borderRadius: 12"]:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.09);
+}
+
+/* "RECOMMENDED" badge pulse */
+.page-modernization span[style*="\"RECOMMENDED\""],
+.page-modernization span[style*="RECOMMENDED"] {
+  animation: recBadgePulse 2.8s ease-in-out infinite;
+}
+
+@keyframes recBadgePulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.3); }
+  50%       { box-shadow: 0 0 0 6px rgba(34,197,94,0); }
+}
+
+/* LLM sub-panel */
+.page-modernization [style*="borderRadius: 12"][style*="border: \"1px solid #e2e8f0\""][style*="background: \"#f8fafc\""] {
+  animation: modFadeUp 0.35s ease both;
+  border-left: 3px solid #3b82f6 !important;
+  transition: box-shadow 0.25s ease;
+}
+
+.page-modernization select {
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.page-modernization select:focus {
+  outline: none;
+  border-color: #2563eb !important;
+  box-shadow: 0 0 0 3px rgba(37,99,235,0.14) !important;
+}
+
+.page-modernization select:hover:not(:disabled) {
+  border-color: #93c5fd !important;
+}
+
+/* ================================================================
+   Functional Testing Tools Cards
+   ================================================================ */
+
+/* Tool cards – 3D on hover */
+.page-modernization [class*="tool-card"],
+.page-modernization [class*="toolCard"] {
+  transition: transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1),
+              box-shadow 0.28s ease !important;
+  transform-style: preserve-3d;
+  position: relative;
+  overflow: hidden;
+}
+
+.page-modernization [class*="tool-card"]:hover,
+.page-modernization [class*="toolCard"]:hover {
+  transform: translateY(-5px) rotateX(4deg) scale(1.02);
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.12) !important;
+}
+
+/* Confidence bar animated fill */
+.page-modernization [style*="background: getConfidenceColor"],
+.page-modernization [style*="height: 4"][style*="borderRadius"] {
+  position: relative;
+  overflow: hidden;
+}
+
+/* ================================================================
+   Feature Cards (mod-feature-card)
+   ================================================================ */
+
 .page-modernization .mod-feature-card {
-  transition: all 0.2s ease;
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+              box-shadow 0.3s ease;
+  position: relative;
+  overflow: hidden;
+  transform-style: preserve-3d;
+}
+
+.page-modernization .mod-feature-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(37,99,235,0.04) 0%, transparent 60%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
 }
 
 .page-modernization .mod-feature-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
+  transform: translateY(-5px) rotateX(4deg) scale(1.01);
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.11);
 }
 
-/* Target repo configuration */
+.page-modernization .mod-feature-card:hover::before {
+  opacity: 1;
+}
+
+/* ================================================================
+   Start Migration CTA Button – 3D + shimmer
+   ================================================================ */
+
+.page-modernization .mod-start-btn,
+.page-modernization [style*="primaryBtn"] {
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+              box-shadow 0.3s ease !important;
+  transform-style: preserve-3d;
+}
+
+.page-modernization .mod-start-btn::after,
+.page-modernization [style*="primaryBtn"]::after {
+  content: '';
+  position: absolute;
+  top: 0; left: -100%;
+  width: 100%; height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.25), transparent);
+  animation: modBtnShimmer 2.2s ease-in-out infinite;
+}
+
+@keyframes modBtnShimmer {
+  0%   { left: -100%; }
+  100% { left: 100%; }
+}
+
+.page-modernization .mod-start-btn:hover:not(:disabled),
+.page-modernization [style*="primaryBtn"]:hover {
+  transform: translateY(-5px) rotateX(5deg) scale(1.02) !important;
+  box-shadow: 0 18px 42px rgba(37,99,235,0.32) !important;
+}
+
+/* Back button */
+.page-modernization [style*="secondaryBtn"] {
+  transition: transform 0.2s ease !important;
+}
+
+.page-modernization [style*="secondaryBtn"]:hover {
+  transform: translateX(-4px) !important;
+}
+
+/* ================================================================
+   Progress / Status indicators
+   ================================================================ */
+
+/* Spinning loader icon */
+.page-modernization [style*="FaSpinner"],
+.page-modernization svg[class*="spin"],
+.page-modernization svg[class*="Spin"] {
+  animation: spinRound 0.9s linear infinite;
+}
+
+@keyframes spinRound {
+  to { transform: rotate(360deg); }
+}
+
+/* Running status pulse */
+.page-modernization [class*="in-progress"],
+.page-modernization [class*="running"] {
+  animation: inProgressPulse 2s ease-in-out infinite;
+}
+
+@keyframes inProgressPulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.6; }
+}
+
+/* Success badge bounce */
+.page-modernization [class*="success"],
+.page-modernization [class*="completed"] {
+  animation: successBounce 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@keyframes successBounce {
+  from { transform: scale(0.7); opacity: 0; }
+  to   { transform: scale(1);   opacity: 1; }
+}
+
+/* Progress bars */
+.page-modernization [class*="progress-bar"],
+.page-modernization [class*="bar-fill"] {
+  transition: width 1.4s cubic-bezier(0.4, 0, 0.2, 1);
+  background: linear-gradient(90deg, #2563eb 0%, #7c3aed 100%);
+  background-size: 200% 100%;
+  animation: modProgressGlow 2.5s ease-in-out infinite;
+}
+
+@keyframes modProgressGlow {
+  0%, 100% { background-position: 0% 0%; }
+  50%       { background-position: 100% 0%; }
+}
+
+/* ================================================================
+   Table rows & Tabs
+   ================================================================ */
+
+.page-modernization tr {
+  transition: background-color 0.18s ease;
+}
+
+.page-modernization tr:hover {
+  background-color: #f0f7ff !important;
+}
+
+.page-modernization [role="tab"] {
+  transition: color 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
+  position: relative;
+}
+
+.page-modernization [role="tab"]::after {
+  content: '';
+  position: absolute;
+  bottom: 0; left: 50%; right: 50%;
+  height: 2px;
+  background: #2563eb;
+  transition: left 0.25s ease, right 0.25s ease;
+  border-radius: 2px;
+}
+
+.page-modernization [role="tab"]:hover::after {
+  left: 0; right: 0;
+}
+
+/* ================================================================
+   Misc interactive
+   ================================================================ */
+
+/* Checkbox accent */
+.page-modernization input[type="checkbox"] {
+  accent-color: #22c55e;
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.page-modernization input[type="checkbox"]:checked {
+  animation: checkboxPop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes checkboxPop {
+  from { transform: scale(0.7); }
+  to   { transform: scale(1); }
+}
+
+/* Diff line hover */
+.page-modernization [class*="diff-line"]:hover,
+.page-modernization [class*="code-line"]:hover {
+  background-color: rgba(37,99,235,0.05);
+  transition: background-color 0.15s ease;
+}
+
+/* Custom scrollbar */
+.page-modernization ::-webkit-scrollbar { width: 5px; height: 5px; }
+.page-modernization ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 99px; }
+.page-modernization ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+/* ================================================================
+   Floating icon symbol decorations on section headings
+   ================================================================ */
+
+/* Vial icon float – test suites heading */
+.page-modernization [style*="FaVial"] {
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Any icon in a section heading area */
+.page-modernization [style*="fontWeight: 800, fontSize: 18"] svg,
+.page-modernization [style*="fontSize: 18, color"] {
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.page-modernization [style*="fontWeight: 800, fontSize: 18"]:hover svg,
+.page-modernization div:hover > [style*="fontSize: 18, color"] {
+  transform: rotate(15deg) scale(1.2);
+}
+
+/* Target config area */
 .page-modernization .mod-target-config {
   border: 1px solid #e2e8f0;
   border-radius: 12px;
   padding: 20px;
   background: #f8fafc;
+  transition: box-shadow 0.25s ease, border-color 0.25s ease, transform 0.25s ease;
 }
 
-/* LLM provider selector */
-.page-modernization .mod-llm-select {
-  transition: border-color 0.2s ease;
-}
-
-.page-modernization .mod-llm-select:focus {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
-}
-
-/* Option toggles */
-.page-modernization .mod-toggle-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 0;
-  border-bottom: 1px solid #f1f5f9;
-}
-
-.page-modernization .mod-toggle-row:last-child {
-  border-bottom: none;
-}
-
-/* Start migration CTA */
-.page-modernization .mod-start-btn {
-  position: relative;
-  overflow: hidden;
-}
-
-.page-modernization .mod-start-btn::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: -100%;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    rgba(255, 255, 255, 0.15) 50%,
-    transparent 100%
-  );
-  animation: modShimmer 2.5s ease-in-out infinite;
-}
-
-@keyframes modShimmer {
-  0% {
-    left: -100%;
-  }
-  100% {
-    left: 100%;
-  }
+.page-modernization .mod-target-config:focus-within {
+  border-color: #93c5fd;
+  box-shadow: 0 0 0 3px rgba(37,99,235,0.08);
+  transform: translateY(-2px);
 }
