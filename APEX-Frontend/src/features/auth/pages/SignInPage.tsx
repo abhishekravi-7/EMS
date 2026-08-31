@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { FaEnvelope, FaArrowRight } from "react-icons/fa";
-import { useAuth } from "@/shared/context/AuthContext";
 import AuthLayout from "../components/AuthLayout";
 import SocialAuthButtons from "../components/SocialAuthButtons";
 import PasswordInput from "../components/PasswordInput";
@@ -35,7 +34,6 @@ function validateSignIn(values: SignInValues): FormErrors<SignInValues> {
 
 const SignInPage: React.FC = () => {
   const navigate = useNavigate();
-  const { login } = useAuth();
   const [searchParams] = useSearchParams();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
@@ -65,8 +63,9 @@ const SignInPage: React.FC = () => {
           password: formValues.password,
         });
         navigate("/connect");
-      } catch (err: any) {
-        setApiError(err.message || "Sign in failed. Please try again.");
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Sign in failed. Please try again.";
+        setApiError(message);
       } finally {
         setIsSubmitting(false);
       }
@@ -91,8 +90,9 @@ const SignInPage: React.FC = () => {
     try {
       await resetPassword(email);
       setInfoMessage("Password reset email sent! Open the link in your inbox to set or reset your password, then sign in.");
-    } catch (err: any) {
-      setApiError(err.message || "Failed to send password reset email.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to send password reset email.";
+      setApiError(message);
     } finally {
       setIsResetting(false);
     }

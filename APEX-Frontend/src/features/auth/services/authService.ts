@@ -59,6 +59,19 @@ export function mapFirebaseError(code: string): string {
   }
 }
 
+interface FirebaseErrorLike {
+  code?: string;
+  message?: string;
+}
+
+function extractFirebaseErrorMessage(error: unknown): string {
+  if (error && typeof error === "object") {
+    const fbErr = error as FirebaseErrorLike;
+    return fbErr.code || fbErr.message || "An unknown authentication error occurred.";
+  }
+  return typeof error === "string" ? error : "An unknown authentication error occurred.";
+}
+
 export async function signUp(payload: SignUpRequest): Promise<FirebaseUser> {
   try {
     const userCredential = await createUserWithEmailAndPassword(
@@ -73,8 +86,8 @@ export async function signUp(payload: SignUpRequest): Promise<FirebaseUser> {
     });
 
     return userCredential.user;
-  } catch (error: any) {
-    throw new Error(mapFirebaseError(error.code || error.message));
+  } catch (error) {
+    throw new Error(mapFirebaseError(extractFirebaseErrorMessage(error)));
   }
 }
 
@@ -91,7 +104,7 @@ export async function signIn(payload: SignInRequest): Promise<FirebaseUser> {
       payload.password
     );
     return userCredential.user;
-  } catch (error: any) {
+  } catch (error) {
     // If sign in fails, check whether the account was created with Google and has no password
     try {
       const methods = await fetchSignInMethodsForEmail(auth, payload.email);
@@ -100,12 +113,12 @@ export async function signIn(payload: SignInRequest): Promise<FirebaseUser> {
           "This account was created with Google. Please sign in with Google or set a password for this account."
         );
       }
-    } catch (fetchErr: any) {
-      if (fetchErr.message && fetchErr.message.includes("This account was created with Google")) {
+    } catch (fetchErr) {
+      if (fetchErr instanceof Error && fetchErr.message.includes("This account was created with Google")) {
         throw fetchErr;
       }
     }
-    throw new Error(mapFirebaseError(error.code || error.message));
+    throw new Error(mapFirebaseError(extractFirebaseErrorMessage(error)));
   }
 }
 
@@ -117,8 +130,8 @@ export async function signInWithGoogle(): Promise<FirebaseUser> {
   try {
     const result = await signInWithPopup(auth, provider);
     return result.user;
-  } catch (error: any) {
-    throw new Error(mapFirebaseError(error.code || error.message));
+  } catch (error) {
+    throw new Error(mapFirebaseError(extractFirebaseErrorMessage(error)));
   }
 }
 
@@ -130,8 +143,8 @@ export async function signInWithGithub(): Promise<FirebaseUser> {
   try {
     const result = await signInWithPopup(auth, provider);
     return result.user;
-  } catch (error: any) {
-    throw new Error(mapFirebaseError(error.code || error.message));
+  } catch (error) {
+    throw new Error(mapFirebaseError(extractFirebaseErrorMessage(error)));
   }
 }
 
@@ -142,8 +155,8 @@ export async function signInWithGithub(): Promise<FirebaseUser> {
 export async function resetPassword(email: string): Promise<void> {
   try {
     await sendPasswordResetEmail(auth, email);
-  } catch (error: any) {
-    throw new Error(mapFirebaseError(error.code || error.message));
+  } catch (error) {
+    throw new Error(mapFirebaseError(extractFirebaseErrorMessage(error)));
   }
 }
 
@@ -159,17 +172,18 @@ export async function linkPasswordToAccount(password: string): Promise<void> {
     const credential = EmailAuthProvider.credential(user.email, password);
     await linkWithCredential(user, credential);
     await user.reload();
-  } catch (error: any) {
-    if (error.code === "auth/provider-already-linked") {
+  } catch (error) {
+    const fbErr = error as FirebaseErrorLike;
+    if (fbErr && fbErr.code === "auth/provider-already-linked") {
       try {
         await updatePassword(user, password);
         await user.reload();
         return;
-      } catch (updateErr: any) {
-        throw new Error(mapFirebaseError(updateErr.code || updateErr.message));
+      } catch (updateErr) {
+        throw new Error(mapFirebaseError(extractFirebaseErrorMessage(updateErr)));
       }
     }
-    throw new Error(mapFirebaseError(error.code || error.message));
+    throw new Error(mapFirebaseError(extractFirebaseErrorMessage(error)));
   }
 }
 
@@ -186,8 +200,8 @@ export async function linkGoogleToAccount(): Promise<FirebaseUser> {
     const result = await linkWithPopup(user, provider);
     await user.reload();
     return result.user;
-  } catch (error: any) {
-    throw new Error(mapFirebaseError(error.code || error.message));
+  } catch (error) {
+    throw new Error(mapFirebaseError(extractFirebaseErrorMessage(error)));
   }
 }
 

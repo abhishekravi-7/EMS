@@ -54,7 +54,7 @@ export function ExistingTestValidationReport({
   logs,
   onSelectTest,
   onClose,
-  onRunAgain,
+  onRunAgain: _onRunAgain,
   isRunning = false,
   hasRun = true,
 }: ExistingTestValidationReportProps) {

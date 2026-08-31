@@ -5,7 +5,6 @@ import { DocsPanel } from "@/features/docs";
 // import { SupportPanel } from "@/features/support";
 import { Button } from "@/shared/components/ui";
 import { useAuth } from "@/shared/context/AuthContext";
-import { TOKEN_TRACING_DASHBOARD_URL } from "@/services/config/env";
 import FloatingChatbot from "@/shared/components/chatbot/FloatingChatbot";
 import { FaCog } from "react-icons/fa";
 import "./AppShell.css";

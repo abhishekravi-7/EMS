@@ -27,7 +27,7 @@ interface TestReportArtifact {
   stdout?: string | null;
   stderr?: string | null;
   rawLogs?: string | null;
-  logs?: any[] | null;
+  logs?: Array<string | { ts?: string; level?: string; msg?: string }> | null;
   jobId?: string | null;
   unavailableReason?: string | null;
   details?: TestReportArtifact | null;
@@ -55,7 +55,7 @@ export interface TestReportData extends TestReportArtifact {
   traceUrl?: string | null;
   apiEvidence?: ApiEvidence | null;
   rawLogs?: string | null;
-  logs?: any[] | null;
+  logs?: Array<string | { ts?: string; level?: string; msg?: string }> | null;
 }
 
 interface TestReportsModalProps {
@@ -75,7 +75,7 @@ const STATUS_COLORS = {
   DEFAULT: { bg: "#f1f5f9", text: "#64748b", border: "#e2e8f0" },
 };
 
-export function downloadTestExecutionLogs(data: TestReportData): void {
+function downloadTestExecutionLogs(data: TestReportData): void {
   const executionId = data.executionId || data.jobId || "None";
   const testName = data.title || data.name || "Unknown Test";
   const testClass = data.suite || data.spec || data.file || "Unknown Class";
@@ -125,7 +125,7 @@ export function downloadTestExecutionLogs(data: TestReportData): void {
     capturedOutput += `--- Execution Output Logs ---\n${data.rawLogs.trim()}\n`;
   } else if (data.logs && Array.isArray(data.logs) && data.logs.length > 0) {
     const formattedLogs = data.logs
-      .map((l: any) => (typeof l === "string" ? l : `[${l.ts || ""}] [${l.level || "INFO"}] ${l.msg || ""}`))
+      .map((l) => (typeof l === "string" ? l : `[${l.ts || ""}] [${l.level || "INFO"}] ${l.msg || ""}`))
       .join("\n");
     if (formattedLogs.trim()) {
       capturedOutput += `--- Execution Output Logs ---\n${formattedLogs.trim()}\n`;
@@ -151,7 +151,7 @@ export function downloadTestExecutionLogs(data: TestReportData): void {
   URL.revokeObjectURL(url);
 }
 
-export function resolveEvidenceUrl(url: string | null | undefined): string | null {
+function resolveEvidenceUrl(url: string | null | undefined): string | null {
   if (!url || typeof url !== "string") return null;
   const trimmed = url.trim();
   if (!trimmed || trimmed === "undefined" || trimmed === "null" || trimmed.includes("fake")) return null;
@@ -169,7 +169,7 @@ export function resolveEvidenceUrl(url: string | null | undefined): string | nul
   return `${APP_BASE_URL}/${trimmed}`;
 }
 
-export function getScreenshotUrl(data: TestReportData | null | undefined): string | null {
+function getScreenshotUrl(data: TestReportData | null | undefined): string | null {
   if (!data) return null;
   const rawCandidate =
     data.screenshotUrl ||

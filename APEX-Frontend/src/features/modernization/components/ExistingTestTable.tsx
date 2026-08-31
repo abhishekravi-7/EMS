@@ -12,7 +12,6 @@ import {
   FaChevronRight,
   FaInfoCircle,
   FaSpinner,
-  FaRedo,
 } from "react-icons/fa";
 import { ExistingTestLogs } from "./ExistingTestLogs";
 
@@ -38,8 +37,9 @@ export interface TestResult {
   framework?: string;
   stackTrace?: string | null;
   stack_trace?: string | null;
-  stdout?: string | null;
-  report_url?: string | null;
+  rawLogs?: string;
+  logs?: Array<string | { ts?: string; level?: string; msg?: string }>;
+  report_url?: string;
   screenshot_url?: string | null;
   screenshotUrl?: string | null;
   video_url?: string | null;
@@ -52,7 +52,7 @@ export interface TestResult {
   unavailableReason?: string | null;
 }
 
-interface FileSummary {
+export interface FileSummary {
   file: string;
   total: number;
   passed: number;
@@ -61,7 +61,7 @@ interface FileSummary {
   not_executed?: number;
 }
 
-interface LogEntry {
+export interface LogEntry {
   ts: string;
   msg: string;
   level: string;
@@ -93,9 +93,9 @@ export function ExistingTestTable({
   logs = [],
   onSelectTest,
   title = "Existing Tests Validation Report",
-  onRunAgain,
-  isRunning = false,
-  hasRun = false,
+  onRunAgain: _onRunAgain,
+  isRunning: _isRunning = false,
+  hasRun: _hasRun = false,
   hideHeader = false,
 }: ExistingTestTableProps) {
   const [viewMode, setViewMode] = useState<"TABLE" | "LOGS">("TABLE");

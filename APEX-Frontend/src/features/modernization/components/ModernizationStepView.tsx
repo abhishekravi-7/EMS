@@ -1,33 +1,13 @@
 import React, { useEffect, useState, useRef, useMemo, type Dispatch, type SetStateAction } from "react";
-import {
-  FaFileAlt,
-  FaRocket,
-  FaSearch,
-  FaShieldAlt,
-  FaVial,
-  FaPlay,
-  FaStop,
-  FaSpinner,
-  FaTerminal,
-  FaCheckCircle,
-  FaTimesCircle,
-  FaExclamationTriangle,
-  FaClock,
-  FaBolt,
-  FaStepForward,
-  FaBullseye,
-  FaList,
-  FaFolder,
-  FaBox,
-  FaInfoCircle,
-} from "react-icons/fa";
+import { FaRocket, FaInfoCircle } from "react-icons/fa";
 import {
   scanExistingTests,
   runExistingTests,
   getExistingTestsStatus,
   stopExistingTests,
-  resetExistingTests,
-  type ExistingTestStatusResponse,
+  type TestResult,
+  type TestSelectionItem,
+  type ExistingTestRunResponse,
 } from "../services/existingTestService";
 import { ExistingTestCasesPanel } from "./ExistingTestCasesPanel";
 import { ExistingTestCoverage } from "./ExistingTestCoverage";
@@ -41,16 +21,12 @@ import { TestReportsModal, type TestReportData } from "./TestReportsModal";
 import { wizardStyles as styles } from "@/shared/components/wizard/wizardStyles";
 import { renderWizardIconBadge, renderBackButtonLabel } from "@/shared/components/wizard";
 import type { RepoAnalysis, RepoInfo } from "@/shared/types/domain";
-import { getFileContent } from "@/features/discovery/services/discoveryService";
-import { getLocalProjectFileContent } from "@/features/connect/services/connectService";
-import {
-  previewFunctionalTestScope,
-  getToolRecommendations,
-  type FunctionalTestScopePreview,
+import type {
+  FunctionalTestScopePreview,
 } from "../services/modernizationService";
 import type { useModernizationState } from "../hooks/useModernizationState";
 
-const LLM_PROVIDERS = [
+const _LLM_PROVIDERS = [
   { value: "groq", label: "Groq (Recommended — Llama 3.3 70B Fast)" },
   { value: "huggingface", label: "Hugging Face (Free)" },
   { value: "ollama", label: "Ollama (Local)" },
@@ -60,12 +36,99 @@ const LLM_PROVIDERS = [
   { value: "offline", label: "Offline (Template)" },
 ];
 
-
-const getConfidenceColor = (percentage: number) => {
+const _getConfidenceColor = (percentage: number) => {
   if (percentage >= 80) return "#22c55e";
   if (percentage >= 60) return "#3b82f6";
   if (percentage >= 40) return "#f59e0b";
   return "#ef4444";
+};
+
+// Normalized identity helpers for test deduplication
+const normalizeSuiteName = (suite?: string, file?: string, classname?: string): string => {
+  const raw = classname || suite || file || "";
+  const base = raw.split("/").pop()?.split("\\").pop()?.replace(/\.(java|kt|groovy|ts|js)$/i, "") || "";
+  const parts = base.split(".");
+  return parts[parts.length - 1].trim().toLowerCase();
+};
+
+const normalizeMethodName = (name?: string, methodname?: string, title?: string, test_name?: string): string => {
+  const raw = test_name || methodname || name || title || "";
+  const base = raw.replace(/\(\s*\)$/, "").trim();
+  const parts = base.split(".");
+  return parts[parts.length - 1].trim().toLowerCase();
+};
+
+const computeTestIdentity = (item: { suite?: string; file?: string; classname?: string; name?: string; methodname?: string; title?: string; test_name?: string }): string => {
+  const s = normalizeSuiteName(item.suite, item.file, item.classname);
+  const m = normalizeMethodName(item.name, item.methodname, item.title, item.test_name);
+  return `${s}::${m}`;
+};
+
+// Helper to parse live logs and extract completed test statuses during execution
+const parseLiveLogs = (
+  logs: { ts?: string; msg?: string; level?: string }[]
+) => {
+  const completedMap = new Map<string, { status: string; duration?: string; error?: string | null }>();
+
+  for (const log of logs) {
+    const msg = (log.msg || "").trim();
+    if (!msg) continue;
+
+    // 1. APEX standard: [MAVEN-TEST-RESULT] test=Suite.method status=PASSED
+    const apexMatch = msg.match(/\[(?:MAVEN-TEST-RESULT|TEST-RESULT)\]\s+test=([^\s]+)\s+status=([A-Z_]+)/i);
+    if (apexMatch) {
+      const fullTest = apexMatch[1];
+      const rawStatus = apexMatch[2].toUpperCase();
+      const st = rawStatus === "ERROR" ? "FAILED" : rawStatus;
+      const parts = fullTest.split(".");
+      const mName = parts.pop() || "";
+      const sName = parts.pop() || "";
+      const s = normalizeSuiteName(sName);
+      const m = normalizeMethodName(mName);
+      if (m) {
+        if (s) completedMap.set(`${s}::${m}`, { status: st });
+        completedMap.set(m, { status: st });
+      }
+      continue;
+    }
+
+    // 2. Numbered progress: [1/2] com.example.DemoTest.test02 PASSED (0.42s)
+    const numberedMatch = msg.match(/^\[\d+\/\d+\]\s+([^\s]+)\s+(PASSED|FAILED|ERROR|SKIPPED)(?:\s+\(([\d.]+s?)\))?/i);
+    if (numberedMatch) {
+      const fullTest = numberedMatch[1];
+      const rawStatus = numberedMatch[2].toUpperCase();
+      const st = rawStatus === "ERROR" ? "FAILED" : rawStatus;
+      const dur = numberedMatch[3] || undefined;
+      const parts = fullTest.split(".");
+      const mName = parts.pop() || "";
+      const sName = parts.pop() || "";
+      const s = normalizeSuiteName(sName);
+      const m = normalizeMethodName(mName);
+      if (m) {
+        if (s) completedMap.set(`${s}::${m}`, { status: st, duration: dur });
+        completedMap.set(m, { status: st, duration: dur });
+      }
+      continue;
+    }
+
+    // 3. PyTest format: path/test_file.py::test_name PASSED
+    const pytestMatch = msg.match(/([^\s:]+\.[a-zA-Z0-9]+)::([^\s]+)\s+(PASSED|FAILED|ERROR|SKIPPED)/i);
+    if (pytestMatch) {
+      const sName = pytestMatch[1];
+      const mName = pytestMatch[2];
+      const rawStatus = pytestMatch[3].toUpperCase();
+      const st = rawStatus === "ERROR" ? "FAILED" : rawStatus;
+      const s = normalizeSuiteName(sName);
+      const m = normalizeMethodName(mName);
+      if (m) {
+        if (s) completedMap.set(`${s}::${m}`, { status: st });
+        completedMap.set(m, { status: st });
+      }
+      continue;
+    }
+  }
+
+  return completedMap;
 };
 
 export interface FunctionalTestingTool {
@@ -103,56 +166,55 @@ export function ModernizationStepView({
   jobId,
   modernization,
   repoAnalysis,
-  selectedRepo,
-  repoUrl,
-  currentToken,
-  functionalTestToolMethod,
-  setFunctionalTestToolMethod,
+  selectedRepo: _selectedRepo,
+  repoUrl: _repoUrl,
+  currentToken: _currentToken,
+  functionalTestToolMethod: _functionalTestToolMethod,
+  setFunctionalTestToolMethod: _setFunctionalTestToolMethod,
   functionalTestingTools,
   hasUI,
   localApiTestCases,
   loading,
-  repoUtils,
+  repoUtils: _repoUtils,
   onBack,
   onStartMigration,
 }: ModernizationStepViewProps) {
   const {
-    runTests,
-    setRunTests,
-    useLLMTests,
-    setUseLLMTests,
-    selectedLLMProvider,
-    setSelectedLLMProvider,
-    runSonar,
-    setRunSonar,
-    runFossa,
-    setRunFossa,
+    runTests: _runTests,
+    setRunTests: _setRunTests,
+    useLLMTests: _useLLMTests,
+    setUseLLMTests: _setUseLLMTests,
+    selectedLLMProvider: _selectedLLMProvider,
+    setSelectedLLMProvider: _setSelectedLLMProvider,
+    runSonar: _runSonar,
+    setRunSonar: _setRunSonar,
+    runFossa: _runFossa,
+    setRunFossa: _setRunFossa,
   } = modernization;
-  const { isLocalRepoRef, extractLocalRepoPath } = repoUtils;
 
   // --- Existing Test execution states replicated from Prova ---
   const [isRunningExisting, setIsRunningExisting] = useState(false);
   const [hasExistingTestsRun, setHasExistingTestsRun] = useState(false);
   const [existingTotal, setExistingTotal] = useState<number | null>(null);
   const [existingFramework, setExistingFramework] = useState<string | null>(null);
-  const [discoveredTests, setDiscoveredTests] = useState<any[]>([]);
+  const [discoveredTests, setDiscoveredTests] = useState<TestSelectionItem[]>([]);
   const [existingElapsedTime, setExistingElapsedTime] = useState(0);
   const [existingLogs, setExistingLogs] = useState<{ ts: string; msg: string; level: string }[]>([]);
-  const [existingExecResult, setExistingExecResult] = useState<any | null>(null);
-  const [showExistingLogs, setShowExistingLogs] = useState(false);
+  const [existingExecResult, setExistingExecResult] = useState<ExistingTestRunResponse | null>(null);
+  const [_showExistingLogs, setShowExistingLogs] = useState(false);
   const [showValidationReport, setShowValidationReport] = useState(false);
-  const [validationFilter, setValidationFilter] = useState("ALL");
-  const [validationSearch, setValidationSearch] = useState("");
-  const [expandedFailures, setExpandedFailures] = useState<Record<number, boolean>>({});
+  const [_validationFilter, _setValidationFilter] = useState("ALL");
+  const [_validationSearch, _setValidationSearch] = useState("");
+  const [_expandedFailures, _setExpandedFailures] = useState<Record<number, boolean>>({});
   const [showTestDetailModal, setShowTestDetailModal] = useState(false);
   const [testDetailReport, setTestDetailReport] = useState<TestReportData | null>(null);
 
   const existingLogRef = useRef<HTMLDivElement | null>(null);
-  const existingPollRef = useRef<any>(null);
+  const existingPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Live timer for existing test execution / analysis
   useEffect(() => {
-    let timer: any = null;
+    let timer: ReturnType<typeof setInterval> | null = null;
     if (isRunningExisting) {
       setExistingElapsedTime(0);
       const startTime = Date.now();
@@ -167,7 +229,7 @@ export function ModernizationStepView({
     };
   }, [isRunningExisting]);
 
-  const formatElapsedTime = (totalSecs: number) => {
+  const _formatElapsedTime = (totalSecs: number) => {
     const mins = Math.floor((totalSecs || 0) / 60);
     const secs = (totalSecs || 0) % 60;
     return `${String(mins).padStart(2, '0')}m ${String(secs).padStart(2, '0')}s`;
@@ -181,11 +243,11 @@ export function ModernizationStepView({
     ? Math.min(100, Math.round((executedTestLogsCount / existingTotal) * 100))
     : (isRunningExisting ? 10 : 0);
 
-  const buildTestDetailReport = (t: any, defaultStatus?: string): TestReportData => {
+  const buildTestDetailReport = (t: TestResult | TestSelectionItem, defaultStatus?: string): TestReportData => {
     const scUrl = t.screenshot_url || t.screenshotUrl || t.evidence?.screenshotUrl || null;
     const vidUrl = t.video_url || t.videoUrl || t.evidence?.videoUrl || null;
     const formattedLogs = Array.isArray(existingLogs) && existingLogs.length > 0
-      ? existingLogs.map((l: any) => typeof l === "string" ? l : `[${l.ts || ""}] [${l.level || "INFO"}] ${l.msg || ""}`).join("\n")
+      ? existingLogs.map((l: string | { ts?: string; level?: string; msg?: string }) => typeof l === "string" ? l : `[${l.ts || ""}] [${l.level || "INFO"}] ${l.msg || ""}`).join("\n")
       : (typeof existingLogs === "string" ? existingLogs : undefined);
 
     return {
@@ -222,106 +284,18 @@ export function ModernizationStepView({
     };
   };
 
-  // Normalized identity helpers for test deduplication
-  const normalizeSuiteName = (suite?: string, file?: string, classname?: string): string => {
-    const raw = classname || suite || file || "";
-    const base = raw.split("/").pop()?.split("\\").pop()?.replace(/\.(java|kt|groovy|ts|js)$/i, "") || "";
-    const parts = base.split(".");
-    return parts[parts.length - 1].trim().toLowerCase();
-  };
-
-  const normalizeMethodName = (name?: string, methodname?: string, title?: string, test_name?: string): string => {
-    const raw = test_name || methodname || name || title || "";
-    const base = raw.replace(/\(\s*\)$/, "").trim();
-    const parts = base.split(".");
-    return parts[parts.length - 1].trim().toLowerCase();
-  };
-
-  const computeTestIdentity = (item: any): string => {
-    const s = normalizeSuiteName(item.suite, item.file, item.classname);
-    const m = normalizeMethodName(item.name, item.methodname, item.title, item.test_name);
-    return `${s}::${m}`;
-  };
-
-  // Helper to parse live logs and extract completed test statuses during execution
-  const parseLiveLogs = (
-    logs: { ts?: string; msg?: string; level?: string }[]
-  ) => {
-    const completedMap = new Map<string, { status: string; duration?: string; error?: string | null }>();
-
-    for (const log of logs) {
-      const msg = (log.msg || "").trim();
-      if (!msg) continue;
-
-      // 1. APEX standard: [MAVEN-TEST-RESULT] test=Suite.method status=PASSED
-      const apexMatch = msg.match(/\[(?:MAVEN-TEST-RESULT|TEST-RESULT)\]\s+test=([^\s]+)\s+status=([A-Z_]+)/i);
-      if (apexMatch) {
-        const fullTest = apexMatch[1];
-        const rawStatus = apexMatch[2].toUpperCase();
-        const st = rawStatus === "ERROR" ? "FAILED" : rawStatus;
-        const parts = fullTest.split(".");
-        const mName = parts.pop() || "";
-        const sName = parts.pop() || "";
-        const s = normalizeSuiteName(sName);
-        const m = normalizeMethodName(mName);
-        if (m) {
-          if (s) completedMap.set(`${s}::${m}`, { status: st });
-          completedMap.set(m, { status: st });
-        }
-        continue;
-      }
-
-      // 2. Numbered progress: [1/2] com.example.DemoTest.test02 PASSED (0.42s)
-      const numberedMatch = msg.match(/^\[\d+\/\d+\]\s+([^\s]+)\s+(PASSED|FAILED|ERROR|SKIPPED)(?:\s+\(([\d\.]+s?)\))?/i);
-      if (numberedMatch) {
-        const fullTest = numberedMatch[1];
-        const rawStatus = numberedMatch[2].toUpperCase();
-        const st = rawStatus === "ERROR" ? "FAILED" : rawStatus;
-        const dur = numberedMatch[3] || undefined;
-        const parts = fullTest.split(".");
-        const mName = parts.pop() || "";
-        const sName = parts.pop() || "";
-        const s = normalizeSuiteName(sName);
-        const m = normalizeMethodName(mName);
-        if (m) {
-          if (s) completedMap.set(`${s}::${m}`, { status: st, duration: dur });
-          completedMap.set(m, { status: st, duration: dur });
-        }
-        continue;
-      }
-
-      // 3. PyTest format: path/test_file.py::test_name PASSED
-      const pytestMatch = msg.match(/([^\s:]+\.[a-zA-Z0-9]+)::([^\s]+)\s+(PASSED|FAILED|ERROR|SKIPPED)/i);
-      if (pytestMatch) {
-        const sName = pytestMatch[1];
-        const mName = pytestMatch[2];
-        const rawStatus = pytestMatch[3].toUpperCase();
-        const st = rawStatus === "ERROR" ? "FAILED" : rawStatus;
-        const s = normalizeSuiteName(sName);
-        const m = normalizeMethodName(mName);
-        if (m) {
-          if (s) completedMap.set(`${s}::${m}`, { status: st });
-          completedMap.set(m, { status: st });
-        }
-        continue;
-      }
-    }
-
-    return completedMap;
-  };
-
   // Single unified, deduplicated list of test cases throughout lifecycle
   const displayTestResults = useMemo(() => {
-    const executedList = existingExecResult?.test_results || [];
+    const executedList: TestResult[] = existingExecResult?.test_results || [];
 
     if (discoveredTests.length === 0 && executedList.length === 0) {
       return [];
     }
 
-    const execByKey = new Map<string, any>();
-    const execByMethod = new Map<string, any>();
+    const execByKey = new Map<string, TestResult>();
+    const execByMethod = new Map<string, TestResult>();
 
-    executedList.forEach((r: any) => {
+    executedList.forEach((r: TestResult) => {
       const fullKey = computeTestIdentity(r);
       execByKey.set(fullKey, r);
 
@@ -332,7 +306,7 @@ export function ModernizationStepView({
     });
 
     // Use discoveredTests as the canonical baseline so every discovered test appears exactly once
-    const baseList = discoveredTests.length > 0 ? discoveredTests : executedList;
+    const baseList: Array<TestSelectionItem | TestResult> = discoveredTests.length > 0 ? discoveredTests : executedList;
 
     // Parse live logs ONLY for in-flight execution when still actively running
     const liveCompletedMap = isRunningExisting ? parseLiveLogs(existingLogs) : new Map();
@@ -340,7 +314,7 @@ export function ModernizationStepView({
     const matchedExecKeys = new Set<string>();
     let foundRunning = false;
 
-    const merged = baseList.map((dt: any, idx: number) => {
+    const merged = baseList.map((dt: TestSelectionItem | TestResult, idx: number) => {
       const fullKey = computeTestIdentity(dt);
       const m = normalizeMethodName(dt.name, dt.methodname, dt.title, dt.test_name);
 
@@ -490,7 +464,7 @@ export function ModernizationStepView({
     });
 
     // If any executed test wasn't part of discoveredTests, append it once
-    executedList.forEach((r: any, rIdx: number) => {
+    executedList.forEach((r: TestResult, rIdx: number) => {
       const key = computeTestIdentity(r);
       if (!matchedExecKeys.has(key)) {
         const testSuite = r.suite || r.spec || r.file?.split("/").pop()?.replace(/\.(java|kt)$/, "") || "TestSuite";
@@ -632,21 +606,21 @@ export function ModernizationStepView({
     };
   }, [jobId]);
 
-  const handleStopExistingTests = async () => {
+  const _handleStopExistingTests = async () => {
     if (!jobId) return;
     try {
       await stopExistingTests(jobId);
       if (existingPollRef.current) clearInterval(existingPollRef.current);
       setIsRunningExisting(false);
       setHasExistingTestsRun(true);
-      const finalStatus = await getExistingTestsStatus(jobId).catch(() => ({}) as any);
-      if (finalStatus.logs) setExistingLogs(finalStatus.logs);
+      const finalStatus = await getExistingTestsStatus(jobId).catch(() => null);
+      if (finalStatus?.logs) setExistingLogs(finalStatus.logs);
     } catch (err) {
       console.error('Failed to stop existing tests:', err);
     }
   };
 
-  const handleRunExistingTests = async (selection: any[] = []) => {
+  const handleRunExistingTests = async (selection: TestSelectionItem[] = []) => {
     if (!jobId || isRunningExisting) return;
 
     setIsRunningExisting(true);
@@ -690,8 +664,8 @@ export function ModernizationStepView({
         return;
       }
       clearInterval(existingPollRef.current);
-      const finalStatus = await getExistingTestsStatus(jobId).catch(() => ({}) as any);
-      if (finalStatus.logs) setExistingLogs(finalStatus.logs);
+      const finalStatus = await getExistingTestsStatus(jobId).catch(() => null);
+      if (finalStatus?.logs) setExistingLogs(finalStatus.logs);
       if (res?.metrics?.total != null) setExistingTotal(res.metrics.total);
       if (res?.metrics?.type) setExistingFramework(res.metrics.type);
       setTimeout(() => setShowExistingLogs(false), 2000);
@@ -708,15 +682,15 @@ export function ModernizationStepView({
     }
   };
 
-  const [selectedTestToolFilter, setSelectedTestToolFilter] = useState<string | null>(null);
-  const [viewingTestFile, setViewingTestFile] = useState<{ name: string; path: string; content: string } | null>(null);
-  const [testFileLoading, setTestFileLoading] = useState(false);
-  const [hoveredToolId, setHoveredToolId] = useState<string | null>(null);
-  const [toolRecommendations, setToolRecommendations] = useState<Record<string, { passage: string }> | null>(null);
-  const [toolRecsLoading, setToolRecsLoading] = useState(false);
+  const [_selectedTestToolFilter, _setSelectedTestToolFilter] = useState<string | null>(null);
+  const [_viewingTestFile, _setViewingTestFile] = useState<{ name: string; path: string; content: string } | null>(null);
+  const [_testFileLoading, _setTestFileLoading] = useState(false);
+  const [_hoveredToolId, _setHoveredToolId] = useState<string | null>(null);
+  const [_toolRecommendations, setToolRecommendations] = useState<Record<string, { passage: string }> | null>(null);
+  const [_toolRecsLoading, setToolRecsLoading] = useState(false);
   const [scopePreview, setScopePreview] = useState<FunctionalTestScopePreview | null>(null);
   const [scopePreviewLoading, setScopePreviewLoading] = useState(false);
-  const [scopePreviewError, setScopePreviewError] = useState<string | null>(null);
+  const [_scopePreviewError, _setScopePreviewError] = useState<string | null>(null);
 
 
   // Fetch LLM-generated tool recommendation passages once when this step mounts
@@ -982,7 +956,7 @@ export function ModernizationStepView({
             onRunAll={() => handleRunExistingTests()}
             onRunSelected={() => handleRunExistingTests()}
             isRunning={isRunningExisting}
-            onSelectTest={(t: any) => {
+            onSelectTest={(t: TestResult | TestSelectionItem) => {
               setTestDetailReport(buildTestDetailReport(t, "NOT_EXECUTED"));
               setShowTestDetailModal(true);
             }}
@@ -1030,7 +1004,7 @@ export function ModernizationStepView({
                 build_tool: "MAVEN",
                 test_source_dir: "src/test/java",
               }}
-              onSelectTest={(t: any) => {
+              onSelectTest={(t: TestResult | TestSelectionItem) => {
                 setTestDetailReport(buildTestDetailReport(t, "IN_PROGRESS"));
                 setShowTestDetailModal(true);
               }}
@@ -1095,7 +1069,7 @@ export function ModernizationStepView({
                 onRunAgain={() => handleRunExistingTests()}
                 isRunning={isRunningExisting}
                 hasRun={hasExistingTestsRun}
-                onSelectTest={(t: any) => {
+                onSelectTest={(t: TestResult | TestSelectionItem) => {
                   setTestDetailReport(buildTestDetailReport(t, "IN_PROGRESS"));
                   setShowTestDetailModal(true);
                 }}
@@ -1137,7 +1111,7 @@ export function ModernizationStepView({
               metrics={existingExecResult.metrics || {}}
               fileBreakdown={existingExecResult.file_breakdown || []}
               frameworkInfo={existingExecResult.framework_info}
-              onSelectTest={(t: any) => {
+              onSelectTest={(t: TestResult | TestSelectionItem) => {
                 setTestDetailReport(buildTestDetailReport(t));
                 setShowTestDetailModal(true);
               }}
@@ -1209,7 +1183,7 @@ export function ModernizationStepView({
                     onRunAgain={() => handleRunExistingTests()}
                     isRunning={isRunningExisting}
                     hasRun={hasExistingTestsRun}
-                    onSelectTest={(t: any) => {
+                    onSelectTest={(t: TestResult | TestSelectionItem) => {
                       setTestDetailReport(buildTestDetailReport(t));
                       setShowTestDetailModal(true);
                     }}
@@ -1982,7 +1956,7 @@ export function ModernizationStepView({
           onRunAgain={() => handleRunExistingTests()}
           isRunning={isRunningExisting}
           hasRun={hasExistingTestsRun}
-          onSelectTest={(t: any) => {
+          onSelectTest={(t: TestResult | TestSelectionItem) => {
             setTestDetailReport(buildTestDetailReport(t));
             setShowTestDetailModal(true);
           }}

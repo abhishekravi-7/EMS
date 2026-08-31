@@ -58,7 +58,14 @@ export interface TestResult {
   traceUrl?: string | null;
   api_evidence?: ApiEvidence | null;
   apiEvidence?: ApiEvidence | null;
-  evidence?: any;
+  evidence?: {
+    screenshotAvailable?: boolean;
+    screenshotUrl?: string | null;
+    videoAvailable?: boolean;
+    videoUrl?: string | null;
+    traceUrl?: string | null;
+    [key: string]: unknown;
+  } | null;
 }
 
 // ── File breakdown ────────────────────────────────────────────────────────────
@@ -93,10 +100,10 @@ export interface ExistingTestScanResponse {
   testCasesFound?: number;
   status?: "READY" | "NO_TESTS_FOUND" | string;
   message?: string;
-  tests?: any[];
+  tests?: Array<TestResult | Record<string, unknown>>;
   total: number;
   framework: string;
-  test_cases: any[];
+  test_cases: Array<TestResult | Record<string, unknown>>;
 }
 
 // ── Status response ───────────────────────────────────────────────────────────
@@ -110,7 +117,7 @@ export interface ExistingTestStatusResponse {
     executed: boolean;
     testCasesFound?: number;
     message?: string;
-    tests?: any[];
+    tests?: Array<TestResult | Record<string, unknown>>;
     metrics?: {
       total: number;
       executed?: number;
@@ -138,6 +145,22 @@ export interface ExistingTestStatusResponse {
 
 // ── API functions ─────────────────────────────────────────────────────────────
 
+export interface TestSelectionItem {
+  name?: string;
+  methodname?: string;
+  suite?: string;
+  classname?: string;
+  module?: string;
+  [key: string]: unknown;
+}
+
+export interface ExistingTestRunResponse {
+  status?: string;
+  jobId?: string;
+  message?: string;
+  [key: string]: unknown;
+}
+
 export async function scanExistingTests(jobId: string): Promise<ExistingTestScanResponse> {
   return requestJson<ExistingTestScanResponse>(
     `/v1/existing-tests/scan/${encodeURIComponent(jobId)}`,
@@ -145,7 +168,10 @@ export async function scanExistingTests(jobId: string): Promise<ExistingTestScan
   );
 }
 
-export async function runExistingTests(jobId: string, testSelection: any[] | null = null): Promise<any> {
+export async function runExistingTests(
+  jobId: string,
+  testSelection: TestSelectionItem[] | null = null
+): Promise<ExistingTestRunResponse> {
   const selectionArray = Array.isArray(testSelection)
     ? testSelection.map((t) => ({
         name: t.name || t.methodname || "",
@@ -153,7 +179,7 @@ export async function runExistingTests(jobId: string, testSelection: any[] | nul
       }))
     : [];
 
-  return requestJson<any>(
+  return requestJson<ExistingTestRunResponse>(
     `/v1/existing-tests/run/${encodeURIComponent(jobId)}`,
     "Failed to run existing tests",
     {
