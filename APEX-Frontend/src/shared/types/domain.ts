@@ -106,6 +106,10 @@ export interface RepoAnalysis {
   microservice_eligibility?: MicroserviceEligibilityResult;
   // backend-provided Spring -> Spring Boot conversion eligibility (Discovery stage)
   spring_boot_eligibility?: SpringBootConversionEligibility;
+  services?: Array<Record<string, unknown>>;
+  classes?: Array<Record<string, unknown>>;
+  ui_workflows?: Array<Record<string, unknown>>;
+  [key: string]: unknown;
 }
 
 export interface MicroserviceScoreBreakdown {

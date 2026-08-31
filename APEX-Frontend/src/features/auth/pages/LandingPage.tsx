@@ -15,6 +15,8 @@ import {
   FaTools,
   FaBoxes,
   FaLayerGroup,
+  FaCogs,
+  FaCoffee,
 } from "react-icons/fa";
 import "../../landing/pages/LandingPageDesign.css";
 

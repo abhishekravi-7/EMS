@@ -7,17 +7,17 @@ import type { RepoAnalysis, RepoFile, RepoInfo } from "@/shared/types/domain";
 import { getFileContent, getDiscoveryFileContent } from "../services/discoveryService";
 import { getLocalProjectFileContent } from "@/features/connect/services/connectService";
 import { DiscoveryLoader } from "./DiscoveryLoader";
-import DiscoveryDetailModal from "./DiscoveryDetailModal";
+import DiscoveryDetailModal, { type CompositionSegment, type MigrationSummarySegment } from "./DiscoveryDetailModal";
 import type { useDiscoveryState } from "../hooks/useDiscoveryState";
 
 // --- Mock Data Constants (Fallbacks) ---------------------------------------
 
-const MOCK_COMPOSITION = [
-  { label: "Java Files", count: 1248, percent: 56, color: "#0ea5e9" },
-  { label: "XML / Config", count: 542, percent: 24, color: "#f59e0b" },
-  { label: "Test Files", count: 286, percent: 13, color: "#6366f1" },
-  { label: "Resources", count: 132, percent: 6, color: "#8b5cf6" },
-  { label: "Others", count: 26, percent: 1, color: "#94a3b8" },
+const MOCK_COMPOSITION: CompositionSegment[] = [
+  { label: "Java Files", count: 1248, value: 1248, percent: 56, color: "#0ea5e9" },
+  { label: "XML / Config", count: 542, value: 542, percent: 24, color: "#f59e0b" },
+  { label: "Test Files", count: 286, value: 286, percent: 13, color: "#6366f1" },
+  { label: "Resources", count: 132, value: 132, percent: 6, color: "#8b5cf6" },
+  { label: "Others", count: 26, value: 26, percent: 1, color: "#94a3b8" },
 ];
 
 const MOCK_ANALYSIS = [
@@ -31,17 +31,17 @@ const MOCK_ANALYSIS = [
   { label: "Migration Blockers", count: 5, severity: "Critical" as const },
 ];
 
-const MOCK_SUMMARY = [
-  { label: "Auto Migratable", count: 342, percent: 73, color: "#22c55e" },
-  { label: "Manual Changes", count: 27, percent: 6, color: "#f59e0b" },
-  { label: "Needs Review", count: 45, percent: 10, color: "#6366f1" },
-  { label: "Compilation Errors", count: 5, percent: 1, color: "#ef4444" },
-  { label: "Completed", count: 44, percent: 10, color: "#0ea5e9" },
+const MOCK_SUMMARY: MigrationSummarySegment[] = [
+  { label: "Auto Migratable", count: 342, value: 342, percent: 73, color: "#22c55e" },
+  { label: "Manual Changes", count: 27, value: 27, percent: 6, color: "#f59e0b" },
+  { label: "Needs Review", count: 45, value: 45, percent: 10, color: "#6366f1" },
+  { label: "Compilation Errors", count: 5, value: 5, percent: 1, color: "#ef4444" },
+  { label: "Completed", count: 44, value: 44, percent: 10, color: "#0ea5e9" },
 ];
 
 // --- Dynamic Data Calculation for Detail Modal -----------------------------
 
-const getDynamicCompositionData = (repoAnalysis: RepoAnalysis | null) => {
+const getDynamicCompositionData = (repoAnalysis: RepoAnalysis | null): CompositionSegment[] => {
   if (!repoAnalysis) return MOCK_COMPOSITION;
 
   // Use more aggressive methods to determine Java and Config counts
@@ -86,11 +86,11 @@ const getDynamicCompositionData = (repoAnalysis: RepoAnalysis | null) => {
   const calcPercent = (val: number) => Math.round((val / total) * 100);
 
   return [
-    { label: "Java Files", count: javaCount, percent: calcPercent(javaCount), color: "#0ea5e9" },
-    { label: "XML / Config", count: xmlCount, percent: calcPercent(xmlCount), color: "#f59e0b" },
-    { label: "Test Files", count: testCount, percent: calcPercent(testCount), color: "#6366f1" },
-    { label: "Web / Resources", count: resourcesCount, percent: calcPercent(resourcesCount), color: "#8b5cf6" },
-    { label: "Others", count: othersCount, percent: calcPercent(othersCount), color: "#94a3b8" },
+    { label: "Java Files", count: javaCount, value: javaCount, percent: calcPercent(javaCount), color: "#0ea5e9" },
+    { label: "XML / Config", count: xmlCount, value: xmlCount, percent: calcPercent(xmlCount), color: "#f59e0b" },
+    { label: "Test Files", count: testCount, value: testCount, percent: calcPercent(testCount), color: "#6366f1" },
+    { label: "Web / Resources", count: resourcesCount, value: resourcesCount, percent: calcPercent(resourcesCount), color: "#8b5cf6" },
+    { label: "Others", count: othersCount, value: othersCount, percent: calcPercent(othersCount), color: "#94a3b8" },
   ].filter(c => c.count > 0 || c.label === "Java Files");
 };
 
@@ -116,7 +116,7 @@ const getDynamicAnalysisFindings = (repoAnalysis: RepoAnalysis | null) => {
   return findings;
 };
 
-const getDynamicMigrationSummary = (repoAnalysis: RepoAnalysis | null) => {
+const getDynamicMigrationSummary = (repoAnalysis: RepoAnalysis | null): MigrationSummarySegment[] => {
   if (!repoAnalysis) return MOCK_SUMMARY;
 
   const autoCount = repoAnalysis.dependencies?.length || 0;
@@ -129,11 +129,11 @@ const getDynamicMigrationSummary = (repoAnalysis: RepoAnalysis | null) => {
   const calcPercent = (val: number) => Math.round((val / total) * 100);
 
   return [
-    { label: "Auto Migratable", count: autoCount, percent: calcPercent(autoCount), color: "#22c55e" },
-    { label: "Manual Changes", count: manualCount, percent: calcPercent(manualCount), color: "#f59e0b" },
-    { label: "Needs Review", count: reviewCount, percent: calcPercent(reviewCount), color: "#6366f1" },
-    { label: "Compilation Errors", count: errorCount, percent: calcPercent(errorCount), color: "#ef4444" },
-    { label: "Completed", count: completedCount, percent: calcPercent(completedCount), color: "#0ea5e9" },
+    { label: "Auto Migratable", count: autoCount, value: autoCount, percent: calcPercent(autoCount), color: "#22c55e" },
+    { label: "Manual Changes", count: manualCount, value: manualCount, percent: calcPercent(manualCount), color: "#f59e0b" },
+    { label: "Needs Review", count: reviewCount, value: reviewCount, percent: calcPercent(reviewCount), color: "#6366f1" },
+    { label: "Compilation Errors", count: errorCount, value: errorCount, percent: calcPercent(errorCount), color: "#ef4444" },
+    { label: "Completed", count: completedCount, value: completedCount, percent: calcPercent(completedCount), color: "#0ea5e9" },
   ];
 };
 

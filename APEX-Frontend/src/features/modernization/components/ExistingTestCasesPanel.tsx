@@ -7,32 +7,13 @@ import { ExistingTestAnalytics } from "./ExistingTestAnalytics";
 import { ExistingTestCoverage } from "./ExistingTestCoverage";
 import { ExistingTestTable, type TestResult } from "./ExistingTestTable";
 
-interface TestCase {
-  name: string;
-  file: string;
-  framework: string;
-  type: string;
-  category?: "UI" | "API" | "UNIT" | "INTEGRATION" | string;
-  module: string;
-  classname: string;
-  methodname: string;
-  status: string;
-  priority?: string;
-  test_name?: string;
-  title?: string;
-  suite?: string;
-  spec?: string;
-  test_type?: string;
-  testType?: string;
-  test_id?: string;
-  testId?: string;
-}
+export type TestCase = TestResult;
 
 interface ExistingTestCasesPanelProps {
   jobId: string;
-  discoveredTests: TestCase[];
+  discoveredTests: TestResult[];
   framework: string;
-  onRunSelected?: (selection: TestCase[]) => void;
+  onRunSelected?: (selection: TestResult[]) => void;
   onRunAll?: () => void;
   isRunning: boolean;
   onViewSuite?: (suiteName: string) => void;

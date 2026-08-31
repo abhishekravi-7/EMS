@@ -21,7 +21,7 @@ interface ConnectStepViewProps {
   onClearRepoAnalysis: () => void;
 }
 
-export function ConnectStepView({ connect, onError: _onError, onClearRepoAnalysis: _onClearRepoAnalysis }: ConnectStepViewProps) {
+export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: ConnectStepViewProps) {
   const {
     repoUrl,
     setRepoUrl,
@@ -53,6 +53,7 @@ export function ConnectStepView({ connect, onError: _onError, onClearRepoAnalysi
 
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const zipInputRef = useRef<HTMLInputElement | null>(null);
+  const tokenCardTitle = showEnterpriseToken ? "Enterprise Access Token" : "Personal Access Token";
 
   const tokenStatusColor =
     accessTokenValidationState === "valid"

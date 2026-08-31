@@ -12,6 +12,7 @@ import type {
   ProposedTestPriority,
   ProposedTestType,
 } from "../services/proposedTestService";
+import type { RepoAnalysis } from "@/shared/types/domain";
 import {
   generateProposedTests,
   getProposedTests,
@@ -20,7 +21,7 @@ import {
 
 interface ProposedTestCasesPanelProps {
   jobId: string;
-  repoAnalysis?: Record<string, unknown> | null;
+  repoAnalysis?: RepoAnalysis | Record<string, unknown> | null;
   localApiTestCases?: Array<Record<string, unknown>>;
   hasUI?: boolean;
 }
