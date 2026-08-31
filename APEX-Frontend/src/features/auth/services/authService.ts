@@ -4,6 +4,12 @@ import {
   signOut,
   updateProfile,
   signInWithPopup,
+  sendPasswordResetEmail,
+  linkWithCredential,
+  linkWithPopup,
+  updatePassword,
+  fetchSignInMethodsForEmail,
+  EmailAuthProvider,
   GoogleAuthProvider,
   GithubAuthProvider,
   type User as FirebaseUser
@@ -23,13 +29,19 @@ export interface SignUpRequest {
 export function mapFirebaseError(code: string): string {
   switch (code) {
     case "auth/email-already-in-use":
-      return "An account with this email already exists.";
+      return "An account with this email already exists. Sign in or use 'Forgot password?' to set a password.";
+    case "auth/account-exists-with-different-credential":
+      return "An account already exists with this email using a different sign-in method. Please sign in with your original method (e.g. Google) or reset your password.";
+    case "auth/provider-already-linked":
+      return "This authentication provider is already linked to your account.";
+    case "auth/credential-already-in-use":
+      return "This credential is already linked to a different account.";
     case "auth/invalid-email":
       return "Please enter a valid email address.";
     case "auth/invalid-credential":
       return "Invalid email or password.";
     case "auth/weak-password":
-      return "Password is too weak.";
+      return "Password is too weak. Please use at least 8 characters.";
     case "auth/user-not-found":
       return "No account found with this email.";
     case "auth/wrong-password":
@@ -38,9 +50,26 @@ export function mapFirebaseError(code: string): string {
       return "Sign-in was cancelled.";
     case "auth/cancelled-popup-request":
       return "Only one sign-in popup can be open at a time.";
+    case "auth/requires-recent-login":
+      return "This operation requires a recent sign-in. Please sign in again.";
+    case "auth/too-many-requests":
+      return "Access to this account has been temporarily disabled due to many failed attempts. Please try again later or reset your password.";
     default:
       return "An unexpected error occurred. Please try again.";
   }
+}
+
+interface FirebaseErrorLike {
+  code?: string;
+  message?: string;
+}
+
+function extractFirebaseErrorMessage(error: unknown): string {
+  if (error && typeof error === "object") {
+    const fbErr = error as FirebaseErrorLike;
+    return fbErr.code || fbErr.message || "An unknown authentication error occurred.";
+  }
+  return typeof error === "string" ? error : "An unknown authentication error occurred.";
 }
 
 export async function signUp(payload: SignUpRequest): Promise<FirebaseUser> {
@@ -57,8 +86,8 @@ export async function signUp(payload: SignUpRequest): Promise<FirebaseUser> {
     });
 
     return userCredential.user;
-  } catch (error: any) {
-    throw new Error(mapFirebaseError(error.code));
+  } catch (error) {
+    throw new Error(mapFirebaseError(extractFirebaseErrorMessage(error)));
   }
 }
 
@@ -75,8 +104,21 @@ export async function signIn(payload: SignInRequest): Promise<FirebaseUser> {
       payload.password
     );
     return userCredential.user;
-  } catch (error: any) {
-    throw new Error(mapFirebaseError(error.code));
+  } catch (error) {
+    // If sign in fails, check whether the account was created with Google and has no password
+    try {
+      const methods = await fetchSignInMethodsForEmail(auth, payload.email);
+      if (methods.includes("google.com") && !methods.includes("password")) {
+        throw new Error(
+          "This account was created with Google. Please sign in with Google or set a password for this account."
+        );
+      }
+    } catch (fetchErr) {
+      if (fetchErr instanceof Error && fetchErr.message.includes("This account was created with Google")) {
+        throw fetchErr;
+      }
+    }
+    throw new Error(mapFirebaseError(extractFirebaseErrorMessage(error)));
   }
 }
 
@@ -88,8 +130,8 @@ export async function signInWithGoogle(): Promise<FirebaseUser> {
   try {
     const result = await signInWithPopup(auth, provider);
     return result.user;
-  } catch (error: any) {
-    throw new Error(mapFirebaseError(error.code));
+  } catch (error) {
+    throw new Error(mapFirebaseError(extractFirebaseErrorMessage(error)));
   }
 }
 
@@ -101,9 +143,83 @@ export async function signInWithGithub(): Promise<FirebaseUser> {
   try {
     const result = await signInWithPopup(auth, provider);
     return result.user;
-  } catch (error: any) {
-    throw new Error(mapFirebaseError(error.code));
+  } catch (error) {
+    throw new Error(mapFirebaseError(extractFirebaseErrorMessage(error)));
   }
+}
+
+/**
+ * Send a password reset email to the specified email address.
+ * Enables Google-authenticated users to set a password and sign in with email/password.
+ */
+export async function resetPassword(email: string): Promise<void> {
+  try {
+    await sendPasswordResetEmail(auth, email);
+  } catch (error) {
+    throw new Error(mapFirebaseError(extractFirebaseErrorMessage(error)));
+  }
+}
+
+/**
+ * Links email/password credentials to the currently signed-in user account.
+ */
+export async function linkPasswordToAccount(password: string): Promise<void> {
+  const user = auth.currentUser;
+  if (!user || !user.email) {
+    throw new Error("No authenticated user found to link password.");
+  }
+  try {
+    const credential = EmailAuthProvider.credential(user.email, password);
+    await linkWithCredential(user, credential);
+    await user.reload();
+  } catch (error) {
+    const fbErr = error as FirebaseErrorLike;
+    if (fbErr && fbErr.code === "auth/provider-already-linked") {
+      try {
+        await updatePassword(user, password);
+        await user.reload();
+        return;
+      } catch (updateErr) {
+        throw new Error(mapFirebaseError(extractFirebaseErrorMessage(updateErr)));
+      }
+    }
+    throw new Error(mapFirebaseError(extractFirebaseErrorMessage(error)));
+  }
+}
+
+/**
+ * Links Google provider to the currently signed-in user account.
+ */
+export async function linkGoogleToAccount(): Promise<FirebaseUser> {
+  const user = auth.currentUser;
+  if (!user) {
+    throw new Error("No authenticated user found to link Google account.");
+  }
+  const provider = new GoogleAuthProvider();
+  try {
+    const result = await linkWithPopup(user, provider);
+    await user.reload();
+    return result.user;
+  } catch (error) {
+    throw new Error(mapFirebaseError(extractFirebaseErrorMessage(error)));
+  }
+}
+
+/**
+ * Returns the list of provider IDs linked to the current user (e.g. ['google.com', 'password']).
+ */
+export function getUserProviders(user?: FirebaseUser | null): string[] {
+  const targetUser = user || auth.currentUser;
+  if (!targetUser || !targetUser.providerData) return [];
+  return targetUser.providerData.map((p) => p.providerId);
+}
+
+/**
+ * Checks if the user is authenticated solely through Google and has no password linked.
+ */
+export function isGoogleOnlyUser(user?: FirebaseUser | null): boolean {
+  const providers = getUserProviders(user);
+  return providers.includes("google.com") && !providers.includes("password");
 }
 
 export async function logOut(): Promise<void> {

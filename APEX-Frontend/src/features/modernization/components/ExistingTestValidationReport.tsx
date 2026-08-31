@@ -54,7 +54,7 @@ export function ExistingTestValidationReport({
   logs,
   onSelectTest,
   onClose,
-  onRunAgain,
+  onRunAgain: _onRunAgain,
   isRunning = false,
   hasRun = true,
 }: ExistingTestValidationReportProps) {
@@ -342,9 +342,10 @@ export function ExistingTestValidationReport({
               fileBreakdown={fileBreakdown}
               frameworkInfo={frameworkInfo}
               onSelectTest={onSelectTest}
-              onRunAgain={onRunAgain}
+              logs={logs}
               isRunning={isRunning}
               hasRun={hasRun}
+              hideHeader={true}
             />
           ) : (
             <ExistingTestLogs logs={logs} />

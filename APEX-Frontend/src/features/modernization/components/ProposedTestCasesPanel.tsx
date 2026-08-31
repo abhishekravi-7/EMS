@@ -1,26 +1,14 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   FaFlask,
   FaSearch,
-  FaDesktop,
-  FaCode,
   FaInfoCircle,
-  FaLayerGroup,
-  FaChevronRight,
   FaTimes,
-  FaExternalLinkAlt,
-  FaCheckCircle,
-  FaExclamationTriangle,
   FaLightbulb,
-  FaListOl,
-  FaShieldAlt,
-  FaCube,
-  FaGlobe,
   FaSpinner,
 } from "react-icons/fa";
 import type {
   ProposedTestCase,
-  ProposedTestMetrics,
   ProposedTestPriority,
   ProposedTestType,
 } from "../services/proposedTestService";
@@ -32,8 +20,8 @@ import {
 
 interface ProposedTestCasesPanelProps {
   jobId: string;
-  repoAnalysis?: any;
-  localApiTestCases?: any[];
+  repoAnalysis?: Record<string, unknown> | null;
+  localApiTestCases?: Array<Record<string, unknown>>;
   hasUI?: boolean;
 }
 
@@ -152,7 +140,7 @@ export function ProposedTestCasesPanel({
 }: ProposedTestCasesPanelProps) {
   const [proposals, setProposals] = useState<ProposedTestCase[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [_errorMessage, setErrorMessage] = useState<string | null>(null);
   const [riskMode, setRiskMode] = useState<"PRIORITY" | "TYPE">("PRIORITY");
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<"ALL" | ProposedTestType>("ALL");
@@ -162,8 +150,6 @@ export function ProposedTestCasesPanel({
   // Review Drawer / Modal
   const [reviewTest, setReviewTest] = useState<ProposedTestCase | null>(null);
   const [selectedSuiteModal, setSelectedSuiteModal] = useState<{ name: string; tests: ProposedTestCase[] } | null>(null);
-
-  const hasLoadedInitial = useRef(false);
 
   // Primary Data Fetch & Seamless Fallback Mapping
   useEffect(() => {
@@ -193,8 +179,9 @@ export function ProposedTestCasesPanel({
               }
             }
           }
-        } catch (err: any) {
-          console.warn("[Proposed Tests] Backend API attempt info:", err?.message || err);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          console.warn("[Proposed Tests] Backend API attempt info:", message);
         }
       }
 
@@ -217,14 +204,15 @@ export function ProposedTestCasesPanel({
       let counter = 1;
 
       // Extract Java files and endpoints from repo analysis
-      const javaFileList: string[] = (repoAnalysis?.java_files || (repoAnalysis as any)?.all_files || [])
-        .map((f: any) => (typeof f === "string" ? f : f?.path || f?.name || ""))
+      const rawFileList = (repoAnalysis?.java_files || (repoAnalysis as Record<string, unknown> | undefined)?.all_files || []) as Array<string | { path?: string; name?: string }>;
+      const javaFileList: string[] = rawFileList
+        .map((f) => (typeof f === "string" ? f : f?.path || f?.name || ""))
         .filter(Boolean);
 
       // A. Discovered API Endpoints
       const rawApiCases = (localApiTestCases && localApiTestCases.length > 0)
         ? localApiTestCases
-        : (repoAnalysis?.api_endpoints || (repoAnalysis as any)?.endpoints || []);
+        : ((repoAnalysis?.api_endpoints || (repoAnalysis as Record<string, unknown> | undefined)?.endpoints || []) as Array<Record<string, unknown>>);
 
       const apiCases = Array.isArray(rawApiCases) && rawApiCases.length > 0
         ? rawApiCases
@@ -243,17 +231,18 @@ export function ProposedTestCasesPanel({
               };
             });
 
-      apiCases.forEach((ep: any) => {
-        const method = (ep.method || "GET").toUpperCase();
-        const path = ep.path || ep.endpoint || ep.url || "/";
-        const controller = ep.controller || (ep.source_file ? ep.source_file.replace(".java", "").split("/").pop() || "ApiController" : "ApiController");
+      apiCases.forEach((ep: Record<string, unknown>) => {
+        const method = (String(ep.method || "GET")).toUpperCase();
+        const path = String(ep.path || ep.endpoint || ep.url || "/");
+        const sourceFileStr = typeof ep.source_file === "string" ? ep.source_file : "";
+        const controller = String(ep.controller || (sourceFileStr ? sourceFileStr.replace(".java", "").split("/").pop() || "ApiController" : "ApiController"));
         const priority: ProposedTestPriority = (method === "POST" || method === "DELETE" || path.toLowerCase().includes("auth") || path.toLowerCase().includes("user") || path.toLowerCase().includes("order")) ? "HIGH" : "MEDIUM";
-        const status = ep.expectedStatus || ep.expected_status || (method === "POST" ? 201 : method === "DELETE" ? 204 : 200);
+        const status = Number(ep.expectedStatus || ep.expected_status || (method === "POST" ? 201 : method === "DELETE" ? 204 : 200));
 
         syntheticProposals.push({
           id: `PTC-${String(counter++).padStart(3, "0")}`,
           title: `Verify ${method} ${path} returns expected response`,
-          description: ep.scenario || `Validate that sending a valid ${method} request to '${path}' returns HTTP ${status} and expected schema payload.`,
+          description: String(ep.scenario || `Validate that sending a valid ${method} request to '${path}' returns HTTP ${status} and expected schema payload.`),
           type: "API",
           priority,
           source: `${controller}.java`,
@@ -281,17 +270,18 @@ export function ProposedTestCasesPanel({
       });
 
       // B. Discovered Services / Business Logic (Classified as API)
-      const rawServices = (repoAnalysis?.services && repoAnalysis.services.length > 0)
+      const rawServices = (repoAnalysis?.services && Array.isArray(repoAnalysis.services) && repoAnalysis.services.length > 0)
         ? repoAnalysis.services
-        : (repoAnalysis?.classes && repoAnalysis.classes.length > 0)
+        : (repoAnalysis?.classes && Array.isArray(repoAnalysis.classes) && repoAnalysis.classes.length > 0)
         ? repoAnalysis.classes
         : javaFileList
             .filter((f) => !f.toLowerCase().includes("test") && (f.includes("Service") || f.includes("Manager") || f.includes("Handler") || f.includes("Repository") || f.endsWith(".java")))
             .slice(0, 15);
 
       const services = Array.isArray(rawServices) ? rawServices : [];
-      services.forEach((svc: any) => {
-        const svcName = typeof svc === "string" ? svc : (svc.name || svc.className || svc.file || "BusinessService");
+      services.forEach((svc: unknown) => {
+        const svcObj = typeof svc === "object" && svc !== null ? (svc as Record<string, unknown>) : null;
+        const svcName = typeof svc === "string" ? svc : String(svcObj?.name || svcObj?.className || svcObj?.file || "BusinessService");
         const cleanSvc = svcName.replace(/\.(java|kt|ts|js)$/, "").split("/").pop() || svcName;
         if (!cleanSvc || cleanSvc === "package-info") return;
 
@@ -320,8 +310,8 @@ export function ProposedTestCasesPanel({
 
       // C. Discovered UI Workflows (UI)
       const hasUiAssets = hasUI || javaFileList.some((f) => f.includes("webapp") || f.includes("templates") || f.includes("static") || f.endsWith(".html") || f.endsWith(".jsp") || f.endsWith(".tsx") || f.endsWith(".vue"));
-      const uiWorkflows = (repoAnalysis?.ui_workflows && repoAnalysis.ui_workflows.length > 0)
-        ? repoAnalysis.ui_workflows
+      const uiWorkflows = (repoAnalysis?.ui_workflows && Array.isArray(repoAnalysis.ui_workflows) && repoAnalysis.ui_workflows.length > 0)
+        ? (repoAnalysis.ui_workflows as Array<Record<string, unknown>>)
         : hasUiAssets
         ? [
             { name: "User Registration & Authentication Flow", route: "/login" },
@@ -330,9 +320,9 @@ export function ProposedTestCasesPanel({
           ]
         : [];
 
-      uiWorkflows.forEach((ui: any) => {
-        const uiName = ui.name || "User Interaction Workflow";
-        const route = ui.route || "/";
+      uiWorkflows.forEach((ui: Record<string, unknown>) => {
+        const uiName = String(ui.name || "User Interaction Workflow");
+        const route = String(ui.route || "/");
 
         syntheticProposals.push({
           id: `PTC-${String(counter++).padStart(3, "0")}`,
@@ -406,7 +396,7 @@ export function ProposedTestCasesPanel({
   }, [proposals]);
 
   // Percentages for Donut Chart
-  const unitPct = totalCount > 0 ? ((unitCount / totalCount) * 100).toFixed(1) : "0.0";
+  const _unitPct = totalCount > 0 ? ((unitCount / totalCount) * 100).toFixed(1) : "0.0";
   const apiPct = totalCount > 0 ? ((apiCount / totalCount) * 100).toFixed(1) : "0.0";
   const uiPct = totalCount > 0 ? ((uiCount / totalCount) * 100).toFixed(1) : "0.0";
 
@@ -1000,7 +990,7 @@ export function ProposedTestCasesPanel({
               return (
                 <button
                   key={p.key}
-                  onClick={() => setTypeFilter(p.key as any)}
+                  onClick={() => setTypeFilter(p.key as "ALL" | ProposedTestType)}
                   style={{
                     padding: "6px 14px",
                     borderRadius: 20,

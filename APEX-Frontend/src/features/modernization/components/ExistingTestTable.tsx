@@ -12,7 +12,6 @@ import {
   FaChevronRight,
   FaInfoCircle,
   FaSpinner,
-  FaRedo,
 } from "react-icons/fa";
 import { ExistingTestLogs } from "./ExistingTestLogs";
 
@@ -38,8 +37,9 @@ export interface TestResult {
   framework?: string;
   stackTrace?: string | null;
   stack_trace?: string | null;
-  stdout?: string | null;
-  report_url?: string | null;
+  rawLogs?: string;
+  logs?: Array<string | { ts?: string; level?: string; msg?: string }>;
+  report_url?: string;
   screenshot_url?: string | null;
   screenshotUrl?: string | null;
   video_url?: string | null;
@@ -52,7 +52,7 @@ export interface TestResult {
   unavailableReason?: string | null;
 }
 
-interface FileSummary {
+export interface FileSummary {
   file: string;
   total: number;
   passed: number;
@@ -61,7 +61,7 @@ interface FileSummary {
   not_executed?: number;
 }
 
-interface LogEntry {
+export interface LogEntry {
   ts: string;
   msg: string;
   level: string;
@@ -81,6 +81,7 @@ interface ExistingTestTableProps {
   onRunAgain?: () => void;
   isRunning?: boolean;
   hasRun?: boolean;
+  hideHeader?: boolean;
 }
 
 type SortField = "NAME" | "DURATION" | "STATUS" | "TYPE" | "CLASS";
@@ -92,9 +93,10 @@ export function ExistingTestTable({
   logs = [],
   onSelectTest,
   title = "Existing Tests Validation Report",
-  onRunAgain,
-  isRunning = false,
-  hasRun = false,
+  onRunAgain: _onRunAgain,
+  isRunning: _isRunning = false,
+  hasRun: _hasRun = false,
+  hideHeader = false,
 }: ExistingTestTableProps) {
   const [viewMode, setViewMode] = useState<"TABLE" | "LOGS">("TABLE");
   const [filter, setFilter] = useState<"ALL" | "PASSED" | "FAILED" | "SKIPPED">("ALL");
@@ -261,175 +263,147 @@ export function ExistingTestTable({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       {/* ── 1. Report Header Bar ───────────────────────────────────────────── */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          flexWrap: "wrap",
-          gap: 14,
-          borderBottom: "1px solid #f1f5f9",
-          paddingBottom: 16,
-        }}
-      >
-        {/* Title & Badges */}
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <div
-            style={{
-              width: 38,
-              height: 38,
-              borderRadius: 10,
-              background: "#4f46e5",
-              color: "#fff",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 16,
-            }}
-          >
-            <FaTable />
+      {!hideHeader && (
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: 14,
+            borderBottom: "1px solid #f1f5f9",
+            paddingBottom: 16,
+          }}
+        >
+          {/* Title & Badges */}
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div
+              style={{
+                width: 38,
+                height: 38,
+                borderRadius: 10,
+                background: "#4f46e5",
+                color: "#fff",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 16,
+              }}
+            >
+              <FaTable />
+            </div>
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <h3 style={{ fontSize: 16, fontWeight: 800, color: "#0f172a", margin: 0 }}>
+                  {title}
+                </h3>
+                <span
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 800,
+                    padding: "2px 8px",
+                    borderRadius: 6,
+                    background: "#f0fdf4",
+                    color: "#16a34a",
+                    border: "1px solid #bbf7d0",
+                  }}
+                >
+                  {buildTool}
+                </span>
+                <span
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    padding: "2px 8px",
+                    borderRadius: 6,
+                    background: "#f8fafc",
+                    color: "#64748b",
+                    border: "1px solid #e2e8f0",
+                    fontFamily: "monospace",
+                  }}
+                >
+                  {testSourceDir}
+                </span>
+              </div>
+            </div>
           </div>
-          <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <h3 style={{ fontSize: 16, fontWeight: 800, color: "#0f172a", margin: 0 }}>
-                {title}
-              </h3>
-              <span
+
+          {/* Right Circular Pass Rate Badge, Run Again Button & View Toggle */}
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            {/* Circular Pass Rate Badge */}
+            <div
+              style={{
+                width: 48,
+                height: 48,
+                borderRadius: "50%",
+                border: "3px solid #10b981",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                textAlign: "center",
+              }}
+            >
+              <span style={{ fontSize: 10, fontWeight: 900, color: "#0f172a", lineHeight: 1 }}>{passRateVal}</span>
+              <span style={{ fontSize: 7, fontWeight: 800, color: "#10b981", textTransform: "uppercase", marginTop: 1 }}>
+                PASS RATE
+              </span>
+            </div>
+
+            {/* Segmented Toggle: Test Cases Table / Execution Logs */}
+            <div
+              style={{
+                display: "inline-flex",
+                borderRadius: 8,
+                border: "1px solid #e2e8f0",
+                background: "#fff",
+                padding: 2,
+              }}
+            >
+              <button
+                onClick={() => setViewMode("TABLE")}
                 style={{
-                  fontSize: 10,
+                  padding: "6px 14px",
+                  borderRadius: 6,
+                  border: viewMode === "TABLE" ? "1px solid #ddd6fe" : "none",
+                  background: viewMode === "TABLE" ? "#f5f3ff" : "transparent",
+                  color: viewMode === "TABLE" ? "#6d28d9" : "#64748b",
                   fontWeight: 800,
-                  padding: "2px 8px",
-                  borderRadius: 6,
-                  background: "#f0fdf4",
-                  color: "#16a34a",
-                  border: "1px solid #bbf7d0",
+                  fontSize: 12,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
                 }}
               >
-                {buildTool}
-              </span>
-              <span
+                <FaTable size={12} /> Test Cases Table
+              </button>
+
+              <button
+                onClick={() => setViewMode("LOGS")}
                 style={{
-                  fontSize: 10,
-                  fontWeight: 700,
-                  padding: "2px 8px",
+                  padding: "6px 14px",
                   borderRadius: 6,
-                  background: "#f8fafc",
-                  color: "#64748b",
-                  border: "1px solid #e2e8f0",
-                  fontFamily: "monospace",
+                  border: viewMode === "LOGS" ? "1px solid #ddd6fe" : "none",
+                  background: viewMode === "LOGS" ? "#f5f3ff" : "transparent",
+                  color: viewMode === "LOGS" ? "#6d28d9" : "#64748b",
+                  fontWeight: 800,
+                  fontSize: 12,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
                 }}
               >
-                {testSourceDir}
-              </span>
+                <FaTerminal size={12} /> Execution Logs {logs.length > 0 ? `(${logs.length})` : ""}
+              </button>
             </div>
           </div>
         </div>
-
-        {/* Right Circular Pass Rate Badge, Run Again Button & View Toggle */}
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          {/* Circular Pass Rate Badge */}
-          <div
-            style={{
-              width: 48,
-              height: 48,
-              borderRadius: "50%",
-              border: "3px solid #10b981",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              textAlign: "center",
-            }}
-          >
-            <span style={{ fontSize: 10, fontWeight: 900, color: "#0f172a", lineHeight: 1 }}>{passRateVal}</span>
-            <span style={{ fontSize: 7, fontWeight: 800, color: "#10b981", textTransform: "uppercase", marginTop: 1 }}>
-              PASS RATE
-            </span>
-          </div>
-
-          {/* Global Run Again Button - rendered only after tests have run (hasRun === true) */}
-          {hasRun && onRunAgain && (
-            <button
-              onClick={onRunAgain}
-              disabled={isRunning}
-              style={{
-                padding: "7px 16px",
-                borderRadius: 8,
-                background: isRunning ? "#64748b" : "#0f172a",
-                color: "#fff",
-                fontWeight: 800,
-                fontSize: 12,
-                border: "none",
-                cursor: isRunning ? "not-allowed" : "pointer",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 7,
-                boxShadow: "0 2px 6px rgba(15, 23, 42, 0.15)",
-                transition: "all 0.15s ease",
-              }}
-            >
-              {isRunning ? (
-                <FaSpinner className="animate-spin" size={11} />
-              ) : (
-                <FaRedo size={10} style={{ color: "#22c55e" }} />
-              )}
-              {isRunning ? "Running..." : "Run Again"}
-            </button>
-          )}
-
-          {/* Segmented Toggle: Test Cases Table / Execution Logs */}
-          <div
-            style={{
-              display: "inline-flex",
-              borderRadius: 8,
-              border: "1px solid #e2e8f0",
-              background: "#fff",
-              padding: 2,
-            }}
-          >
-            <button
-              onClick={() => setViewMode("TABLE")}
-              style={{
-                padding: "6px 14px",
-                borderRadius: 6,
-                border: viewMode === "TABLE" ? "1px solid #ddd6fe" : "none",
-                background: viewMode === "TABLE" ? "#f5f3ff" : "transparent",
-                color: viewMode === "TABLE" ? "#6d28d9" : "#64748b",
-                fontWeight: 800,
-                fontSize: 12,
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-              }}
-            >
-              <FaTable size={12} /> Test Cases Table
-            </button>
-
-            <button
-              onClick={() => setViewMode("LOGS")}
-              style={{
-                padding: "6px 14px",
-                borderRadius: 6,
-                border: viewMode === "LOGS" ? "1px solid #ddd6fe" : "none",
-                background: viewMode === "LOGS" ? "#f5f3ff" : "transparent",
-                color: viewMode === "LOGS" ? "#6d28d9" : "#64748b",
-                fontWeight: 800,
-                fontSize: 12,
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-              }}
-            >
-              <FaTerminal size={12} /> Execution Logs {logs.length > 0 ? `(${logs.length})` : ""}
-            </button>
-          </div>
-        </div>
-      </div>
+      )}
 
       {/* ── VIEW MODE 1: TEST CASES TABLE ─────────────────────────────────── */}
-      {viewMode === "TABLE" ? (
+      {viewMode === "TABLE" || hideHeader ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           {/* Controls: Filter Pills & Search */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>

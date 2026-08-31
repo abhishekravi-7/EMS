@@ -1,15 +1,20 @@
 import os
 import re
+import asyncio
+import logging
+import urllib.parse
 import html as html_module
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Response
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse, PlainTextResponse, JSONResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, verify_job_ownership
-from app.infrastructure.persistence.database import get_db
+from app.infrastructure.persistence.database import get_db, get_db_optional
 from app.infrastructure.persistence.models import User
 from app.infrastructure.workspace.workspace_paths import WorkspacePaths
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["existing-tests-report"])
 
@@ -370,14 +375,83 @@ async def serve_individual_test_logs(
     job_id: str,
     test_id: str,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session | None = Depends(get_db_optional)
 ):
     """Download test execution logs."""
-    verify_job_ownership(db, job_id, current_user)
+    await asyncio.to_thread(verify_job_ownership, db, job_id, current_user)
     from app.application.use_cases.existing_test_runner_service import existing_test_runner_service
-    logs = existing_test_runner_service.get_logs(job_id)
-    content = "\n".join(logs) if logs else f"No logs available for test {test_id}"
-    return PlainTextResponse(content, media_type="text/plain", headers={"Content-Disposition": f'attachment; filename="{test_id}_logs.txt"'})
+    
+    clean_test_id = urllib.parse.unquote(test_id).replace("\\", "/")
+    logger.info("[LOG DOWNLOAD] execution_id=%s test_id=%s", job_id, clean_test_id)
+    status_data = await asyncio.to_thread(existing_test_runner_service.get_status, job_id)
+    logs = await asyncio.to_thread(existing_test_runner_service.get_logs, job_id)
+    
+    # Match test from results if available
+    test_results = status_data.get("result", {}).get("test_results", [])
+    matched_test = None
+    for t in test_results:
+        t_id = (t.get("test_id") or f"{t.get('suite')}#{t.get('test_name')}").replace("\\", "/")
+        if t_id == clean_test_id or t.get("test_name") == clean_test_id or t.get("name") == clean_test_id:
+            matched_test = t
+            break
+            
+    header_lines = [
+        f"Execution ID: {job_id}",
+        "",
+        f"Test Name: {matched_test.get('test_name', clean_test_id) if matched_test else clean_test_id}",
+        f"Class: {matched_test.get('suite', 'Unknown') if matched_test else 'Unknown'}",
+        f"Framework: {matched_test.get('framework', 'JUnit') if matched_test else 'JUnit'}",
+        f"Status: {matched_test.get('status', 'PASSED') if matched_test else 'PASSED'}",
+    ]
+    if matched_test and matched_test.get("duration"):
+        header_lines.append(f"Duration: {matched_test.get('duration')}")
+    if matched_test and matched_test.get("file"):
+        header_lines.append(f"Source File: {matched_test.get('file')}")
+        
+    header_lines.extend([
+        "",
+        "=" * 80,
+        "EXECUTION LOGS",
+        "=" * 80,
+        "",
+    ])
+    
+    log_source = "existing_test_runner_service"
+    log_exists = bool(logs) or bool(matched_test and (matched_test.get("stdout") or matched_test.get("stderr")))
+    log_size = len(logs) if logs else (1 if (matched_test and (matched_test.get("stdout") or matched_test.get("stderr"))) else 0)
+    logger.info(
+        "[LOG DOWNLOAD] log source=%s log exists=%s log size=%d",
+        log_source,
+        log_exists,
+        log_size
+    )
+    
+    body_content = ""
+    if matched_test:
+        if matched_test.get("error"):
+            body_content += f"[ERROR] {matched_test.get('error')}\n\n"
+        if matched_test.get("stack_trace") or matched_test.get("stackTrace"):
+            body_content += f"--- Stack Trace ---\n{matched_test.get('stack_trace') or matched_test.get('stackTrace')}\n\n"
+        if matched_test.get("stdout"):
+            body_content += f"--- Standard Output (stdout) ---\n{matched_test.get('stdout')}\n\n"
+        if matched_test.get("stderr"):
+            body_content += f"--- Standard Error (stderr) ---\n{matched_test.get('stderr')}\n\n"
+
+    if logs:
+        body_content += "--- Execution Output Logs ---\n" + "\n".join(logs) + "\n"
+
+    if body_content.strip():
+        content = "\n".join(header_lines) + body_content.strip() + "\n"
+    else:
+        content = "\n".join(header_lines) + "No execution logs recorded.\n"
+        
+    logger.info("[LOG DOWNLOAD] download successful execution_id=%s test_id=%s size=%d bytes", job_id, test_id, len(content))
+    safe_filename = test_id.replace("/", "_").replace("\\", "_").replace("#", "_")
+    return PlainTextResponse(
+        content,
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{safe_filename}_logs.txt"'}
+    )
 
 
 @router.get("/migration/{job_id}/tests/report/download")

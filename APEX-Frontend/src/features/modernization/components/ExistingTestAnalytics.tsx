@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { FaTimes, FaCheckCircle, FaTimesCircle, FaInfoCircle } from "react-icons/fa";
+import { FaTimes } from "react-icons/fa";
 import type { TestResult } from "./ExistingTestTable";
 
 export interface DiscoveredOrExecutedTest {

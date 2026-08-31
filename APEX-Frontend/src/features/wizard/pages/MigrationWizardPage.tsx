@@ -105,7 +105,6 @@ export default function MigrationWizardPage() {
     resultExecState,
     selectedLLMProvider,
     useLLMTests,
-    renderStepIndicator,
     maxVisitedIndicatorStep,
   } = useWizardController();
 

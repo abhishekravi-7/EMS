@@ -1,12 +1,8 @@
 import React, { useRef } from "react";
 import {
   FaCheckCircle,
-  FaCode,
-  FaCoffee,
   FaExclamationTriangle,
   FaFileAlt,
-  FaFileCode,
-  FaFlask,
   FaFolderOpen,
   FaGithub,
   FaInfoCircle,
@@ -25,7 +21,7 @@ interface ConnectStepViewProps {
   onClearRepoAnalysis: () => void;
 }
 
-export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: ConnectStepViewProps) {
+export function ConnectStepView({ connect, onError: _onError, onClearRepoAnalysis: _onClearRepoAnalysis }: ConnectStepViewProps) {
   const {
     repoUrl,
     setRepoUrl,
@@ -40,7 +36,6 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
     accessTokenValidationState,
     accessTokenValidationMessage,
     localProjectCapabilities,
-    localProjectCapabilitiesLoading,
     localProjectUploadFiles,
     localProjectUploadLoading,
     localProjectUploadCompressing,
@@ -48,8 +43,6 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
     localProjectUploadWarning,
     urlValidation,
     showEnterpriseToken,
-    activeAccessToken,
-    repositoryNeedsAuthentication,
     shouldShowPatInput,
     resetAccessTokenValidationState,
     handleAccessTokenValidate,
@@ -61,15 +54,6 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const zipInputRef = useRef<HTMLInputElement | null>(null);
 
-  const authenticationBannerText = showEnterpriseToken
-    ? "GitHub Enterprise repository detected - authentication required"
-    : "Private repository detected - authentication required";
-  const tokenCardTitle = showEnterpriseToken
-    ? "Enterprise Repository - Enter Personal Access Token"
-    : "Private Repository - Enter Personal Access Token";
-  const tokenDescription = showEnterpriseToken
-    ? "This repository requires authentication. Provide a GitHub Personal Access Token before analysis."
-    : "This repository requires authentication. Provide a GitHub Personal Access Token with repo scope.";
   const tokenStatusColor =
     accessTokenValidationState === "valid"
       ? "#166534"
@@ -142,7 +126,9 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
       <div className="connect-content-wrapper">
         {/* Hero Title & Subtitle */}
         <div className="connect-hero">
-          <h1 className="connect-hero-title">Start Your Migration Journey</h1>
+          <h1 className="connect-hero-title">
+            Start Your <span className="connect-hero-emphasized">Migration</span> Journey
+          </h1>
           <p className="connect-hero-subtitle">
             Analyze your Java project with <span className="connect-hero-highlight">APEX intelligence</span> and modernize with confidence.
           </p>

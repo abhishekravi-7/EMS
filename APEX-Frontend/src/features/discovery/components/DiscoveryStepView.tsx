@@ -59,7 +59,7 @@ const getDynamicCompositionData = (repoAnalysis: RepoAnalysis | null) => {
 
   if (repoAnalysis.all_files && repoAnalysis.all_files.length > 0) {
     repoAnalysis.all_files.forEach(f => {
-      const path = (typeof f === 'string' ? f : (f as any).path || '').toLowerCase();
+      const path = (typeof f === 'string' ? f : (f as { path?: string }).path || '').toLowerCase();
       if (path.endsWith('.java')) allFilesJava++;
       if (path.endsWith('.xml') || path.endsWith('.gradle') || path.endsWith('.gradle.kts')) allFilesXml++;
       if (path.endsWith('.properties') || path.endsWith('.yml') || path.endsWith('.yaml')) allFilesProps++;
@@ -212,11 +212,11 @@ export function DiscoveryStepView({
   applyDetectedSourceVersion,
   setUserSelectedVersion,
   documentGenerationLoading,
-  conversionDecision,
-  setConversionDecision,
-  showFolderStructure,
-  setShowFolderStructure,
-  handleCheckMicroserviceEligibility,
+  conversionDecision: _conversionDecision,
+  setConversionDecision: _setConversionDecision,
+  showFolderStructure: _showFolderStructure,
+  setShowFolderStructure: _setShowFolderStructure,
+  handleCheckMicroserviceEligibility: _handleCheckMicroserviceEligibility,
   handleGenerateBrdDocument,
   handleOpenFrameworkFile,
   isDiscoveryPending,
@@ -263,8 +263,6 @@ export function DiscoveryStepView({
     viewingFrameworkFile,
     setViewingFrameworkFile,
     frameworkFileLoading,
-    microserviceResult,
-    microserviceLoading,
     analysisElapsedSeconds,
   } = discovery;
 

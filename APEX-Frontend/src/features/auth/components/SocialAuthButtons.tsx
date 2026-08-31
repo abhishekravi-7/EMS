@@ -36,8 +36,9 @@ const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({ mode }) => {
         await signInWithGithub();
       }
       navigate("/connect");
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Authentication failed.";
+      setError(message);
       setRedirectingTo(null);
     }
   };

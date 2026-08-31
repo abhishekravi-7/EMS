@@ -6,10 +6,6 @@
   margin: 0 auto;
   position: relative;
   box-sizing: border-box;
-  background: radial-gradient(120% 120% at 50% 0%, #f8fafc 50%, #eff6ff 85%, #dbeafe 100%);
-  border-radius: 28px;
-  padding: 20px 40px 40px; /* Reduced top padding */
-  box-shadow: 0 4px 30px rgba(15, 23, 42, 0.01);
 }
 
 /* Background Watermarks & Decorative Patterns */
@@ -19,53 +15,45 @@
   pointer-events: none;
   overflow: hidden;
   z-index: 0;
+  perspective: 1000px;
 }
 
 .connect-watermark-left {
   position: absolute;
   top: 10px;
   left: 20px;
-  opacity: 0.8;
-  color: #dbeafe;
-  animation: floatLeftCard3D 8s ease-in-out infinite;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.4s ease, color 0.4s ease;
-  transform-style: preserve-3d;
-  cursor: pointer;
-}
-
-.connect-watermark-left:hover {
-  animation-play-state: paused;
-  transform: perspective(1000px) rotateX(15deg) rotateY(-15deg) scale(1.15) !important;
-  filter: drop-shadow(0px 15px 25px rgba(59, 130, 246, 0.4));
-  color: #93c5fd;
-  opacity: 1;
+  opacity: 0.18;
+  color: #3b82f6;
+  animation: floating3D 8s ease-in-out infinite;
+  will-change: transform;
 }
 
 .connect-watermark-right {
   position: absolute;
-  top: 20px;
-  right: 40px;
-  opacity: 0.8;
-  color: #dbeafe;
-  animation: floatRightCard3D 8s ease-in-out infinite;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.4s ease, color 0.4s ease;
-  transform-style: preserve-3d;
-  cursor: pointer;
+  top: 15px;
+  right: 25px;
+  opacity: 0.18;
+  color: #3b82f6;
+  animation: floating3D 10s ease-in-out infinite reverse;
+  animation-delay: -2s;
+  will-change: transform;
 }
 
-.connect-watermark-right:hover {
-  animation-play-state: paused;
-  transform: perspective(1000px) rotateX(15deg) rotateY(15deg) scale(1.15) !important;
-  filter: drop-shadow(0px 15px 25px rgba(59, 130, 246, 0.4));
-  color: #93c5fd;
-  opacity: 1;
+@keyframes floating3D {
+  0% {
+    transform: translateY(0px) rotateX(0deg) rotateY(0deg) translateZ(0px);
+  }
+  33% {
+    transform: translateY(-15px) rotateX(10deg) rotateY(5deg) translateZ(20px);
+  }
+  66% {
+    transform: translateY(10px) rotateX(-5deg) rotateY(-10deg) translateZ(-10px);
+  }
+  100% {
+    transform: translateY(0px) rotateX(0deg) rotateY(0deg) translateZ(0px);
+  }
 }
+
 .connect-network-canvas {
   position: absolute;
   inset: 0;
@@ -79,87 +67,103 @@
   z-index: 1;
 }
 
+/* Hero Section */
 .connect-hero {
   text-align: center;
-  margin-bottom: 24px; /* Reduced from 40px */
-  position: relative;
-  z-index: 2;
+  margin-bottom: 72px;
+  animation: heroReveal 1s cubic-bezier(0.165, 0.84, 0.44, 1);
 }
 
 .connect-hero-title {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  font-size: 36px;
-  font-weight: 800;
+  font-family: 'Inter', sans-serif;
+  font-size: 54px;
+  font-weight: 900;
   color: #0f172a;
-  letter-spacing: -0.03em;
-  margin: 0 0 12px;
-  line-height: 1.2;
+  letter-spacing: -0.05em;
+  margin: 0 0 20px;
+  line-height: 1.05;
+}
+
+.connect-hero-emphasized {
+  color: #2563eb;
+  position: relative;
+  display: inline-block;
+  padding: 0 4px;
+}
+
+/* Precise Hand-drawn Curved Underline for "Migration" */
+.connect-hero-emphasized::after {
+  content: "";
+  position: absolute;
+  left: 2%;
+  right: 2%;
+  bottom: -12px;
+  height: 14px;
+  background-image: url("data:image/svg+xml,%3Csvg width='200' height='14' viewBox='0 0 200 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M4 7C50 11 150 11 196 7' stroke='%232563eb' stroke-width='4' stroke-linecap='round' opacity='0.8'/%3E%3C/svg%3E");
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+  animation: drawCurve 1.2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  transform-origin: left;
 }
 
 .connect-hero-subtitle {
-  font-size: 16px;
+  font-size: 21px;
   color: #475569;
-  margin: 0;
-  line-height: 1.6;
+  font-weight: 500;
+  margin: 0 auto;
+  line-height: 1.7;
+  max-width: 840px;
+  letter-spacing: -0.01em;
 }
 
 .connect-hero-highlight {
   color: #2563eb;
-  font-weight: 600;
+  font-weight: 700;
+  position: relative;
+  display: inline-block;
 }
 
-
-@keyframes floatLeftCard3D {
-  0%, 100% {
-    transform: perspective(1000px) rotateX(10deg) rotateY(-10deg) rotate(-6deg) translateY(0);
-  }
-  50% {
-    transform: perspective(1000px) rotateX(10deg) rotateY(-10deg) rotate(-6deg) translateY(-15px);
-  }
+@keyframes heroReveal {
+  from { opacity: 0; transform: translateY(30px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
-@keyframes floatRightCard3D {
-  0%, 100% {
-    transform: perspective(1000px) rotateX(10deg) rotateY(10deg) rotate(6deg) translateY(0);
-  }
-  50% {
-    transform: perspective(1000px) rotateX(10deg) rotateY(10deg) rotate(6deg) translateY(-15px);
-  }
+@keyframes drawCurve {
+  from { clip-path: inset(0 100% 0 0); }
+  to { clip-path: inset(0 0 0 0); }
 }
 
-
+/* Action Cards Grid */
 .connect-cards-container {
   display: flex;
   align-items: stretch;
   justify-content: center;
   gap: 0;
   position: relative;
-  width: 100%;
-  max-width: 840px;
+  max-width: 880px;
+  margin: 0 auto 36px;
 }
 
 .connect-action-card {
   flex: 1;
   background: #ffffff;
-  border: 1px solid rgba(226, 232, 240, 0.8);
-  border-radius: 24px;
-  padding: 36px 32px;
-  box-shadow: 0 10px 40px -10px rgba(15, 23, 42, 0.05), 0 1px 3px rgba(15, 23, 42, 0.02);
+  border: 1px solid #e2e8f0;
+  border-radius: 20px;
+  padding: 32px 28px;
+  box-shadow: 0 4px 20px rgba(15, 23, 42, 0.04);
   display: flex;
   flex-direction: column;
   align-items: center;
   text-align: center;
   position: relative;
   overflow: hidden;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
   box-sizing: border-box;
-  animation: fadeUp 0.6s ease-out forwards;
 }
 
 .connect-action-card:hover {
-  border-color: rgba(148, 163, 184, 0.4);
-  box-shadow: 0 20px 40px -10px rgba(15, 23, 42, 0.08), 0 10px 20px -5px rgba(15, 23, 42, 0.04);
-  transform: translateY(-4px);
+  border-color: #cbd5e1;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.07);
 }
 
 .connect-card-accent-github {
@@ -247,9 +251,9 @@
 
 .connect-primary-btn {
   width: 100%;
-  padding: 14px 24px;
-  border-radius: 12px;
-  font-size: 15px;
+  padding: 12px 20px;
+  border-radius: 10px;
+  font-size: 14px;
   font-weight: 600;
   border: none;
   cursor: pointer;
@@ -257,41 +261,38 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 0.2s ease;
   user-select: none;
 }
 
 .connect-primary-btn.is-blue {
-  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  background: #2563eb;
   color: #ffffff;
-  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.3);
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.25);
 }
 
 .connect-primary-btn.is-blue:hover:not(:disabled) {
-  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
-  box-shadow: 0 8px 24px rgba(37, 99, 235, 0.4);
-  transform: translateY(-2px);
+  background: #1d4ed8;
+  box-shadow: 0 6px 18px rgba(37, 99, 235, 0.35);
+  transform: translateY(-1px);
 }
 
 .connect-primary-btn.is-green {
-  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+  background: #16a34a;
   color: #ffffff;
-  box-shadow: 0 4px 14px rgba(22, 163, 74, 0.3);
+  box-shadow: 0 4px 14px rgba(22, 163, 74, 0.25);
 }
 
 .connect-primary-btn.is-green:hover:not(:disabled) {
-  background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
-  box-shadow: 0 8px 24px rgba(22, 163, 74, 0.4);
-  transform: translateY(-2px);
+  background: #15803d;
+  box-shadow: 0 6px 18px rgba(22, 163, 74, 0.35);
+  transform: translateY(-1px);
 }
 
 .connect-primary-btn:disabled {
-  opacity: 0.6;
+  opacity: 0.5;
   cursor: not-allowed;
   transform: none !important;
-  box-shadow: none;
-  background: #cbd5e1;
-  color: #64748b;
 }
 
 /* OR Separator */
@@ -309,15 +310,14 @@
   height: 44px;
   border-radius: 50%;
   background: #ffffff;
-  border: 1px solid rgba(226, 232, 240, 0.8);
+  border: 1px solid #e2e8f0;
   color: #64748b;
   font-size: 13px;
   font-weight: 700;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
-  animation: pulseShadow 2s infinite;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
 }
 
 /* Local Upload Selectors */
@@ -354,14 +354,12 @@
 /* APEX Migration Engine Section */
 .connect-engine-section {
   background: #ffffff;
-  border: 1px solid rgba(226, 232, 240, 0.8);
-  border-radius: 20px;
-  padding: 28px 32px;
-  box-shadow: 0 10px 30px -5px rgba(15, 23, 42, 0.05);
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 24px 28px;
+  box-shadow: 0 2px 12px rgba(15, 23, 42, 0.03);
   position: relative;
   margin-bottom: 24px;
-  animation: fadeUp 0.6s ease-out 0.2s forwards;
-  opacity: 0;
 }
 
 .connect-engine-badge-wrap {
@@ -643,15 +641,6 @@
 }
 
 /* Responsive */
-@media (max-width: 1180px) {
-  .side-illustration-left, .side-illustration-right {
-    display: none;
-  }
-  .connect-cards-container {
-    max-width: 880px;
-  }
-}
-
 @media (max-width: 980px) {
   .connect-cards-container {
     flex-direction: column;
@@ -685,82 +674,4 @@
   }
 }
 
-/* Animations */
-@keyframes fadeUp {
-  0% {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  100% {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
 
-@keyframes pulseShadow {
-  0% {
-    box-shadow: 0 0 0 0 rgba(226, 232, 240, 0.7);
-  }
-  70% {
-    box-shadow: 0 0 0 10px rgba(226, 232, 240, 0);
-  }
-  100% {
-    box-shadow: 0 0 0 0 rgba(226, 232, 240, 0);
-  }
-}
-
-@keyframes floatWatermark {
-  0%, 100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-12px);
-  }
-}
-
-@keyframes floatLeftCard {
-  0%, 100% {
-    transform: rotate(-6deg) translateY(0);
-  }
-  50% {
-    transform: rotate(-4deg) translateY(-8px);
-  }
-}
-
-@keyframes floatRightCard {
-  0%, 100% {
-    transform: rotate(0deg) translateY(0);
-  }
-  50% {
-    transform: rotate(2deg) translateY(-8px);
-  }
-}
-
-@keyframes slideArrow {
-  0%, 100% {
-    transform: translateX(0) scale(1);
-    opacity: 0.8;
-  }
-  50% {
-    transform: translateX(6px) scale(1.1);
-    opacity: 1;
-  }
-}
-
-@keyframes steamRise {
-  0% {
-    transform: translateY(2px) scaleX(0.8);
-    opacity: 0;
-  }
-  30% {
-    opacity: 0.6;
-  }
-  70% {
-    transform: translateY(-8px) scaleX(1.2);
-    opacity: 0.3;
-  }
-  100% {
-    transform: translateY(-16px) scaleX(0.8);
-    opacity: 0;
-  }
-}
