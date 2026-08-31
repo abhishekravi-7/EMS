@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+
 from app.infrastructure.llm.chat_llm import ChatLLM
 from app.infrastructure.llm.prompt_templates import (
     JUNIT_GENERATOR_SYSTEM_PROMPT,

@@ -6,9 +6,9 @@ build a grounded prompt, then stream the answer from the chat LLM (Groq ->
 Ollama). Retrieval is CPU-bound and runs in a threadpool; generation is async.
 """
 
+import logging
 import re
 import time
-import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
@@ -16,15 +16,15 @@ from typing import Any
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 
+from app.application.services.llm_token_tracing_service import LLMTokenTracingService
 from app.application.use_cases.index_repository import (
     IndexRepositoryUseCase,
     RepositoryNotFoundForIndexingError,
 )
 from app.core.exceptions import RepositoryNotIndexedError
 from app.infrastructure.llm.chat_llm import ChatLLM
-from app.application.services.llm_token_tracing_service import LLMTokenTracingService
 from app.infrastructure.persistence.models import User
-from app.infrastructure.rag import prompt_builder, retriever, repo_index_locator
+from app.infrastructure.rag import prompt_builder, repo_index_locator, retriever
 from app.shared import branding
 
 logger = logging.getLogger(__name__)

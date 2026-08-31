@@ -18,7 +18,7 @@ from app.infrastructure.git.git_command_runner import GitCommandRunner
 
 logger = logging.getLogger(__name__)
 
-_TOKEN_MASK = "***"
+_TOKEN_MASK = "***"  # nosec B105
 
 
 @dataclass(frozen=True)

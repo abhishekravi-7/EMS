@@ -166,7 +166,7 @@ class StaticAnalysisRunner:
 
         # Execute -------------------------------------------------------------
         start_time = time.time()
-        completed = subprocess.run(
+        completed = subprocess.run(  # nosec B603 # noqa: S603
             command,
             cwd=project_dir,
             env=env,
@@ -399,7 +399,7 @@ class StaticAnalysisRunner:
     @staticmethod
     def _redact(lines: list[str], token: str) -> list[str]:
         if not token:
-            return [l for l in lines if l.strip()]
+            return [line for line in lines if line.strip()]
         return [line.replace(token, "***") for line in lines if line.strip()]
 
     # ------------------------------------------------------------------ #
@@ -423,7 +423,7 @@ class StaticAnalysisRunner:
                             if task_id:
                                 logger.info("Found SonarQube CE task ID from %s: %s", path, task_id)
                                 return task_id
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001
                     logger.debug("Error reading %s: %s", path, exc)
 
         full_text = "\n".join(output_lines)
@@ -457,7 +457,7 @@ class StaticAnalysisRunner:
                 if status in ("FAILED", "CANCELED"):
                     logger.warning("SonarQube Compute Engine task %s ended with status: %s", task_id, status)
                     return False
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 logger.warning("Error checking SonarQube CE task status: %s", exc)
             time.sleep(2)
         logger.warning("Timed out waiting for SonarQube CE task %s after %d seconds.", task_id, timeout_seconds)
@@ -499,7 +499,7 @@ class StaticAnalysisRunner:
                                 query_param_name = alt_param
                                 logger.info("Found %d SonarQube issues using query param '%s'", len(raw_issues), alt_param)
                                 break
-                        except Exception as alt_exc:
+                        except Exception as alt_exc:  # noqa: BLE001
                             logger.debug("Alternative issue search with %s notice: %s", alt_param, alt_exc)
 
                 if not raw_issues:
@@ -545,7 +545,7 @@ class StaticAnalysisRunner:
                 if page * page_size >= total or len(raw_issues) < page_size:
                     break
                 page += 1
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 logger.warning("Error fetching SonarQube issues page %d: %s", page, exc)
                 break
 
@@ -583,7 +583,7 @@ class StaticAnalysisRunner:
                             security_hotspot_details.append(item)
                             all_issues.append(item)
                         break
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001
                     logger.debug("Hotspot search with %s notice: %s", h_param, exc)
 
         return {
@@ -692,6 +692,6 @@ class StaticAnalysisRunner:
             "User-Agent": "Java-APEX-Platform/1.0",
             "Accept": "application/json",
         }
-        request = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(request, timeout=20) as response:  # noqa: S310
+        request = urllib.request.Request(url, headers=headers)  # nosec B310  # noqa: S310
+        with urllib.request.urlopen(request, timeout=20) as response:  # nosec B310 # noqa: S310
             return json.loads(response.read().decode("utf-8"))

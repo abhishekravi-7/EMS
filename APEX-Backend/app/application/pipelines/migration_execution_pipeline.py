@@ -7,8 +7,8 @@ migration in a background thread, and exposes read accessors for polling
 
 from __future__ import annotations
 
-from contextvars import copy_context
 import threading
+from contextvars import copy_context
 from typing import Any
 
 from app.application.services import report_service

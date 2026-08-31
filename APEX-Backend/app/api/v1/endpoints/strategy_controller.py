@@ -30,11 +30,11 @@ from app.application.use_cases.index_repository import (
     RepositoryNotFoundForIndexingError,
 )
 from app.core.config import settings
-from app.core.exceptions import RagDisabledError, RepositoryNotIndexedError, StrategyChatError, ChatLLMServiceError
+from app.core.exceptions import ChatLLMServiceError, RagDisabledError, RepositoryNotIndexedError, StrategyChatError
+from app.infrastructure.llm.ollama_client import OllamaClient
 from app.infrastructure.persistence.database import get_db
 from app.infrastructure.persistence.models import User
 from app.infrastructure.rag import vector_store
-from app.infrastructure.llm.ollama_client import OllamaClient
 from app.schemas.strategy_schema import (
     IndexRequest,
     IndexResponse,
@@ -66,8 +66,8 @@ def _sse(event: str, payload: dict) -> str:
 @router.post("/query/stream")
 async def query_stream(
     payload: StrategyQueryRequest,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
 ) -> StreamingResponse:
     async def event_stream() -> AsyncIterator[str]:
         try:
@@ -174,8 +174,8 @@ async def query_stream(
 @router.post("/query", response_model=StrategyAnswerResponse)
 async def query(
     payload: StrategyQueryRequest,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
 ) -> JSONResponse:
     try:
         history_dicts = [{"role": msg.role, "content": msg.content} for msg in payload.history] if payload.history else None

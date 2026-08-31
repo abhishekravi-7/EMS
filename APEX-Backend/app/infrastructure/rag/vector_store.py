@@ -81,6 +81,7 @@ def point_id(repository_url: str, chunk_type: str, index: int) -> str:
 def delete_repository(repository_url: str) -> None:
     """Remove every point belonging to a repository (used before re-index)."""
     from qdrant_client import models
+
     from app.infrastructure.rag.repo_index_locator import normalize_repository_url
 
     repository_url = normalize_repository_url(repository_url)
@@ -113,7 +114,7 @@ def upsert(vectors: list[list[float]], payloads: list[dict[str, Any]], ids: list
     client = _get_client()
     points = [
         models.PointStruct(id=pid, vector=vector, payload=payload)
-        for pid, vector, payload in zip(ids, vectors, payloads)
+        for pid, vector, payload in zip(ids, vectors, payloads, strict=True)
     ]
     client.upsert(collection_name=settings.qdrant_collection, points=points)
 
@@ -121,6 +122,7 @@ def upsert(vectors: list[list[float]], payloads: list[dict[str, Any]], ids: list
 def search(query_vector: list[float], repository_url: str, top_k: int, job_id: str | None = None) -> list[dict[str, Any]]:
     """Return the top-K payloads for a repository, ranked by similarity."""
     from qdrant_client import models
+
     from app.infrastructure.rag.repo_index_locator import normalize_repository_url
 
     repository_url = normalize_repository_url(repository_url)

@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from sqlalchemy.orm import Session
+
+from app.application.services.llm_token_tracing_service import LLMTokenTracingService
 from app.infrastructure.analyzers.test_smell_detector import TestSmellDetector
 from app.infrastructure.llm.agents.critic_agent import TestCriticAgent
-from app.application.services.llm_token_tracing_service import LLMTokenTracingService
-from app.schemas.unit_test import UnitTestValidationReport, TestSmellDetail
+from app.schemas.unit_test import TestSmellDetail, UnitTestValidationReport
 
 
 class ValidateUnitTestSuiteUseCase:

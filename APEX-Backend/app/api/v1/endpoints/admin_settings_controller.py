@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 import logging
-from fastapi import APIRouter, Depends, HTTPException
+
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
-from app.core.config import settings, get_settings
+from app.core.config import settings
 from app.infrastructure.persistence.database import get_db
 from app.infrastructure.persistence.models import User
 from app.infrastructure.persistence.system_settings_repository import SystemSettingsRepository
-from app.schemas.system_settings_schema import SystemSettingsUpdate, SystemSettingsResponse
+from app.schemas.system_settings_schema import SystemSettingsResponse, SystemSettingsUpdate
 
 router = APIRouter(tags=["admin-settings"])
 logger = logging.getLogger(__name__)
@@ -33,8 +34,8 @@ EXPOSED_KEYS = {
 
 @router.get("/admin/settings", response_model=SystemSettingsResponse)
 async def get_admin_settings(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
 ) -> SystemSettingsResponse:
     """Fetch the current effective system settings."""
     if current_user.role != "ADMIN":
@@ -59,8 +60,8 @@ async def get_admin_settings(
 @router.post("/admin/settings", response_model=SystemSettingsResponse)
 async def update_admin_settings(
     payload: SystemSettingsUpdate,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
 ) -> SystemSettingsResponse:
     """Update system settings and apply them to the live environment."""
     if current_user.role != "ADMIN":
@@ -86,7 +87,7 @@ async def update_admin_settings(
                 else:
                     setattr(settings, key, value)
                 logger.info("Applied dynamic setting override: %s = %s", key, value)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.error("Failed to apply dynamic setting %s: %s", key, str(e))
 
         updated_settings[key] = value

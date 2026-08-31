@@ -53,7 +53,7 @@ def run_command(
     (e.g. the executable not being found) propagate.
     """
     try:
-        completed = subprocess.run(  # noqa: S603 - args list, shell disabled
+        completed = subprocess.run(  # nosec B603 # noqa: S603
             list(command),
             cwd=str(cwd) if cwd is not None else None,
             capture_output=True,

@@ -14,9 +14,9 @@ import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from app.infrastructure.analyzers.project_analyzer import ProjectAnalysis, ProjectAnalyzer
 from app.infrastructure.build.gradle_runner import GradleRewriteRunner
 from app.infrastructure.build.maven_runner import MavenNotAvailableError, MavenRewriteRunner
-from app.infrastructure.analyzers.project_analyzer import ProjectAnalysis, ProjectAnalyzer
 from app.infrastructure.java_runtime import build_compatible_java_target
 from app.infrastructure.migration_engine.gradle_preflight_modernizer import GradlePreflightModernizer
 from app.infrastructure.migration_engine.migration_log_parser import parse_rewrite_output

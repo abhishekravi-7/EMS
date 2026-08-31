@@ -1,11 +1,12 @@
 import urllib.parse
-import pytest
-from unittest.mock import MagicMock, patch
 from collections import deque
+from unittest.mock import MagicMock, patch
+
+import pytest
 from fastapi.testclient import TestClient
 
-from app.main import app
 from app.application.use_cases.existing_test_runner_service import existing_test_runner_service
+from app.main import app
 
 
 @pytest.fixture

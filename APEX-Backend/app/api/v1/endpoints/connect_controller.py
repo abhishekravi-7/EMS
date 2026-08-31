@@ -35,8 +35,8 @@ _pipeline = ConnectPipeline()
 )
 async def connect_repository(
     payload: ConnectRequest,
-    current_user: User = Depends(get_current_user),
-    db: Session | None = Depends(get_db_optional),
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session | None = Depends(get_db_optional),  # noqa: B008
 ) -> JSONResponse:
     """Validate the repository URL, detect visibility/access, and create a job.
 

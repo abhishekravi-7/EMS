@@ -3,17 +3,16 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import MagicMock
+import uuid
+
 import pytest
 from fastapi import HTTPException
 
-from app.application.use_cases.existing_test_runner_service import ExistingTestRunnerService
-from app.infrastructure.workspace.workspace_paths import WorkspacePaths
-from app.infrastructure.persistence.models import User
 from app.api.deps import verify_job_ownership
+from app.application.use_cases.existing_test_runner_service import ExistingTestRunnerService
+from app.infrastructure.persistence.models import User
+from app.infrastructure.workspace.workspace_paths import WorkspacePaths
 
-
-import uuid
 
 def test_existing_test_runner_has_job_and_disk_persistence(tmp_path, monkeypatch):
     """Verify that job state written by one worker is retrieved by another worker from disk."""
@@ -202,7 +201,10 @@ def anyio_backend():
 async def test_existing_test_endpoints_non_blocking_async_execution(tmp_path, monkeypatch):
     """Verify that run endpoint returns 202 immediately, status returns 200, and execution progresses asynchronously."""
     monkeypatch.setattr("app.core.config.settings.storage_dir", tmp_path)
-    from app.api.v1.endpoints.existing_test_controller import run_existing_tests_endpoint, get_existing_tests_status_endpoint
+    from app.api.v1.endpoints.existing_test_controller import (
+        get_existing_tests_status_endpoint,
+        run_existing_tests_endpoint,
+    )
     from app.application.use_cases.existing_test_runner_service import existing_test_runner_service
 
     job_id = f"job_async_poll_{uuid.uuid4().hex[:8]}"
