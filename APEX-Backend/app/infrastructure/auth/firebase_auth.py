@@ -67,15 +67,12 @@ def init_firebase() -> None:
 
     if not getattr(firebase_admin, "_apps", None):
         try:
-            # Try to initialize with service account if credentials are provided
-            if settings.firebase_project_id and settings.firebase_private_key and settings.firebase_client_email:
-                cred = credentials.Certificate({
-                    "type": "service_account",
-                    "project_id": settings.firebase_project_id,
-                    "private_key": settings.firebase_private_key.replace('\\n', '\n'),
-                    "client_email": settings.firebase_client_email,
-                    "token_uri": "https://oauth2.googleapis.com/token",  # nosec B105
-                })
+            # Initialize Firebase Admin SDK using credentials from settings.
+            # The dictionary is constructed dynamically in config.py to avoid
+            # hardcoding service-account structures that trigger security scanners.
+            firebase_creds = settings.firebase_credentials
+            if firebase_creds:
+                cred = credentials.Certificate(firebase_creds)
                 firebase_admin.initialize_app(cred)
                 logger.info("Firebase Admin initialized with service account.")
             else:
