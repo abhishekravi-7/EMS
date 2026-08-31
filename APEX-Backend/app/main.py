@@ -76,6 +76,24 @@ async def lifespan(_app: FastAPI):
         # startup. Alembic is intentionally not used yet (see requirements.txt).
         Base.metadata.create_all(bind=engine)  # type: ignore[arg-type]
         logger.info("Database tables verified/created.")
+
+        # Load dynamic settings overrides from database
+        try:
+            from app.infrastructure.persistence.system_settings_repository import SystemSettingsRepository
+            from sqlalchemy.orm import Session
+            with Session(engine) as db:
+                repo = SystemSettingsRepository(db)
+                overrides = repo.get_all()
+                for key, value in overrides.items():
+                    if hasattr(settings, key) and value is not None:
+                        if isinstance(getattr(settings, key), bool):
+                            bool_val = str(value).lower() in ("true", "1", "yes", "on")
+                            setattr(settings, key, bool_val)
+                        else:
+                            setattr(settings, key, value)
+                logger.info("Applied %d dynamic setting overrides from database", len(overrides))
+        except Exception as e:
+            logger.error("Failed to load dynamic settings from database: %s", str(e))
     else:
         logger.info("Database disabled by configuration — skipping DB startup tasks.")
 

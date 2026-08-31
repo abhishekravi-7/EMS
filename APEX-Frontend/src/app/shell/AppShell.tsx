@@ -7,6 +7,7 @@ import { Button } from "@/shared/components/ui";
 import { useAuth } from "@/shared/context/AuthContext";
 import { TOKEN_TRACING_DASHBOARD_URL } from "@/services/config/env";
 import FloatingChatbot from "@/shared/components/chatbot/FloatingChatbot";
+import { FaCog } from "react-icons/fa";
 import "./AppShell.css";
 
 const shellStyles: { [key: string]: React.CSSProperties } = {
@@ -140,7 +141,7 @@ const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           <button
             type="button"
             className="ui-nav-button"
-            onClick={() => window.open(TOKEN_TRACING_DASHBOARD_URL, "_blank")}
+            onClick={() => navigate("/usage")}
           >
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <line x1="18" y1="20" x2="18" y2="10"></line>
@@ -148,6 +149,15 @@ const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
               <line x1="6" y1="20" x2="6" y2="14"></line>
             </svg>
             <span>Usage</span>
+          </button>
+
+          <button
+            type="button"
+            className="ui-nav-button"
+            onClick={() => navigate("/admin")}
+          >
+            <FaCog size={14} />
+            <span>Settings</span>
           </button>
 
           {/* <button

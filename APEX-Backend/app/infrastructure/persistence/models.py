@@ -240,3 +240,20 @@ class PersistedExistingTestState(Base):
         DateTime(timezone=True), nullable=False, default=_utc_now, onupdate=_utc_now
     )
 
+
+class SystemSetting(Base):
+    """Dynamic system-wide settings that override environment variables.
+
+    Allows administrators to change configuration (GitHub tokens, LLM keys, etc.)
+    via the Admin Console UI without restarting the backend service.
+    """
+
+    __tablename__ = "system_settings"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    key: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
+    value: Mapped[str | None] = mapped_column(String, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utc_now, onupdate=_utc_now
+    )
+

@@ -142,7 +142,9 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
       <div className="connect-content-wrapper">
         {/* Hero Title & Subtitle */}
         <div className="connect-hero">
-          <h1 className="connect-hero-title">Start Your Migration Journey</h1>
+          <h1 className="connect-hero-title">
+            Start Your <span className="connect-hero-emphasized">Migration</span> Journey
+          </h1>
           <p className="connect-hero-subtitle">
             Analyze your Java project with <span className="connect-hero-highlight">APEX intelligence</span> and modernize with confidence.
           </p>
