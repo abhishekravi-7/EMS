@@ -7,7 +7,7 @@ import platform
 import re
 import shutil
 import signal
-import subprocess
+import subprocess  # nosec B404
 import threading
 import time
 from collections import deque
@@ -2070,7 +2070,7 @@ class ExistingTestRunnerService:
                     "skipped": 0,
                     "not_executed": 0,
                     "duration": "0.00s",
-                    "pass_percentage": "0.0%",
+                    "pass_percentage": "0.0%",  # nosec B105
                     "type": "JUnit",
                     "build_tool": None,
                     "existing_coverage": "N/A",
@@ -2153,7 +2153,7 @@ class ExistingTestRunnerService:
                     "not_executed": 0,
                     "notExecuted": 0,
                     "duration": "0.00s",
-                    "pass_percentage": "N/A",
+                    "pass_percentage": "N/A",  # nosec B105
                     "type": "Not Detected",
                     "build_tool": None,
                     "existing_coverage": "N/A",

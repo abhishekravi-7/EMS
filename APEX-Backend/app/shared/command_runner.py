@@ -9,7 +9,7 @@ rather than raising on non-zero exit.
 from __future__ import annotations
 
 import shutil
-import subprocess
+import subprocess  # nosec B404
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping, Sequence
