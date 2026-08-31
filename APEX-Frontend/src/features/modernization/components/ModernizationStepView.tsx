@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useMemo, type Dispatch, type SetStateAction } from "react";
-import { FaRocket, FaInfoCircle } from "react-icons/fa";
+import { FaRocket, FaInfoCircle, FaSearch, FaShieldAlt, FaVial } from "react-icons/fa";
 import {
   scanExistingTests,
   runExistingTests,
@@ -8,6 +8,7 @@ import {
   type TestResult,
   type TestSelectionItem,
   type ExistingTestRunResponse,
+  type ApiEvidence,
 } from "../services/existingTestService";
 import { ExistingTestCasesPanel } from "./ExistingTestCasesPanel";
 import { ExistingTestCoverage } from "./ExistingTestCoverage";
@@ -21,12 +22,12 @@ import { TestReportsModal, type TestReportData } from "./TestReportsModal";
 import { wizardStyles as styles } from "@/shared/components/wizard/wizardStyles";
 import { renderWizardIconBadge, renderBackButtonLabel } from "@/shared/components/wizard";
 import type { RepoAnalysis, RepoInfo } from "@/shared/types/domain";
-import type {
-  FunctionalTestScopePreview,
-} from "../services/modernizationService";
+import type { FunctionalTestScopePreview } from "../services/modernizationService";
+import { getLocalProjectFileContent } from "@/features/connect/services/connectService";
+import { getFileContent } from "@/features/discovery/services/discoveryService";
 import type { useModernizationState } from "../hooks/useModernizationState";
 
-const _LLM_PROVIDERS = [
+const LLM_PROVIDERS = [
   { value: "groq", label: "Groq (Recommended — Llama 3.3 70B Fast)" },
   { value: "huggingface", label: "Hugging Face (Free)" },
   { value: "ollama", label: "Ollama (Local)" },
@@ -166,31 +167,35 @@ export function ModernizationStepView({
   jobId,
   modernization,
   repoAnalysis,
-  selectedRepo: _selectedRepo,
+  selectedRepo,
   repoUrl: _repoUrl,
-  currentToken: _currentToken,
+  currentToken,
   functionalTestToolMethod: _functionalTestToolMethod,
   setFunctionalTestToolMethod: _setFunctionalTestToolMethod,
-  functionalTestingTools,
+  functionalTestingTools: _functionalTestingTools,
   hasUI,
   localApiTestCases,
   loading,
-  repoUtils: _repoUtils,
+  repoUtils,
   onBack,
   onStartMigration,
 }: ModernizationStepViewProps) {
   const {
-    runTests: _runTests,
-    setRunTests: _setRunTests,
-    useLLMTests: _useLLMTests,
-    setUseLLMTests: _setUseLLMTests,
-    selectedLLMProvider: _selectedLLMProvider,
-    setSelectedLLMProvider: _setSelectedLLMProvider,
-    runSonar: _runSonar,
-    setRunSonar: _setRunSonar,
-    runFossa: _runFossa,
-    setRunFossa: _setRunFossa,
+    runTests,
+    setRunTests,
+    useLLMTests,
+    setUseLLMTests,
+    selectedLLMProvider,
+    setSelectedLLMProvider,
+    runSonar,
+    setRunSonar,
+    runFossa,
+    setRunFossa,
   } = modernization;
+
+  const { isLocalRepoRef, extractLocalRepoPath } = repoUtils;
+  const [viewingTestFile, setViewingTestFile] = useState<{ name: string; path: string; content?: string } | null>(null);
+  const [testFileLoading, setTestFileLoading] = useState(false);
 
   // --- Existing Test execution states replicated from Prova ---
   const [isRunningExisting, setIsRunningExisting] = useState(false);
@@ -243,7 +248,7 @@ export function ModernizationStepView({
     ? Math.min(100, Math.round((executedTestLogsCount / existingTotal) * 100))
     : (isRunningExisting ? 10 : 0);
 
-  const buildTestDetailReport = (t: TestResult | TestSelectionItem, defaultStatus?: string): TestReportData => {
+  const buildTestDetailReport = (t: TestResult, defaultStatus?: string): TestReportData => {
     const scUrl = t.screenshot_url || t.screenshotUrl || t.evidence?.screenshotUrl || null;
     const vidUrl = t.video_url || t.videoUrl || t.evidence?.videoUrl || null;
     const formattedLogs = Array.isArray(existingLogs) && existingLogs.length > 0
@@ -251,41 +256,41 @@ export function ModernizationStepView({
       : (typeof existingLogs === "string" ? existingLogs : undefined);
 
     return {
-      testId: t.test_id || t.testId || `${t.suite || t.spec || t.file || ""}#${t.test_name || t.name || t.title || ""}`,
-      executionId: t.execution_id || t.executionId || jobId,
-      title: t.test_name || t.name || t.title,
-      name: t.test_name || t.name || t.title,
-      spec: t.suite || t.spec || t.file,
-      suite: t.suite || t.spec || t.file,
-      status: t.status || defaultStatus || "PASSED",
-      duration: t.duration || "0.0s",
-      file: t.file,
-      url: t.report_url,
-      type: t.type || "JUnit",
-      testType: ((t.test_type || t.testType || t.category || "API").toUpperCase() === "UNIT" ? "API" : (t.test_type || t.testType || (t.category === "UI" ? "UI" : "API"))),
-      framework: t.framework || existingExecResult?.framework_info?.build_tool || existingExecResult?.framework_info?.detected_framework || existingFramework || "JUnit",
-      screenshotUrl: scUrl,
-      videoUrl: vidUrl,
-      traceUrl: t.trace_url,
-      apiEvidence: t.api_evidence,
-      evidence: t.evidence || {
+      testId: String(t.test_id || t.testId || `${t.suite || t.spec || t.file || ""}#${t.test_name || t.name || t.title || ""}`),
+      executionId: String(t.execution_id || t.executionId || jobId),
+      title: String(t.test_name || t.name || t.title || "Test"),
+      name: String(t.test_name || t.name || t.title || "Test"),
+      spec: String(t.suite || t.spec || t.file || ""),
+      suite: String(t.suite || t.spec || t.file || ""),
+      status: String(t.status || defaultStatus || "PASSED"),
+      duration: String(t.duration || "0.0s"),
+      file: t.file ? String(t.file) : undefined,
+      url: t.report_url ? String(t.report_url) : undefined,
+      type: String(t.type || "JUnit"),
+      testType: String(((t.test_type || t.testType || t.category || "API") as string).toUpperCase() === "UNIT" ? "API" : (t.test_type || t.testType || (t.category === "UI" ? "UI" : "API"))),
+      framework: String(t.framework || existingExecResult?.framework_info?.build_tool || existingExecResult?.framework_info?.detected_framework || existingFramework || "JUnit"),
+      screenshotUrl: scUrl ? String(scUrl) : null,
+      videoUrl: vidUrl ? String(vidUrl) : null,
+      traceUrl: t.trace_url ? String(t.trace_url) : undefined,
+      apiEvidence: t.api_evidence as ApiEvidence | null | undefined,
+      evidence: (t.evidence || {
         screenshotAvailable: !!scUrl,
-        screenshotUrl: scUrl,
+        screenshotUrl: scUrl ? String(scUrl) : null,
         videoAvailable: !!vidUrl,
-        videoUrl: vidUrl,
-      },
-      error: t.failure_message || t.details?.error || t.error || null,
+        videoUrl: vidUrl ? String(vidUrl) : null,
+      }) as Record<string, unknown> | null | undefined,
+      error: (t.failure_message || t.details?.error || t.error || null) as string | null,
       errorCode: (t.status === "FAILED" ? "TEST_FAILED" : t.status === "ERROR" ? "BUILD_ERROR" : t.status === "NOT_EXECUTED" ? "NOT_EXECUTED" : undefined),
-      stackTrace: t.stack_trace || t.details?.stackTrace || t.stackTrace || null,
-      stdout: t.stdout || t.details?.stdout || null,
-      stderr: t.stderr || t.details?.stderr || null,
-      rawLogs: t.rawLogs || formattedLogs,
+      stackTrace: (t.stack_trace || t.details?.stackTrace || t.stackTrace || null) as string | null,
+      stdout: (t.stdout || t.details?.stdout || null) as string | null,
+      stderr: (t.stderr || t.details?.stderr || null) as string | null,
+      rawLogs: (t.rawLogs || formattedLogs) as string | undefined,
       logs: existingLogs,
     };
   };
 
   // Single unified, deduplicated list of test cases throughout lifecycle
-  const displayTestResults = useMemo(() => {
+  const displayTestResults: TestResult[] = useMemo(() => {
     const executedList: TestResult[] = existingExecResult?.test_results || [];
 
     if (discoveredTests.length === 0 && executedList.length === 0) {
@@ -314,7 +319,7 @@ export function ModernizationStepView({
     const matchedExecKeys = new Set<string>();
     let foundRunning = false;
 
-    const merged = baseList.map((dt: TestSelectionItem | TestResult, idx: number) => {
+    const merged: TestResult[] = baseList.map((dt: TestSelectionItem | TestResult, idx: number) => {
       const fullKey = computeTestIdentity(dt);
       const m = normalizeMethodName(dt.name, dt.methodname, dt.title, dt.test_name);
 
@@ -335,9 +340,9 @@ export function ModernizationStepView({
         const rawStatus = (matchedExec.status || "NOT_EXECUTED").toUpperCase();
         const st = rawStatus === "ERROR" ? "FAILED" : rawStatus;
 
-        const scUrl = matchedExec.screenshot_url || matchedExec.screenshotUrl || matchedExec.evidence?.screenshotUrl || dt.screenshot_url || dt.screenshotUrl || dt.evidence?.screenshotUrl || null;
-        const vidUrl = matchedExec.video_url || matchedExec.videoUrl || matchedExec.evidence?.videoUrl || dt.video_url || dt.videoUrl || dt.evidence?.videoUrl || null;
-        const trUrl = matchedExec.trace_url || matchedExec.traceUrl || dt.trace_url || dt.traceUrl || null;
+        const scUrl = (matchedExec.screenshot_url || matchedExec.screenshotUrl || (typeof matchedExec.evidence?.screenshotUrl === "string" ? matchedExec.evidence.screenshotUrl : null) || dt.screenshot_url || dt.screenshotUrl || (typeof dt.evidence?.screenshotUrl === "string" ? dt.evidence.screenshotUrl : null) || null) as string | null;
+        const vidUrl = (matchedExec.video_url || matchedExec.videoUrl || (typeof matchedExec.evidence?.videoUrl === "string" ? matchedExec.evidence.videoUrl : null) || dt.video_url || dt.videoUrl || (typeof dt.evidence?.videoUrl === "string" ? dt.evidence.videoUrl : null) || null) as string | null;
+        const trUrl = (matchedExec.trace_url || matchedExec.traceUrl || dt.trace_url || dt.traceUrl || null) as string | null;
         const apiEv = matchedExec.api_evidence || matchedExec.apiEvidence || dt.api_evidence || dt.apiEvidence || null;
         const ev = matchedExec.evidence || dt.evidence || (scUrl || vidUrl ? {
           screenshotAvailable: !!scUrl,
@@ -347,7 +352,7 @@ export function ModernizationStepView({
         } : null);
 
         return {
-          testId: dt.test_id || dt.testId || matchedExec.test_id || matchedExec.testId || `TEST-${idx + 1}`,
+          testId: String(dt.test_id || dt.testId || matchedExec.test_id || matchedExec.testId || `TEST-${idx + 1}`),
           test_name: testName,
           name: testName,
           title: testName,
@@ -373,8 +378,8 @@ export function ModernizationStepView({
           api_evidence: apiEv,
           apiEvidence: apiEv,
           evidence: ev,
-          unavailable_reason: matchedExec.unavailable_reason || matchedExec.unavailableReason || dt.unavailable_reason || dt.unavailableReason || null,
-          unavailableReason: matchedExec.unavailable_reason || matchedExec.unavailableReason || dt.unavailable_reason || dt.unavailableReason || null,
+          unavailable_reason: (matchedExec.unavailable_reason || matchedExec.unavailableReason || dt.unavailable_reason || dt.unavailableReason || null) as string | null,
+          unavailableReason: (matchedExec.unavailable_reason || matchedExec.unavailableReason || dt.unavailable_reason || dt.unavailableReason || null) as string | null,
           details: matchedExec.details || dt.details || null,
         };
       }
@@ -384,7 +389,7 @@ export function ModernizationStepView({
         const liveCompleted = liveCompletedMap.get(fullKey) || (m ? liveCompletedMap.get(m) : null);
         if (liveCompleted) {
           return {
-            testId: dt.test_id || dt.testId || `TEST-${idx + 1}`,
+            testId: String(dt.test_id || dt.testId || `TEST-${idx + 1}`),
             test_name: testName,
             name: testName,
             title: testName,
@@ -412,7 +417,7 @@ export function ModernizationStepView({
         if (!foundRunning) {
           foundRunning = true;
           return {
-            testId: dt.test_id || dt.testId || `TEST-${idx + 1}`,
+            testId: String(dt.test_id || dt.testId || `TEST-${idx + 1}`),
             test_name: testName,
             name: testName,
             title: testName,
@@ -439,7 +444,7 @@ export function ModernizationStepView({
 
       // 4. Default / unexecuted status — NEVER default to PASSED
       return {
-        testId: dt.test_id || dt.testId || `TEST-${idx + 1}`,
+        testId: String(dt.test_id || dt.testId || `TEST-${idx + 1}`),
         test_name: testName,
         name: testName,
         title: testName,
@@ -471,9 +476,9 @@ export function ModernizationStepView({
         const testName = (r.test_name || r.name || r.title || `test_${rIdx + 1}`).replace(/\(\s*\)$/, "");
         const rawType = (r.test_type || r.testType || r.type || "API").toUpperCase();
         const displayType = rawType === "UNIT" ? "API" : rawType;
-        const scUrl = r.screenshot_url || r.screenshotUrl || r.evidence?.screenshotUrl || null;
-        const vidUrl = r.video_url || r.videoUrl || r.evidence?.videoUrl || null;
-        const trUrl = r.trace_url || r.traceUrl || null;
+        const scUrl = (r.screenshot_url || r.screenshotUrl || (typeof r.evidence?.screenshotUrl === "string" ? r.evidence.screenshotUrl : null) || null) as string | null;
+        const vidUrl = (r.video_url || r.videoUrl || (typeof r.evidence?.videoUrl === "string" ? r.evidence.videoUrl : null) || null) as string | null;
+        const trUrl = (r.trace_url || r.traceUrl || null) as string | null;
         const apiEv = r.api_evidence || r.apiEvidence || null;
         const ev = r.evidence || (scUrl || vidUrl ? {
           screenshotAvailable: !!scUrl,
@@ -483,7 +488,7 @@ export function ModernizationStepView({
         } : null);
 
         merged.push({
-          testId: r.test_id || r.testId || `TEST-EXEC-${rIdx + 1}`,
+          testId: String(r.test_id || r.testId || `TEST-EXEC-${rIdx + 1}`),
           test_name: testName,
           name: testName,
           title: testName,
@@ -509,8 +514,8 @@ export function ModernizationStepView({
           api_evidence: apiEv,
           apiEvidence: apiEv,
           evidence: ev,
-          unavailable_reason: r.unavailable_reason || r.unavailableReason || null,
-          unavailableReason: r.unavailable_reason || r.unavailableReason || null,
+          unavailable_reason: (r.unavailable_reason || r.unavailableReason || null) as string | null,
+          unavailableReason: (r.unavailable_reason || r.unavailableReason || null) as string | null,
           details: r.details || null,
         });
       }
@@ -555,7 +560,7 @@ export function ModernizationStepView({
                   if (liveStatus.result.metrics?.type) setExistingFramework(liveStatus.result.metrics.type);
                 }
                 if (liveStatus.status === "COMPLETED" || liveStatus.status === "FAILED" || liveStatus.status === "ERROR" || liveStatus.status === "STOPPED") {
-                  clearInterval(existingPollRef.current);
+                  if (existingPollRef.current) clearInterval(existingPollRef.current);
                   setIsRunningExisting(false);
                   setHasExistingTestsRun(true);
                   setTimeout(() => setShowExistingLogs(false), 2000);
@@ -649,7 +654,7 @@ export function ModernizationStepView({
           status.status === "ERROR" ||
           status.status === "STOPPED"
         ) {
-          clearInterval(existingPollRef.current);
+          if (existingPollRef.current) clearInterval(existingPollRef.current);
           setIsRunningExisting(false);
           setHasExistingTestsRun(true);
         }
@@ -681,73 +686,6 @@ export function ModernizationStepView({
       setHasExistingTestsRun(true);
     }
   };
-
-  const [_selectedTestToolFilter, _setSelectedTestToolFilter] = useState<string | null>(null);
-  const [_viewingTestFile, _setViewingTestFile] = useState<{ name: string; path: string; content: string } | null>(null);
-  const [_testFileLoading, _setTestFileLoading] = useState(false);
-  const [_hoveredToolId, _setHoveredToolId] = useState<string | null>(null);
-  const [_toolRecommendations, setToolRecommendations] = useState<Record<string, { passage: string }> | null>(null);
-  const [_toolRecsLoading, setToolRecsLoading] = useState(false);
-  const [scopePreview, setScopePreview] = useState<FunctionalTestScopePreview | null>(null);
-  const [scopePreviewLoading, setScopePreviewLoading] = useState(false);
-  const [_scopePreviewError, _setScopePreviewError] = useState<string | null>(null);
-
-
-  // Fetch LLM-generated tool recommendation passages once when this step mounts
-  useEffect(() => {
-    if (!repoAnalysis) return;
-    const toolIds = functionalTestingTools.map((t) => t.id);
-    if (toolIds.length === 0) return;
-    setToolRecsLoading(true);
-    const projectName = repoAnalysis.name || repoAnalysis.full_name || "Project";
-    const allFiles = (repoAnalysis?.all_files ?? []).map((f) =>
-      typeof f === "string" ? f : (f?.path || "")
-    );
-    const depArtifacts = (repoAnalysis.dependencies ?? []).map((d) => d.artifact_id || "");
-    const lightContext = {
-      build_tool: repoAnalysis.build_tool,
-      detected_frameworks: repoAnalysis.detected_frameworks,
-      api_endpoints: repoAnalysis.api_endpoints,
-      dependencies: repoAnalysis.dependencies?.slice(0, 30),
-      all_file_names: allFiles.slice(0, 200),
-      dep_artifacts: depArtifacts.slice(0, 20),
-    };
-    getToolRecommendations(projectName, lightContext, toolIds)
-      .then((res) => {
-        if (res?.recommendations) setToolRecommendations(res.recommendations);
-      })
-      .catch(() => {
-        setToolRecommendations({});
-      })
-      .finally(() => setToolRecsLoading(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Auto-fetch scope preview when this step mounts, so tables show content immediately
-  useEffect(() => {
-    if (scopePreview || scopePreviewLoading || !repoAnalysis) return;
-    const autoFetch = async () => {
-      setScopePreviewLoading(true);
-      try {
-        const endpoints = repoAnalysis?.api_endpoints || [];
-        const uiRoutes = repoAnalysis?.uiRoutes || [];
-        const pageData = repoAnalysis?.page_data || {};
-        const result = await previewFunctionalTestScope(
-          selectedRepo?.name || repoUrl.split("/").pop()?.replace(".git", "") || "Project",
-          endpoints, uiRoutes, pageData,
-          functionalTestToolMethod.length > 0 ? functionalTestToolMethod : [],
-          repoUrl, currentToken || "",
-        );
-        setScopePreview(result);
-      } catch {
-        // Silent fail — user can still click Download to retry
-      } finally {
-        setScopePreviewLoading(false);
-      }
-    };
-    autoFetch();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const apiEndpointCount = repoAnalysis?.api_endpoints?.length ?? 0;
   void apiEndpointCount;
@@ -1963,10 +1901,71 @@ export function ModernizationStepView({
         />
       )}
 
+      {viewingTestFile && (
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 10001,
+          background: "rgba(15,23,42,0.7)", backdropFilter: "blur(4px)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          padding: 20,
+        }} onClick={() => setViewingTestFile(null)}>
+          <div style={{
+            background: "#fff", borderRadius: 14, maxWidth: 900, width: "100%",
+            maxHeight: "85vh", display: "flex", flexDirection: "column",
+            boxShadow: "0 25px 80px rgba(0,0,0,0.35)",
+          }} onClick={(e) => e.stopPropagation()}>
+            <div style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              padding: "16px 20px", borderBottom: "1px solid #e2e8f0",
+              background: "linear-gradient(135deg, #0f172a, #1e293b)",
+              borderRadius: "14px 14px 0 0",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 0 }}>
+                <span style={{ fontSize: 16 }}>📄</span>
+                <span style={{ fontWeight: 700, fontSize: 14, color: "#fff", fontFamily: "monospace", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {viewingTestFile.name}
+                </span>
+                <span style={{ fontSize: 11, color: "#94a3b8", fontFamily: "monospace", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {viewingTestFile.path}
+                </span>
+                <span style={{ fontSize: 10, background: "#22c55e30", color: "#22c55e", padding: "2px 7px", borderRadius: 4, fontWeight: 600, whiteSpace: "nowrap" }}>
+                  READ ONLY
+                </span>
+              </div>
+              <button onClick={() => setViewingTestFile(null)} style={{
+                background: "rgba(255,255,255,0.15)", border: "none", color: "#fff",
+                width: 30, height: 30, borderRadius: 8, cursor: "pointer",
+                fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center",
+              }}>✕</button>
+            </div>
+            <div style={{ overflow: "auto", flex: 1, background: "#0d1117", padding: 16 }}>
+              {testFileLoading ? (
+                <div style={{ textAlign: "center", padding: 40, color: "#94a3b8" }}>Loading...</div>
+              ) : (
+                <pre style={{
+                  margin: 0, fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
+                  fontSize: 13, lineHeight: 1.6, color: "#e2e8f0", whiteSpace: "pre-wrap", wordBreak: "break-all",
+                }}>{viewingTestFile.content || "// File content unavailable"}</pre>
+              )}
+            </div>
+            <div style={{
+              display: "flex", justifyContent: "flex-end", padding: "12px 20px",
+              borderTop: "1px solid #e2e8f0", background: "#f8fafc",
+              borderRadius: "0 0 14px 14px",
+            }}>
+              <button onClick={() => setViewingTestFile(null)} style={{
+                padding: "8px 20px", borderRadius: 8, border: "1px solid #e2e8f0",
+                background: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600,
+                color: "#475569",
+              }}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <TestReportsModal
         isOpen={showTestDetailModal}
         onClose={() => setShowTestDetailModal(false)}
-      data={testDetailReport}
+        data={testDetailReport}
       />
 
       <div style={styles.btnRow}>

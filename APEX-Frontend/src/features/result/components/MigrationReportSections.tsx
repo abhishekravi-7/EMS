@@ -1488,7 +1488,7 @@ export function MigrationUnitTestSection({
   const functionalRunnerCommands = functionalTesting?.runner_commands ?? [];
   const functionalExecution = functionalTesting?.execution ?? null;
   const functionalRunners = functionalExecution?.runners ?? [];
-  const functionalTestCases: Array<Record<string, unknown>> = functionalTesting?.test_cases ?? [];
+  const functionalTestCases = functionalTesting?.test_cases ?? [];
 
   // Config/scaffolding files to hide from the report list (still included in ZIP download)
   const CONFIG_FILE_NAMES = new Set([

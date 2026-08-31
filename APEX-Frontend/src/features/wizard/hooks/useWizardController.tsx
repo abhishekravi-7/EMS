@@ -182,7 +182,7 @@ const mergeMigrationSummaryIntoJob = (
   sonar_real_scan: summary.sonar_real_scan,
   sonar_analysis_url: summary.sonar_analysis_url ?? null,
   sonar_error_message: summary.sonar_error_message ?? null,
-  sonar_report: (summary as Record<string, unknown>).sonar_report ?? previous?.sonar_report ?? null,
+  sonar_report: summary.sonar_report ?? previous?.sonar_report ?? null,
   fossa_policy_status: summary.fossa_policy_status ?? null,
   fossa_total_dependencies: summary.fossa_total_dependencies,
   fossa_license_issues: summary.fossa_license_issues,
@@ -472,7 +472,7 @@ const loadZipSync = async () => {
   return zipSyncModulePromise;
 };
 
-const _parseJavaVersion = (version: string) => {
+const parseJavaVersion = (version: string) => {
   const parsed = parseInt(version, 10);
   return Number.isNaN(parsed) ? null : parsed;
 };
@@ -597,13 +597,13 @@ const buildCodeChangesFromPreviewDiffs = (fileDiffs: PreviewFileDiff[]): CodeCha
   });
 };
 
-const _isDetectedDependencyStatus = (status: string) => {
+const isDetectedDependencyStatus = (status: string) => {
   const normalizedStatus = status.trim().toLowerCase();
   return normalizedStatus === "upgraded" || normalizedStatus.startsWith("analyzing");
 };
 
-const _getDependencyStatusLabel = (status: string) => {
-  return _isDetectedDependencyStatus(status)
+const getDependencyStatusLabel = (status: string) => {
+  return isDetectedDependencyStatus(status)
     ? "ANALYZED"
     : status.replace(/_/g, " ").toUpperCase();
 };
@@ -1218,7 +1218,7 @@ export function useWizardController() {
     const hasThymeleaf = depArtifacts.some(a => a.includes("thymeleaf"));
     const hasJsp = depArtifacts.some(a => a.includes("jsp") || a.includes("jstl") || a.includes("servlet"));
 
-    const allFiles: string[] = (((repoAnalysis as Record<string, unknown> | undefined)?.all_files ?? []) as Array<string | { path?: string }>).map((f) =>
+    const allFiles: string[] = (repoAnalysis?.all_files ?? []).map((f) =>
       (typeof f === "string" ? f : (f?.path || "")).toLowerCase()
     );
 
@@ -1432,7 +1432,7 @@ export function useWizardController() {
 
 
   const hasUI = useMemo(() => {
-    const allFiles: string[] = (((repoAnalysis as Record<string, unknown> | undefined)?.all_files ?? []) as Array<string | { path?: string }>).map((f) =>
+    const allFiles: string[] = (repoAnalysis?.all_files ?? []).map((f) =>
       (typeof f === "string" ? f : (f?.path || "")).toLowerCase()
     );
     const deps = repoAnalysis?.dependencies ?? [];
@@ -1452,7 +1452,7 @@ export function useWizardController() {
   }, [repoAnalysis]);
 
   const localApiTestCases = useMemo(() => {
-    const eps = ((repoAnalysis as Record<string, unknown> | undefined)?.api_endpoints || []) as Array<Record<string, unknown>>;
+    const eps = repoAnalysis?.api_endpoints || [];
     return eps.slice(0, 50).map((ep, idx: number) => {
       const method = (ep.method || "GET").toUpperCase();
       const path = ep.path || "/";

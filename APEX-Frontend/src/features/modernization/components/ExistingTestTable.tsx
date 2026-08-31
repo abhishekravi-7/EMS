@@ -14,52 +14,10 @@ import {
   FaSpinner,
 } from "react-icons/fa";
 import { ExistingTestLogs } from "./ExistingTestLogs";
+import type { TestResult as ServiceTestResult, FileSummary as ServiceFileSummary, TestSelectionItem } from "../services/existingTestService";
 
-export interface TestResult {
-  testId?: string;
-  test_id?: string;
-  executionId?: string;
-  execution_id?: string;
-  test_name: string;
-  name?: string;
-  title?: string;
-  suite: string;
-  spec?: string;
-  status: "PASSED" | "FAILED" | "SKIPPED" | "ERROR" | "NOT_EXECUTED" | "RUNNING" | "PENDING";
-  duration: string;
-  file: string;
-  error?: string | null;
-  failure_message?: string | null;
-  type?: string;
-  testType?: string;
-  test_type?: string;
-  category?: string;
-  framework?: string;
-  stackTrace?: string | null;
-  stack_trace?: string | null;
-  rawLogs?: string;
-  logs?: Array<string | { ts?: string; level?: string; msg?: string }>;
-  report_url?: string;
-  screenshot_url?: string | null;
-  screenshotUrl?: string | null;
-  video_url?: string | null;
-  videoUrl?: string | null;
-  trace_url?: string | null;
-  traceUrl?: string | null;
-  api_evidence?: Record<string, unknown> | null;
-  evidence?: Record<string, unknown> | null;
-  unavailable_reason?: string | null;
-  unavailableReason?: string | null;
-}
-
-export interface FileSummary {
-  file: string;
-  total: number;
-  passed: number;
-  failed: number;
-  skipped: number;
-  not_executed?: number;
-}
+export type TestResult = ServiceTestResult;
+export type FileSummary = ServiceFileSummary;
 
 export interface LogEntry {
   ts: string;
@@ -73,11 +31,11 @@ interface ExistingTestTableProps {
   fileBreakdown?: FileSummary[];
   frameworkInfo?: {
     detected_framework?: string;
-    build_tool?: string;
+    build_tool?: string | null;
     test_source_dir?: string;
   };
   logs?: LogEntry[];
-  onSelectTest: (test: TestResult) => void;
+  onSelectTest: (test: TestResult | TestSelectionItem) => void;
   onRunAgain?: () => void;
   isRunning?: boolean;
   hasRun?: boolean;

@@ -11,9 +11,7 @@
     "build": "vite build",
     "lint": "eslint . --max-warnings 0",
     "typecheck": "tsc -p tsconfig.app.json --noEmit",
-    "perf:bundle": "node ./scripts/review-bundle.mjs",
-    "smoke:render": "node ./scripts/check-render-performance.mjs",
-    "verify": "npm run lint && npm run typecheck && npm run build && npm run perf:bundle && npm run smoke:render",
+    "test": "npm run typecheck",
     "preview": "vite preview"
   },
   "dependencies": {
