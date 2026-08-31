@@ -351,7 +351,7 @@ def _configured_java_executable(java_home: str | None) -> str | None:
         java_home_path = Path(java_home)
         java_executable = java_home_path / "bin" / ("java.exe" if os.name == "nt" else "java")
         return str(java_executable) if java_executable.is_file() else None
-    except Exception:
+    except Exception:  # noqa: BLE001
         return None
 
 
@@ -365,7 +365,7 @@ def _infer_java_home(executable: str | None) -> str | None:
             candidate = exec_path.parent.parent
             if (candidate / "bin").is_dir():
                 return str(candidate)
-    except Exception:
+    except (OSError, ValueError):
         pass
     ambient_home = (os.environ.get("JAVA_HOME") or "").strip()
     if ambient_home and Path(ambient_home).is_dir():

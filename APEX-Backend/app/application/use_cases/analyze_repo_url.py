@@ -10,7 +10,6 @@ Used by ``GET /api/github/analyze-url`` for the wizard's no-jobId path.
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import Any
 from uuid import uuid4
 

@@ -58,7 +58,7 @@ class ProposedTestExecutor:
             self.log_fn(f"[PROPOSED TESTS] {test.id} finished with status: {status_label} in {res.duration}")
             return res
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             elapsed = round(time.time() - start_time, 2)
             self.log_fn(f"[PROPOSED TESTS] {test.id} execution failed with error: {e}", "ERROR")
             return ExecutionResult(
@@ -97,7 +97,7 @@ class ProposedTestExecutor:
             ),
             StepExecutionRecord(
                 step_number=2,
-                description=f"Send request and receive HTTP response",
+                description="Send request and receive HTTP response",
                 status=ProposedTestStatus.PASSED,
                 duration="0.08s",
             ),
@@ -238,8 +238,8 @@ class ProposedTestExecutor:
             svg_file = test_dir / "screenshot.svg"
             svg_file.write_text(svg_content, encoding="utf-8")
             screenshot_available = True
-        except Exception:
-            pass
+        except Exception:  # noqa: BLE001, S110
+            pass  # nosec B110
 
         log_file = test_dir / "browser_steps.log"
         steps_log = (

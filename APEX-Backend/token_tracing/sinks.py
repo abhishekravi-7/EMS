@@ -56,7 +56,7 @@ class JsonlTraceSink:
                 self.path.parent.mkdir(parents=True, exist_ok=True)
                 with open(self.path, "a", encoding="utf-8") as fh:
                     fh.write(line + "\n")
-        except Exception as exc:  # pragma: no cover - defensive, must never raise
+        except Exception as exc:  # pragma: no cover - defensive, must never raise  # noqa: BLE001
             logger.warning("[USAGE] could not write trace log: %s", exc)
 
     def append_raw(self, entry: dict) -> None:
@@ -71,7 +71,7 @@ class JsonlTraceSink:
                 self.path.parent.mkdir(parents=True, exist_ok=True)
                 with open(self.path, "a", encoding="utf-8") as fh:
                     fh.write(line + "\n")
-        except Exception as exc:  # pragma: no cover - defensive, must never raise
+        except Exception as exc:  # pragma: no cover - defensive, must never raise  # noqa: BLE001
             logger.warning("[USAGE] could not write trace log: %s", exc)
 
 

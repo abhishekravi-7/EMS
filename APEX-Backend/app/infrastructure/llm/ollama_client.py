@@ -16,11 +16,10 @@ from __future__ import annotations
 
 import json
 import logging
-import asyncio
+import threading
 from collections.abc import AsyncIterator
 
 import httpx
-import threading
 
 from app.core.config import settings
 from app.core.exceptions import ChatLLMServiceError

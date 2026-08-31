@@ -9,14 +9,17 @@ other LLM-backed features in this package can reuse it.
 from __future__ import annotations
 
 import json
+import logging
 import time
 from typing import Any
 
 import httpx
-import token_tracing as tt
 
+import token_tracing as tt
 from app.core.config import settings
 from app.core.exceptions import LLMNotConfiguredError, LLMServiceError
+
+logger = logging.getLogger(__name__)
 
 
 class HuggingFaceClient:
@@ -91,8 +94,8 @@ class HuggingFaceClient:
                     endpoint="java_version_recommendation",
                     error=error,
                 )
-            except Exception:
-                pass
+            except Exception as e:  # noqa: BLE001
+                logger.debug("Non-fatal: Token tracer failed: %s", e)
 
     @staticmethod
     def _extract_json(content: str) -> dict[str, Any]:

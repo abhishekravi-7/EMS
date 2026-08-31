@@ -12,6 +12,7 @@ Kept pure: input is the report ``dict``, output is a list of
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -264,8 +265,6 @@ def build_migration_chunks(report: dict[str, Any]) -> list[KnowledgeChunk]:
 
     return chunks
 
-
-import re
 
 def chunk_java_file(content: str, file_path: str, version: str) -> list[KnowledgeChunk]:
     """Perform logical class-and-method code-aware chunking for Java files."""

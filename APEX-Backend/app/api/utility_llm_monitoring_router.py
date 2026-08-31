@@ -11,21 +11,20 @@ Provides REST APIs for querying LLM token usage statistics, including:
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
 import logging
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
-from app.core.config import settings
 from app.infrastructure.persistence.database import get_db
 from app.infrastructure.persistence.llm_token_repository import LLMTokenRepository
-from app.infrastructure.persistence.models import LLMTokenUsage, User
+from app.infrastructure.persistence.models import LLMTokenUsage
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +38,7 @@ _DASHBOARD_HTML_PATH = Path(__file__).resolve().parents[2] / "token_tracing" / "
 async def get_token_usage_summary(
     request: Request,
     days: int = 7,
-    db: Session | None = Depends(get_db),
+    db: Session | None = Depends(get_db),  # noqa: B008
 ) -> dict[str, Any]:
     """Get token usage summary statistics for the user."""
     if db is None:
@@ -85,7 +84,7 @@ async def get_token_usage_dashboard() -> HTMLResponse:
 async def get_token_usage_dashboard_summary(
     request: Request,
     days: int = 7,
-    db: Session | None = Depends(get_db),
+    db: Session | None = Depends(get_db),  # noqa: B008
 ) -> dict[str, Any]:
     """Return dashboard-shaped summary data for the authenticated user."""
     if db is None:
@@ -105,7 +104,7 @@ async def get_token_usage_dashboard_records(
     endpoint: str | None = None,
     provider: str | None = None,
     error: str = "",
-    db: Session | None = Depends(get_db),
+    db: Session | None = Depends(get_db),  # noqa: B008
 ) -> dict[str, Any]:
     """Return dashboard-shaped recent records for the authenticated user."""
     if db is None:
@@ -134,7 +133,7 @@ async def get_recent_token_usage(
     request: Request,
     limit: int = 50,
     provider: str | None = None,
-    db: Session | None = Depends(get_db),
+    db: Session | None = Depends(get_db),  # noqa: B008
 ) -> list[dict[str, Any]]:
     """Get recent token usage records for the user."""
     if db is None:
@@ -176,7 +175,7 @@ async def get_provider_usage(
     request: Request,
     provider: str,
     limit: int = 50,
-    db: Session | None = Depends(get_db),
+    db: Session | None = Depends(get_db),  # noqa: B008
 ) -> list[dict[str, Any]]:
     """Get token usage records for a specific provider."""
     if db is None:
@@ -217,7 +216,7 @@ async def get_provider_usage(
 async def get_model_statistics(
     request: Request,
     days: int = 7,
-    db: Session | None = Depends(get_db),
+    db: Session | None = Depends(get_db),  # noqa: B008
 ) -> list[dict[str, Any]]:
     """Get token usage statistics grouped by model."""
     if db is None:
@@ -236,7 +235,7 @@ async def get_model_statistics(
 async def get_hourly_statistics(
     request: Request,
     hours: int = 24,
-    db: Session | None = Depends(get_db),
+    db: Session | None = Depends(get_db),  # noqa: B008
 ) -> list[dict[str, Any]]:
     """Get token usage statistics grouped by hour."""
     if db is None:
@@ -255,7 +254,7 @@ async def get_hourly_statistics(
 async def get_fallback_statistics(
     request: Request,
     days: int = 7,
-    db: Session | None = Depends(get_db),
+    db: Session | None = Depends(get_db),  # noqa: B008
 ) -> dict[str, Any]:
     """Get statistics about fallback events (Ollama -> Groq)."""
     if db is None:
@@ -281,8 +280,8 @@ async def get_fallback_statistics(
 @router.get("/health/llm-providers")
 async def check_llm_providers() -> dict[str, Any]:
     """Check the health and availability of configured LLM providers."""
-    from app.infrastructure.llm.ollama_client import OllamaClient
     from app.infrastructure.llm.groq_client import GroqClient
+    from app.infrastructure.llm.ollama_client import OllamaClient
     
     ollama = OllamaClient()
     groq = GroqClient()
@@ -366,7 +365,7 @@ def _fetch_dashboard_records(
             record["prompt_cache_hit"] = bool(cached > 0)
             records.append(record)
         return records
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"Error fetching dashboard records: {e}")
         return []
 

@@ -35,8 +35,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-ACCESS_TOKEN_COOKIE = "access_token"
-REFRESH_TOKEN_COOKIE = "refresh_token"
+ACCESS_TOKEN_COOKIE = "access_token"  # nosec B105
+REFRESH_TOKEN_COOKIE = "refresh_token"  # nosec B105
 
 # HttpOnly cookie holding the PKCE code_verifier between "/google/login" and
 # "/google/callback" (see app.core.security.generate_pkce_pair). GitHub's
@@ -128,7 +128,7 @@ def _auth_error_response(exc: AuthError) -> JSONResponse:
     status_code=201,
     summary="Create a new account (email + password).",
 )
-async def signup(payload: SignupRequest, db: Session = Depends(get_db)) -> JSONResponse:
+async def signup(payload: SignupRequest, db: Session = Depends(get_db)) -> JSONResponse:  # noqa: B008
     """Creates the user and returns it. Does NOT log the user in — no cookies
     are set here, matching the frontend's "redirect to Sign In after signup"
     flow. No token or session is fabricated for an unverified new account.
@@ -151,15 +151,15 @@ async def signup(payload: SignupRequest, db: Session = Depends(get_db)) -> JSONR
     response_model=AuthResponse,
     summary="Sign in with email and password.",
 )
-async def login(payload: LoginRequest, db: Session | None = Depends(get_db_optional)) -> JSONResponse:
+async def login(payload: LoginRequest, db: Session | None = Depends(get_db_optional)) -> JSONResponse:  # noqa: B008
     # Special-case: when the database is disabled the backend supports a
     # single static login for convenience (no persistent users). When the
     # DB is enabled the normal AuthService flow is used.
     if db is None:
-        # Static credentials (non-production convenience)
-        static_email = "javaapex@gmail.com"
-        static_password = "javaapex1234"
-        if payload.email != static_email or payload.password != static_password:
+        # Static credentials (non-production convenience, configured via settings/env)
+        dev_email = settings.dev_static_user_email
+        dev_pass = settings.dev_static_user_password
+        if payload.email != dev_email or payload.password != dev_pass:
             return _auth_error_response(InvalidCredentialsError())
 
         # Fabricate a lightweight User-like object for the response body.
@@ -168,7 +168,7 @@ async def login(payload: LoginRequest, db: Session | None = Depends(get_db_optio
         fake_user = User()
         fake_user.id = 0
         fake_user.full_name = "Java APEX"
-        fake_user.email = static_email
+        fake_user.email = dev_email
         fake_user.role = "USER"
         fake_user.is_active = True
         fake_user.is_email_verified = True
@@ -221,7 +221,7 @@ async def login(payload: LoginRequest, db: Session | None = Depends(get_db_optio
     response_model=UserResponse,
     summary="The currently authenticated user.",
 )
-async def get_current_user_info(current_user: User = Depends(get_current_user)) -> JSONResponse:
+async def get_current_user_info(current_user: User = Depends(get_current_user)) -> JSONResponse:  # noqa: B008
     # `get_current_user` (see app/api/deps.py) already raised HTTP 401 for
     # every invalid case — reaching this line means the caller is logged in.
     body = UserResponse.model_validate(current_user).model_dump(by_alias=True, mode="json")
@@ -233,7 +233,7 @@ async def get_current_user_info(current_user: User = Depends(get_current_user)) 
     response_model=MessageResponse,
     summary="Rotate the access/refresh token pair.",
 )
-async def refresh(request: Request, db: Session = Depends(get_db)) -> JSONResponse:
+async def refresh(request: Request, db: Session = Depends(get_db)) -> JSONResponse:  # noqa: B008
     raw_refresh_token = request.cookies.get(REFRESH_TOKEN_COOKIE)
     if not raw_refresh_token:
         return JSONResponse(status_code=401, content={"detail": "Refresh token is missing."})
@@ -254,7 +254,7 @@ async def refresh(request: Request, db: Session = Depends(get_db)) -> JSONRespon
     response_model=MessageResponse,
     summary="Sign out and revoke the refresh token.",
 )
-async def logout(request: Request, db: Session = Depends(get_db)) -> JSONResponse:
+async def logout(request: Request, db: Session = Depends(get_db)) -> JSONResponse:  # noqa: B008
     # No get_current_user dependency here on purpose: logout must succeed
     # even when the access token is already expired/missing — only the
     # refresh token cookie matters for revocation.
@@ -313,7 +313,7 @@ async def google_login() -> RedirectResponse:
 
 
 @router.get("/google/callback", summary="Google's OAuth redirect target.")
-async def google_callback(request: Request, db: Session = Depends(get_db)) -> RedirectResponse:
+async def google_callback(request: Request, db: Session = Depends(get_db)) -> RedirectResponse:  # noqa: B008
     if request.query_params.get("error"):
         logger.info("Google OAuth denied/cancelled by the user.")
         return _oauth_error_redirect("access_denied")
@@ -371,7 +371,7 @@ async def github_login() -> RedirectResponse:
 
 
 @router.get("/github/callback", summary="GitHub's OAuth redirect target.")
-async def github_callback(request: Request, db: Session = Depends(get_db)) -> RedirectResponse:
+async def github_callback(request: Request, db: Session = Depends(get_db)) -> RedirectResponse:  # noqa: B008
     if request.query_params.get("error"):
         logger.info("GitHub OAuth denied/cancelled by the user.")
         return _oauth_error_redirect("access_denied")

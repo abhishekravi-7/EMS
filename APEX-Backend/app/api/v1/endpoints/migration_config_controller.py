@@ -13,9 +13,9 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, verify_job_ownership
 from app.application.pipelines.migration_config_pipeline import MigrationConfigPipeline
 from app.core.exceptions import MigrationConfigError
+from app.infrastructure.migration_engine.recipe_mapper import load_catalog
 from app.infrastructure.persistence.database import get_db
 from app.infrastructure.persistence.models import User
-from app.infrastructure.migration_engine.recipe_mapper import load_catalog
 from app.schemas.migration_config_schema import (
     MigrationConfigRequest,
     MigrationConfigResponse,
@@ -74,8 +74,8 @@ def _recipe_items() -> list[dict[str, str]]:
 async def save_migration_config(
     job_id: str,
     payload: MigrationConfigRequest,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
 ) -> JSONResponse:
     """Persist the migration configuration for the job.
 

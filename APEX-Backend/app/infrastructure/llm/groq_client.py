@@ -7,13 +7,13 @@ Groq exposes an OpenAI-compatible chat completions API, so this is a thin
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import threading
 from collections.abc import AsyncIterator
 
 import httpx
-import asyncio
-import threading
 
 from app.core.config import settings
 from app.core.exceptions import ChatLLMNotConfiguredError, ChatLLMServiceError

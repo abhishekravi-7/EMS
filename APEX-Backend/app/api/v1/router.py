@@ -7,17 +7,17 @@ Connect, Discovery, and Migration Config endpoints are wired. Later stages
 from fastapi import APIRouter
 
 from app.api.v1.endpoints import (
+    admin_settings_controller,
     connect_controller,
     discovery_controller,
     docs_controller,
-    migration_config_controller,
-    migration_execution_controller,
-    support_controller,
-    unit_test_controller,
     existing_test_controller,
     existing_test_report_controller,
+    migration_config_controller,
+    migration_execution_controller,
     proposed_test_controller,
-    admin_settings_controller,
+    support_controller,
+    unit_test_controller,
 )
 
 api_router = APIRouter()

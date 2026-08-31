@@ -1,4 +1,5 @@
 import psycopg
+
 try:
     conn = psycopg.connect("postgresql://postgres:1234%40@localhost:5436/java_apex_db")
     cur = conn.cursor()
@@ -6,5 +7,5 @@ try:
     columns = [row[0] for row in cur.fetchall()]
     print(f"Columns: {columns}")
     conn.close()
-except Exception as e:
+except Exception as e:  # noqa: BLE001
     print(f"Error: {e}")

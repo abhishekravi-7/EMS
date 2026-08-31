@@ -17,12 +17,12 @@ def write_json(path: Path, data: Any) -> Path:
     try:
         tmp_path.write_text(payload, encoding="utf-8")
         os.replace(tmp_path, path)
-    except Exception:
+    except OSError:
         path.write_text(payload, encoding="utf-8")
         if tmp_path.exists():
             try:
                 tmp_path.unlink(missing_ok=True)
-            except Exception:
+            except OSError:
                 pass
     return path
 

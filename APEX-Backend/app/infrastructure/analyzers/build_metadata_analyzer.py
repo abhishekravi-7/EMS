@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from xml.etree.ElementTree import Element
+from xml.etree.ElementTree import Element  # nosec B405 - type annotation only; callers parse via defusedxml
 
 from app.infrastructure.analyzers.dependency_analyzer import Dependency
 

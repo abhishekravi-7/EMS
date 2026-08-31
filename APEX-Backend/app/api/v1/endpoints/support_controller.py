@@ -18,7 +18,7 @@ _use_case = SubmitSupportTicketUseCase()
 @router.post("/support/tickets", summary="Submit a support ticket.")
 async def submit_ticket(
     payload: SupportTicketRequest,
-    _current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(get_current_user),  # noqa: B008
 ) -> JSONResponse:
     # Requires login (a support request is tied to a person, not anonymous).
     # `_current_user` is intentionally unused beyond gating access — the

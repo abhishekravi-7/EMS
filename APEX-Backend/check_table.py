@@ -1,4 +1,5 @@
 import psycopg
+
 try:
     conn = psycopg.connect("postgresql://postgres:1234%40@localhost:5436/java_apex_db")
     cur = conn.cursor()
@@ -9,5 +10,5 @@ try:
         cur.execute("SELECT COUNT(*) FROM llm_token_usage")
         print(f"Count: {cur.fetchone()[0]}")
     conn.close()
-except Exception as e:
+except Exception as e:  # noqa: BLE001
     print(f"Error: {e}")

@@ -172,7 +172,7 @@ def build_user_prompt(
             role = "User" if msg.get("role") == "user" else "Assistant"
             content = msg.get("content", "")
             # Skip empty or loading state messages
-            if content and not content.strip() in ("Reading strategy page", "Using page context", "Preparing answer"):
+            if content and content.strip() not in ("Reading strategy page", "Using page context", "Preparing answer"):
                 # Strip heavy elements from assistant responses to save tokens
                 if role == "Assistant":
                     content = _clean_history_content(content)

@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 import uuid
+
 import pytest
+
 from app.application.services.status_service import MigrationReportStore
-from app.infrastructure.workspace.workspace_paths import WorkspacePaths
-from app.infrastructure.persistence.models import User
 from app.infrastructure.persistence.job_repository import JobRepository
+from app.infrastructure.persistence.models import User
+from app.infrastructure.workspace.workspace_paths import WorkspacePaths
 
 
 @pytest.fixture
@@ -86,9 +88,9 @@ async def test_migration_endpoints_non_blocking_async_execution(tmp_path, monkey
     """Verify that migration_summary, detail, logs, and start endpoints run asynchronously without blocking."""
     monkeypatch.setattr("app.core.config.settings.storage_dir", tmp_path)
     from app.api.v1.endpoints.migration_execution_controller import (
-        migration_summary,
         migration_detail,
         migration_logs,
+        migration_summary,
     )
 
     job_id = f"job_mig_endpoints_{uuid.uuid4().hex[:8]}"

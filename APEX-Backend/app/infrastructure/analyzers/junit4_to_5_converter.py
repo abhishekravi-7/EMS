@@ -91,7 +91,7 @@ class JUnit4To5Modernizer:
                         "original_code": code,
                         "converted_code": junit5_code,
                     })
-            except Exception:
-                continue
+            except Exception:  # noqa: BLE001, S112
+                continue  # nosec B112
 
         return converted_files

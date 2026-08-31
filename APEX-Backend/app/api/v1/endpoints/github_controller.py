@@ -67,7 +67,7 @@ async def repo_visibility(
                 "owner": "",
                 "repo": "",
                 "visibility": "unknown",
-                "requires_token": False,
+                "requires_token": False,  # nosec B105
                 "message": exc.message,
             },
         )
@@ -80,7 +80,7 @@ async def repo_visibility(
                 "owner": access.owner,
                 "repo": access.repo_name,
                 "visibility": access.visibility.lower(),
-                "requires_token": False,
+                "requires_token": False,  # nosec B105
                 "message": "Repository access verified.",
             },
         )
@@ -93,7 +93,7 @@ async def repo_visibility(
                 "owner": parsed.owner,
                 "repo": parsed.repo,
                 "visibility": "private_or_inaccessible",
-                "requires_token": True,
+                "requires_token": True,  # nosec B105
                 "message": exc.message,
             },
         )
@@ -105,7 +105,7 @@ async def repo_visibility(
                 "owner": parsed.owner,
                 "repo": parsed.repo,
                 "visibility": "private_or_inaccessible" if requires_token else "unknown",
-                "requires_token": requires_token,
+                "requires_token": requires_token,  # nosec B105
                 "message": exc.message,
             },
         )
@@ -116,7 +116,7 @@ async def repo_visibility(
                 "owner": parsed.owner,
                 "repo": parsed.repo,
                 "visibility": "unknown",
-                "requires_token": False,
+                "requires_token": False,  # nosec B105
                 "message": exc.message,
             },
         )

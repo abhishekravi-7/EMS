@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import uuid
-import pytest
-from app.infrastructure.workspace.workspace_paths import WorkspacePaths
+
 from app.application.use_cases.existing_test_runner_service import ExistingTestRunnerService
+from app.infrastructure.workspace.workspace_paths import WorkspacePaths
 
 
 def test_canonical_test_identifier_matches_equivalent_representations():
@@ -323,7 +323,7 @@ def test_playwright_video_evidence_passed_and_failed_tests(tmp_path):
             "test_id": "com.example.AuthenticationTests#authentication(Page)"
         }
         has_video = vid_path.is_file() and vid_path.stat().st_size > 0
-        video_url = f"/api/v1/migration/job_123/tests/test/evidence/video" if has_video else None
+        video_url = "/api/v1/migration/job_123/tests/test/evidence/video" if has_video else None
 
         tc["evidence"] = {
             "videoAvailable": has_video,

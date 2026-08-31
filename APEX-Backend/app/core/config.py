@@ -258,6 +258,9 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 120
     refresh_token_expire_days: int = 7
+    # Static development login credentials (used only when database is disabled in dev mode)
+    dev_static_user_email: str = Field(default="javaapex@gmail.com", alias="DEV_STATIC_USER_EMAIL")
+    dev_static_user_password: str = Field(default="javaapex1234", alias="DEV_STATIC_USER_PASSWORD")
 
     # --- Firebase (New Authentication) ------------------------------------------
     # Service account credentials for Firebase Admin SDK.

@@ -1,12 +1,12 @@
-import os
-import re
 import asyncio
-import logging
-import urllib.parse
 import html as html_module
+import logging
+import re
+import urllib.parse
 from pathlib import Path
-from fastapi import APIRouter, Depends, HTTPException, Response
-from fastapi.responses import HTMLResponse, FileResponse, PlainTextResponse, JSONResponse
+
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, verify_job_ownership
@@ -47,8 +47,8 @@ def _safe_resolve(base_dir: Path, relative: str) -> Path:
     resolved = (base_dir / relative).resolve()
     try:
         resolved.relative_to(base_dir.resolve())
-    except ValueError:
-        raise HTTPException(status_code=403, detail="Access denied: path traversal detected")
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail="Access denied: path traversal detected") from exc
     return resolved
 
 def _serve_candidate(candidate: Path, evidence_base: Path, job_id: str):
@@ -72,20 +72,17 @@ def _serve_candidate(candidate: Path, evidence_base: Path, job_id: str):
             rel_subpath = ""
             try:
                 rel_subpath = str(candidate.parent.relative_to(evidence_base)).replace("\\", "/")
-            except Exception:
-                pass
+            except ValueError:
+                rel_subpath = ""
             return HTMLResponse(
                 content=_inject_base_tag(content, job_id, subpath=rel_subpath),
                 headers={"Cache-Control": "no-cache"}
             )
-        except Exception:
+        except OSError:
             return FileResponse(str(candidate))
 
     return FileResponse(str(candidate))
 
-
-import urllib.parse
-from fastapi import Request
 
 def _range_stream_video(file_path: Path, request: Request, media_type: str = "video/webm") -> Response:
     """Stream video with HTTP 206 Partial Content support for browser seeking."""
@@ -140,7 +137,7 @@ def _range_stream_video(file_path: Path, request: Request, media_type: str = "vi
 async def serve_ui_test_screenshot(
     job_id: str,
     test_id: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db)  # noqa: B008
 ):
     """Serve the screenshot image for a specific UI test case."""
     paths = WorkspacePaths(job_id)
@@ -254,7 +251,7 @@ async def serve_ui_test_video(
     job_id: str,
     test_id: str,
     request: Request,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db)  # noqa: B008
 ):
     """Stream the video recording for a specific UI test case with range request support."""
     paths = WorkspacePaths(job_id)
@@ -346,8 +343,8 @@ async def serve_ui_test_video(
 async def serve_individual_test_report(
     job_id: str,
     test_id: str,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session = Depends(get_db)  # noqa: B008
 ):
     """Download individual test report JSON / metadata."""
     verify_job_ownership(db, job_id, current_user)
@@ -374,8 +371,8 @@ async def serve_individual_test_report(
 async def serve_individual_test_logs(
     job_id: str,
     test_id: str,
-    current_user: User = Depends(get_current_user),
-    db: Session | None = Depends(get_db_optional)
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session | None = Depends(get_db_optional)  # noqa: B008
 ):
     """Download test execution logs."""
     await asyncio.to_thread(verify_job_ownership, db, job_id, current_user)
@@ -458,8 +455,8 @@ async def serve_individual_test_logs(
 @router.get("/existing-tests/report/{job_id}/download")
 async def download_full_test_report(
     job_id: str,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session = Depends(get_db)  # noqa: B008
 ):
     """Download full test report HTML or JSON summary."""
     verify_job_ownership(db, job_id, current_user)
@@ -515,8 +512,8 @@ async def download_full_test_report(
 async def serve_existing_test_report_file(
     job_id: str,
     file_path: str = "",
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session = Depends(get_db)  # noqa: B008
 ):
     """
     Serves report files for a job from multiple possible base directories.
@@ -553,8 +550,8 @@ async def serve_existing_test_report_file(
                 # Path traversal attempt — propagate immediately
                 raise
             # 404 or other — try next base
-        except Exception:
-            pass  # Try next base
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Failed to resolve or serve candidate path under %s: %s", base_dir, exc)
 
     raise HTTPException(
         status_code=404,

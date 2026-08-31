@@ -34,7 +34,7 @@ def is_path_excluded(path: Path | str) -> bool:
             return True
         if "/storage/" in p_str or p_str.startswith("storage/") or "/logs/" in p_str:
             return True
-    except Exception:
+    except Exception:  # noqa: BLE001, S110
         pass
     return False
 
@@ -56,7 +56,7 @@ def _patch_watchers() -> None:
                 return orig_default_call(self, change, raw_path)
 
             wf.DefaultFilter.__call__ = safe_default_call  # type: ignore[method-assign]
-    except Exception:
+    except Exception:  # noqa: BLE001, S110
         pass
 
     try:
@@ -70,7 +70,7 @@ def _patch_watchers() -> None:
             return orig_file_filter_call(self, path)
 
         FileFilter.__call__ = safe_file_filter_call  # type: ignore[method-assign]
-    except Exception:
+    except Exception:  # noqa: BLE001, S110
         pass
 
     try:
@@ -84,7 +84,7 @@ def _patch_watchers() -> None:
                     yield p
 
         StatReload.iter_py_files = safe_iter_py  # type: ignore[method-assign]
-    except Exception:
+    except Exception:  # noqa: BLE001, S110
         pass
 
 

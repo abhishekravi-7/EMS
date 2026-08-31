@@ -9,8 +9,8 @@ Synchronous (embedding + Qdrant are sync); async callers use
 layer up (in the use case) to avoid an import cycle.
 """
 
-import time
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any
 

@@ -7,21 +7,24 @@ Provides authentication resolvers (`get_current_user`), authorization checks
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
+
 from fastapi import Depends, Header, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.application.services.auth_service import AuthService
-from app.core import security
 from app.core.config import settings
-from app.core.context import user_id_ctx, job_id_ctx
+from app.core.context import job_id_ctx, user_id_ctx
 from app.core.exceptions import NotAuthenticatedError
 from app.infrastructure.auth.firebase_auth import is_firebase_token, verify_firebase_token
-from app.infrastructure.persistence.database import get_db, get_db_optional
+from app.infrastructure.persistence.database import get_db_optional
 from app.infrastructure.persistence.migration_ownership_repository import get_job_owner_user_id
 from app.infrastructure.persistence.models import User
 
-ACCESS_TOKEN_COOKIE_NAME = "access_token"
+logger = logging.getLogger(__name__)
+
+ACCESS_TOKEN_COOKIE_NAME = "access_token"  # nosec B105
 _BEARER_PREFIX = "bearer "
 
 def _get_mock_user() -> User:
@@ -38,7 +41,7 @@ def _get_mock_user() -> User:
     user_id_ctx.set(fake_user.id)
     return fake_user
 
-async def get_current_user(request: Request, db: Session | None = Depends(get_db_optional)) -> User:
+async def get_current_user(request: Request, db: Session | None = Depends(get_db_optional)) -> User:  # noqa: B008
     """Resolve the logged-in user.
 
     Supports:
@@ -49,7 +52,7 @@ async def get_current_user(request: Request, db: Session | None = Depends(get_db
     5. PostgreSQL-disabled JWT signature validation & shadow user context.
     """
     auth_header = request.headers.get("Authorization", "")
-    bearer_token = ""
+    bearer_token = ""  # nosec B105
     if auth_header and auth_header.lower().startswith(_BEARER_PREFIX):
         bearer_token = auth_header[len(_BEARER_PREFIX):].strip()
 
@@ -87,9 +90,9 @@ def verify_job_ownership(db: Session | None, job_id: str, current_user: User) ->
     When PostgreSQL is disabled, verifies that the job exists on filesystem storage, in report cache, or in active existing-test runner.
     """
     if db is None or not settings.database_enabled:
-        from app.infrastructure.persistence.job_repository import JobRepository
         from app.application.services.status_service import _REPORT_CACHE
         from app.application.use_cases.existing_test_runner_service import existing_test_runner_service
+        from app.infrastructure.persistence.job_repository import JobRepository
         if (
             not JobRepository().job_exists(job_id)
             and job_id not in _REPORT_CACHE
@@ -104,11 +107,11 @@ def verify_job_ownership(db: Session | None, job_id: str, current_user: User) ->
 
     owner_user_id = get_job_owner_user_id(db, job_id)
     if owner_user_id is None:
-        from app.infrastructure.persistence.job_repository import JobRepository
-        from app.infrastructure.persistence.report_repository import load_report_from_db
-        from app.infrastructure.persistence.existing_test_repository import existing_test_state_exists_in_db
         from app.application.services.status_service import _REPORT_CACHE
         from app.application.use_cases.existing_test_runner_service import existing_test_runner_service
+        from app.infrastructure.persistence.existing_test_repository import existing_test_state_exists_in_db
+        from app.infrastructure.persistence.job_repository import JobRepository
+        from app.infrastructure.persistence.report_repository import load_report_from_db
         if (
             JobRepository().job_exists(job_id)
             or job_id in _REPORT_CACHE
@@ -120,8 +123,8 @@ def verify_job_ownership(db: Session | None, job_id: str, current_user: User) ->
             try:
                 record_job_owner(db, job_id=job_id, user_id=current_user.id)
                 owner_user_id = current_user.id
-            except Exception:
-                pass
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Could not record job owner for job %s: %s", job_id, exc)
 
     if owner_user_id is None:
         raise HTTPException(

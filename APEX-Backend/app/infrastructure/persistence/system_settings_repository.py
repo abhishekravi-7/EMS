@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.orm import Session
+
 from app.infrastructure.persistence.models import SystemSetting
+
 
 class SystemSettingsRepository:
     """Handles persistence for system-wide configuration overrides."""

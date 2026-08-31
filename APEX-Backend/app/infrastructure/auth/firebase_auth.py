@@ -1,12 +1,14 @@
-from datetime import datetime, timezone
-from typing import Optional, Dict
 import logging
+from datetime import datetime, timezone
+from typing import Dict, Optional
+
 import jwt
 from jwt import PyJWKClient
 
 try:
     import firebase_admin
-    from firebase_admin import auth as firebase_auth, credentials
+    from firebase_admin import auth as firebase_auth
+    from firebase_admin import credentials
 except ImportError:
     firebase_admin = None
     firebase_auth = None
@@ -46,9 +48,8 @@ def is_firebase_token(token: str) -> bool:
         iss = unverified_payload.get("iss", "")
         if "securetoken.google.com" in iss:
             return True
-    except Exception:
-        pass
-    return False
+    except Exception:  # noqa: BLE001
+        return False
 
 
 # Initialize Firebase Admin SDK
@@ -93,7 +94,7 @@ def _verify_and_decode_firebase_token(token: str) -> Dict:
     if firebase_auth is not None and firebase_admin is not None and getattr(firebase_admin, "_apps", None):
         try:
             return firebase_auth.verify_id_token(token)
-        except Exception as admin_err:
+        except Exception as admin_err:  # noqa: BLE001
             logger.debug("Firebase Admin SDK verification failed, attempting JWKS fallback: %s", admin_err)
 
     # 2. Cryptographic verification with Google's JWKS public keys via PyJWT
@@ -163,15 +164,15 @@ async def verify_firebase_token(
         return user
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"Firebase token verification failed: {e}")
-        raise HTTPException(status_code=401, detail="Invalid or expired authentication token.")
+        raise HTTPException(status_code=401, detail="Invalid or expired authentication token.") from e
 
 # Reusable security scheme
 auth_scheme = HTTPBearer()
 
 async def get_firebase_user(
     db: Optional[Session],
-    auth_creds: HTTPAuthorizationCredentials = Security(auth_scheme)
+    auth_creds: HTTPAuthorizationCredentials = Security(auth_scheme)  # noqa: B008
 ) -> User:
     return await verify_firebase_token(db, auth_creds.credentials)

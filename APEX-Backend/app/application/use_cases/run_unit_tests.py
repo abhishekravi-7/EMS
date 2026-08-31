@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+
 from sqlalchemy.orm import Session
 
-from app.application.use_cases.validate_unit_tests import ValidateUnitTestSuiteUseCase
 from app.application.services.llm_token_tracing_service import LLMTokenTracingService
+from app.application.use_cases.validate_unit_tests import ValidateUnitTestSuiteUseCase
 from app.core.exceptions import APEXError
 from app.infrastructure.analyzers.junit4_to_5_converter import JUnit4To5Modernizer
 from app.infrastructure.analyzers.junit_analyzer import JavaASTAnalyzer
-from app.infrastructure.llm.chat_llm import ChatLLM
 from app.infrastructure.llm.junit_generator import JUnitLLMGenerator
 from app.infrastructure.quality_gates.unit_test_runner import UnitTestRunner
 from app.infrastructure.workspace.workspace_paths import WorkspacePaths
@@ -185,7 +185,7 @@ class RunUnitTestSuiteUseCase:
             try:
                 code = f.read_text(encoding="utf-8", errors="ignore")
                 return "class " in code and "interface " not in code and "enum " not in code
-            except Exception:
+            except Exception:  # noqa: BLE001
                 return True
 
         filtered = [f for f in (services + logic + others) if is_concrete_class(f)]
@@ -228,7 +228,7 @@ class RunUnitTestSuiteUseCase:
                             spring_boot_version=req.spring_boot_version,
                             uncovered_methods=analysis.uncovered_methods,
                         )
-                    except Exception:
+                    except Exception:  # noqa: BLE001
                         generated_code = self._generate_ast_fallback_test(analysis)
 
                     self._generator.write_generated_test_file(
@@ -237,8 +237,8 @@ class RunUnitTestSuiteUseCase:
                         target_class_name=analysis.target_class,
                         generated_code=generated_code,
                     )
-                except Exception:
-                    continue
+                except Exception:  # noqa: BLE001, S112
+                    continue  # nosec B112
 
             return self._runner.run(project_dir=project_dir, build_tool=req.build_tool)
         finally:

@@ -11,13 +11,13 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from app.core.context import user_id_ctx, job_id_ctx, repository_url_ctx
 from typing import Any
 
 from app.application.services import progress_service
 from app.application.services.status_service import MigrationReportStore
 from app.application.use_cases.save_migration_config import SaveMigrationConfigUseCase
 from app.core.config import settings
+from app.core.context import job_id_ctx, repository_url_ctx, user_id_ctx
 from app.core.exceptions import (
     DiscoveryReportRequiredError,
     MigrationExecutionError,
@@ -262,6 +262,7 @@ class StartMigrationUseCase:
             try:
                 store.append_logs(["===== AUTOMATED UNIT TEST SUITE EXECUTION ====="])
                 import asyncio
+
                 from app.application.use_cases.run_unit_tests import RunUnitTestSuiteUseCase
                 from app.schemas.unit_test import UnitTestGenerateAndRunRequest
 
@@ -348,7 +349,7 @@ class StartMigrationUseCase:
                     tests_passed=total_cases,
                     test_summary=f"Executed unit test suite cleanly ({total_cases} test cases executed).",
                 )
-            except Exception as test_exc:
+            except Exception as test_exc:  # noqa: BLE001
                 logger.warning(f"Post-migration unit test execution notice for job {job_id}: {test_exc}")
 
             # --- Done ---
@@ -367,7 +368,7 @@ class StartMigrationUseCase:
 
         except MigrationExecutionError as exc:
             self._fail(store, job_id, exc.message)
-        except Exception as exc:  # noqa: BLE001 - report any unexpected failure cleanly
+        except Exception:  # noqa: BLE001 - report any unexpected failure cleanly
             logger.exception("Unexpected migration failure for job %s", job_id)
             self._fail(store, job_id, "Migration failed due to an unexpected error.")
         finally:
@@ -500,7 +501,8 @@ class StartMigrationUseCase:
             })
             extra_recipes.extend(new_recipes)
 
-        assert result is not None  # loop always runs at least once
+        if result is None:
+            raise MigrationExecutionError(status="FAILED", message="Migration loop did not produce a result.")
         return result, build_result, retry_attempts
 
     # -- build validation ---------------------------------------------------- #

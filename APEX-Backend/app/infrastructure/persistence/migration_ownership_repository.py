@@ -16,9 +16,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.infrastructure.persistence.models import MigrationJobOwner
-
 from app.core.config import settings
+from app.infrastructure.persistence.models import MigrationJobOwner
 
 logger = logging.getLogger(__name__)
 
