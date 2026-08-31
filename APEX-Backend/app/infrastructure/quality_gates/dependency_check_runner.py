@@ -7,7 +7,7 @@ import logging
 import os
 import re
 import shutil
-import subprocess
+import subprocess  # nosec B404
 import time
 from dataclasses import dataclass, field
 from pathlib import Path

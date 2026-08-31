@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from xml.etree.ElementTree import Element, ParseError  # noqa: S405
+from xml.etree.ElementTree import Element, ParseError  # nosec B405
 
 from defusedxml.ElementTree import fromstring  # nosec B405
 
