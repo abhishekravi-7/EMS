@@ -217,7 +217,7 @@ export function ExistingTestCoverage({
             onMouseEnter={(e) => (e.currentTarget.style.background = "#f1f5f9")}
             onMouseLeave={(e) => (e.currentTarget.style.background = "#f8fafc")}
           >
-            <FaPlay style={{ color: "#22c55e", fontSize: 10 }} /> Run All Again
+            <FaPlay style={{ color: "#22c55e", fontSize: 10 }} /> Run Again
           </button>
         </div>
       </div>

@@ -839,6 +839,24 @@ class ExistingTestRunnerService:
             }
         return {"status": "IDLE", "executed": False, "logs": []}
 
+    def get_logs(self, job_id: str) -> list[str]:
+        """Returns captured log lines for the given test job."""
+        status_data = self.get_status(job_id)
+        raw_logs = status_data.get("logs", [])
+        lines: list[str] = []
+        for item in raw_logs:
+            if isinstance(item, dict):
+                ts = item.get("ts", "")
+                lvl = item.get("level", "INFO")
+                msg = item.get("msg", "")
+                if ts:
+                    lines.append(f"[{ts}] [{lvl}] {msg}")
+                else:
+                    lines.append(f"[{lvl}] {msg}")
+            elif isinstance(item, str):
+                lines.append(item)
+        return lines
+
     def reset(self, job_id: str):
         logger.info("[EXISTING-TEST-JOB] Cleanup jobId=%s", job_id)
         with self._lock:

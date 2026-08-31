@@ -5,7 +5,7 @@ import { useAuth } from "@/shared/context/AuthContext";
 import AuthLayout from "../components/AuthLayout";
 import SocialAuthButtons from "../components/SocialAuthButtons";
 import PasswordInput from "../components/PasswordInput";
-import { signIn } from "../services/authService";
+import { signIn, resetPassword } from "../services/authService";
 import { useAuthForm, type FormErrors } from "../hooks/useAuthForm";
 import { getOAuthErrorMessage } from "../oauthErrorMessages";
 import "../auth.css";
@@ -38,7 +38,9 @@ const SignInPage: React.FC = () => {
   const { login } = useAuth();
   const [searchParams] = useSearchParams();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
+  const [infoMessage, setInfoMessage] = useState<string | null>(null);
 
   useEffect(() => {
     const oauthErrorCode = searchParams.get("oauth_error");
@@ -55,6 +57,7 @@ const SignInPage: React.FC = () => {
       if (isSubmitting) return;
 
       setApiError(null);
+      setInfoMessage(null);
       setIsSubmitting(true);
       try {
         await signIn({
@@ -70,6 +73,31 @@ const SignInPage: React.FC = () => {
     },
   });
 
+  const handleForgotPassword = async () => {
+    if (isResetting || isSubmitting) return;
+    const email = values.email.trim();
+    if (!email) {
+      setApiError("Please enter your email address above to receive a password reset link.");
+      return;
+    }
+    if (!EMAIL_PATTERN.test(email)) {
+      setApiError("Please enter a valid email address.");
+      return;
+    }
+
+    setApiError(null);
+    setInfoMessage(null);
+    setIsResetting(true);
+    try {
+      await resetPassword(email);
+      setInfoMessage("Password reset email sent! Open the link in your inbox to set or reset your password, then sign in.");
+    } catch (err: any) {
+      setApiError(err.message || "Failed to send password reset email.");
+    } finally {
+      setIsResetting(false);
+    }
+  };
+
   return (
     <AuthLayout mode="signin">
       <div className="apex-form-header">
@@ -78,6 +106,7 @@ const SignInPage: React.FC = () => {
       </div>
 
       {apiError && <div className="auth-notice auth-notice--error">{apiError}</div>}
+      {infoMessage && <div className="auth-notice auth-notice--success">{infoMessage}</div>}
 
       <form className="auth-form" onSubmit={handleSubmit} noValidate>
         {/* Email Field */}
@@ -98,7 +127,7 @@ const SignInPage: React.FC = () => {
               value={values.email}
               onChange={(e) => setField("email", e.target.value)}
               autoComplete="email"
-              disabled={isSubmitting}
+              disabled={isSubmitting || isResetting}
             />
           </div>
           {errors.email && <span className="auth-error-text">{errors.email}</span>}
@@ -113,7 +142,7 @@ const SignInPage: React.FC = () => {
           placeholder="Enter your password"
           error={errors.password}
           autoComplete="current-password"
-          disabled={isSubmitting}
+          disabled={isSubmitting || isResetting}
         />
 
         {/* Forgot Password Link */}
@@ -121,10 +150,10 @@ const SignInPage: React.FC = () => {
           <button
             type="button"
             className="auth-link-forgot"
-            title="Password reset is coming soon"
-            disabled
+            onClick={handleForgotPassword}
+            disabled={isSubmitting || isResetting}
           >
-            Forgot password?
+            {isResetting ? "Sending reset link..." : "Forgot password?"}
           </button>
         </div>
 
@@ -132,7 +161,7 @@ const SignInPage: React.FC = () => {
         <button
           type="submit"
           className="apex-btn-auth-primary"
-          disabled={isSubmitting}
+          disabled={isSubmitting || isResetting}
         >
           <span>{isSubmitting ? "Signing in..." : "Sign In"}</span>
           {!isSubmitting && <FaArrowRight style={{ fontSize: 13 }} />}

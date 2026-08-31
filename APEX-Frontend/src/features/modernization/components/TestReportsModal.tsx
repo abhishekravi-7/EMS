@@ -26,6 +26,8 @@ interface TestReportArtifact {
   stackTrace?: string | null;
   stdout?: string | null;
   stderr?: string | null;
+  rawLogs?: string | null;
+  logs?: any[] | null;
   jobId?: string | null;
   unavailableReason?: string | null;
   details?: TestReportArtifact | null;
@@ -52,6 +54,8 @@ export interface TestReportData extends TestReportArtifact {
   engine?: string;
   traceUrl?: string | null;
   apiEvidence?: ApiEvidence | null;
+  rawLogs?: string | null;
+  logs?: any[] | null;
 }
 
 interface TestReportsModalProps {
@@ -70,6 +74,82 @@ const STATUS_COLORS = {
   NOT_EXECUTED: { bg: "#f1f5f9", text: "#64748b", border: "#e2e8f0" },
   DEFAULT: { bg: "#f1f5f9", text: "#64748b", border: "#e2e8f0" },
 };
+
+export function downloadTestExecutionLogs(data: TestReportData): void {
+  const executionId = data.executionId || data.jobId || "None";
+  const testName = data.title || data.name || "Unknown Test";
+  const testClass = data.suite || data.spec || data.file || "Unknown Class";
+  const framework = data.framework || "JUnit";
+  const status = data.status || "PASSED";
+
+  const lines: string[] = [
+    `Execution ID: ${executionId}`,
+    ``,
+    `Test Name: ${testName}`,
+    `Class: ${testClass}`,
+    `Framework: ${framework}`,
+    `Status: ${status}`,
+  ];
+
+  if (data.duration && data.duration !== "None" && data.duration !== "—") {
+    lines.push(`Duration: ${data.duration}`);
+  }
+  if (data.file) {
+    lines.push(`Source File: ${data.file}`);
+  }
+
+  lines.push(``);
+  lines.push(`================================================================================`);
+  lines.push(`EXECUTION LOGS`);
+  lines.push(`================================================================================`);
+  lines.push(``);
+
+  let capturedOutput = "";
+
+  // 1. Check test-specific stdout / stderr / error / stackTrace
+  if (data.error && data.error.trim()) {
+    capturedOutput += `[ERROR] ${data.error.trim()}\n\n`;
+  }
+  if (data.stackTrace && data.stackTrace.trim()) {
+    capturedOutput += `--- Stack Trace ---\n${data.stackTrace.trim()}\n\n`;
+  }
+  if (data.stdout && data.stdout.trim()) {
+    capturedOutput += `--- Standard Output (stdout) ---\n${data.stdout.trim()}\n\n`;
+  }
+  if (data.stderr && data.stderr.trim()) {
+    capturedOutput += `--- Standard Error (stderr) ---\n${data.stderr.trim()}\n\n`;
+  }
+
+  // 2. Check full runner execution output logs (rawLogs or logs array)
+  if (data.rawLogs && typeof data.rawLogs === "string" && data.rawLogs.trim()) {
+    capturedOutput += `--- Execution Output Logs ---\n${data.rawLogs.trim()}\n`;
+  } else if (data.logs && Array.isArray(data.logs) && data.logs.length > 0) {
+    const formattedLogs = data.logs
+      .map((l: any) => (typeof l === "string" ? l : `[${l.ts || ""}] [${l.level || "INFO"}] ${l.msg || ""}`))
+      .join("\n");
+    if (formattedLogs.trim()) {
+      capturedOutput += `--- Execution Output Logs ---\n${formattedLogs.trim()}\n`;
+    }
+  }
+
+  if (capturedOutput.trim()) {
+    lines.push(capturedOutput.trim());
+  } else {
+    lines.push("No execution logs recorded.");
+  }
+
+  const fileContent = lines.join("\n") + "\n";
+  const blob = new Blob([fileContent], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  const safeTitle = (data.title || data.name || "test").replace(/[^a-zA-Z0-9_-]/g, "_");
+  a.download = `${safeTitle}_logs.txt`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 
 export function resolveEvidenceUrl(url: string | null | undefined): string | null {
   if (!url || typeof url !== "string") return null;
@@ -625,16 +705,7 @@ function ApiReportPanel({ data }: { data: TestReportData }) {
       {/* Action Buttons */}
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", paddingTop: 10 }}>
         <button
-          onClick={() => {
-            const logs = data.stdout || data.stderr || "No execution logs recorded.";
-            const blob = new Blob([logs], { type: "text/plain" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `${data.title}_logs.txt`;
-            a.click();
-            URL.revokeObjectURL(url);
-          }}
+          onClick={() => downloadTestExecutionLogs(data)}
           style={{
             padding: "8px 16px", background: "#ffffff", color: "#0f172a",
             borderRadius: 8, border: "1px solid #cbd5e1", fontSize: 12, fontWeight: 700,
@@ -840,16 +911,7 @@ function UiReportPanel({ data }: { data: TestReportData }) {
           </a>
         )}
         <button
-          onClick={() => {
-            const logs = data.stdout || data.stderr || "No execution logs recorded.";
-            const blob = new Blob([logs], { type: "text/plain" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `${data.title}_logs.txt`;
-            a.click();
-            URL.revokeObjectURL(url);
-          }}
+          onClick={() => downloadTestExecutionLogs(data)}
           style={{
             padding: "8px 16px", background: "#ffffff", color: "#0f172a",
             borderRadius: 8, border: "1px solid #cbd5e1", fontSize: 12, fontWeight: 700,
@@ -1112,16 +1174,7 @@ function JUnitReportPanel({ data }: { data: TestReportData }) {
           </a>
         )}
         <button
-          onClick={() => {
-            const logs = data.stdout || data.stderr || "No execution logs recorded.";
-            const blob = new Blob([logs], { type: "text/plain" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `${data.title}_logs.txt`;
-            a.click();
-            URL.revokeObjectURL(url);
-          }}
+          onClick={() => downloadTestExecutionLogs(data)}
           style={{
             padding: "8px 16px", background: "#ffffff", color: "#0f172a",
             borderRadius: 8, border: "1px solid #cbd5e1", fontSize: 12, fontWeight: 700,
@@ -1200,16 +1253,7 @@ function GenericReportPanel({ data }: { data: TestReportData }) {
       {/* Action Buttons */}
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", paddingTop: 10 }}>
         <button
-          onClick={() => {
-            const logs = data.stdout || data.stderr || "No execution logs recorded.";
-            const blob = new Blob([logs], { type: "text/plain" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `${data.title}_logs.txt`;
-            a.click();
-            URL.revokeObjectURL(url);
-          }}
+          onClick={() => downloadTestExecutionLogs(data)}
           style={{
             padding: "8px 16px", background: "#ffffff", color: "#0f172a",
             borderRadius: 8, border: "1px solid #cbd5e1", fontSize: 12, fontWeight: 700,

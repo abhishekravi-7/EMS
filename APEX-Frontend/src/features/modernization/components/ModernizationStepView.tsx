@@ -181,6 +181,47 @@ export function ModernizationStepView({
     ? Math.min(100, Math.round((executedTestLogsCount / existingTotal) * 100))
     : (isRunningExisting ? 10 : 0);
 
+  const buildTestDetailReport = (t: any, defaultStatus?: string): TestReportData => {
+    const scUrl = t.screenshot_url || t.screenshotUrl || t.evidence?.screenshotUrl || null;
+    const vidUrl = t.video_url || t.videoUrl || t.evidence?.videoUrl || null;
+    const formattedLogs = Array.isArray(existingLogs) && existingLogs.length > 0
+      ? existingLogs.map((l: any) => typeof l === "string" ? l : `[${l.ts || ""}] [${l.level || "INFO"}] ${l.msg || ""}`).join("\n")
+      : (typeof existingLogs === "string" ? existingLogs : undefined);
+
+    return {
+      testId: t.test_id || t.testId || `${t.suite || t.spec || t.file || ""}#${t.test_name || t.name || t.title || ""}`,
+      executionId: t.execution_id || t.executionId || jobId,
+      title: t.test_name || t.name || t.title,
+      name: t.test_name || t.name || t.title,
+      spec: t.suite || t.spec || t.file,
+      suite: t.suite || t.spec || t.file,
+      status: t.status || defaultStatus || "PASSED",
+      duration: t.duration || "0.0s",
+      file: t.file,
+      url: t.report_url,
+      type: t.type || "JUnit",
+      testType: ((t.test_type || t.testType || t.category || "API").toUpperCase() === "UNIT" ? "API" : (t.test_type || t.testType || (t.category === "UI" ? "UI" : "API"))),
+      framework: t.framework || existingExecResult?.framework_info?.build_tool || existingExecResult?.framework_info?.detected_framework || existingFramework || "JUnit",
+      screenshotUrl: scUrl,
+      videoUrl: vidUrl,
+      traceUrl: t.trace_url,
+      apiEvidence: t.api_evidence,
+      evidence: t.evidence || {
+        screenshotAvailable: !!scUrl,
+        screenshotUrl: scUrl,
+        videoAvailable: !!vidUrl,
+        videoUrl: vidUrl,
+      },
+      error: t.failure_message || t.details?.error || t.error || null,
+      errorCode: (t.status === "FAILED" ? "TEST_FAILED" : t.status === "ERROR" ? "BUILD_ERROR" : t.status === "NOT_EXECUTED" ? "NOT_EXECUTED" : undefined),
+      stackTrace: t.stack_trace || t.details?.stackTrace || t.stackTrace || null,
+      stdout: t.stdout || t.details?.stdout || null,
+      stderr: t.stderr || t.details?.stderr || null,
+      rawLogs: t.rawLogs || formattedLogs,
+      logs: existingLogs,
+    };
+  };
+
   // Normalized identity helpers for test deduplication
   const normalizeSuiteName = (suite?: string, file?: string, classname?: string): string => {
     const raw = classname || suite || file || "";
@@ -942,36 +983,7 @@ export function ModernizationStepView({
             onRunSelected={() => handleRunExistingTests()}
             isRunning={isRunningExisting}
             onSelectTest={(t: any) => {
-              setTestDetailReport({
-                testId: t.test_id || t.testId || `${t.suite}#${t.test_name}`,
-                executionId: t.execution_id || t.executionId || jobId,
-                title: t.test_name || t.name || t.title,
-                name: t.test_name || t.name || t.title,
-                spec: t.suite || t.spec || t.file,
-                suite: t.suite || t.spec || t.file,
-                status: t.status || "NOT_EXECUTED",
-                duration: t.duration || "—",
-                file: t.file,
-                url: t.report_url,
-                type: t.type || "JUnit",
-                testType: ((t.test_type || t.testType || t.category || "API").toUpperCase() === "UNIT" ? "API" : (t.test_type || t.testType || (t.category === "UI" ? "UI" : "API"))),
-                framework: t.framework || existingFramework || "JUnit",
-                screenshotUrl: null,
-                videoUrl: null,
-                evidence: {
-                  screenshotAvailable: false,
-                  screenshotUrl: null,
-                  videoAvailable: false,
-                  videoUrl: null,
-                },
-                traceUrl: null,
-                apiEvidence: null,
-                error: null,
-                errorCode: "NOT_EXECUTED",
-                stackTrace: null,
-                stdout: null,
-                stderr: null,
-              });
+              setTestDetailReport(buildTestDetailReport(t, "NOT_EXECUTED"));
               setShowTestDetailModal(true);
             }}
           />
@@ -1019,38 +1031,7 @@ export function ModernizationStepView({
                 test_source_dir: "src/test/java",
               }}
               onSelectTest={(t: any) => {
-                const scUrl = t.screenshot_url || t.screenshotUrl || t.evidence?.screenshotUrl || null;
-                const vidUrl = t.video_url || t.videoUrl || t.evidence?.videoUrl || null;
-                setTestDetailReport({
-                  testId: t.test_id || t.testId || `${t.suite}#${t.test_name}`,
-                  executionId: t.execution_id || t.executionId || jobId,
-                  title: t.test_name || t.name || t.title,
-                  name: t.test_name || t.name || t.title,
-                  spec: t.suite || t.spec || t.file,
-                  suite: t.suite || t.spec || t.file,
-                  status: t.status || "IN_PROGRESS",
-                  duration: t.duration || "Running...",
-                  file: t.file,
-                  url: t.report_url,
-                  type: t.type || "JUnit",
-                  testType: ((t.test_type || t.testType || t.category || "API").toUpperCase() === "UNIT" ? "API" : (t.test_type || t.testType || (t.category === "UI" ? "UI" : "API"))),
-                  framework: t.framework || existingFramework || "JUnit",
-                  screenshotUrl: scUrl,
-                  videoUrl: vidUrl,
-                  evidence: t.evidence || {
-                    screenshotAvailable: !!scUrl,
-                    screenshotUrl: scUrl,
-                    videoAvailable: !!vidUrl,
-                    videoUrl: vidUrl,
-                  },
-                  traceUrl: t.trace_url,
-                  apiEvidence: t.api_evidence,
-                  error: t.failure_message || t.details?.error || t.error || null,
-                  errorCode: t.status === "FAILED" ? "TEST_FAILED" : t.status === "ERROR" ? "BUILD_ERROR" : t.status === "NOT_EXECUTED" ? "NOT_EXECUTED" : undefined,
-                  stackTrace: t.stack_trace || t.details?.stackTrace || t.stackTrace || null,
-                  stdout: t.stdout || t.details?.stdout || null,
-                  stderr: t.stderr || t.details?.stderr || null,
-                });
+                setTestDetailReport(buildTestDetailReport(t, "IN_PROGRESS"));
                 setShowTestDetailModal(true);
               }}
             />
@@ -1115,38 +1096,7 @@ export function ModernizationStepView({
                 isRunning={isRunningExisting}
                 hasRun={hasExistingTestsRun}
                 onSelectTest={(t: any) => {
-                  const scUrl = t.screenshot_url || t.screenshotUrl || t.evidence?.screenshotUrl || null;
-                  const vidUrl = t.video_url || t.videoUrl || t.evidence?.videoUrl || null;
-                  setTestDetailReport({
-                    testId: t.test_id || t.testId || `${t.suite}#${t.test_name}`,
-                    executionId: t.execution_id || t.executionId || jobId,
-                    title: t.test_name || t.name || t.title,
-                    name: t.test_name || t.name || t.title,
-                    spec: t.suite || t.spec || t.file,
-                    suite: t.suite || t.spec || t.file,
-                    status: t.status || "IN_PROGRESS",
-                    duration: t.duration || "Running...",
-                    file: t.file,
-                    url: t.report_url,
-                    type: t.type || "JUnit",
-                    testType: ((t.test_type || t.testType || t.category || "API").toUpperCase() === "UNIT" ? "API" : (t.test_type || t.testType || (t.category === "UI" ? "UI" : "API"))),
-                    framework: t.framework || existingFramework || "JUnit",
-                    screenshotUrl: scUrl,
-                    videoUrl: vidUrl,
-                    evidence: t.evidence || {
-                      screenshotAvailable: !!scUrl,
-                      screenshotUrl: scUrl,
-                      videoAvailable: !!vidUrl,
-                      videoUrl: vidUrl,
-                    },
-                    traceUrl: t.trace_url,
-                    apiEvidence: t.api_evidence,
-                    error: t.failure_message || t.details?.error || t.error || null,
-                    errorCode: t.status === "FAILED" ? "TEST_FAILED" : t.status === "ERROR" ? "BUILD_ERROR" : t.status === "NOT_EXECUTED" ? "NOT_EXECUTED" : undefined,
-                    stackTrace: t.stack_trace || t.details?.stackTrace || t.stackTrace || null,
-                    stdout: t.stdout || t.details?.stdout || null,
-                    stderr: t.stderr || t.details?.stderr || null,
-                  });
+                  setTestDetailReport(buildTestDetailReport(t, "IN_PROGRESS"));
                   setShowTestDetailModal(true);
                 }}
               />
@@ -1188,38 +1138,7 @@ export function ModernizationStepView({
               fileBreakdown={existingExecResult.file_breakdown || []}
               frameworkInfo={existingExecResult.framework_info}
               onSelectTest={(t: any) => {
-                const scUrl = t.screenshot_url || t.screenshotUrl || t.evidence?.screenshotUrl || null;
-                const vidUrl = t.video_url || t.videoUrl || t.evidence?.videoUrl || null;
-                setTestDetailReport({
-                  testId: t.test_id || t.testId || `${t.suite}#${t.test_name}`,
-                  executionId: t.execution_id || t.executionId || jobId,
-                  title: t.test_name || t.name || t.title,
-                  name: t.test_name || t.name || t.title,
-                  spec: t.suite || t.spec || t.file,
-                  suite: t.suite || t.spec || t.file,
-                  status: t.status,
-                  duration: t.duration || "0.0s",
-                  file: t.file,
-                  url: t.report_url,
-                  type: t.type || "JUnit",
-                  testType: ((t.test_type || t.testType || t.category || "API").toUpperCase() === "UNIT" ? "API" : (t.test_type || t.testType || (t.category === "UI" ? "UI" : "API"))),
-                  framework: t.framework || existingExecResult?.framework_info?.build_tool || existingExecResult?.framework_info?.detected_framework || "JUnit",
-                  screenshotUrl: scUrl,
-                  videoUrl: vidUrl,
-                  evidence: t.evidence || {
-                    screenshotAvailable: !!scUrl,
-                    screenshotUrl: scUrl,
-                    videoAvailable: !!vidUrl,
-                    videoUrl: vidUrl,
-                  },
-                  traceUrl: t.trace_url,
-                  apiEvidence: t.api_evidence,
-                  error: t.failure_message || t.details?.error || t.error || null,
-                  errorCode: t.status === "FAILED" ? "TEST_FAILED" : t.status === "ERROR" ? "BUILD_ERROR" : t.status === "NOT_EXECUTED" ? "NOT_EXECUTED" : undefined,
-                  stackTrace: t.stack_trace || t.details?.stackTrace || t.stackTrace || null,
-                  stdout: t.stdout || t.details?.stdout || null,
-                  stderr: t.stderr || t.details?.stderr || null,
-                });
+                setTestDetailReport(buildTestDetailReport(t));
                 setShowTestDetailModal(true);
               }}
             />
@@ -1291,38 +1210,7 @@ export function ModernizationStepView({
                     isRunning={isRunningExisting}
                     hasRun={hasExistingTestsRun}
                     onSelectTest={(t: any) => {
-                      const scUrl = t.screenshot_url || t.screenshotUrl || t.evidence?.screenshotUrl || null;
-                      const vidUrl = t.video_url || t.videoUrl || t.evidence?.videoUrl || null;
-                      setTestDetailReport({
-                        testId: t.test_id || t.testId || `${t.suite}#${t.test_name}`,
-                        executionId: t.execution_id || t.executionId || jobId,
-                        title: t.test_name || t.name || t.title,
-                        name: t.test_name || t.name || t.title,
-                        spec: t.suite || t.spec || t.file,
-                        suite: t.suite || t.spec || t.file,
-                        status: t.status,
-                        duration: t.duration || "0.0s",
-                        file: t.file,
-                        url: t.report_url,
-                        type: t.type || "JUnit",
-                        testType: ((t.test_type || t.testType || t.category || "API").toUpperCase() === "UNIT" ? "API" : (t.test_type || t.testType || (t.category === "UI" ? "UI" : "API"))),
-                        framework: t.framework || existingExecResult?.framework_info?.build_tool || existingExecResult?.framework_info?.detected_framework || "JUnit",
-                        screenshotUrl: scUrl,
-                        videoUrl: vidUrl,
-                        evidence: t.evidence || {
-                          screenshotAvailable: !!scUrl,
-                          screenshotUrl: scUrl,
-                          videoAvailable: !!vidUrl,
-                          videoUrl: vidUrl,
-                        },
-                        traceUrl: t.trace_url,
-                        apiEvidence: t.api_evidence,
-                        error: t.failure_message || t.details?.error || t.error || null,
-                        errorCode: t.status === "FAILED" ? "TEST_FAILED" : t.status === "ERROR" ? "BUILD_ERROR" : t.status === "NOT_EXECUTED" ? "NOT_EXECUTED" : undefined,
-                        stackTrace: t.stack_trace || t.details?.stackTrace || t.stackTrace || null,
-                        stdout: t.stdout || t.details?.stdout || null,
-                        stderr: t.stderr || t.details?.stderr || null,
-                      });
+                      setTestDetailReport(buildTestDetailReport(t));
                       setShowTestDetailModal(true);
                     }}
                   />
@@ -2095,38 +1983,7 @@ export function ModernizationStepView({
           isRunning={isRunningExisting}
           hasRun={hasExistingTestsRun}
           onSelectTest={(t: any) => {
-            const scUrl = t.screenshot_url || t.screenshotUrl || t.evidence?.screenshotUrl || null;
-            const vidUrl = t.video_url || t.videoUrl || t.evidence?.videoUrl || null;
-            setTestDetailReport({
-              testId: t.test_id || t.testId || `${t.suite}#${t.test_name}`,
-              executionId: t.execution_id || t.executionId || jobId,
-              name: t.test_name || t.name || t.title,
-              title: t.test_name || t.name || t.title,
-              spec: t.suite || t.spec || t.file,
-              suite: t.suite || t.spec || t.file,
-              status: t.status,
-              duration: t.duration || "0.0s",
-              file: t.file,
-              url: t.report_url,
-              type: t.type,
-              testType: ((t.test_type || t.testType || t.category || "API").toUpperCase() === "UNIT" ? "API" : (t.test_type || t.testType || (t.category === "UI" ? "UI" : "API"))),
-              framework: t.framework || existingExecResult?.framework_info?.build_tool || existingExecResult?.framework_info?.detected_framework,
-              screenshotUrl: scUrl,
-              videoUrl: vidUrl,
-              traceUrl: t.trace_url,
-              apiEvidence: t.api_evidence,
-              evidence: t.evidence || {
-                screenshotAvailable: !!scUrl,
-                screenshotUrl: scUrl,
-                videoAvailable: !!vidUrl,
-                videoUrl: vidUrl,
-              },
-              error: t.failure_message || t.details?.error,
-              errorCode: t.status === "FAILED" ? "TEST_FAILED" : t.status === "ERROR" ? "BUILD_ERROR" : t.status === "NOT_EXECUTED" ? "NOT_EXECUTED" : undefined,
-              stackTrace: t.stack_trace || t.details?.stackTrace,
-              stdout: t.stdout || t.details?.stdout,
-              stderr: t.stderr || t.details?.stderr,
-            });
+            setTestDetailReport(buildTestDetailReport(t));
             setShowTestDetailModal(true);
           }}
         />
