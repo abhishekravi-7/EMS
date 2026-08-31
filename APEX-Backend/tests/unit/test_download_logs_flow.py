@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from app.api.deps import get_current_user
 from app.application.use_cases.existing_test_runner_service import existing_test_runner_service
 from app.main import app
 
@@ -78,27 +79,29 @@ def test_download_logs_endpoint_passed_test(mock_user):
             }
         }
 
-    with patch("app.api.v1.endpoints.existing_test_report_controller.verify_job_ownership"), \
-         patch("app.api.deps.get_current_user", return_value=mock_user):
-        
-        client = TestClient(app)
-        quoted_test_id = urllib.parse.quote(test_id, safe="")
-        response = client.get(f"/api/v1/existing-tests/report/{job_id}/test/{quoted_test_id}/logs")
-        
-        assert response.status_code == 200
-        content = response.text
-        
-        # Verify metadata header
-        assert f"Execution ID: {job_id}" in content
-        assert "Test Name: testSum" in content
-        assert "Class: CalculatorTest" in content
-        assert "Framework: JUnit" in content
-        assert "Status: PASSED" in content
-        assert "Duration: 0.005s" in content
-        
-        # Verify actual logs are present and not empty or "No execution logs recorded"
-        assert "[1/4] Running com.javacodegeeks.examples.junitmavenexample.CalculatorTest#testSum" in content
-        assert "No execution logs recorded." not in content
+    app.dependency_overrides[get_current_user] = lambda: mock_user
+    try:
+        with patch("app.api.v1.endpoints.existing_test_report_controller.verify_job_ownership"):
+            client = TestClient(app)
+            quoted_test_id = urllib.parse.quote(test_id, safe="")
+            response = client.get(f"/api/v1/existing-tests/report/{job_id}/test/{quoted_test_id}/logs")
+
+            assert response.status_code == 200
+            content = response.text
+
+            # Verify metadata header
+            assert f"Execution ID: {job_id}" in content
+            assert "Test Name: testSum" in content
+            assert "Class: CalculatorTest" in content
+            assert "Framework: JUnit" in content
+            assert "Status: PASSED" in content
+            assert "Duration: 0.005s" in content
+
+            # Verify actual logs are present and not empty or "No execution logs recorded"
+            assert "[1/4] Running com.javacodegeeks.examples.junitmavenexample.CalculatorTest#testSum" in content
+            assert "No execution logs recorded." not in content
+    finally:
+        app.dependency_overrides.clear()
 
 
 def test_download_logs_endpoint_failed_test(mock_user):
@@ -130,20 +133,22 @@ def test_download_logs_endpoint_failed_test(mock_user):
             }
         }
 
-    with patch("app.api.v1.endpoints.existing_test_report_controller.verify_job_ownership"), \
-         patch("app.api.deps.get_current_user", return_value=mock_user):
-        
-        client = TestClient(app)
-        quoted_test_id = urllib.parse.quote(test_id, safe="")
-        response = client.get(f"/api/v1/existing-tests/report/{job_id}/test/{quoted_test_id}/logs")
-        
-        assert response.status_code == 200
-        content = response.text
-        
-        assert f"Execution ID: {job_id}" in content
-        assert "Status: FAILED" in content
-        assert "[ERROR] AssertionError: expected <1> but was <2>" in content
-        assert "java.lang.AssertionError" in content
+    app.dependency_overrides[get_current_user] = lambda: mock_user
+    try:
+        with patch("app.api.v1.endpoints.existing_test_report_controller.verify_job_ownership"):
+            client = TestClient(app)
+            quoted_test_id = urllib.parse.quote(test_id, safe="")
+            response = client.get(f"/api/v1/existing-tests/report/{job_id}/test/{quoted_test_id}/logs")
+
+            assert response.status_code == 200
+            content = response.text
+
+            assert f"Execution ID: {job_id}" in content
+            assert "Status: FAILED" in content
+            assert "[ERROR] AssertionError: expected <1> but was <2>" in content
+            assert "java.lang.AssertionError" in content
+    finally:
+        app.dependency_overrides.clear()
 
 
 def test_download_logs_endpoint_genuinely_empty_logs(mock_user):
@@ -169,16 +174,18 @@ def test_download_logs_endpoint_genuinely_empty_logs(mock_user):
             }
         }
 
-    with patch("app.api.v1.endpoints.existing_test_report_controller.verify_job_ownership"), \
-         patch("app.api.deps.get_current_user", return_value=mock_user):
-        
-        client = TestClient(app)
-        quoted_test_id = urllib.parse.quote(test_id, safe="")
-        response = client.get(f"/api/v1/existing-tests/report/{job_id}/test/{quoted_test_id}/logs")
-        
-        assert response.status_code == 200
-        content = response.text
-        
-        assert f"Execution ID: {job_id}" in content
-        assert "Status: NOT_EXECUTED" in content
-        assert "No execution logs recorded." in content
+    app.dependency_overrides[get_current_user] = lambda: mock_user
+    try:
+        with patch("app.api.v1.endpoints.existing_test_report_controller.verify_job_ownership"):
+            client = TestClient(app)
+            quoted_test_id = urllib.parse.quote(test_id, safe="")
+            response = client.get(f"/api/v1/existing-tests/report/{job_id}/test/{quoted_test_id}/logs")
+
+            assert response.status_code == 200
+            content = response.text
+
+            assert f"Execution ID: {job_id}" in content
+            assert "Status: NOT_EXECUTED" in content
+            assert "No execution logs recorded." in content
+    finally:
+        app.dependency_overrides.clear()
