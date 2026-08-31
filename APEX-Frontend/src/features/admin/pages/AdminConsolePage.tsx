@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { getAdminSettings, updateAdminSettings, SystemSettings } from "../services/adminService";
+import { getAdminSettings, updateAdminSettings, type SystemSettings } from "../services/adminService";
 import {
   FaGithub,
   FaBrain,
