@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import pytest
-from app.infrastructure.analyzers.test_smell_detector import TestSmellDetector
+
 from app.application.use_cases.validate_unit_tests import ValidateUnitTestSuiteUseCase
+from app.infrastructure.analyzers.test_smell_detector import TestSmellDetector
 
 SAMPLE_SOURCE = """
 package com.example.calculator;

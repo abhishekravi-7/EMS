@@ -171,7 +171,7 @@ class ProposedTestGenerator:
                             input_data={"mockParam": "sampleValue"},
                             mock_data={"repo": "MockRepository"},
                             expected_output={"result": "valid"},
-                            assertions=[f"assertNotNull(result)", f"assertEquals(expected, result)"],
+                            assertions=["assertNotNull(result)", "assertEquals(expected, result)"],
                         ),
                     ))
 

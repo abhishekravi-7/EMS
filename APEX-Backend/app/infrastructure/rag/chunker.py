@@ -12,6 +12,7 @@ Kept pure: input is the report ``dict``, output is a list of
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -265,8 +266,6 @@ def build_migration_chunks(report: dict[str, Any]) -> list[KnowledgeChunk]:
     return chunks
 
 
-import re
-
 def chunk_java_file(content: str, file_path: str, version: str) -> list[KnowledgeChunk]:
     """Perform logical class-and-method code-aware chunking for Java files."""
     lines = content.splitlines()
@@ -284,10 +283,10 @@ def chunk_java_file(content: str, file_path: str, version: str) -> list[Knowledg
         # Check for class, interface, enum, or annotation declaration
         if ("class " in stripped or "interface " in stripped or "enum " in stripped or stripped.startswith("@")):
             # Make sure it's not an import, package, or comment line
-            if not (stripped.startswith("import ") or stripped.startswith("package ") or stripped.startswith("//") or stripped.startswith("/*") or stripped.startswith("*")):
+            if not stripped.startswith(("import ", "package ", "//", "/*", "*")):
                 first_class_line_idx = idx
                 break
-        if stripped.startswith("package ") or stripped.startswith("import "):
+        if stripped.startswith(("package ", "import ")):
             package_imports_lines.append(line)
             
     header = "\n".join(package_imports_lines) if package_imports_lines else ""

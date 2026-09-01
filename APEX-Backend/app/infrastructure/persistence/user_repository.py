@@ -58,7 +58,7 @@ def create_user(
         db.commit()
     except SQLAlchemyError:
         db.rollback()
-        logger.exception("Failed to create user (email=%s).", email)
+        logger.exception("Failed to create user.")
         raise
     db.refresh(user)  # loads DB-generated defaults: id, created_at, updated_at
     return user
@@ -70,7 +70,7 @@ def update_last_login(db: Session, user: User) -> None:
         db.commit()
     except SQLAlchemyError:
         db.rollback()
-        logger.exception("Failed to update last_login_at (user_id=%s).", user.id)
+        logger.exception("Failed to update last_login_at.")
         raise
 
 
@@ -83,7 +83,7 @@ def create_refresh_token_record(
         db.commit()
     except SQLAlchemyError:
         db.rollback()
-        logger.exception("Failed to store refresh token (user_id=%s).", user_id)
+        logger.exception("Failed to store refresh token.")
         raise
     db.refresh(record)
     return record

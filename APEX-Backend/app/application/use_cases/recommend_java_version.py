@@ -13,11 +13,11 @@ option rather than trusted blindly.
 from __future__ import annotations
 
 import re
-import time
+
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import InvalidJavaVersionError, LLMResponseInvalidError
 from app.core.context import user_id_ctx
+from app.core.exceptions import InvalidJavaVersionError, LLMResponseInvalidError
 from app.infrastructure.llm.huggingface_client import HuggingFaceClient
 from app.infrastructure.llm.prompt_templates import (
     JAVA_VERSION_RECOMMENDATION_SYSTEM_PROMPT,

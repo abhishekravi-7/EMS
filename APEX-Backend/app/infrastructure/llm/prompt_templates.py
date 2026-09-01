@@ -66,6 +66,8 @@ Project metadata detected from the real repository:
 - Detected REST API endpoint count: {api_endpoint_count}
 - Migration risk level: {risk_level or 'unknown'}
 - Dependencies detected ({len(dependency_lines)} shown, max 25):
+{dependency_block}
+
 Respond with only the JSON object described in the system prompt."""
 
 

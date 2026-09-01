@@ -15,8 +15,7 @@ from typing import Any
 
 from app.infrastructure.persistence.report_repository import load_report_from_db, save_report_to_db
 from app.infrastructure.workspace.workspace_paths import WorkspacePaths
-from app.shared import json_utils
-from app.shared import migration_log_sanitizer
+from app.shared import json_utils, migration_log_sanitizer
 
 logger = logging.getLogger(__name__)
 
@@ -53,8 +52,8 @@ class MigrationReportStore:
             try:
                 # Restore to disk
                 json_utils.write_json(self._paths.migration_report_path, db_report)
-            except Exception:
-                pass
+            except OSError as err:
+                logger.debug("Non-fatal: failed writing restored report to disk for %s: %s", self._job_id, err)
             return db_report
 
         # 4. Fallback: synthesize initial report if connect or discovery report exists
@@ -91,8 +90,8 @@ class MigrationReportStore:
                 with _CACHE_LOCK:
                     _REPORT_CACHE[self._job_id] = initial_report
                 return initial_report
-        except Exception:
-            pass
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Non-fatal: failed synthesizing initial report for %s: %s", self._job_id, exc)
 
         return None
 
@@ -101,7 +100,7 @@ class MigrationReportStore:
             _REPORT_CACHE[self._job_id] = report
         try:
             json_utils.write_json(self._paths.migration_report_path, report)
-        except Exception as err:
+        except Exception as err:  # noqa: BLE001
             logger.debug("Non-fatal: failed writing migration report to disk for %s: %s", self._job_id, err)
 
         # Flush to database when terminal or force_db or throttled >= 1.5s
@@ -113,7 +112,7 @@ class MigrationReportStore:
             _LAST_DB_FLUSH[self._job_id] = now
             try:
                 save_report_to_db(self._job_id, report)
-            except Exception as db_err:
+            except Exception as db_err:  # noqa: BLE001
                 logger.debug("Non-fatal: failed saving report to db for %s: %s", self._job_id, db_err)
 
     def update(self, **fields: Any) -> dict[str, Any]:
@@ -133,8 +132,8 @@ class MigrationReportStore:
             with self._paths.migration_log_path.open("a", encoding="utf-8") as handle:
                 for line in lines:
                     handle.write(line + "\n")
-        except Exception:
-            pass
+        except OSError as exc:
+            logger.debug("Non-fatal: failed appending logs to file for %s: %s", self._job_id, exc)
 
         sanitized = migration_log_sanitizer.sanitize_lines(lines)
         if not sanitized:

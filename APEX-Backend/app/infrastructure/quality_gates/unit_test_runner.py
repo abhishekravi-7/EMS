@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
 from pathlib import Path
 
+import defusedxml.ElementTree as ET
+
 from app.schemas.unit_test import TestExecutionDetail, UnitTestSuiteResult
-from app.shared.command_runner import run_command, resolve_executable
+from app.shared.command_runner import resolve_executable, run_command
 
 
 class UnitTestRunner:
@@ -76,7 +77,7 @@ class UnitTestRunner:
             try:
                 for xml_file in reports_dir.glob("TEST-*.xml"):
                     xml_file.unlink(missing_ok=True)
-            except Exception:
+            except OSError:
                 pass
 
         res = run_command(cmd, cwd=project_dir, timeout=600)
@@ -110,7 +111,7 @@ class UnitTestRunner:
                 try:
                     tree = ET.parse(xml_file)
                     root = tree.getroot()
-                except Exception:
+                except (ET.ParseError, OSError, ValueError, KeyError):
                     continue
 
                 # Support both <testsuite> and <testsuites> roots (Prova approach)

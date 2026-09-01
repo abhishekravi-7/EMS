@@ -1,8 +1,10 @@
 import pytest
 import respx
 from httpx import Response
-from app.infrastructure.oauth import github_client
+
 from app.core.exceptions import OAuthProviderError
+from app.infrastructure.oauth import github_client
+
 
 @pytest.mark.asyncio
 async def test_build_authorization_url():

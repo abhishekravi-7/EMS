@@ -20,6 +20,8 @@ export interface PreviewFileDiff {
   file_path: string;
   diff: string;
   change_count: number;
+  old_content?: string;
+  new_content?: string;
 }
 
 export interface MigrationPreview {

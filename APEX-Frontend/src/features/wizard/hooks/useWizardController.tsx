@@ -40,10 +40,10 @@ import {
 } from "@/features/strategy/services/strategyService";
 import { ApiError } from "@/services/http/client";
 import {
-    getMigrationDetail,
-    getMigrationStatusSummary,
-    getMigrationLogs,
-    startMigration,
+  getMigrationDetail,
+  getMigrationStatusSummary,
+  getMigrationLogs,
+  startMigration,
   getMigrationFossa,
   type MigrationJobSummary,
   type MigrationResult,
@@ -182,7 +182,7 @@ const mergeMigrationSummaryIntoJob = (
   sonar_real_scan: summary.sonar_real_scan,
   sonar_analysis_url: summary.sonar_analysis_url ?? null,
   sonar_error_message: summary.sonar_error_message ?? null,
-  sonar_report: (summary as any).sonar_report ?? previous?.sonar_report ?? null,
+  sonar_report: summary.sonar_report ?? previous?.sonar_report ?? null,
   fossa_policy_status: summary.fossa_policy_status ?? null,
   fossa_total_dependencies: summary.fossa_total_dependencies,
   fossa_license_issues: summary.fossa_license_issues,
@@ -470,6 +470,434 @@ const loadZipSync = async () => {
   }
 
   return zipSyncModulePromise;
+};
+
+const parseJavaVersion = (version: string) => {
+  const parsed = parseInt(version, 10);
+  return Number.isNaN(parsed) ? null : parsed;
+};
+
+const shouldHideGeneratedDiffPath = (filePath: string) => {
+  const normalized = (filePath || "").replace(/\\/g, "/").toLowerCase();
+  return [
+    "/.javaapex-cache/",
+    "/.scannerwork/",
+    "/node_modules/",
+    "/target/",
+    "/build/",
+    "/out/",
+    "/dist/",
+    "/.gradle/",
+  ].some((segment) => normalized.includes(segment)) || normalized.startsWith(".javaapex-cache/") || normalized.startsWith(".scannerwork/");
+};
+
+const buildCodeChangesFromPreviewDiffs = (fileDiffs: PreviewFileDiff[]): CodeChangeEntry[] => {
+  return fileDiffs.flatMap((fileDiff) => {
+    const diffLinesRaw = fileDiff.diff.split(/\r?\n/);
+    const parsedDiffLines: CodeChangeEntry["diffLines"] = [];
+    let oldLineNumber = 0;
+    let newLineNumber = 0;
+    const fromLine = diffLinesRaw.find((line) => line.startsWith("--- "));
+    const toLine = diffLinesRaw.find((line) => line.startsWith("+++ "));
+
+    const changeType: CodeChangeEntry["changeType"] =
+      diffLinesRaw.some((line) => line.startsWith("new file mode")) || fromLine?.includes("/dev/null")
+        ? "added"
+        : diffLinesRaw.some((line) => line.startsWith("deleted file mode")) || toLine?.includes("/dev/null")
+          ? "deleted"
+          : "modified";
+
+    diffLinesRaw.forEach((line) => {
+      if (
+        !line ||
+        line.startsWith("diff --git") ||
+        line.startsWith("index ") ||
+        line.startsWith("new file mode") ||
+        line.startsWith("deleted file mode") ||
+        line.startsWith("rename from ") ||
+        line.startsWith("rename to ") ||
+        line.startsWith("similarity index ") ||
+        line.startsWith("---") ||
+        line.startsWith("+++")
+      ) {
+        return;
+      }
+
+      if (line.startsWith("@@")) {
+        const match = line.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+        parsedDiffLines.push({
+          type: "hunk",
+          oldLineNumber: null,
+          newLineNumber: null,
+          content: line,
+        });
+        if (match) {
+          oldLineNumber = Number(match[1]);
+          newLineNumber = Number(match[2]);
+        }
+        return;
+      }
+
+      if (line.startsWith("+")) {
+        parsedDiffLines.push({
+          type: "add",
+          oldLineNumber: null,
+          newLineNumber,
+          content: line.slice(1),
+        });
+        newLineNumber += 1;
+        return;
+      }
+
+      if (line.startsWith("-")) {
+        parsedDiffLines.push({
+          type: "remove",
+          oldLineNumber,
+          newLineNumber: null,
+          content: line.slice(1),
+        });
+        oldLineNumber += 1;
+        return;
+      }
+
+      const content = line.startsWith(" ") ? line.slice(1) : line;
+      parsedDiffLines.push({
+        type: "context",
+        oldLineNumber,
+        newLineNumber,
+        content,
+      });
+      oldLineNumber += 1;
+      newLineNumber += 1;
+    });
+
+    const additions = diffLinesRaw.filter((line) => line.startsWith("+") && !line.startsWith("+++")).length;
+    const deletions = diffLinesRaw.filter((line) => line.startsWith("-") && !line.startsWith("---")).length;
+    const normalizedPath =
+      fileDiff.file_path ||
+      (toLine && !toLine.includes("/dev/null")
+        ? toLine.replace(/^\+\+\+\s+b\//, "")
+        : fromLine?.replace(/^---\s+a\//, "")) ||
+      "unknown-file";
+
+    if (shouldHideGeneratedDiffPath(normalizedPath)) {
+      return [];
+    }
+
+    return [{
+      fileName: normalizedPath.split("/").pop() || normalizedPath,
+      filePath: normalizedPath,
+      changeType,
+      additions,
+      deletions,
+      oldContent: fileDiff.old_content || "",
+      newContent: fileDiff.new_content || "",
+      diffLines: parsedDiffLines,
+    }];
+  });
+};
+
+const isDetectedDependencyStatus = (status: string) => {
+  const normalizedStatus = status.trim().toLowerCase();
+  return normalizedStatus === "upgraded" || normalizedStatus.startsWith("analyzing");
+};
+
+const getDependencyStatusLabel = (status: string) => {
+  return isDetectedDependencyStatus(status)
+    ? "ANALYZED"
+    : status.replace(/_/g, " ").toUpperCase();
+};
+
+const parseVersionParts = (version: string | null | undefined) => {
+  const normalized = (version || "").trim();
+  const match = normalized.match(/(\d+)(?:\.(\d+))?(?:\.(\d+))?/);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    major: Number.parseInt(match[1], 10),
+    minor: Number.parseInt(match[2] || "0", 10),
+    patch: Number.parseInt(match[3] || "0", 10),
+    raw: normalized,
+  };
+};
+
+const classifyDependencyCategory = (dep: DependencyInfo): DependencyCategory => {
+  const artifactId = (dep.artifact_id || "").toLowerCase();
+  const groupId = (dep.group_id || "").toLowerCase();
+  const coordinate = `${groupId}:${artifactId}`;
+
+  if (
+    artifactId.includes("junit") ||
+    artifactId.includes("mockito") ||
+    artifactId.includes("assertj") ||
+    artifactId.includes("testng") ||
+    artifactId.includes("surefire")
+  ) {
+    return "Testing";
+  }
+  if (
+    artifactId.includes("log4j") ||
+    artifactId.includes("slf4j") ||
+    artifactId.includes("logback") ||
+    artifactId.includes("commons-logging")
+  ) {
+    return "Logging";
+  }
+  if (
+    artifactId.includes("hibernate") ||
+    artifactId.includes("jpa") ||
+    artifactId.includes("jdbc") ||
+    artifactId.includes("mybatis") ||
+    artifactId.includes("dynamodb") ||
+    artifactId.includes("persistence")
+  ) {
+    return "Persistence";
+  }
+  if (
+    artifactId.includes("security") ||
+    coordinate.includes("spring-security") ||
+    artifactId.includes("oauth") ||
+    artifactId.includes("jwt") ||
+    artifactId.includes("auth")
+  ) {
+    return "Security";
+  }
+  if (
+    artifactId.includes("maven") ||
+    artifactId.includes("gradle") ||
+    artifactId.includes("plugin") ||
+    artifactId.includes("wrapper")
+  ) {
+    return "Build";
+  }
+  if (
+    groupId.startsWith("javax.") ||
+    artifactId.startsWith("javax.") ||
+    groupId.startsWith("jakarta.") ||
+    artifactId.startsWith("jakarta.") ||
+    artifactId.includes("servlet") ||
+    artifactId.includes("jaxb")
+  ) {
+    return "Jakarta / Java EE";
+  }
+  if (
+    artifactId.includes("jackson") ||
+    artifactId.includes("gson") ||
+    artifactId.includes("json") ||
+    artifactId.includes("xml") ||
+    artifactId.includes("yaml")
+  ) {
+    return "Data / JSON";
+  }
+  if (
+    artifactId.includes("commons") ||
+    artifactId.includes("guava") ||
+    artifactId.includes("lombok") ||
+    artifactId.includes("lang3") ||
+    artifactId.includes("collections")
+  ) {
+    return "Utilities";
+  }
+  if (
+    coordinate.includes("spring") ||
+    coordinate.includes("apache") ||
+    coordinate.includes("struts") ||
+    coordinate.includes("quarkus") ||
+    coordinate.includes("micronaut")
+  ) {
+    return "Framework";
+  }
+  return "Other";
+};
+
+const classifyDependencyRisk = (dep: DependencyInfo): { risk: DependencyRiskLevel; reason: string } => {
+  const artifactId = (dep.artifact_id || "").toLowerCase();
+  const groupId = (dep.group_id || "").toLowerCase();
+  const status = (dep.status || "").toLowerCase();
+  const version = dep.current_version || "";
+  const parsedVersion = parseVersionParts(version);
+  const coordinate = `${groupId}:${artifactId}`;
+  const unknownVersion = !version || version.toLowerCase() === "unknown";
+  const snapshotVersion = /snapshot|alpha|beta|rc|milestone|release/i.test(version);
+  const isLegacyJavax = groupId.startsWith("javax.") || artifactId.startsWith("javax.");
+  const isLegacyLog4j = artifactId.includes("log4j") && parsedVersion && parsedVersion.major < 2;
+  const isLegacyStruts = coordinate.includes("struts");
+  const isCommonsLogging = coordinate.includes("commons-logging");
+  const dependencyLabel = coordinate !== ":" ? coordinate : dep.artifact_id || dep.group_id || "This dependency";
+  const versionContext = unknownVersion
+    ? "Version information could not be resolved from the repository metadata."
+    : version
+      ? `Current version: ${version}.`
+      : "";
+
+  if (isLegacyJavax) {
+    return {
+      risk: "critical",
+      reason: `${dependencyLabel} is marked critical because it still relies on the legacy javax namespace, which usually needs explicit Jakarta migration work. ${versionContext}`.trim(),
+    };
+  }
+
+  if (isLegacyLog4j) {
+    return {
+      risk: "critical",
+      reason: `${dependencyLabel} is marked critical because it appears to be on Log4j 1.x, a legacy logging stack that usually needs urgent replacement before migration. ${versionContext}`.trim(),
+    };
+  }
+
+  if (isLegacyStruts) {
+    return {
+      risk: "critical",
+      reason: `${dependencyLabel} is marked critical because Struts-era dependencies are highly migration-sensitive and often require code changes, not just a version bump. ${versionContext}`.trim(),
+    };
+  }
+
+  if (isCommonsLogging) {
+    return {
+      risk: "critical",
+      reason: `${dependencyLabel} is marked critical because commons-logging is a legacy logging abstraction that frequently needs replacement or bridge cleanup during modernization. ${versionContext}`.trim(),
+    };
+  }
+
+  if (artifactId.includes("junit") && parsedVersion && parsedVersion.major < 5) {
+    return {
+      risk: "high",
+      reason: `${dependencyLabel} is marked high because it appears to be on a pre-JUnit 5 generation, which commonly needs test migration updates and runner changes. ${versionContext}`.trim(),
+    };
+  }
+
+  if (status === "outdated") {
+    return {
+      risk: "high",
+      reason: `${dependencyLabel} is marked high because the repository analysis already flagged it as outdated, so it deserves manual review before migration. ${versionContext}`.trim(),
+    };
+  }
+
+  if (unknownVersion) {
+    return {
+      risk: "medium",
+      reason: `${dependencyLabel} is marked medium because its version could not be identified from repository metadata, so compatibility needs to be validated during migration.`,
+    };
+  }
+
+  if (snapshotVersion) {
+    return {
+      risk: "medium",
+      reason: `${dependencyLabel} is marked medium because it uses a pre-release version tag such as snapshot, alpha, beta, or release candidate, which can introduce migration instability. ${versionContext}`.trim(),
+    };
+  }
+
+  if (artifactId.includes("spring")) {
+    return {
+      risk: "medium",
+      reason: `${dependencyLabel} is marked medium because Spring dependencies usually need coordinated version alignment with the broader application stack during migration. ${versionContext}`.trim(),
+    };
+  }
+
+  if (artifactId.includes("hibernate")) {
+    return {
+      risk: "medium",
+      reason: `${dependencyLabel} is marked medium because Hibernate upgrades often require ORM compatibility checks, dialect validation, and configuration review. ${versionContext}`.trim(),
+    };
+  }
+
+  if (artifactId.includes("jpa")) {
+    return {
+      risk: "medium",
+      reason: `${dependencyLabel} is marked medium because JPA-related dependencies can be affected by persistence API and Jakarta namespace changes during migration. ${versionContext}`.trim(),
+    };
+  }
+
+  if (artifactId.includes("servlet")) {
+    return {
+      risk: "medium",
+      reason: `${dependencyLabel} is marked medium because servlet APIs are often impacted by container compatibility and javax-to-jakarta migration changes. ${versionContext}`.trim(),
+    };
+  }
+
+  if (artifactId.includes("jackson")) {
+    return {
+      risk: "medium",
+      reason: `${dependencyLabel} is marked medium because Jackson libraries sit on the serialization path and should be compatibility-checked for runtime behavior changes. ${versionContext}`.trim(),
+    };
+  }
+
+  if (artifactId.includes("security")) {
+    return {
+      risk: "medium",
+      reason: `${dependencyLabel} is marked medium because security libraries are configuration-sensitive and should be reviewed carefully for authentication or authorization changes. ${versionContext}`.trim(),
+    };
+  }
+
+  if (artifactId.includes("dynamodb")) {
+    return {
+      risk: "medium",
+      reason: `${dependencyLabel} is marked medium because AWS DynamoDB client libraries are runtime-facing and may need API or SDK compatibility validation during migration. ${versionContext}`.trim(),
+    };
+  }
+
+  if (artifactId.includes("jdbc")) {
+    return {
+      risk: "medium",
+      reason: `${dependencyLabel} is marked medium because JDBC drivers are tightly coupled to database connectivity and should be validated for driver and runtime compatibility. ${versionContext}`.trim(),
+    };
+  }
+
+  return {
+    risk: "low",
+    reason: `${dependencyLabel} is marked low because no strong migration-risk indicators were detected from the repository metadata. ${versionContext}`.trim(),
+  };
+};
+
+const categorizeDependencies = (dependencies: DependencyInfo[]): CategorizedDependency[] => {
+  return dependencies.map((dep) => {
+    const { risk, reason } = classifyDependencyRisk(dep);
+    return {
+      ...dep,
+      displayName: `${dep.group_id}:${dep.artifact_id}`,
+      category: classifyDependencyCategory(dep),
+      risk,
+      reason,
+    };
+  });
+};
+
+const getDependencyRiskColors = (risk: DependencyRiskLevel) => {
+  if (risk === "critical") {
+    return {
+      background: "linear-gradient(180deg, #fef2f2 0%, #fee2e2 100%)",
+      border: "#fca5a5",
+      badgeBackground: "#dc2626",
+      badgeColor: "#fff",
+      textColor: "#991b1b",
+    };
+  }
+  if (risk === "high") {
+    return {
+      background: "linear-gradient(180deg, #fff7ed 0%, #ffedd5 100%)",
+      border: "#fdba74",
+      badgeBackground: "#ea580c",
+      badgeColor: "#fff",
+      textColor: "#9a3412",
+    };
+  }
+  if (risk === "medium") {
+    return {
+      background: "linear-gradient(180deg, #fefce8 0%, #fef9c3 100%)",
+      border: "#fde047",
+      badgeBackground: "#ca8a04",
+      badgeColor: "#fff",
+      textColor: "#854d0e",
+    };
+  }
+  return {
+    background: "linear-gradient(180deg, #f0fdf4 0%, #dcfce7 100%)",
+    border: "#86efac",
+    badgeBackground: "#16a34a",
+    badgeColor: "#fff",
+    textColor: "#166534",
+  };
 };
 
 export function useWizardController() {
@@ -790,7 +1218,7 @@ export function useWizardController() {
     const hasThymeleaf = depArtifacts.some(a => a.includes("thymeleaf"));
     const hasJsp = depArtifacts.some(a => a.includes("jsp") || a.includes("jstl") || a.includes("servlet"));
 
-    const allFiles: string[] = ((repoAnalysis as any)?.all_files ?? []).map((f: any) =>
+    const allFiles: string[] = (repoAnalysis?.all_files ?? []).map((f) =>
       (typeof f === "string" ? f : (f?.path || "")).toLowerCase()
     );
 
@@ -923,10 +1351,10 @@ export function useWizardController() {
     }
     schemathesisConf = Math.min(schemathesisConf, 97);
 
-    const schemathesisTag = schemathesisConf >= 70 ? "Highly Recommended"
+    const _schemathesisTag = schemathesisConf >= 70 ? "Highly Recommended"
       : schemathesisConf >= 40 ? "Spec Available"
       : hasRest ? "Spec Not Found" : "Not Applicable";
-    const schemathesisReason = schemathesisConf >= 70
+    const _schemathesisReason = schemathesisConf >= 70
       ? "Highly Recommended: OpenAPI/Swagger specification found in the repository."
       : schemathesisConf >= 40
         ? "Spec Available: Springdoc/Springfox dependency detected — API spec likely auto-generated at runtime."
@@ -1004,7 +1432,7 @@ export function useWizardController() {
 
 
   const hasUI = useMemo(() => {
-    const allFiles: string[] = ((repoAnalysis as any)?.all_files ?? []).map((f: any) =>
+    const allFiles: string[] = (repoAnalysis?.all_files ?? []).map((f) =>
       (typeof f === "string" ? f : (f?.path || "")).toLowerCase()
     );
     const deps = repoAnalysis?.dependencies ?? [];
@@ -1024,8 +1452,8 @@ export function useWizardController() {
   }, [repoAnalysis]);
 
   const localApiTestCases = useMemo(() => {
-    const eps = (repoAnalysis as any)?.api_endpoints || [];
-    return eps.slice(0, 50).map((ep: any, idx: number) => {
+    const eps = repoAnalysis?.api_endpoints || [];
+    return eps.slice(0, 50).map((ep, idx: number) => {
       const method = (ep.method || "GET").toUpperCase();
       const path = ep.path || "/";
       const parts = path.split("/").filter((p: string) => p && !p.startsWith("{") && !p.startsWith(":"));
@@ -1066,7 +1494,7 @@ export function useWizardController() {
     return bestTool?.id || "REST_ASSURED";
   }, [functionalTestingTools]);
 
-  const renderConfidenceCircle = (percentage: number, color: string) => {
+  const _renderConfidenceCircle = (percentage: number, color: string) => {
     const radius = 36;
     const circumference = 2 * Math.PI * radius;
     const offset = circumference - (percentage / 100) * circumference;
@@ -1254,7 +1682,7 @@ export function useWizardController() {
     }
   };
 
-  const renderMicroserviceAccordion = ({
+  const _renderMicroserviceAccordion = ({
     section,
     title,
     subtitle,
@@ -1432,9 +1860,17 @@ export function useWizardController() {
     };
 
     const lookupProperty = (propertyName: string) => {
-      const escapedProperty = propertyName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const match = pomContent.match(new RegExp(`<${escapedProperty}>\\s*(\\d+(?:\\.\\d+)?)\\s*</${escapedProperty}>`));
-      return match ? normalize(match[1]) : null;
+      const startTag = `<${propertyName}>`;
+      const endTag = `</${propertyName}>`;
+      const startIndex = pomContent.indexOf(startTag);
+      if (startIndex === -1) return null;
+      const contentStart = startIndex + startTag.length;
+      const endIndex = pomContent.indexOf(endTag, contentStart);
+      if (endIndex === -1) return null;
+      const value = pomContent.substring(contentStart, endIndex).trim();
+      // Match numeric version strings like 1.8, 11, 17, 21.0.1
+      const versionMatch = value.match(/^(\d+(?:\.\d+)*)$/);
+      return versionMatch ? normalize(versionMatch[1]) : null;
     };
 
     const directPatterns = [
@@ -1512,7 +1948,7 @@ export function useWizardController() {
     setShowAllMicroserviceServices,
   ]);
 
-  const handleDownloadMicroserviceReport = async () => {
+  const _handleDownloadMicroserviceReport = async () => {
     if (!microserviceResult) return;
     const JsPdf = await loadJsPdf();
     const pdf = new JsPdf({
@@ -1689,131 +2125,6 @@ export function useWizardController() {
       void handleCheckMicroserviceEligibility();
     }
   }, [repoAnalysis, selectedRepo?.url, microserviceAssessmentResolved, microserviceLoading, handleCheckMicroserviceEligibility]);
-
-  const parseJavaVersion = (version: string) => {
-    const parsed = parseInt(version, 10);
-    return Number.isNaN(parsed) ? null : parsed;
-  };
-
-  const shouldHideGeneratedDiffPath = (filePath: string) => {
-    const normalized = (filePath || "").replace(/\\/g, "/").toLowerCase();
-    return [
-      "/.javaapex-cache/",
-      "/.scannerwork/",
-      "/node_modules/",
-      "/target/",
-      "/build/",
-      "/out/",
-      "/dist/",
-      "/.gradle/",
-    ].some((segment) => normalized.includes(segment)) || normalized.startsWith(".javaapex-cache/") || normalized.startsWith(".scannerwork/");
-  };
-
-  const buildCodeChangesFromPreviewDiffs = (fileDiffs: PreviewFileDiff[]): CodeChangeEntry[] => {
-    return fileDiffs.flatMap((fileDiff) => {
-      const diffLinesRaw = fileDiff.diff.split(/\r?\n/);
-      const parsedDiffLines: CodeChangeEntry["diffLines"] = [];
-      let oldLineNumber = 0;
-      let newLineNumber = 0;
-      const fromLine = diffLinesRaw.find((line) => line.startsWith("--- "));
-      const toLine = diffLinesRaw.find((line) => line.startsWith("+++ "));
-
-      const changeType: CodeChangeEntry["changeType"] =
-        diffLinesRaw.some((line) => line.startsWith("new file mode")) || fromLine?.includes("/dev/null")
-          ? "added"
-          : diffLinesRaw.some((line) => line.startsWith("deleted file mode")) || toLine?.includes("/dev/null")
-            ? "deleted"
-            : "modified";
-
-      diffLinesRaw.forEach((line) => {
-        if (
-          !line ||
-          line.startsWith("diff --git") ||
-          line.startsWith("index ") ||
-          line.startsWith("new file mode") ||
-          line.startsWith("deleted file mode") ||
-          line.startsWith("rename from ") ||
-          line.startsWith("rename to ") ||
-          line.startsWith("similarity index ") ||
-          line.startsWith("---") ||
-          line.startsWith("+++")
-        ) {
-          return;
-        }
-
-        if (line.startsWith("@@")) {
-          const match = line.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
-          parsedDiffLines.push({
-            type: "hunk",
-            oldLineNumber: null,
-            newLineNumber: null,
-            content: line,
-          });
-          if (match) {
-            oldLineNumber = Number(match[1]);
-            newLineNumber = Number(match[2]);
-          }
-          return;
-        }
-
-        if (line.startsWith("+")) {
-          parsedDiffLines.push({
-            type: "add",
-            oldLineNumber: null,
-            newLineNumber,
-            content: line.slice(1),
-          });
-          newLineNumber += 1;
-          return;
-        }
-
-        if (line.startsWith("-")) {
-          parsedDiffLines.push({
-            type: "remove",
-            oldLineNumber,
-            newLineNumber: null,
-            content: line.slice(1),
-          });
-          oldLineNumber += 1;
-          return;
-        }
-
-        const content = line.startsWith(" ") ? line.slice(1) : line;
-        parsedDiffLines.push({
-          type: "context",
-          oldLineNumber,
-          newLineNumber,
-          content,
-        });
-        oldLineNumber += 1;
-        newLineNumber += 1;
-      });
-
-      const additions = diffLinesRaw.filter((line) => line.startsWith("+") && !line.startsWith("+++")).length;
-      const deletions = diffLinesRaw.filter((line) => line.startsWith("-") && !line.startsWith("---")).length;
-      const normalizedPath =
-        fileDiff.file_path ||
-        (toLine && !toLine.includes("/dev/null")
-          ? toLine.replace(/^\+\+\+\s+b\//, "")
-          : fromLine?.replace(/^---\s+a\//, "")) ||
-        "unknown-file";
-
-      if (shouldHideGeneratedDiffPath(normalizedPath)) {
-        return [];
-      }
-
-      return [{
-        fileName: normalizedPath.split("/").pop() || normalizedPath,
-        filePath: normalizedPath,
-        changeType,
-        additions,
-        deletions,
-        oldContent: "",
-        newContent: "",
-        diffLines: parsedDiffLines,
-      }];
-    });
-  };
 
   /*
   const renderCodeChangesViewer = ({
@@ -2170,311 +2481,7 @@ export function useWizardController() {
           ))}
       </div>
     );
-  };
   */
-
-  const isDetectedDependencyStatus = (status: string) => {
-    const normalizedStatus = status.trim().toLowerCase();
-    return normalizedStatus === "upgraded" || normalizedStatus.startsWith("analyzing");
-  };
-
-  const getDependencyStatusLabel = (status: string) => {
-    return isDetectedDependencyStatus(status)
-      ? "ANALYZED"
-      : status.replace(/_/g, " ").toUpperCase();
-  };
-
-  const parseVersionParts = (version: string | null | undefined) => {
-    const normalized = (version || "").trim();
-    const match = normalized.match(/(\d+)(?:\.(\d+))?(?:\.(\d+))?/);
-    if (!match) {
-      return null;
-    }
-
-    return {
-      major: Number.parseInt(match[1], 10),
-      minor: Number.parseInt(match[2] || "0", 10),
-      patch: Number.parseInt(match[3] || "0", 10),
-      raw: normalized,
-    };
-  };
-
-  const classifyDependencyCategory = (dep: DependencyInfo): DependencyCategory => {
-    const artifactId = (dep.artifact_id || "").toLowerCase();
-    const groupId = (dep.group_id || "").toLowerCase();
-    const coordinate = `${groupId}:${artifactId}`;
-
-    if (
-      artifactId.includes("junit") ||
-      artifactId.includes("mockito") ||
-      artifactId.includes("assertj") ||
-      artifactId.includes("testng") ||
-      artifactId.includes("surefire")
-    ) {
-      return "Testing";
-    }
-    if (
-      artifactId.includes("log4j") ||
-      artifactId.includes("slf4j") ||
-      artifactId.includes("logback") ||
-      artifactId.includes("commons-logging")
-    ) {
-      return "Logging";
-    }
-    if (
-      artifactId.includes("hibernate") ||
-      artifactId.includes("jpa") ||
-      artifactId.includes("jdbc") ||
-      artifactId.includes("mybatis") ||
-      artifactId.includes("dynamodb") ||
-      artifactId.includes("persistence")
-    ) {
-      return "Persistence";
-    }
-    if (
-      artifactId.includes("security") ||
-      coordinate.includes("spring-security") ||
-      artifactId.includes("oauth") ||
-      artifactId.includes("jwt") ||
-      artifactId.includes("auth")
-    ) {
-      return "Security";
-    }
-    if (
-      artifactId.includes("maven") ||
-      artifactId.includes("gradle") ||
-      artifactId.includes("plugin") ||
-      artifactId.includes("wrapper")
-    ) {
-      return "Build";
-    }
-    if (
-      groupId.startsWith("javax.") ||
-      artifactId.startsWith("javax.") ||
-      groupId.startsWith("jakarta.") ||
-      artifactId.startsWith("jakarta.") ||
-      artifactId.includes("servlet") ||
-      artifactId.includes("jaxb")
-    ) {
-      return "Jakarta / Java EE";
-    }
-    if (
-      artifactId.includes("jackson") ||
-      artifactId.includes("gson") ||
-      artifactId.includes("json") ||
-      artifactId.includes("xml") ||
-      artifactId.includes("yaml")
-    ) {
-      return "Data / JSON";
-    }
-    if (
-      artifactId.includes("commons") ||
-      artifactId.includes("guava") ||
-      artifactId.includes("lombok") ||
-      artifactId.includes("lang3") ||
-      artifactId.includes("collections")
-    ) {
-      return "Utilities";
-    }
-    if (
-      coordinate.includes("spring") ||
-      coordinate.includes("apache") ||
-      coordinate.includes("struts") ||
-      coordinate.includes("quarkus") ||
-      coordinate.includes("micronaut")
-    ) {
-      return "Framework";
-    }
-    return "Other";
-  };
-
-  const classifyDependencyRisk = (dep: DependencyInfo): { risk: DependencyRiskLevel; reason: string } => {
-    const artifactId = (dep.artifact_id || "").toLowerCase();
-    const groupId = (dep.group_id || "").toLowerCase();
-    const status = (dep.status || "").toLowerCase();
-    const version = dep.current_version || "";
-    const parsedVersion = parseVersionParts(version);
-    const coordinate = `${groupId}:${artifactId}`;
-    const unknownVersion = !version || version.toLowerCase() === "unknown";
-    const snapshotVersion = /snapshot|alpha|beta|rc|milestone|release/i.test(version);
-    const isLegacyJavax = groupId.startsWith("javax.") || artifactId.startsWith("javax.");
-    const isLegacyLog4j = artifactId.includes("log4j") && parsedVersion && parsedVersion.major < 2;
-    const isLegacyStruts = coordinate.includes("struts");
-    const isCommonsLogging = coordinate.includes("commons-logging");
-    const dependencyLabel = coordinate !== ":" ? coordinate : dep.artifact_id || dep.group_id || "This dependency";
-    const versionContext = unknownVersion
-      ? "Version information could not be resolved from the repository metadata."
-      : version
-        ? `Current version: ${version}.`
-        : "";
-
-    if (isLegacyJavax) {
-      return {
-        risk: "critical",
-        reason: `${dependencyLabel} is marked critical because it still relies on the legacy javax namespace, which usually needs explicit Jakarta migration work. ${versionContext}`.trim(),
-      };
-    }
-
-    if (isLegacyLog4j) {
-      return {
-        risk: "critical",
-        reason: `${dependencyLabel} is marked critical because it appears to be on Log4j 1.x, a legacy logging stack that usually needs urgent replacement before migration. ${versionContext}`.trim(),
-      };
-    }
-
-    if (isLegacyStruts) {
-      return {
-        risk: "critical",
-        reason: `${dependencyLabel} is marked critical because Struts-era dependencies are highly migration-sensitive and often require code changes, not just a version bump. ${versionContext}`.trim(),
-      };
-    }
-
-    if (isCommonsLogging) {
-      return {
-        risk: "critical",
-        reason: `${dependencyLabel} is marked critical because commons-logging is a legacy logging abstraction that frequently needs replacement or bridge cleanup during modernization. ${versionContext}`.trim(),
-      };
-    }
-
-    if (artifactId.includes("junit") && parsedVersion && parsedVersion.major < 5) {
-      return {
-        risk: "high",
-        reason: `${dependencyLabel} is marked high because it appears to be on a pre-JUnit 5 generation, which commonly needs test migration updates and runner changes. ${versionContext}`.trim(),
-      };
-    }
-
-    if (status === "outdated") {
-      return {
-        risk: "high",
-        reason: `${dependencyLabel} is marked high because the repository analysis already flagged it as outdated, so it deserves manual review before migration. ${versionContext}`.trim(),
-      };
-    }
-
-    if (unknownVersion) {
-      return {
-        risk: "medium",
-        reason: `${dependencyLabel} is marked medium because its version could not be identified from repository metadata, so compatibility needs to be validated during migration.`,
-      };
-    }
-
-    if (snapshotVersion) {
-      return {
-        risk: "medium",
-        reason: `${dependencyLabel} is marked medium because it uses a pre-release version tag such as snapshot, alpha, beta, or release candidate, which can introduce migration instability. ${versionContext}`.trim(),
-      };
-    }
-
-    if (artifactId.includes("spring")) {
-      return {
-        risk: "medium",
-        reason: `${dependencyLabel} is marked medium because Spring dependencies usually need coordinated version alignment with the broader application stack during migration. ${versionContext}`.trim(),
-      };
-    }
-
-    if (artifactId.includes("hibernate")) {
-      return {
-        risk: "medium",
-        reason: `${dependencyLabel} is marked medium because Hibernate upgrades often require ORM compatibility checks, dialect validation, and configuration review. ${versionContext}`.trim(),
-      };
-    }
-
-    if (artifactId.includes("jpa")) {
-      return {
-        risk: "medium",
-        reason: `${dependencyLabel} is marked medium because JPA-related dependencies can be affected by persistence API and Jakarta namespace changes during migration. ${versionContext}`.trim(),
-      };
-    }
-
-    if (artifactId.includes("servlet")) {
-      return {
-        risk: "medium",
-        reason: `${dependencyLabel} is marked medium because servlet APIs are often impacted by container compatibility and javax-to-jakarta migration changes. ${versionContext}`.trim(),
-      };
-    }
-
-    if (artifactId.includes("jackson")) {
-      return {
-        risk: "medium",
-        reason: `${dependencyLabel} is marked medium because Jackson libraries sit on the serialization path and should be compatibility-checked for runtime behavior changes. ${versionContext}`.trim(),
-      };
-    }
-
-    if (artifactId.includes("security")) {
-      return {
-        risk: "medium",
-        reason: `${dependencyLabel} is marked medium because security libraries are configuration-sensitive and should be reviewed carefully for authentication or authorization changes. ${versionContext}`.trim(),
-      };
-    }
-
-    if (artifactId.includes("dynamodb")) {
-      return {
-        risk: "medium",
-        reason: `${dependencyLabel} is marked medium because AWS DynamoDB client libraries are runtime-facing and may need API or SDK compatibility validation during migration. ${versionContext}`.trim(),
-      };
-    }
-
-    if (artifactId.includes("jdbc")) {
-      return {
-        risk: "medium",
-        reason: `${dependencyLabel} is marked medium because JDBC drivers are tightly coupled to database connectivity and should be validated for driver and runtime compatibility. ${versionContext}`.trim(),
-      };
-    }
-
-    return {
-      risk: "low",
-      reason: `${dependencyLabel} is marked low because no strong migration-risk indicators were detected from the repository metadata. ${versionContext}`.trim(),
-    };
-  };
-
-  const categorizeDependencies = (dependencies: DependencyInfo[]): CategorizedDependency[] => {
-    return dependencies.map((dep) => {
-      const { risk, reason } = classifyDependencyRisk(dep);
-      return {
-        ...dep,
-        displayName: `${dep.group_id}:${dep.artifact_id}`,
-        category: classifyDependencyCategory(dep),
-        risk,
-        reason,
-      };
-    });
-  };
-
-  const getDependencyRiskColors = (risk: DependencyRiskLevel) => {
-    if (risk === "critical") {
-      return {
-        background: "linear-gradient(180deg, #fef2f2 0%, #fee2e2 100%)",
-        border: "#fca5a5",
-        badgeBackground: "#dc2626",
-        badgeColor: "#fff",
-        textColor: "#991b1b",
-      };
-    }
-    if (risk === "high") {
-      return {
-        background: "linear-gradient(180deg, #fff7ed 0%, #ffedd5 100%)",
-        border: "#fdba74",
-        badgeBackground: "#f97316",
-        badgeColor: "#fff",
-        textColor: "#9a3412",
-      };
-    }
-    if (risk === "medium") {
-      return {
-        background: "linear-gradient(180deg, #fffbeb 0%, #fef3c7 100%)",
-        border: "#fcd34d",
-        badgeBackground: "#f59e0b",
-        badgeColor: "#fff",
-        textColor: "#92400e",
-      };
-    }
-    return {
-      background: "linear-gradient(180deg, #ecfdf5 0%, #dcfce7 100%)",
-      border: "#86efac",
-      badgeBackground: "#22c55e",
-      badgeColor: "#fff",
-      textColor: "#166534",
-    };
-  };
 
   const handleTargetVersionChange = (value: string) => {
     setSelectedTargetVersion(value);
@@ -3095,6 +3102,7 @@ export function useWizardController() {
     runSonar,
     runFossa,
     fixBusinessLogic,
+    functionalTestToolMethod,
     migrationApproach,
     riskLevel,
     selectedFrameworks,
@@ -3220,7 +3228,7 @@ export function useWizardController() {
     () => reportCodeChanges.slice(0, visibleReportDiffCount),
     [reportCodeChanges, visibleReportDiffCount]
   );
-  const hasMoreReportCodeChanges = visibleReportDiffCount < reportCodeChanges.length;
+  const _hasMoreReportCodeChanges = visibleReportDiffCount < reportCodeChanges.length;
 
   useEffect(() => {
     setVisibleReportDiffCount(REPORT_DIFFS_PAGE_SIZE);
@@ -3559,6 +3567,7 @@ export function useWizardController() {
     effectiveTargetVersion,
     repoAnalysis?.dependencies,
     repoAnalysis?.full_name,
+    repoAnalysis?.has_tests,
     repoAnalysis?.java_version,
     repoAnalysis?.java_version_from_build,
     repoAnalysis?.language,
@@ -3584,7 +3593,7 @@ export function useWizardController() {
     getAutoGeneratedTargetName,
   ]);
 
-  const plannedCodeRefactoringTooltip = useMemo(() => {
+  const _plannedCodeRefactoringTooltip = useMemo(() => {
     const previewDescriptions = migrationPreview
       ? Array.from(
           new Map(
@@ -3647,7 +3656,7 @@ export function useWizardController() {
     selectedSourceVersion,
   ]);
 
-  const plannedDependenciesTooltip = useMemo(() => {
+  const _plannedDependenciesTooltip = useMemo(() => {
     const dependencyUpdateCount = migrationPreview?.changes.dependencies_to_update?.length ?? 0;
     const discoveredDependencyCount = repoAnalysis?.dependencies?.length ?? 0;
     const dependencyHighlights = dependencyUpdateCount > 0
@@ -3676,7 +3685,7 @@ export function useWizardController() {
     );
   }, [migrationPreview, repoAnalysis?.dependencies]);
 
-  const plannedBusinessLogicTooltip = useMemo(() => {
+  const _plannedBusinessLogicTooltip = useMemo(() => {
     const endpointCount = repoAnalysis?.api_endpoints?.length ?? 0;
     const businessLogicSteps = [
       "Protect runtime behavior while upgrading null handling, error handling, and resource usage",
@@ -4122,6 +4131,7 @@ export function useWizardController() {
   }, [
     currentToken,
     effectiveTargetVersion,
+    jobId,
     migrationJob?.job_id,
     migrationJob?.source_repo,
     migrationJob?.target_repo,
@@ -4304,7 +4314,7 @@ export function useWizardController() {
       clearScheduledPoll();
       migrationPollingInFlightRef.current = false;
     };
-  }, [migrationJob?.job_id, migrationJob?.status, setMigrationJob, setMigrationLogs, step]);
+  }, [migrationJob?.job_id, migrationJob?.status, setMigrationDetailLoadedJobId, setMigrationJob, setMigrationLogs, step]);
 
   /* useEffect(() => {
       

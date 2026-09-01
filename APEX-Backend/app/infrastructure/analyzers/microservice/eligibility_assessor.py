@@ -42,7 +42,7 @@ class MicroserviceEligibilityAssessor:
         weights = [len(c.chunk.all_members) or 1 for c in scored_chunks]
         total_weight = sum(weights)
         overall_score = (
-            round(sum(c.score * w for c, w in zip(scored_chunks, weights)) / total_weight)
+            round(sum(c.score * w for c, w in zip(scored_chunks, weights, strict=True)) / total_weight)
             if total_weight
             else 0
         )

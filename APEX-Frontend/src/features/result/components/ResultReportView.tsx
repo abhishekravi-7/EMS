@@ -1024,7 +1024,7 @@ export function ResultReportView({
                   <>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                       <div>
-                        <h3 style={styles.reportTitle}>Code Transformations (Before & After Differentiator)</h3>
+                        <h3 style={styles.reportTitle}>Code Transformations (Before &amp; After Differentiator)</h3>
                         <p style={{ fontSize: 13, color: "#64748b", margin: "4px 0 0 0" }}>
                           Review exact source code modifications, package refactoring, and dependency upgrades.
                         </p>

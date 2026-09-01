@@ -1,4 +1,4 @@
-import { FaCode, FaCogs, FaJava, FaLeaf, FaProjectDiagram, FaCheckCircle, FaTimesCircle, FaBoxOpen, FaLayerGroup, FaFlask, FaCubes, FaWrench, FaCoffee } from "react-icons/fa";
+import { FaCode, FaCogs, FaJava, FaLeaf, FaProjectDiagram, FaCheckCircle, FaTimesCircle, FaBoxOpen, FaLayerGroup, FaCubes, FaWrench, FaCoffee } from "react-icons/fa";
 import { wizardStyles as styles } from "@/shared/components/wizard/wizardStyles";
 import {
   renderWizardIconBadge,
@@ -96,7 +96,7 @@ export function StrategyStepView({
   targetRepositoryOwner,
   onBack,
   onContinue,
-  strategyAssistantContext,
+  strategyAssistantContext: _strategyAssistantContext,
 }: StrategyStepViewProps) {
   const {
     selectedSourceVersion,

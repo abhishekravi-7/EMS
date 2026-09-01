@@ -52,7 +52,7 @@ def verify_password(plain_password: str, password_hash: str) -> bool:
     """
     try:
         return _password_hasher.verify(plain_password, password_hash)
-    except Exception:
+    except Exception:  # noqa: BLE001
         logger.warning("Password verification failed against a malformed stored hash.")
         return False
 
@@ -148,7 +148,7 @@ def hash_refresh_token(raw_token: str) -> str:
 # OAuth (Google / GitHub social login): state (CSRF) tokens + PKCE
 # --------------------------------------------------------------------------- #
 
-_OAUTH_STATE_TOKEN_TYPE = "oauth_state"
+_OAUTH_STATE_TOKEN_TYPE = "oauth_state"  # nosec B105
 
 
 def create_oauth_state_token(provider: str) -> str:

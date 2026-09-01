@@ -2,8 +2,6 @@ import React, { useState, useMemo } from "react";
 import {
   FaTimes,
   FaSearch,
-  FaCheckCircle,
-  FaTimesCircle,
   FaInfoCircle,
   FaDesktop,
   FaCode,
@@ -11,11 +9,9 @@ import {
   FaExternalLinkAlt,
   FaImage,
   FaPlay,
-  FaDownload,
-  FaTerminal,
-  FaExclamationTriangle,
-  FaLayerGroup,
 } from "react-icons/fa";
+
+type FilterType = "ALL" | "PASSED" | "FAILED" | "SKIPPED" | "NOT_EXECUTED";
 
 export interface CategoryTestItem {
   testId?: string;
@@ -50,8 +46,8 @@ export interface CategoryTestItem {
   video_url?: string | null;
   traceUrl?: string | null;
   trace_url?: string | null;
-  api_evidence?: any;
-  apiEvidence?: any;
+  api_evidence?: { method?: string; endpoint?: string; expectedStatus?: number; actualStatus?: number; [key: string]: unknown } | null;
+  apiEvidence?: { method?: string; endpoint?: string; expectedStatus?: number; actualStatus?: number; [key: string]: unknown } | null;
   endpoint?: string;
   http_method?: string;
   expected_status?: number;
@@ -86,9 +82,7 @@ export function CategoryDetailsModal({
   onSelectTest,
 }: CategoryDetailsModalProps) {
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<"ALL" | "PASSED" | "FAILED" | "SKIPPED" | "NOT_EXECUTED">("ALL");
-
-  if (!isOpen) return null;
+  const [filter, setFilter] = useState<FilterType>("ALL");
 
   // Normalized Category String
   const catUpper = (categoryName || "API CONTRACTS").toUpperCase();
@@ -117,7 +111,6 @@ export function CategoryDetailsModal({
     let matched = allTestsPool.filter((t) => {
       const tCat = (t.category || "").toUpperCase();
       const tType = (t.test_type || t.testType || t.type || "").toUpperCase();
-      const tName = (t.test_name || t.name || t.title || "").toLowerCase();
       const tSuite = (t.suite || t.spec || t.classname || t.file || "").toLowerCase();
       const catLower = categoryName.toLowerCase();
 
@@ -192,6 +185,8 @@ export function CategoryDetailsModal({
       return true;
     });
   }, [categoryTests, filter, search]);
+
+  if (!isOpen) return null;
 
   const coveragePct = counts.total > 0 && counts.passed > 0 ? `${Math.round((counts.passed / counts.total) * 100)}%` : (counts.total > 0 ? "100%" : "0%");
 
@@ -344,7 +339,7 @@ export function CategoryDetailsModal({
               return (
                 <button
                   key={p.key}
-                  onClick={() => setFilter(p.key as any)}
+                  onClick={() => setFilter(p.key as FilterType)}
                   style={{
                     padding: "5px 12px",
                     borderRadius: 20,
@@ -426,7 +421,7 @@ export function CategoryDetailsModal({
               const duration = t.duration || "0.755s";
               const sourceFile = t.file || `${testClass.split(".").pop()}.java`;
               const status = (t.status || (t.duration ? "PASSED" : "NOT_EXECUTED")).toUpperCase();
-              const isExecuted = status === "PASSED" || status === "FAILED" || status === "SKIPPED";
+              const _isExecuted = status === "PASSED" || status === "FAILED" || status === "SKIPPED";
 
               const isAPI = testType === "API" || !!t.api_evidence || !!t.apiEvidence || catUpper.includes("API") || !catUpper.includes("UI");
               const isUI = testType === "UI" || !!t.screenshot_url || !!t.screenshotUrl || catUpper.includes("UI");
@@ -624,7 +619,7 @@ export function CategoryDetailsModal({
                           </div>
                           <div>
                             <span style={{ color: "#94a3b8", fontWeight: 600 }}>Assertion:</span>{" "}
-                            <span style={{ fontWeight: 700 }}>Response status & payload match schema</span>
+                            <span style={{ fontWeight: 700 }}>Response status &amp; payload match schema</span>
                           </div>
                         </div>
                       </div>

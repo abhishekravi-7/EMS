@@ -9,8 +9,8 @@ Synchronous (embedding + Qdrant are sync); async callers use
 layer up (in the use case) to avoid an import cycle.
 """
 
-import time
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -48,8 +48,6 @@ def retrieve(question: str, repository_url: str, job_id: str | None = None, top_
         raise RagDisabledError()
 
     import re
-
-    start_time = time.time()
 
     repository_url = repo_index_locator.normalize_repository_url(repository_url)
     limit = top_k or settings.rag_top_k

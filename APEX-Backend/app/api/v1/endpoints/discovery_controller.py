@@ -37,9 +37,9 @@ _microservice_use_case = AssessMicroserviceEligibilityUseCase()
 )
 async def run_discovery(
     job_id: str,
-    payload: DiscoveryRequest | None = Body(default=None),
-    current_user: User = Depends(get_current_user),
-    db: Session | None = Depends(get_db_optional),
+    payload: DiscoveryRequest | None = Body(default=None),  # noqa: B008
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session | None = Depends(get_db_optional),  # noqa: B008
 ) -> JSONResponse:
     """Clone the connected repository and analyze the project.
 
@@ -69,8 +69,8 @@ async def run_discovery(
 async def list_discovery_files(
     job_id: str,
     path: str = Query("", description="Folder path relative to the repository root."),
-    current_user: User = Depends(get_current_user),
-    db: Session | None = Depends(get_db_optional),
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session | None = Depends(get_db_optional),  # noqa: B008
 ) -> JSONResponse:
     """Lazily list one directory level of the job's already-cloned repo.
 
@@ -107,8 +107,8 @@ async def list_discovery_files(
 async def get_discovery_file_content(
     job_id: str,
     path: str = Query(..., description="File path relative to the repository root."),
-    current_user: User = Depends(get_current_user),
-    db: Session | None = Depends(get_db_optional),
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session | None = Depends(get_db_optional),  # noqa: B008
 ) -> JSONResponse:
     verify_job_ownership(db, job_id, current_user)
     try:
@@ -136,8 +136,8 @@ async def get_discovery_file_content(
 )
 async def get_microservice_eligibility(
     job_id: str,
-    current_user: User = Depends(get_current_user),
-    db: Session | None = Depends(get_db_optional),
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session | None = Depends(get_db_optional),  # noqa: B008
 ) -> JSONResponse:
     """Real static analysis over the job's cloned repo.
 

@@ -1,0 +1,783 @@
+Run started:2026-08-31 12:45:09.282275
+
+Test results:
+>> Issue: [B404:blacklist] Consider possible security implications associated with the subprocess module.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/blacklists/blacklist_imports.html#b404-import-subprocess
+   Location: app\application\use_cases\existing_test_runner_service.py:10:0
+9	import shutil
+10	import subprocess
+11	import threading
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b110_try_except_pass.html
+   Location: app\application\use_cases\existing_test_runner_service.py:51:12
+50	                if 'rest-assured' in c or 'restassured' in c or 'mockmvc' in c: self.has_api_dep = True
+51	            except Exception:
+52	                pass
+53	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b110_try_except_pass.html
+   Location: app\application\use_cases\existing_test_runner_service.py:63:16
+62	                    if 'rest-assured' in c or 'restassured' in c or 'mockmvc' in c: self.has_api_dep = True
+63	                except Exception:
+64	                    pass
+65	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b110_try_except_pass.html
+   Location: app\application\use_cases\existing_test_runner_service.py:95:20
+94	                            self.api_classes.add(class_name.lower())
+95	                    except Exception:
+96	                        pass
+97	
+
+--------------------------------------------------
+>> Issue: [B112:try_except_continue] Try, Except, Continue detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b112_try_except_continue.html
+   Location: app\application\use_cases\existing_test_runner_service.py:115:16
+114	                    rel_path = filepath.relative_to(self.clone_dir).as_posix()
+115	                except Exception:
+116	                    continue
+117	                self._analyze_file(filepath, rel_path)
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b110_try_except_pass.html
+   Location: app\application\use_cases\existing_test_runner_service.py:223:12
+222	                if 'supertest' in deps: self.frameworks.add('Supertest')
+223	            except Exception:
+224	                pass
+225	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b110_try_except_pass.html
+   Location: app\application\use_cases\existing_test_runner_service.py:235:12
+234	                if 'rest-assured' in content or 'restassured' in content: self.frameworks.add('RestAssured')
+235	            except Exception:
+236	                pass
+237	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b110_try_except_pass.html
+   Location: app\application\use_cases\existing_test_runner_service.py:248:16
+247	                    if 'rest-assured' in content or 'restassured' in content: self.frameworks.add('RestAssured')
+248	                except Exception:
+249	                    pass
+250	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b110_try_except_pass.html
+   Location: app\application\use_cases\existing_test_runner_service.py:258:12
+257	                if 'pytest' in reqs: self.frameworks.add('PyTest')
+258	            except Exception:
+259	                pass
+260	                
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b110_try_except_pass.html
+   Location: app\application\use_cases\existing_test_runner_service.py:288:12
+287	                self.skipped = 0
+288	            except Exception:
+289	                pass
+290	        
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: app\application\use_cases\existing_test_runner_service.py:528:19
+527	            cmd_env = {**os.environ, "CI": "1", **(env or {})}
+528	            proc = subprocess.Popen(
+529	                cmd,
+530	                cwd=cwd,
+531	                stdin=subprocess.DEVNULL,
+532	                stdout=subprocess.PIPE,
+533	                stderr=subprocess.STDOUT,
+534	                text=True,
+535	                errors='ignore',
+536	                env=cmd_env,
+537	                start_new_session=(os.name != "nt"),
+538	            )
+539	            with self._lock:
+
+--------------------------------------------------
+>> Issue: [B607:start_process_with_partial_path] Starting a process with a partial executable path
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b607_start_process_with_partial_path.html
+   Location: app\application\use_cases\existing_test_runner_service.py:562:20
+561	                if os.name == "nt":
+562	                    subprocess.run(
+563	                        ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+564	                        stdout=subprocess.DEVNULL,
+565	                        stderr=subprocess.DEVNULL,
+566	                        check=False,
+567	                    )
+568	                else:
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: app\application\use_cases\existing_test_runner_service.py:562:20
+561	                if os.name == "nt":
+562	                    subprocess.run(
+563	                        ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+564	                        stdout=subprocess.DEVNULL,
+565	                        stderr=subprocess.DEVNULL,
+566	                        check=False,
+567	                    )
+568	                else:
+
+--------------------------------------------------
+>> Issue: [B607:start_process_with_partial_path] Starting a process with a partial executable path
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b607_start_process_with_partial_path.html
+   Location: app\application\use_cases\existing_test_runner_service.py:619:20
+618	                if os.name == "nt":
+619	                    subprocess.run(
+620	                        ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+621	                        stdout=subprocess.DEVNULL,
+622	                        stderr=subprocess.DEVNULL,
+623	                        check=False,
+624	                    )
+625	                else:
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: app\application\use_cases\existing_test_runner_service.py:619:20
+618	                if os.name == "nt":
+619	                    subprocess.run(
+620	                        ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+621	                        stdout=subprocess.DEVNULL,
+622	                        stderr=subprocess.DEVNULL,
+623	                        check=False,
+624	                    )
+625	                else:
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b110_try_except_pass.html
+   Location: app\application\use_cases\existing_test_runner_service.py:650:8
+649	                return True
+650	        except Exception:
+651	            pass
+652	        try:
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b110_try_except_pass.html
+   Location: app\application\use_cases\existing_test_runner_service.py:656:8
+655	                return True
+656	        except Exception:
+657	            pass
+658	        return False
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b110_try_except_pass.html
+   Location: app\application\use_cases\existing_test_runner_service.py:773:12
+772	                }
+773	            except Exception:
+774	                pass
+775	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b110_try_except_pass.html
+   Location: app\application\use_cases\existing_test_runner_service.py:788:12
+787	                }
+788	            except Exception:
+789	                pass
+790	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b110_try_except_pass.html
+   Location: app\application\use_cases\existing_test_runner_service.py:806:16
+805	                    paths.existing_test_state_path.write_text(json.dumps(db_state, indent=2), encoding="utf-8")
+806	                except Exception:
+807	                    pass
+808	                status_str = db_state.get("status", "IDLE")
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b110_try_except_pass.html
+   Location: app\application\use_cases\existing_test_runner_service.py:827:8
+826	                }
+827	        except Exception:
+828	            pass
+829	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b110_try_except_pass.html
+   Location: app\application\use_cases\existing_test_runner_service.py:869:8
+868	                paths.existing_test_state_path.unlink(missing_ok=True)
+869	        except Exception:
+870	            pass
+871	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b110_try_except_pass.html
+   Location: app\application\use_cases\existing_test_runner_service.py:901:12
+900	                    temp_path.replace(paths.existing_test_state_path)
+901	            except Exception:
+902	                pass
+903	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b110_try_except_pass.html
+   Location: app\application\use_cases\existing_test_runner_service.py:919:12
+918	                                version = line.split("=", 1)[1].strip().strip('"')
+919	            except Exception:
+920	                pass
+921	        is_linux = (system == "linux")
+
+--------------------------------------------------
+>> Issue: [B112:try_except_continue] Try, Except, Continue detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b112_try_except_continue.html
+   Location: app\application\use_cases\existing_test_runner_service.py:947:24
+946	                            content = f_path.read_text(encoding="utf-8", errors="ignore")
+947	                        except Exception:
+948	                            continue
+949	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b110_try_except_pass.html
+   Location: app\application\use_cases\existing_test_runner_service.py:1232:12
+1231	                        results.extend(self._parse_testsuite_element(ts))
+1232	            except Exception:
+1233	                pass
+1234	        return results
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b110_try_except_pass.html
+   Location: app\application\use_cases\existing_test_runner_service.py:1357:12
+1356	                        return str(val)
+1357	            except Exception:
+1358	                pass
+1359	            # Check System Environment (HKLM)
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b110_try_except_pass.html
+   Location: app\application\use_cases\existing_test_runner_service.py:1365:12
+1364	                        return str(val)
+1365	            except Exception:
+1366	                pass
+1367	        except Exception:
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b110_try_except_pass.html
+   Location: app\application\use_cases\existing_test_runner_service.py:1367:8
+1366	                pass
+1367	        except Exception:
+1368	            pass
+1369	        return None
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b110_try_except_pass.html
+   Location: app\application\use_cases\existing_test_runner_service.py:1495:12
+1494	                            results.extend(self._parse_testsuite_element(ts))
+1495	            except Exception:
+1496	                pass
+1497	        return results
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b110_try_except_pass.html
+   Location: app\application\use_cases\existing_test_runner_service.py:1811:8
+1810	                    })
+1811	        except Exception:
+1812	            pass
+1813	        return results
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b110_try_except_pass.html
+   Location: app\application\use_cases\existing_test_runner_service.py:1828:8
+1827	                    results.extend(self._parse_testsuite_element(ts))
+1828	        except Exception:
+1829	            pass
+1830	        return results
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b110_try_except_pass.html
+   Location: app\application\use_cases\existing_test_runner_service.py:2094:12
+2093	                paths.existing_test_report_path.write_text(json.dumps(error_result, indent=2), encoding="utf-8")
+2094	            except Exception:
+2095	                pass
+2096	            self._save_state_to_disk(job_id)
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b110_try_except_pass.html
+   Location: app\application\use_cases\existing_test_runner_service.py:2178:12
+2177	                paths.existing_test_report_path.write_text(json.dumps(no_tests_result, indent=2), encoding="utf-8")
+2178	            except Exception:
+2179	                pass
+2180	            self._save_state_to_disk(job_id)
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b110_try_except_pass.html
+   Location: app\application\use_cases\existing_test_runner_service.py:2218:12
+2217	                    current = current.parent
+2218	            except Exception:
+2219	                pass
+2220	            for target in target_files:
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b110_try_except_pass.html
+   Location: app\application\use_cases\existing_test_runner_service.py:2454:28
+2453	                                proj_content += bgf.read_text(encoding="utf-8", errors="ignore").lower()
+2454	                            except Exception:
+2455	                                pass
+2456	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b110_try_except_pass.html
+   Location: app\application\use_cases\existing_test_runner_service.py:3206:28
+3205	                                self._log(job_id, "[PLAYWRIGHT] Screenshot captured")
+3206	                            except Exception:
+3207	                                pass
+3208	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b110_try_except_pass.html
+   Location: app\application\use_cases\existing_test_runner_service.py:3215:28
+3214	                                self._log(job_id, "[PLAYWRIGHT] Video captured")
+3215	                            except Exception:
+3216	                                pass
+3217	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b110_try_except_pass.html
+   Location: app\application\use_cases\existing_test_runner_service.py:3276:24
+3275	                            self._log(job_id, f"Evidence saved to ui/{sanitized_id}")
+3276	                        except Exception:
+3277	                            pass
+3278	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b110_try_except_pass.html
+   Location: app\application\use_cases\existing_test_runner_service.py:3417:8
+3416	            paths.existing_test_report_path.write_text(json.dumps(final_result, indent=2), encoding="utf-8")
+3417	        except Exception:
+3418	            pass
+3419	        self._save_state_to_disk(job_id)
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b110_try_except_pass.html
+   Location: app\application\use_cases\index_repository.py:82:20
+81	                            )
+82	                    except Exception:
+83	                        pass
+84	
+
+--------------------------------------------------
+>> Issue: [B112:try_except_continue] Try, Except, Continue detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b112_try_except_continue.html
+   Location: app\application\use_cases\index_repository.py:177:8
+176	            content = path.read_text(encoding="utf-8", errors="ignore")
+177	        except Exception:
+178	            continue
+179	            
+
+--------------------------------------------------
+>> Issue: [B112:try_except_continue] Try, Except, Continue detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b112_try_except_continue.html
+   Location: app\application\use_cases\proposed_tests\proposed_test_analyzer.py:75:16
+74	                    content = filepath.read_text(encoding="utf-8", errors="ignore")
+75	                except Exception:
+76	                    continue
+77	
+
+--------------------------------------------------
+>> Issue: [B112:try_except_continue] Try, Except, Continue detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b112_try_except_continue.html
+   Location: app\application\use_cases\proposed_tests\proposed_test_analyzer.py:196:16
+195	                    content = filepath.read_text(encoding="utf-8", errors="ignore")
+196	                except Exception:
+197	                    continue
+198	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b110_try_except_pass.html
+   Location: app\application\use_cases\proposed_tests\proposed_test_analyzer.py:251:20
+250	                            })
+251	                    except Exception:
+252	                        pass
+253	        return entities
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b110_try_except_pass.html
+   Location: app\application\use_cases\proposed_tests\proposed_test_analyzer.py:299:20
+298	                            })
+299	                    except Exception:
+300	                        pass
+301	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b110_try_except_pass.html
+   Location: app\application\use_cases\proposed_tests\proposed_test_executor.py:241:8
+240	            screenshot_available = True
+241	        except Exception:
+242	            pass
+243	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b110_try_except_pass.html
+   Location: app\application\use_cases\proposed_tests\proposed_test_service.py:280:12
+279	                persisted_status = sdata.get("status", "IDLE")
+280	            except Exception:
+281	                pass
+282	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b110_try_except_pass.html
+   Location: app\application\use_cases\proposed_tests\proposed_test_service.py:304:12
+303	                return json.loads(res_file.read_text(encoding="utf-8"))
+304	            except Exception:
+305	                pass
+306	
+
+--------------------------------------------------
+>> Issue: [B112:try_except_continue] Try, Except, Continue detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b112_try_except_continue.html
+   Location: app\application\use_cases\run_unit_tests.py:239:16
+238	                    )
+239	                except Exception:
+240	                    continue
+241	
+
+--------------------------------------------------
+>> Issue: [B105:hardcoded_password_string] Possible hardcoded password: 'oauth_state'
+   Severity: Low   Confidence: Medium
+   CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b105_hardcoded_password_string.html
+   Location: app\core\security.py:151:26
+150	
+151	_OAUTH_STATE_TOKEN_TYPE = "oauth_state"
+152	
+
+--------------------------------------------------
+>> Issue: [B112:try_except_continue] Try, Except, Continue detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b112_try_except_continue.html
+   Location: app\infrastructure\analyzers\junit4_to_5_converter.py:94:12
+93	                    })
+94	            except Exception:
+95	                continue
+96	
+
+--------------------------------------------------
+>> Issue: [B405:blacklist] Using Element to parse untrusted XML data is known to be vulnerable to XML attacks. Replace Element with the equivalent defusedxml package, or make sure defusedxml.defuse_stdlib() is called.
+   Severity: Low   Confidence: High
+   CWE: CWE-20 (https://cwe.mitre.org/data/definitions/20.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/blacklists/blacklist_imports.html#b405-import-xml-etree
+   Location: app\infrastructure\analyzers\project_analyzer.py:12:0
+11	from pathlib import Path
+12	from xml.etree.ElementTree import Element, ParseError  # noqa: S405 - Element is used as a type annotation only; parsing is via defusedxml
+13	from defusedxml.ElementTree import fromstring  # nosec B405
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b110_try_except_pass.html
+   Location: app\infrastructure\auth\firebase_auth.py:49:4
+48	            return True
+49	    except Exception:
+50	        pass
+51	    return False
+
+--------------------------------------------------
+>> Issue: [B105:hardcoded_password_string] Possible hardcoded password: '***'
+   Severity: Low   Confidence: Medium
+   CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b105_hardcoded_password_string.html
+   Location: app\infrastructure\git\repository_cloner.py:21:14
+20	
+21	_TOKEN_MASK = "***"
+22	
+
+--------------------------------------------------
+>> Issue: [B105:hardcoded_password_string] Possible hardcoded password: '***'
+   Severity: Low   Confidence: Medium
+   CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b105_hardcoded_password_string.html
+   Location: app\infrastructure\github\repo_pusher.py:19:14
+18	
+19	_TOKEN_MASK = "***"
+20	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b110_try_except_pass.html
+   Location: app\infrastructure\java_runtime.py:368:4
+367	                return str(candidate)
+368	    except Exception:
+369	        pass
+370	    ambient_home = (os.environ.get("JAVA_HOME") or "").strip()
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b110_try_except_pass.html
+   Location: app\infrastructure\llm\huggingface_client.py:94:12
+93	                )
+94	            except Exception:
+95	                pass
+96	
+
+--------------------------------------------------
+>> Issue: [B105:hardcoded_password_string] Possible hardcoded password: 'https://github.com/login/oauth/access_token'
+   Severity: Low   Confidence: Medium
+   CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b105_hardcoded_password_string.html
+   Location: app\infrastructure\oauth\github_client.py:22:17
+21	AUTHORIZATION_ENDPOINT = "https://github.com/login/oauth/authorize"
+22	TOKEN_ENDPOINT = "https://github.com/login/oauth/access_token"
+23	USER_ENDPOINT = "https://api.github.com/user"
+
+--------------------------------------------------
+>> Issue: [B105:hardcoded_password_string] Possible hardcoded password: 'https://oauth2.googleapis.com/token'
+   Severity: Low   Confidence: Medium
+   CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b105_hardcoded_password_string.html
+   Location: app\infrastructure\oauth\google_client.py:19:17
+18	AUTHORIZATION_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth"
+19	TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"
+20	USERINFO_ENDPOINT = "https://openidconnect.googleapis.com/v1/userinfo"
+
+--------------------------------------------------
+>> Issue: [B404:blacklist] Consider possible security implications associated with the subprocess module.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/blacklists/blacklist_imports.html#b404-import-subprocess
+   Location: app\infrastructure\quality_gates\dependency_check_runner.py:10:0
+9	import shutil
+10	import subprocess
+11	import time
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: app\infrastructure\quality_gates\dependency_check_runner.py:87:18
+86	        start_time = time.time()
+87	        analyze = subprocess.run(
+88	            analyze_cmd,
+89	            cwd=project_dir,
+90	            env=env,
+91	            capture_output=True,
+92	            text=True,
+93	            timeout=900,
+94	            check=False,
+95	        )
+96	        duration_analyze = time.time() - start_time
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: app\infrastructure\quality_gates\dependency_check_runner.py:109:22
+108	            analyze_cmd_plain = [cli, "analyze", "--project", project]
+109	            analyze = subprocess.run(
+110	                analyze_cmd_plain,
+111	                cwd=project_dir,
+112	                env=env,
+113	                capture_output=True,
+114	                text=True,
+115	                timeout=900,
+116	                check=False,
+117	            )
+118	            analyze_output = (analyze.stdout + "\n" + analyze.stderr).strip()
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: app\infrastructure\quality_gates\dependency_check_runner.py:163:15
+162	        start_test_time = time.time()
+163	        test = subprocess.run(
+164	            test_cmd,
+165	            cwd=project_dir,
+166	            env=env,
+167	            capture_output=True,
+168	            text=True,
+169	            timeout=900,
+170	            check=False,
+171	        )
+172	        duration_test = time.time() - start_test_time
+
+--------------------------------------------------
+>> Issue: [B404:blacklist] Consider possible security implications associated with the subprocess module.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/blacklists/blacklist_imports.html#b404-import-subprocess
+   Location: app\infrastructure\quality_gates\static_analysis_runner.py:25:0
+24	import shutil
+25	import subprocess
+26	import time
+
+--------------------------------------------------
+>> Issue: [B404:blacklist] Consider possible security implications associated with the subprocess module.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.7.6/blacklists/blacklist_imports.html#b404-import-subprocess
+   Location: app\shared\command_runner.py:12:0
+11	import shutil
+12	import subprocess
+13	from dataclasses import dataclass
+
+--------------------------------------------------
+
+Code scanned:
+	Total lines of code: 24673
+	Total lines skipped (#nosec): 0
+	Total potential issues skipped due to specifically being disabled (e.g., #nosec BXXX): 15
+
+Run metrics:
+	Total issues (by severity):
+		Undefined: 0
+		Low: 66
+		Medium: 0
+		High: 0
+	Total issues (by confidence):
+		Undefined: 0
+		Low: 0
+		Medium: 5
+		High: 61
+Files skipped (0):

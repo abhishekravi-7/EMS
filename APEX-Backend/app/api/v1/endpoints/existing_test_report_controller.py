@@ -1,15 +1,20 @@
-import os
-import re
+import asyncio
 import html as html_module
+import logging
+import re
+import urllib.parse
 from pathlib import Path
-from fastapi import APIRouter, Depends, HTTPException, Response
-from fastapi.responses import HTMLResponse, FileResponse
+
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, verify_job_ownership
-from app.infrastructure.persistence.database import get_db
+from app.infrastructure.persistence.database import get_db, get_db_optional
 from app.infrastructure.persistence.models import User
 from app.infrastructure.workspace.workspace_paths import WorkspacePaths
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["existing-tests-report"])
 
@@ -42,8 +47,8 @@ def _safe_resolve(base_dir: Path, relative: str) -> Path:
     resolved = (base_dir / relative).resolve()
     try:
         resolved.relative_to(base_dir.resolve())
-    except ValueError:
-        raise HTTPException(status_code=403, detail="Access denied: path traversal detected")
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail="Access denied: path traversal detected") from exc
     return resolved
 
 def _serve_candidate(candidate: Path, evidence_base: Path, job_id: str):
@@ -67,20 +72,17 @@ def _serve_candidate(candidate: Path, evidence_base: Path, job_id: str):
             rel_subpath = ""
             try:
                 rel_subpath = str(candidate.parent.relative_to(evidence_base)).replace("\\", "/")
-            except Exception:
-                pass
+            except ValueError:
+                rel_subpath = ""
             return HTMLResponse(
                 content=_inject_base_tag(content, job_id, subpath=rel_subpath),
                 headers={"Cache-Control": "no-cache"}
             )
-        except Exception:
+        except OSError:
             return FileResponse(str(candidate))
 
     return FileResponse(str(candidate))
 
-
-import urllib.parse
-from fastapi import Request
 
 def _range_stream_video(file_path: Path, request: Request, media_type: str = "video/webm") -> Response:
     """Stream video with HTTP 206 Partial Content support for browser seeking."""
@@ -135,7 +137,7 @@ def _range_stream_video(file_path: Path, request: Request, media_type: str = "vi
 async def serve_ui_test_screenshot(
     job_id: str,
     test_id: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db)  # noqa: B008
 ):
     """Serve the screenshot image for a specific UI test case."""
     paths = WorkspacePaths(job_id)
@@ -249,7 +251,7 @@ async def serve_ui_test_video(
     job_id: str,
     test_id: str,
     request: Request,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db)  # noqa: B008
 ):
     """Stream the video recording for a specific UI test case with range request support."""
     paths = WorkspacePaths(job_id)
@@ -341,8 +343,8 @@ async def serve_ui_test_video(
 async def serve_individual_test_report(
     job_id: str,
     test_id: str,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session = Depends(get_db)  # noqa: B008
 ):
     """Download individual test report JSON / metadata."""
     verify_job_ownership(db, job_id, current_user)
@@ -369,23 +371,92 @@ async def serve_individual_test_report(
 async def serve_individual_test_logs(
     job_id: str,
     test_id: str,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session | None = Depends(get_db_optional)  # noqa: B008
 ):
     """Download test execution logs."""
-    verify_job_ownership(db, job_id, current_user)
+    await asyncio.to_thread(verify_job_ownership, db, job_id, current_user)
     from app.application.use_cases.existing_test_runner_service import existing_test_runner_service
-    logs = existing_test_runner_service.get_logs(job_id)
-    content = "\n".join(logs) if logs else f"No logs available for test {test_id}"
-    return PlainTextResponse(content, media_type="text/plain", headers={"Content-Disposition": f'attachment; filename="{test_id}_logs.txt"'})
+    
+    clean_test_id = urllib.parse.unquote(test_id).replace("\\", "/")
+    logger.info("[LOG DOWNLOAD] execution_id=%s test_id=%s", job_id, clean_test_id)
+    status_data = await asyncio.to_thread(existing_test_runner_service.get_status, job_id)
+    logs = await asyncio.to_thread(existing_test_runner_service.get_logs, job_id)
+    
+    # Match test from results if available
+    test_results = status_data.get("result", {}).get("test_results", [])
+    matched_test = None
+    for t in test_results:
+        t_id = (t.get("test_id") or f"{t.get('suite')}#{t.get('test_name')}").replace("\\", "/")
+        if t_id == clean_test_id or t.get("test_name") == clean_test_id or t.get("name") == clean_test_id:
+            matched_test = t
+            break
+            
+    header_lines = [
+        f"Execution ID: {job_id}",
+        "",
+        f"Test Name: {matched_test.get('test_name', clean_test_id) if matched_test else clean_test_id}",
+        f"Class: {matched_test.get('suite', 'Unknown') if matched_test else 'Unknown'}",
+        f"Framework: {matched_test.get('framework', 'JUnit') if matched_test else 'JUnit'}",
+        f"Status: {matched_test.get('status', 'PASSED') if matched_test else 'PASSED'}",
+    ]
+    if matched_test and matched_test.get("duration"):
+        header_lines.append(f"Duration: {matched_test.get('duration')}")
+    if matched_test and matched_test.get("file"):
+        header_lines.append(f"Source File: {matched_test.get('file')}")
+        
+    header_lines.extend([
+        "",
+        "=" * 80,
+        "EXECUTION LOGS",
+        "=" * 80,
+        "",
+    ])
+    
+    log_source = "existing_test_runner_service"
+    log_exists = bool(logs) or bool(matched_test and (matched_test.get("stdout") or matched_test.get("stderr")))
+    log_size = len(logs) if logs else (1 if (matched_test and (matched_test.get("stdout") or matched_test.get("stderr"))) else 0)
+    logger.info(
+        "[LOG DOWNLOAD] log source=%s log exists=%s log size=%d",
+        log_source,
+        log_exists,
+        log_size
+    )
+    
+    body_content = ""
+    if matched_test:
+        if matched_test.get("error"):
+            body_content += f"[ERROR] {matched_test.get('error')}\n\n"
+        if matched_test.get("stack_trace") or matched_test.get("stackTrace"):
+            body_content += f"--- Stack Trace ---\n{matched_test.get('stack_trace') or matched_test.get('stackTrace')}\n\n"
+        if matched_test.get("stdout"):
+            body_content += f"--- Standard Output (stdout) ---\n{matched_test.get('stdout')}\n\n"
+        if matched_test.get("stderr"):
+            body_content += f"--- Standard Error (stderr) ---\n{matched_test.get('stderr')}\n\n"
+
+    if logs:
+        body_content += "--- Execution Output Logs ---\n" + "\n".join(logs) + "\n"
+
+    if body_content.strip():
+        content = "\n".join(header_lines) + body_content.strip() + "\n"
+    else:
+        content = "\n".join(header_lines) + "No execution logs recorded.\n"
+        
+    logger.info("[LOG DOWNLOAD] download successful execution_id=%s test_id=%s size=%d bytes", job_id, test_id, len(content))
+    safe_filename = test_id.replace("/", "_").replace("\\", "_").replace("#", "_")
+    return PlainTextResponse(
+        content,
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{safe_filename}_logs.txt"'}
+    )
 
 
 @router.get("/migration/{job_id}/tests/report/download")
 @router.get("/existing-tests/report/{job_id}/download")
 async def download_full_test_report(
     job_id: str,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session = Depends(get_db)  # noqa: B008
 ):
     """Download full test report HTML or JSON summary."""
     verify_job_ownership(db, job_id, current_user)
@@ -441,8 +512,8 @@ async def download_full_test_report(
 async def serve_existing_test_report_file(
     job_id: str,
     file_path: str = "",
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session = Depends(get_db)  # noqa: B008
 ):
     """
     Serves report files for a job from multiple possible base directories.
@@ -464,8 +535,6 @@ async def serve_existing_test_report_file(
         paths.original_repo_dir,
     ]
 
-    last_403: HTTPException | None = None
-
     for base_dir in candidate_bases:
         if not base_dir.exists():
             continue
@@ -479,8 +548,8 @@ async def serve_existing_test_report_file(
                 # Path traversal attempt — propagate immediately
                 raise
             # 404 or other — try next base
-        except Exception:
-            pass  # Try next base
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Failed to resolve or serve candidate path under %s: %s", base_dir, exc)
 
     raise HTTPException(
         status_code=404,

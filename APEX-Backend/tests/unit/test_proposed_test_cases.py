@@ -2,15 +2,12 @@
 
 from pathlib import Path
 from tempfile import TemporaryDirectory
-import pytest
 
 from app.application.use_cases.proposed_tests.proposed_test_analyzer import ProposedTestAnalyzer
 from app.application.use_cases.proposed_tests.proposed_test_generator import ProposedTestGenerator
 from app.application.use_cases.proposed_tests.proposed_test_service import ProposedTestService
 from app.domain.models.proposed_test_models import (
-    ProposedTestPriority,
     ProposedTestStatus,
-    ProposedTestType,
 )
 
 

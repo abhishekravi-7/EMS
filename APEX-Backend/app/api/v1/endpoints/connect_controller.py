@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
 from app.application.pipelines.connect_pipeline import ConnectPipeline
+from app.application.use_cases.connect_repository import parse_github_url
 from app.core.exceptions import ConnectError
 from app.infrastructure.persistence.database import get_db_optional
 from app.infrastructure.persistence.migration_ownership_repository import record_job_owner
@@ -35,8 +36,8 @@ _pipeline = ConnectPipeline()
 )
 async def connect_repository(
     payload: ConnectRequest,
-    current_user: User = Depends(get_current_user),
-    db: Session | None = Depends(get_db_optional),
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session | None = Depends(get_db_optional),  # noqa: B008
 ) -> JSONResponse:
     """Validate the repository URL, detect visibility/access, and create a job.
 
@@ -47,10 +48,18 @@ async def connect_repository(
     """
     t0 = time.perf_counter()
     has_token = bool((payload.github_token or "").strip())
+
+    # Sanitize URL for logging to avoid credential disclosure
+    try:
+        parsed = parse_github_url(payload.repo_url)
+        log_url = f"github.com/{parsed.owner}/{parsed.repo}"
+    except Exception:  # noqa: BLE001
+        log_url = "[invalid-url]"
+
     logger.info(
         "[CONNECT START] user_id=%s repo_url=%s has_token=%s",
         current_user.id,
-        payload.repo_url,
+        log_url,
         has_token,
     )
 

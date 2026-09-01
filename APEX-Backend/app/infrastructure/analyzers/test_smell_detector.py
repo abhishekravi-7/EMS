@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import re
+
 from app.schemas.unit_test import TestSmellDetail
 
 
 class TestSmellDetector:
     """Performs fast rule-based static analysis (<10ms) on Java JUnit test code."""
+    __test__ = False
 
     def detect_smells(self, test_code: str, target_class_name: str | None = None) -> list[TestSmellDetail]:
         smells: list[TestSmellDetail] = []

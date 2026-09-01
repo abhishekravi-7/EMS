@@ -32,8 +32,8 @@ def _not_found_response() -> JSONResponse:
 @router.get("/docs/{job_id}", summary="Structured project documentation for the Docs drawer.")
 async def get_docs(
     job_id: str,
-    current_user: User = Depends(get_current_user),
-    db: Session | None = Depends(get_db_optional),
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session | None = Depends(get_db_optional),  # noqa: B008
 ) -> JSONResponse:
     verify_job_ownership(db, job_id, current_user)
     try:
@@ -46,8 +46,8 @@ async def get_docs(
 @router.get("/docs/{job_id}/html", summary="Full downloadable project documentation HTML.")
 async def get_docs_html(
     job_id: str,
-    current_user: User = Depends(get_current_user),
-    db: Session | None = Depends(get_db_optional),
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session | None = Depends(get_db_optional),  # noqa: B008
 ) -> JSONResponse:
     verify_job_ownership(db, job_id, current_user)
     try:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+
 from app.infrastructure.llm.chat_llm import ChatLLM
 from app.infrastructure.llm.prompt_templates import (
     JUNIT_CRITIC_SYSTEM_PROMPT,
@@ -38,7 +39,7 @@ class TestCriticAgent:
                 endpoint="junit_critic",
             ):
                 response_text += chunk
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             # If LLM service unavailable, return graceful fallback review
             return UnitTestValidationReport(
                 is_valid=True,
@@ -78,7 +79,7 @@ class TestCriticAgent:
                 critique_feedback=feedback,
                 compiler_passed=True,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001
             # Fallback if JSON parsing fails
             return UnitTestValidationReport(
                 is_valid=True,

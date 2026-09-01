@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Any, Dict, List
 
+from app.core.exceptions import APEXError
 from app.infrastructure.analyzers.existing_test_detector import ExistingTestDetector
 from app.infrastructure.quality_gates.unit_test_runner import UnitTestRunner
 from app.infrastructure.workspace.workspace_paths import WorkspacePaths
-from app.core.exceptions import APEXError
+
+logger = logging.getLogger(__name__)
+
 
 class ExistingTestService:
     def __init__(self):
@@ -34,7 +38,7 @@ class ExistingTestService:
             try:
                 discovery_result = self.discover_tests(job_id)
                 total_discovered = sum(len(t["methods"]) for t in discovery_result["tests"])
-            except Exception:
+            except Exception:  # noqa: BLE001
                 total_discovered = 0
 
             state = {
@@ -116,12 +120,20 @@ class ExistingTestService:
                 # 1. executed >= passed + failed + skipped
                 summed_results = passed_count + failed_count + skipped_count
                 if total_executed < summed_results:
-                    print(f"Invariant Guard: total_executed ({total_executed}) < passed+failed+skipped ({summed_results}). Adjusting executed count.")
+                    logger.warning(
+                        "Invariant Guard: total_executed (%s) < passed+failed+skipped (%s). Adjusting executed count.",
+                        total_executed,
+                        summed_results,
+                    )
                     total_executed = summed_results
 
                 # 2. executed <= selected
                 if test_classes and total_executed > selected_methods_count:
-                    print(f"Invariant Guard: total_executed ({total_executed}) > selected ({selected_methods_count}). Clamping metrics.")
+                    logger.warning(
+                        "Invariant Guard: total_executed (%s) > selected (%s). Clamping metrics.",
+                        total_executed,
+                        selected_methods_count,
+                    )
                     total_executed = selected_methods_count
                     passed_count = min(passed_count, selected_methods_count)
                     failed_count = min(failed_count, selected_methods_count - passed_count)
@@ -139,22 +151,13 @@ class ExistingTestService:
                     "error": error_msg
                 })
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             with self._lock:
                 if job_id in self._execution_states:
                     self._execution_states[job_id].update({
                         "status": "FAILED",
                         "error": str(e),
                         "logs": self._execution_states[job_id].get("logs", []) + [f"Error during execution: {str(e)}"]
-                    })
-
-        except Exception as e:
-            with self._lock:
-                if job_id in self._execution_states:
-                    self._execution_states[job_id].update({
-                        "status": "FAILED",
-                        "error": str(e),
-                        "logs": self._execution_states[job_id].get("logs", []) + [f"Error: {str(e)}"]
                     })
 
     def _resolve_project_dir(self, job_id: str) -> Path:

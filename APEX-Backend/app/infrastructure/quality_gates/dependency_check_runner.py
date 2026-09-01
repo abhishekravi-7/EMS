@@ -7,7 +7,7 @@ import logging
 import os
 import re
 import shutil
-import subprocess
+import subprocess  # nosec B404
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -80,11 +80,11 @@ class DependencyCheckRunner:
             logger.info("Maven project detected for FOSSA analysis.")
 
         safe_analyze_cmd = " ".join([arg.replace(api_key, "***") for arg in analyze_cmd])
-        logger.info("Executing FOSSA command: %s", safe_analyze_cmd)
+        logger.debug("Executing FOSSA command: %s", safe_analyze_cmd)
         logger.debug("CWD: %s | CLI: %s", str(project_dir), cli)
 
         start_time = time.time()
-        analyze = subprocess.run(
+        analyze = subprocess.run(  # nosec B603  # noqa: S603
             analyze_cmd,
             cwd=project_dir,
             env=env,
@@ -106,7 +106,7 @@ class DependencyCheckRunner:
         if analyze.returncode not in (0, 1) and "--json" in analyze_cmd:
             logger.info("fossa analyze --json not supported on this CLI version; retrying without --json.")
             analyze_cmd_plain = [cli, "analyze", "--project", project]
-            analyze = subprocess.run(
+            analyze = subprocess.run(  # nosec B603  # noqa: S603
                 analyze_cmd_plain,
                 cwd=project_dir,
                 env=env,
@@ -160,7 +160,7 @@ class DependencyCheckRunner:
         logger.info("Executing FOSSA test: %s", " ".join(test_cmd))
 
         start_test_time = time.time()
-        test = subprocess.run(
+        test = subprocess.run(  # nosec B603  # noqa: S603
             test_cmd,
             cwd=project_dir,
             env=env,
@@ -401,27 +401,33 @@ class DependencyCheckRunner:
             import urllib.parse
             decoded = urllib.parse.unquote(project_part)
             return decoded
-        except Exception:
+        except Exception:  # noqa: BLE001
             return None
 
     def _fetch_locator_from_api(self, host_url: str, api_key: str, project_id: str) -> str | None:
         """Query FOSSA revisions API to get the latest locator for a given project ID."""
+        import urllib.error
         import urllib.parse
         import urllib.request
-        import urllib.error
 
         encoded = urllib.parse.quote(project_id, safe="")
         url = f"{host_url}/api/revisions?projectId={encoded}"
+
+        # Security check: validate URL scheme
+        if not url.startswith("https://") and not url.startswith("http://"):
+            logger.error("Invalid FOSSA API URL: %s", url)
+            return None
+
         logger.info("Fetching FOSSA revisions to resolve locator: %s", url)
         try:
-            req = urllib.request.Request(
+            req = urllib.request.Request(  # nosec B310  # noqa: S310
                 url,
                 headers={
                     "Authorization": f"Bearer {api_key}",
                     "Accept": "application/json",
                 },
             )
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with urllib.request.urlopen(req, timeout=10) as resp:  # nosec B310  # noqa: S310
                 raw = resp.read().decode("utf-8", errors="replace")
 
             data = json.loads(raw)
@@ -432,7 +438,7 @@ class DependencyCheckRunner:
                     if val:
                         return str(val)
             return None
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             logger.info("Failed to fetch FOSSA revisions from API: %s", exc)
             return None
 
@@ -455,9 +461,9 @@ class DependencyCheckRunner:
         Only the *count* is fetched — no large payload is stored or surfaced.
         The call is made with a short timeout (10 s) so it never blocks the scan.
         """
+        import urllib.error
         import urllib.parse
         import urllib.request
-        import urllib.error
 
         resolved_locator = locator
         if not resolved_locator and analysis_url:
@@ -470,16 +476,21 @@ class DependencyCheckRunner:
         encoded = urllib.parse.quote(effective_locator, safe="")
         url = f"{host_url}/api/revisions/{encoded}/dependencies"
 
+        # Security check: validate URL scheme
+        if not url.startswith("https://") and not url.startswith("http://"):
+            logger.error("Invalid FOSSA API URL: %s", url)
+            return None
+
         logger.info("Fetching FOSSA dependency count from: %s", url)
         try:
-            req = urllib.request.Request(
+            req = urllib.request.Request(  # nosec B310  # noqa: S310
                 url,
                 headers={
                     "Authorization": f"Bearer {api_key}",
                     "Accept": "application/json",
                 },
             )
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with urllib.request.urlopen(req, timeout=10) as resp:  # nosec B310  # noqa: S310
                 raw = resp.read().decode("utf-8", errors="replace")
 
             data = json.loads(raw)
@@ -542,7 +553,7 @@ class DependencyCheckRunner:
     @staticmethod
     def _redact(lines: list[str], secret: str) -> list[str]:
         if not secret:
-            return [l for l in lines if l.strip()]
+            return [line for line in lines if line.strip()]
         return [line.replace(secret, "***") for line in lines if line.strip()]
 
     @staticmethod
@@ -610,7 +621,7 @@ class DependencyCheckRunner:
                 try:
                     logger.debug("Unknown dict structure in FOSSA JSON field: %s", val)
                     return json.dumps(val)
-                except Exception:
+                except Exception:  # noqa: BLE001
                     return str(val)
             if isinstance(val, list):
                 return ", ".join(safe_text(v) for v in val if v is not None)

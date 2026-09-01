@@ -12,21 +12,17 @@ request without requiring changes to existing chatbot code.
 from __future__ import annotations
 
 import logging
-import time
 import uuid
 from collections.abc import AsyncIterator
-from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
-from app.core.context import user_id_ctx, job_id_ctx, repository_url_ctx
+# Import token tracing module
+import token_tracing as tt
+from app.core.context import job_id_ctx, repository_url_ctx, user_id_ctx
 from app.infrastructure.llm.chat_llm import ChatLLM
 from app.infrastructure.persistence.llm_token_repository import LLMTokenRepository
 from app.infrastructure.persistence.models import LLMTokenUsage
-
-# Import token tracing module
-import token_tracing as tt
 
 logger = logging.getLogger(__name__)
 
@@ -106,7 +102,6 @@ class LLMTokenTracingService:
 
     def record_call(self, *args, **kwargs):
         """Deprecated: The global tracer now handles DB recording via context vars."""
-        pass
 
 
 class ChainedTraceSink:
@@ -119,7 +114,7 @@ class ChainedTraceSink:
         for sink in self.sinks:
             try:
                 sink.write(record)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 logger.warning("[ChainedTraceSink] Sink failed: %s", exc)
 
 
@@ -143,7 +138,7 @@ class DatabaseTraceSink:
                 from app.infrastructure.persistence.database import SessionLocal
                 db = SessionLocal()
                 should_close = True
-            except Exception:
+            except Exception:  # noqa: BLE001
                 return
 
         try:
@@ -172,7 +167,7 @@ class DatabaseTraceSink:
             LLMTokenRepository.create(db, db_record)
             if should_close:
                 db.commit()
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "[DatabaseTraceSink] Failed to write record: %s",
                 exc,

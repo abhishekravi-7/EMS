@@ -1,58 +1,9 @@
 import React, { useState, useMemo } from "react";
-import { FaTimes, FaCheckCircle, FaTimesCircle, FaInfoCircle } from "react-icons/fa";
-import type { TestResult } from "./ExistingTestTable";
+import { FaTimes } from "react-icons/fa";
+import type { TestResult, FileSummary, TestSelectionItem } from "../services/existingTestService";
 
-export interface DiscoveredOrExecutedTest {
-  testId?: string;
-  test_id?: string;
-  executionId?: string;
-  execution_id?: string;
-  name?: string;
-  test_name?: string;
-  title?: string;
-  classname?: string;
-  methodname?: string;
-  suite?: string;
-  spec?: string;
-  module?: string;
-  file?: string;
-  type?: string;
-  testType?: string;
-  test_type?: string;
-  category?: string;
-  framework?: string;
-  priority?: string;
-  status?: string;
-  duration?: string;
-  error?: string | null;
-  failure_message?: string | null;
-  stack_trace?: string | null;
-  stackTrace?: string | null;
-  stdout?: string | null;
-  stderr?: string | null;
-  screenshot_url?: string | null;
-  screenshotUrl?: string | null;
-  video_url?: string | null;
-  videoUrl?: string | null;
-  trace_url?: string | null;
-  traceUrl?: string | null;
-  api_evidence?: Record<string, unknown> | null;
-  apiEvidence?: Record<string, unknown> | null;
-  evidence?: Record<string, unknown> | null;
-  unavailable_reason?: string | null;
-  unavailableReason?: string | null;
-  details?: Record<string, unknown> | null;
-}
-
-interface FileSummary {
-  file: string;
-  total: number;
-  passed: number;
-  failed: number;
-  skipped: number;
-  not_executed?: number;
-  tests?: DiscoveredOrExecutedTest[];
-}
+export type DiscoveredOrExecutedTest = TestResult;
+export type { FileSummary };
 
 interface SuiteSummary extends FileSummary {
   tests: DiscoveredOrExecutedTest[];
@@ -68,17 +19,20 @@ interface ExistingTestAnalyticsProps {
     not_executed?: number;
     pass_percentage?: string;
     type?: string;
+    existing_coverage?: string;
+    execution_status?: string;
+    compilation_error?: string | null;
   };
   fileBreakdown?: FileSummary[];
-  discoveredTests?: DiscoveredOrExecutedTest[];
-  testResults?: DiscoveredOrExecutedTest[];
+  discoveredTests?: (TestResult | TestSelectionItem)[];
+  testResults?: TestResult[];
   frameworkInfo?: {
     detected_framework?: string;
-    build_tool?: string;
+    build_tool?: string | null;
     test_source_dir?: string;
   };
   onViewSuite?: (suiteName: string) => void;
-  onSelectTest?: (test: TestResult) => void;
+  onSelectTest?: (test: TestResult | TestSelectionItem) => void;
 }
 
 interface SliceItem {
@@ -210,23 +164,23 @@ export function ExistingTestAnalytics({
   // ── 1. Dynamic Suite Composition ──
   const { suitesList, totalDiscoveredCount } = useMemo((): { suitesList: SuiteSummary[]; totalDiscoveredCount: number } => {
     if (canonicalTests.length > 0) {
-      const groupMap: Record<string, { total: number; passed: number; failed: number; skipped: number; tests: DiscoveredOrExecutedTest[] }> = {};
+      const groupMap: Record<string, { total: number; passed: number; failed: number; skipped: number; tests: TestResult[] }> = {};
 
       canonicalTests.forEach((t) => {
-        const rawSuite = t.classname || t.suite || t.module || t.file || "ProjectApplicationTests";
+        const rawSuite = String(t.classname || t.suite || t.module || t.file || "ProjectApplicationTests");
         const suiteName = rawSuite.split("/").pop()?.split("\\").pop()?.replace(/\.(java|js|ts|py)$/, "") || rawSuite;
         if (!groupMap[suiteName]) {
           groupMap[suiteName] = { total: 0, passed: 0, failed: 0, skipped: 0, tests: [] };
         }
         groupMap[suiteName].total += 1;
         groupMap[suiteName].tests.push(t);
-        const st = (t.status || "").toUpperCase();
+        const st = String(t.status || "").toUpperCase();
         if (st === "PASSED") groupMap[suiteName].passed += 1;
         else if (st === "FAILED" || st === "ERROR") groupMap[suiteName].failed += 1;
         else if (st === "SKIPPED") groupMap[suiteName].skipped += 1;
       });
 
-      const list = Object.entries(groupMap).map(([name, data]) => ({
+      const list: SuiteSummary[] = Object.entries(groupMap).map(([name, data]) => ({
         file: name,
         total: data.total,
         passed: data.passed,
@@ -240,12 +194,12 @@ export function ExistingTestAnalytics({
 
     if (fileBreakdown.length > 0) {
       const total = fileBreakdown.reduce((acc, f) => acc + f.total, 0);
-      const list = fileBreakdown.map((fb) => ({
+      const list: SuiteSummary[] = fileBreakdown.map((fb) => ({
         ...fb,
-        tests: fb.tests || canonicalTests.filter((t) => {
-          const raw = t.classname || t.suite || t.module || t.file || "";
+        tests: canonicalTests.filter((t) => {
+          const raw = String(t.classname || t.suite || t.module || t.file || "");
           const sn = raw.split("/").pop()?.split("\\").pop()?.replace(/\.(java|js|ts|py)$/, "") || raw;
-          const fn = fb.file.split("/").pop()?.split("\\").pop()?.replace(/\.(java|js|ts|py)$/, "") || fb.file;
+          const fn = String(fb.file).split("/").pop()?.split("\\").pop()?.replace(/\.(java|js|ts|py)$/, "") || String(fb.file);
           return sn.toLowerCase() === fn.toLowerCase() || raw.toLowerCase().includes(fn.toLowerCase());
         }),
       }));
@@ -254,7 +208,7 @@ export function ExistingTestAnalytics({
 
     const fallbackTotal = metrics.total ?? 0;
     return {
-      suitesList: fallbackTotal > 0 ? [{ file: "ProjectApplicationTests.java", total: fallbackTotal, passed: metrics.passed ?? 0, failed: metrics.failed ?? 0, skipped: metrics.skipped ?? 0, tests: canonicalTests }] : [],
+      suitesList: fallbackTotal > 0 ? [{ file: "ProjectApplicationTests.java", total: fallbackTotal, passed: metrics.passed ?? 0, failed: metrics.failed ?? 0, skipped: metrics.skipped ?? 0, tests: canonicalTests as DiscoveredOrExecutedTest[] }] : [],
       totalDiscoveredCount: fallbackTotal,
     };
   }, [canonicalTests, fileBreakdown, metrics.total, metrics.passed, metrics.failed, metrics.skipped]);
@@ -269,37 +223,10 @@ export function ExistingTestAnalytics({
       let ui = 0;
 
       canonicalTests.forEach((t) => {
-        const cat = (t.category || "").toUpperCase();
-        const type = (t.test_type || t.testType || t.type || "").toUpperCase();
-        const name = (t.test_name || t.name || t.title || "").toLowerCase();
-        const suite = (t.classname || t.suite || t.spec || t.file || "").toLowerCase();
-        const file = (t.file || "").toLowerCase();
-
-        if (
-          cat === "UI" ||
-          type === "UI" ||
-          type.includes("PLAYWRIGHT") ||
-          type.includes("CYPRESS") ||
-          type.includes("SELENIUM") ||
-          suite.includes("e2e") ||
-          suite.includes("ui") ||
-          file.includes("e2e") ||
-          file.includes("ui")
-        ) {
+        const rawType = String(t.test_type || t.testType || t.type || (t.category === "UI" ? "UI" : "API")).toUpperCase();
+        if (rawType.includes("UI") || rawType.includes("E2E") || rawType.includes("PLAYWRIGHT") || rawType.includes("CYPRESS") || rawType.includes("SELENIUM")) {
           ui++;
-        } else if (
-          cat === "API" ||
-          type === "API" ||
-          type.includes("REST") ||
-          type.includes("CONTRACT") ||
-          suite.includes("controller") ||
-          suite.includes("api") ||
-          suite.includes("resource") ||
-          file.includes("controller") ||
-          file.includes("api") ||
-          name.includes("api") ||
-          name.includes("controller")
-        ) {
+        } else if (rawType.includes("INTEGRATION") || rawType.includes("API") || rawType.includes("REST") || rawType.includes("HTTP")) {
           api++;
         } else {
           unit++;
@@ -321,7 +248,7 @@ export function ExistingTestAnalytics({
       let p3 = 0;
 
       canonicalTests.forEach((t) => {
-        const p = (t.priority || "").toUpperCase();
+        const p = String(t.priority || "").toUpperCase();
         if (p === "P0" || p.includes("CRITICAL")) p0++;
         else if (p === "P1" || p.includes("HIGH")) p1++;
         else if (p === "P2" || p.includes("MEDIUM")) p2++;

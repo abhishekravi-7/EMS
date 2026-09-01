@@ -9,7 +9,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from xml.etree.ElementTree import Element, ParseError, fromstring
+from xml.etree.ElementTree import Element, ParseError  # nosec B405
+
+from defusedxml.ElementTree import fromstring  # nosec B405
 
 from app.infrastructure.analyzers.build_metadata_analyzer import (
     BomVersion,

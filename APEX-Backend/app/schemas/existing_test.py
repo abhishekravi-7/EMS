@@ -1,6 +1,9 @@
 from __future__ import annotations
+
 from typing import List, Optional
+
 from pydantic import BaseModel
+
 
 class ExistingTestRunRequest(BaseModel):
     testClasses: List[str]
@@ -19,6 +22,7 @@ class ExistingTestDiscoveryResponse(BaseModel):
     error: Optional[str] = None
 
 class TestResultDetail(BaseModel):
+    __test__ = False
     test_class: str
     test_method: str
     status: str

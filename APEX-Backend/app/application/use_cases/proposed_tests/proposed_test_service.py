@@ -72,7 +72,7 @@ class ProposedTestService:
         }
         try:
             self._get_status_file(job_id).write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.warning(f"Could not write status file for {job_id}: {e}")
 
     def generate_proposed_tests(self, job_id: str) -> list[ProposedTestCase]:
@@ -92,7 +92,7 @@ class ProposedTestService:
                     detector.scan()
                     existing_tests = detector.tests_found
                     self._log(job_id, f"[PROPOSED TESTS] Analyzed existing coverage from {len(existing_tests)} existing tests.")
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     self._log(job_id, f"[PROPOSED TESTS] Note on existing test detection: {e}", "DEBUG")
 
             # Static analyzer
@@ -131,7 +131,7 @@ class ProposedTestService:
             try:
                 data = json.loads(prop_file.read_text(encoding="utf-8"))
                 return [ProposedTestCase.model_validate(p) for p in data]
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.warning(f"Failed to load proposals for {job_id}: {e}")
 
         return []
@@ -212,7 +212,7 @@ class ProposedTestService:
             repo_dir = paths.migrated_repo_dir if paths.migrated_repo_dir.exists() else paths.original_repo_dir
             evidence_dir = self._get_job_dir(job_id) / "evidence"
 
-            executor = ProposedTestExecutor(job_id, evidence_dir=evidence_dir, log_fn=lambda m, l="INFO": self._log(job_id, m, l))
+            executor = ProposedTestExecutor(job_id, evidence_dir=evidence_dir, log_fn=lambda m, level="INFO": self._log(job_id, m, level))
             self._log(job_id, f"[PROPOSED TESTS] Starting execution of {len(approved_tests)} approved test cases...")
 
             for t in approved_tests:
@@ -277,8 +277,8 @@ class ProposedTestService:
             try:
                 sdata = json.loads(status_file.read_text(encoding="utf-8"))
                 persisted_status = sdata.get("status", "IDLE")
-            except Exception:
-                pass
+            except Exception:  # noqa: BLE001, S110
+                pass  # nosec B110
 
         current_status = mem_state.get("status") if mem_state else persisted_status
         if not proposals and current_status != "GENERATING":
@@ -301,8 +301,8 @@ class ProposedTestService:
         if res_file.exists():
             try:
                 return json.loads(res_file.read_text(encoding="utf-8"))
-            except Exception:
-                pass
+            except Exception:  # noqa: BLE001, S110
+                pass  # nosec B110
 
         proposals = self.get_proposed_tests(job_id)
         metrics = self._compute_metrics(proposals)
