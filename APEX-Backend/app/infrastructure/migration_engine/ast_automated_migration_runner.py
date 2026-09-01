@@ -33,6 +33,7 @@ class AstMigrationRunner:
 
         plan_json = json.dumps(plan)
         
+        process = None
         try:
             logger.info("Invoking Java Migration Engine for project: %s", project_dir)
             process = subprocess.Popen(
@@ -77,7 +78,8 @@ class AstMigrationRunner:
             )
             
         except subprocess.TimeoutExpired:
-            process.kill()
+            if process:
+                process.kill()
             return AstMigrationRunResult(success=False, status="FAILED", error_lines=["Migration engine timed out."])
         except Exception as e:
             logger.exception("Failed to run AST migration engine")
