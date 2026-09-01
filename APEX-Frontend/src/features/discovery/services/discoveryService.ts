@@ -482,3 +482,33 @@ export async function generateLocalProjectDocument(
     url: resolveDocumentUrl(response.url),
   };
 }
+
+export async function uploadBrd(jobId: string, file: File): Promise<any> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await performRequest(`/v1/discovery/${encodeURIComponent(jobId)}/brd`, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ message: "Upload failed" }));
+    throw new Error(error.message || "Failed to upload BRD");
+  }
+
+  return response.json();
+}
+
+export async function getBrdMetadata(jobId: string): Promise<any> {
+  const response = await performRequest(`/v1/discovery/${encodeURIComponent(jobId)}/brd`, {
+    method: "GET",
+  });
+
+  if (!response.ok) {
+    if (response.status === 404) return null;
+    throw new Error("Failed to fetch BRD metadata");
+  }
+
+  return response.json();
+}

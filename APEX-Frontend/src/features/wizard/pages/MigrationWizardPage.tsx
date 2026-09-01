@@ -230,6 +230,12 @@ export default function MigrationWizardPage() {
               applyDetectedSourceVersion={applyDetectedSourceVersion}
               setUserSelectedVersion={setUserSelectedVersion}
               documentGenerationLoading={documentGenerationLoading}
+              brdFile={brdFile}
+              brdUploadStatus={brdUploadStatus}
+              brdMetadata={brdMetadata}
+              brdUploadError={brdUploadError}
+              handleBrdFileSelect={handleBrdFileSelect}
+              handleBrdUpload={handleBrdUpload}
               conversionDecision={conversionDecision}
               setConversionDecision={setConversionDecision}
               showFolderStructure={showFolderStructure}

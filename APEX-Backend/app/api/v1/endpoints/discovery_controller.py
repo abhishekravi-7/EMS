@@ -7,7 +7,7 @@ lives here.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Body, Depends, Query
+from fastapi import APIRouter, Body, Depends, Query, File, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
@@ -20,6 +20,7 @@ from app.application.use_cases.assess_microservice_eligibility import (
 from app.application.use_cases.browse_repository import RepositoryFileBrowser
 from app.core.exceptions import DiscoveryError, RepositoryBrowseError
 from app.infrastructure.persistence.database import get_db_optional
+from app.infrastructure.persistence.job_repository import JobRepository
 from app.infrastructure.persistence.models import User
 from app.schemas.discovery_schema import DiscoveryRequest, DiscoveryResponse
 
@@ -155,3 +156,47 @@ async def get_microservice_eligibility(
         )
 
     return JSONResponse(status_code=200, content=result)
+
+
+@router.post(
+    "/discovery/{job_id}/brd",
+    summary="Upload a BRD attachment for the job.",
+)
+async def upload_brd(
+    job_id: str,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session | None = Depends(get_db_optional),  # noqa: B008
+) -> JSONResponse:
+    verify_job_ownership(db, job_id, current_user)
+    
+    # Simple validation: accept only PDFs and max 10MB (example)
+    if file.content_type != "application/pdf":
+         return JSONResponse(status_code=415, content={"message": "Only PDF files are supported."})
+    
+    content = await file.read()
+    if len(content) > 10 * 1024 * 1024:
+         return JSONResponse(status_code=413, content={"message": "File is too large (max 10MB)."})
+
+    job_repo = JobRepository()
+    metadata = await run_in_threadpool(
+        job_repo.save_brd_attachment, job_id, content, file.filename
+    )
+    return JSONResponse(status_code=200, content=metadata)
+
+
+@router.get(
+    "/discovery/{job_id}/brd",
+    summary="Get BRD attachment metadata if it exists.",
+)
+async def get_brd_metadata(
+    job_id: str,
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session | None = Depends(get_db_optional),  # noqa: B008
+) -> JSONResponse:
+    verify_job_ownership(db, job_id, current_user)
+    job_repo = JobRepository()
+    metadata = await run_in_threadpool(job_repo.get_brd_metadata, job_id)
+    if not metadata:
+        return JSONResponse(status_code=404, content={"message": "No BRD found."})
+    return JSONResponse(status_code=200, content=metadata)

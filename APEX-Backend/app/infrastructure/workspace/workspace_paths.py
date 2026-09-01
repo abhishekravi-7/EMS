@@ -80,3 +80,11 @@ class WorkspacePaths:
     def existing_test_report_path(self) -> Path:
         return self.reports_dir / "existing-test-report.json"
 
+    @property
+    def attachments_dir(self) -> Path:
+        return self.job_dir / "attachments"
+
+    @property
+    def brd_path(self) -> Path:
+        return self.attachments_dir / "brd.pdf"
+

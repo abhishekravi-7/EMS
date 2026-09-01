@@ -167,6 +167,10 @@ const DiscoveryTechnicalSpecificationCard = React.lazy(async () => {
   const module = await import("./MigrationDiscoverySections");
   return { default: module.DiscoveryTechnicalSpecificationCard };
 });
+const DiscoveryBrdUploadCard = React.lazy(async () => {
+  const module = await import("./MigrationDiscoverySections");
+  return { default: module.DiscoveryBrdUploadCard };
+});
 
 interface MicroserviceAccordionKeyed {
   isLocalRepoRef: (value: string | null | undefined) => boolean;
@@ -183,6 +187,12 @@ interface DiscoveryStepViewProps {
   applyDetectedSourceVersion: (version: string, status: "detected" | "unknown") => void;
   setUserSelectedVersion: (version: string | null) => void;
   documentGenerationLoading: "brd" | null;
+  brdFile: File | null;
+  brdUploadStatus: "IDLE" | "FILE_SELECTED" | "UPLOADING" | "UPLOAD_SUCCESS" | "UPLOAD_FAILED" | "EXISTING_ATTACHMENT";
+  brdMetadata: { filename: string; size: number; uploadedAt: string } | null;
+  brdUploadError: string | null;
+  handleBrdFileSelect: (file: File | null) => void;
+  handleBrdUpload: () => Promise<void>;
   conversionDecision: "yes" | "no" | null;
   setConversionDecision: (value: "yes" | "no" | null) => void;
   showFolderStructure: boolean;
@@ -212,6 +222,12 @@ export function DiscoveryStepView({
   applyDetectedSourceVersion,
   setUserSelectedVersion,
   documentGenerationLoading,
+  brdFile,
+  brdUploadStatus,
+  brdMetadata,
+  brdUploadError,
+  handleBrdFileSelect,
+  handleBrdUpload,
   conversionDecision: _conversionDecision,
   setConversionDecision: _setConversionDecision,
   showFolderStructure: _showFolderStructure,
@@ -485,15 +501,28 @@ export function DiscoveryStepView({
                       )} */}
 
                       {repoAnalysis && (
-                        <DiscoveryTechnicalSpecificationCard
-                          styles={styles}
-                          disabled={documentGenerationLoading !== null || !repoAnalysis}
-                          buttonLabel={technicalSpecificationButtonLabel}
-                          helperText={technicalSpecificationHelperText}
-                          onGenerate={() => {
-                            void handleGenerateBrdDocument();
-                          }}
-                        />
+                        <div style={{ display: "flex", gap: 20, marginTop: 20, flexWrap: "wrap" }}>
+                          <DiscoveryTechnicalSpecificationCard
+                            styles={styles}
+                            disabled={documentGenerationLoading !== null || !repoAnalysis}
+                            buttonLabel={technicalSpecificationButtonLabel}
+                            helperText={technicalSpecificationHelperText}
+                            onGenerate={() => {
+                              void handleGenerateBrdDocument();
+                            }}
+                          />
+                          <DiscoveryBrdUploadCard
+                            styles={styles}
+                            status={brdUploadStatus}
+                            metadata={brdMetadata}
+                            error={brdUploadError}
+                            selectedFile={brdFile}
+                            onFileSelect={handleBrdFileSelect}
+                            onUpload={() => {
+                              void handleBrdUpload();
+                            }}
+                          />
+                        </div>
                       )}
                     </>
                   )}
