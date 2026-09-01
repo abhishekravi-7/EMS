@@ -686,6 +686,11 @@ class StaticAnalysisRunner:
 
     @staticmethod
     def _get_json(url: str, token: str) -> dict[str, Any]:
+        # Security check: validate URL scheme
+        if not url.startswith("https://") and not url.startswith("http://"):
+            logger.error("Invalid SonarQube API URL: %s", url)
+            return {}
+
         auth = base64.b64encode(f"{token}:".encode("utf-8")).decode("ascii")
         headers = {
             "Authorization": f"Basic {auth}",

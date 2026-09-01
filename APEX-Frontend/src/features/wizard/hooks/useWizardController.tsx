@@ -1860,9 +1860,17 @@ export function useWizardController() {
     };
 
     const lookupProperty = (propertyName: string) => {
-      const escapedProperty = propertyName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const match = pomContent.match(new RegExp(`<${escapedProperty}>\\s*(\\d+(?:\\.\\d+)?)\\s*</${escapedProperty}>`));
-      return match ? normalize(match[1]) : null;
+      const startTag = `<${propertyName}>`;
+      const endTag = `</${propertyName}>`;
+      const startIndex = pomContent.indexOf(startTag);
+      if (startIndex === -1) return null;
+      const contentStart = startIndex + startTag.length;
+      const endIndex = pomContent.indexOf(endTag, contentStart);
+      if (endIndex === -1) return null;
+      const value = pomContent.substring(contentStart, endIndex).trim();
+      // Match numeric version strings like 1.8, 11, 17, 21.0.1
+      const versionMatch = value.match(/^(\d+(?:\.\d+)*)$/);
+      return versionMatch ? normalize(versionMatch[1]) : null;
     };
 
     const directPatterns = [
