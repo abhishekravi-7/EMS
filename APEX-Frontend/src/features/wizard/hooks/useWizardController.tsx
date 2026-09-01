@@ -40,10 +40,10 @@ import {
 } from "@/features/strategy/services/strategyService";
 import { ApiError } from "@/services/http/client";
 import {
-    getMigrationDetail,
-    getMigrationStatusSummary,
-    getMigrationLogs,
-    startMigration,
+  getMigrationDetail,
+  getMigrationStatusSummary,
+  getMigrationLogs,
+  startMigration,
   getMigrationFossa,
   type MigrationJobSummary,
   type MigrationResult,

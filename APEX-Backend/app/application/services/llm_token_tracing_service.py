@@ -102,7 +102,6 @@ class LLMTokenTracingService:
 
     def record_call(self, *args, **kwargs):
         """Deprecated: The global tracer now handles DB recording via context vars."""
-        pass
 
 
 class ChainedTraceSink:

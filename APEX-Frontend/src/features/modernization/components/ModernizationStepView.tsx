@@ -566,7 +566,7 @@ export function ModernizationStepView({
                   setTimeout(() => setShowExistingLogs(false), 2000);
                 }
               } catch (e) {
-                console.error(e);
+                console.error("Failed to poll existing tests live status:", e);
               }
             }, 800);
           } else if (status.status === "COMPLETED" || status.status === "FAILED" || status.status === "ERROR" || status.result) {
@@ -659,7 +659,7 @@ export function ModernizationStepView({
           setHasExistingTestsRun(true);
         }
       } catch (err) {
-        console.error(err);
+        console.error("Failed to poll existing tests execution status:", err);
       }
     }, 800);
 

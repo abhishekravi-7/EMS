@@ -49,8 +49,6 @@ def retrieve(question: str, repository_url: str, job_id: str | None = None, top_
 
     import re
 
-    start_time = time.time()
-
     repository_url = repo_index_locator.normalize_repository_url(repository_url)
     limit = top_k or settings.rag_top_k
     
