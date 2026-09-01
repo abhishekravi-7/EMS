@@ -619,7 +619,7 @@ export function CategoryDetailsModal({
                           </div>
                           <div>
                             <span style={{ color: "#94a3b8", fontWeight: 600 }}>Assertion:</span>{" "}
-                            <span style={{ fontWeight: 700 }}>Response status & payload match schema</span>
+                            <span style={{ fontWeight: 700 }}>Response status &amp; payload match schema</span>
                           </div>
                         </div>
                       </div>

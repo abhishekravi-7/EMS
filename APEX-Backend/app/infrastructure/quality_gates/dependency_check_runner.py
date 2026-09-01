@@ -80,7 +80,7 @@ class DependencyCheckRunner:
             logger.info("Maven project detected for FOSSA analysis.")
 
         safe_analyze_cmd = " ".join([arg.replace(api_key, "***") for arg in analyze_cmd])
-        logger.info("Executing FOSSA command: %s", safe_analyze_cmd)
+        logger.debug("Executing FOSSA command: %s", safe_analyze_cmd)
         logger.debug("CWD: %s | CLI: %s", str(project_dir), cli)
 
         start_time = time.time()
@@ -412,6 +412,12 @@ class DependencyCheckRunner:
 
         encoded = urllib.parse.quote(project_id, safe="")
         url = f"{host_url}/api/revisions?projectId={encoded}"
+
+        # Security check: validate URL scheme
+        if not url.startswith("https://") and not url.startswith("http://"):
+            logger.error("Invalid FOSSA API URL: %s", url)
+            return None
+
         logger.info("Fetching FOSSA revisions to resolve locator: %s", url)
         try:
             req = urllib.request.Request(  # nosec B310  # noqa: S310
@@ -469,6 +475,11 @@ class DependencyCheckRunner:
         effective_locator = resolved_locator or f"custom+1/{project}"
         encoded = urllib.parse.quote(effective_locator, safe="")
         url = f"{host_url}/api/revisions/{encoded}/dependencies"
+
+        # Security check: validate URL scheme
+        if not url.startswith("https://") and not url.startswith("http://"):
+            logger.error("Invalid FOSSA API URL: %s", url)
+            return None
 
         logger.info("Fetching FOSSA dependency count from: %s", url)
         try:

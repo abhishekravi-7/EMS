@@ -933,7 +933,7 @@ export function MigrationSonarSection({
 
         {isExpanded && (
           <div style={{ marginTop: 12, padding: 14, background: "#f8fafc", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13, color: "#334155" }}>
-            <div style={{ fontWeight: 700, color: "#0f172a", marginBottom: 6 }}>Sonar Rule Description & Remediation Guidelines</div>
+            <div style={{ fontWeight: 700, color: "#0f172a", marginBottom: 6 }}>Sonar Rule Description &amp; Remediation Guidelines</div>
             <div style={{ marginBottom: 8, lineHeight: 1.5 }}>
               This finding was flagged under rule <code>{ruleId}</code>. Inspect code around line {lineNo || 1} in <code>{filePath}</code> to resolve the debt.
             </div>

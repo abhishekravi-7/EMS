@@ -95,7 +95,7 @@ class HuggingFaceClient:
                     error=error,
                 )
             except Exception as e:  # noqa: BLE001
-                logger.debug("Non-fatal: Token tracer failed: %s", e)
+                logger.debug("Non-fatal: Token tracer failed: %s", type(e).__name__)
 
     @staticmethod
     def _extract_json(content: str) -> dict[str, Any]:

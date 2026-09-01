@@ -1339,7 +1339,7 @@ export function ProposedTestCasesPanel({
               Frontend-centric testing framework running directly in the browser runtime with visual time-travel.
             </p>
             <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b" }}>
-              Ideal for SPA frontends & component testing
+              Ideal for SPA frontends &amp; component testing
             </div>
           </div>
         </div>

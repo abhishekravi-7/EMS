@@ -238,7 +238,7 @@ const LandingPage: React.FC = () => {
                     <div className="apex-pipeline-icon"><FaShieldAlt /></div>
                     <div>
                       <div className="apex-pipeline-title">Validation</div>
-                      <div className="apex-pipeline-sub">Security & quality checks</div>
+                      <div className="apex-pipeline-sub">Security &amp; quality checks</div>
                     </div>
                   </div>
                 </div>

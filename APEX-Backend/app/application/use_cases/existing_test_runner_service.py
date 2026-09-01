@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import logging
 import os
@@ -533,8 +534,7 @@ class ExistingTestRunnerService:
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                text=True,
-                errors='ignore',
+                text=False,  # Use binary mode for compatibility and manual error handling
                 env=cmd_env,
                 start_new_session=(os.name != "nt"),
             )
@@ -547,10 +547,13 @@ class ExistingTestRunnerService:
                     MAX_EXISTING_TEST_OUTPUT_LINES,
                 )
 
+                # Wrap stdout in a TextIOWrapper to handle encoding errors gracefully
+                stdout_wrapper = io.TextIOWrapper(proc.stdout, encoding="utf-8", errors="ignore") if proc.stdout else None
+
                 def _drain() -> None:
-                    if proc.stdout is None:
+                    if not stdout_wrapper:
                         return
-                    for line in proc.stdout:
+                    for line in stdout_wrapper:
                         output.append(line)
                         self._log(job_id, line.rstrip())
 
