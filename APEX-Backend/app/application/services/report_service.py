@@ -13,7 +13,6 @@ from typing import Any
 
 def _core(report: dict[str, Any]) -> dict[str, Any]:
     """Fields shared by summary + detail."""
-    log_lines = report.get("logLines") or []
     return {
         "job_id": report.get("jobId", ""),
         "status": report.get("status", "queued"),

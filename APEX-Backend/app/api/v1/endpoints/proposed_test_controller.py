@@ -138,7 +138,7 @@ async def get_proposed_test_evidence_endpoint(
         return Response(content=evidence_file.read_bytes(), media_type="image/svg+xml")
     if filename.endswith(".png"):
         return FileResponse(str(evidence_file), media_type="image/png")
-    if filename.endswith(".webm") or filename.endswith(".mp4"):
+    if filename.endswith((".webm", ".mp4")):
         return FileResponse(str(evidence_file), media_type="video/webm")
 
     return FileResponse(str(evidence_file))

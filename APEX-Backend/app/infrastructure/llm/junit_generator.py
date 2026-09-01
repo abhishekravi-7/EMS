@@ -85,7 +85,7 @@ class JUnitLLMGenerator:
         test_dir = project_dir / "src" / "test" / "java" / package_path
         test_dir.mkdir(parents=True, exist_ok=True)
 
-        if target_class_name.endswith("Test") or target_class_name.endswith("Tests"):
+        if target_class_name.endswith(("Test", "Tests")):
             test_class_stem = target_class_name
         else:
             test_class_stem = f"{target_class_name}Test"

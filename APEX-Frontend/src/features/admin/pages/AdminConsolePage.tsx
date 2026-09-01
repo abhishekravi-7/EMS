@@ -56,7 +56,7 @@ export default function AdminConsolePage() {
         setSettings(data);
       } catch (err) {
         setError("Failed to load settings. Please check your permissions.");
-        console.error(err);
+        console.error("Failed to load admin settings:", err);
       } finally {
         setIsLoading(false);
       }
@@ -80,7 +80,7 @@ export default function AdminConsolePage() {
       alert("Settings deployed and applied successfully.");
     } catch (err) {
       setError("Failed to update settings.");
-      console.error(err);
+      console.error("Failed to update admin settings:", err);
     } finally {
       setIsSaving(false);
     }
