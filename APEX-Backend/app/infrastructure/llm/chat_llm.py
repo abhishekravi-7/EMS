@@ -163,5 +163,5 @@ class ChatLLM:
                 error=error,
             )
         except Exception as trace_exc:  # noqa: BLE001
-            logger.warning("[ChatLLM] Token tracing failed: %s", trace_exc)
+            logger.warning("[ChatLLM] Token tracing failed: %s", type(trace_exc).__name__)
 

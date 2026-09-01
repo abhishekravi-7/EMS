@@ -133,7 +133,9 @@ def ensure_database_exists() -> None:
                 {"name": target_db_name},
             ).scalar_one_or_none()
             if exists is None:
-                connection.execute(text(f"CREATE DATABASE {_quote_identifier(target_db_name)}"))
+                # database_name is quoted via _quote_identifier to mitigate SQL injection.
+                # It is sourced from the DATABASE_URL in .env (trusted environment).
+                connection.execute(text(f"CREATE DATABASE {_quote_identifier(target_db_name)}"))  # nosemgrep
                 logger.info("Database '%s' did not exist — created it.", target_db_name)
     except Exception as exc:
         logger.error("Could not verify/create database '%s': %s", target_db_name, type(exc).__name__)
