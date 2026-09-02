@@ -3776,6 +3776,7 @@ export function useWizardController() {
     documentPrefetchStatus !== "error";
   const isDiscoveryPending =
     analysisLoading ||
+    (step === 2 && selectedRepo && !repoAnalysis) ||
     Boolean(
       repoAnalysis &&
       (!repoPreviewInitialized || !microserviceAssessmentResolved || isTechnicalDocumentWarmPending)
