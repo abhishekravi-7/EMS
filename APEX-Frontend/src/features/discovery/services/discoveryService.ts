@@ -482,3 +482,59 @@ export async function generateLocalProjectDocument(
     url: resolveDocumentUrl(response.url),
   };
 }
+
+export interface BrdMetadata {
+  job_id: string;
+  filename: string;
+  file_type: string;
+  size_bytes: number;
+  uploaded_at: string;
+  status: string;
+}
+
+export async function uploadBrdDocument(jobId: string, file: File): Promise<BrdMetadata> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  return requestJson<BrdMetadata>(
+    `/v1/discovery/${encodeURIComponent(jobId)}/brd`,
+    "Failed to upload BRD document",
+    {
+      method: "POST",
+      body: formData,
+    }
+  );
+}
+
+export async function getBrdMetadata(jobId: string): Promise<BrdMetadata | null> {
+  try {
+    const res = await requestJson<BrdMetadata & { status?: string }>(
+      `/v1/discovery/${encodeURIComponent(jobId)}/brd`,
+      "Failed to fetch BRD metadata"
+    );
+    if (!res || res.status === "NONE") return null;
+    return res;
+  } catch {
+    return null;
+  }
+}
+
+export async function deleteBrdDocument(jobId: string): Promise<{ status: string; job_id: string }> {
+  return requestJson<{ status: string; job_id: string }>(
+    `/v1/discovery/${encodeURIComponent(jobId)}/brd`,
+    "Failed to remove BRD document",
+    {
+      method: "DELETE",
+    }
+  );
+}
+
+export async function getBrdDocumentBlob(jobId: string): Promise<{ blob: Blob; contentType: string }> {
+  const response = await performRequest(`/v1/discovery/${encodeURIComponent(jobId)}/brd/file`);
+  if (!response.ok) {
+    throw new Error("Failed to load BRD document for viewing.");
+  }
+  const contentType = response.headers.get("content-type") || "application/octet-stream";
+  const blob = await response.blob();
+  return { blob, contentType };
+}

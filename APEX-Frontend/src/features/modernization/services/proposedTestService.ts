@@ -116,6 +116,8 @@ export interface ProposedTestMetrics {
   skipped: number;
   not_executed: number;
   gaps_count?: number;
+  ai_generated_count?: number;
+  brd_generated_count?: number;
   duration: string;
   pass_percentage: string;
   unit_metrics?: ProposedTestTypeBreakdown;

@@ -167,6 +167,10 @@ const DiscoveryTechnicalSpecificationCard = React.lazy(async () => {
   const module = await import("./MigrationDiscoverySections");
   return { default: module.DiscoveryTechnicalSpecificationCard };
 });
+const DiscoveryBrdUploadCard = React.lazy(async () => {
+  const module = await import("./DiscoveryBrdUploadCard");
+  return { default: module.DiscoveryBrdUploadCard };
+});
 
 interface MicroserviceAccordionKeyed {
   isLocalRepoRef: (value: string | null | undefined) => boolean;
@@ -485,15 +489,32 @@ export function DiscoveryStepView({
                       )} */}
 
                       {repoAnalysis && (
-                        <DiscoveryTechnicalSpecificationCard
-                          styles={styles}
-                          disabled={documentGenerationLoading !== null || !repoAnalysis}
-                          buttonLabel={technicalSpecificationButtonLabel}
-                          helperText={technicalSpecificationHelperText}
-                          onGenerate={() => {
-                            void handleGenerateBrdDocument();
+                        <div
+                          id="discovery-document-cards-container"
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))",
+                            gap: 20,
+                            marginTop: 20,
+                            marginBottom: 24,
+                            alignItems: "stretch",
                           }}
-                        />
+                        >
+                          <DiscoveryTechnicalSpecificationCard
+                            styles={styles}
+                            disabled={documentGenerationLoading !== null || !repoAnalysis}
+                            buttonLabel={technicalSpecificationButtonLabel}
+                            helperText={technicalSpecificationHelperText}
+                            onGenerate={() => {
+                              void handleGenerateBrdDocument();
+                            }}
+                          />
+
+                          <DiscoveryBrdUploadCard
+                            jobId={jobId}
+                            styles={styles}
+                          />
+                        </div>
                       )}
                     </>
                   )}

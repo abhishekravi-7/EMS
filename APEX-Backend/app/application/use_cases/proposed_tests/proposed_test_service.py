@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from app.application.use_cases.existing_test_runner_service import ExistingTestDetector
+from app.application.use_cases.proposed_tests.brd_analyzer import BrdAnalyzer
 from app.application.use_cases.proposed_tests.proposed_test_analyzer import ProposedTestAnalyzer
 from app.application.use_cases.proposed_tests.proposed_test_executor import ProposedTestExecutor
 from app.application.use_cases.proposed_tests.proposed_test_generator import ProposedTestGenerator
@@ -104,8 +105,27 @@ class ProposedTestService:
             ui_count = len(analysis_data.get("ui_workflows", []))
             self._log(job_id, f"[PROPOSED TESTS] Discovered: {ep_count} REST endpoints, {svc_count} services, {ui_count} UI workflows.")
 
+            # BRD Analyzer
+            brd_analysis = None
+            if paths.brd_dir.exists():
+                try:
+                    brd_files = [f for f in paths.brd_dir.iterdir() if f.is_file() and f.name != "metadata.json"]
+                    if brd_files:
+                        brd_file = brd_files[0]
+                        self._log(job_id, f"[PROPOSED TESTS] Found uploaded BRD document: {brd_file.name}. Parsing requirements...")
+                        brd_analyzer = BrdAnalyzer(brd_file, job_id=job_id)
+                        brd_analysis = brd_analyzer.extract()
+                        if brd_analysis.error:
+                            self._log(job_id, f"[PROPOSED TESTS] BRD parser note: {brd_analysis.error}", "WARNING")
+                        else:
+                            wf_cnt = len(brd_analysis.workflows)
+                            req_cnt = len(brd_analysis.requirements)
+                            self._log(job_id, f"[PROPOSED TESTS] Extracted {wf_cnt} business workflows and {req_cnt} requirements from BRD.")
+                except Exception as e:  # noqa: BLE001
+                    self._log(job_id, f"[PROPOSED TESTS] BRD extraction note: {e}", "WARNING")
+
             # Generator
-            generator = ProposedTestGenerator(analysis_data)
+            generator = ProposedTestGenerator(analysis_data, brd_analysis=brd_analysis)
             proposals = generator.generate()
             self._log(job_id, f"[PROPOSED TESTS] Generated {len(proposals)} proposed test cases across UNIT, API, and UI.")
 
@@ -333,6 +353,9 @@ class ProposedTestService:
         med_p = len([p for p in proposals if p.priority == ProposedTestPriority.MEDIUM])
         low_p = len([p for p in proposals if p.priority == ProposedTestPriority.LOW])
 
+        ai_gen = len([p for p in proposals if p.generation_source in ["AI_GENERATED", "BRD_AND_AI", "STATIC_ANALYSIS", ""]])
+        brd_gen = len([p for p in proposals if p.generation_source == "BRD_DOCUMENT"])
+
         return ProposedTestMetrics(
             total=total,
             approved=approved,
@@ -343,6 +366,8 @@ class ProposedTestService:
             skipped=skipped,
             not_executed=not_executed,
             gaps_count=total,
+            ai_generated_count=ai_gen,
+            brd_generated_count=brd_gen,
             pass_percentage=pass_pct,
             unit_metrics=ProposedTestTypeBreakdown(
                 total=len(unit_tests),

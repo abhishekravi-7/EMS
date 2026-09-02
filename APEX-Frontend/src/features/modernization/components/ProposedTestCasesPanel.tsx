@@ -146,6 +146,7 @@ export function ProposedTestCasesPanel({
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<"ALL" | ProposedTestType>("ALL");
   const [priorityFilter, setPriorityFilter] = useState<"ALL" | "MUST_HAVE" | "GOOD_TO_HAVE" | ProposedTestPriority>("ALL");
+  const [sourceFilter, setSourceFilter] = useState<"ALL" | "AI_GENERATED" | "BRD_DOCUMENT">("ALL");
   const [selectedSuiteName, setSelectedSuiteName] = useState<string | null>(null);
 
   // Review Drawer / Modal
@@ -375,6 +376,27 @@ export function ProposedTestCasesPanel({
   const mustHaveCount = p0Count;
   const goodToHaveCount = p1Count + p2Count;
 
+  // Source Counts (AI Generated vs BRD Generated)
+  const aiGeneratedCount = useMemo(() => {
+    return proposals.filter(
+      (p) =>
+        p.generation_source === "AI_GENERATED" ||
+        p.generation_source === "STATIC_ANALYSIS" ||
+        (!p.generation_source && !p.id.includes("BRD"))
+    ).length;
+  }, [proposals]);
+
+  const brdGeneratedCount = useMemo(() => {
+    return proposals.filter(
+      (p) =>
+        p.generation_source === "BRD_DOCUMENT" ||
+        p.generation_source === "BRD_AND_AI" ||
+        p.id.includes("BRD") ||
+        p.source === "BRD Document" ||
+        p.source === "BRD Business Requirement"
+    ).length;
+  }, [proposals]);
+
   // Suite / Category Breakdown Grouping
   const suitesList = useMemo(() => {
     const groupMap: Record<string, { total: number; tests: ProposedTestCase[] }> = {};
@@ -443,9 +465,24 @@ export function ProposedTestCasesPanel({
         matchesSuite = suiteClean === selectedSuiteName;
       }
 
-      return matchesSearch && matchesType && matchesPriority && matchesSuite;
+      let matchesSource = true;
+      if (sourceFilter === "AI_GENERATED") {
+        matchesSource =
+          t.generation_source === "AI_GENERATED" ||
+          t.generation_source === "STATIC_ANALYSIS" ||
+          (!t.generation_source && !t.id.includes("BRD"));
+      } else if (sourceFilter === "BRD_DOCUMENT") {
+        matchesSource =
+          t.generation_source === "BRD_DOCUMENT" ||
+          t.generation_source === "BRD_AND_AI" ||
+          t.id.includes("BRD") ||
+          t.source === "BRD Document" ||
+          t.source === "BRD Business Requirement";
+      }
+
+      return matchesSearch && matchesType && matchesPriority && matchesSuite && matchesSource;
     });
-  }, [proposals, searchQuery, typeFilter, priorityFilter, selectedSuiteName]);
+  }, [proposals, searchQuery, typeFilter, priorityFilter, selectedSuiteName, sourceFilter]);
 
   return (
     <div
@@ -980,18 +1017,23 @@ export function ProposedTestCasesPanel({
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         {/* Controls: Type Filters & Search */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
-          {/* Type Filter Pills */}
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {/* Type Filter Pills & Source Filter Buttons */}
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
             {[
               { key: "ALL", label: `All ${totalCount}` },
               { key: "API", label: `API ${apiCount}` },
               { key: "UI", label: `UI ${uiCount}` },
             ].map((p) => {
-              const isActive = typeFilter === p.key;
+              const isActive = p.key === "ALL" ? typeFilter === "ALL" && sourceFilter === "ALL" : typeFilter === p.key;
               return (
                 <button
                   key={p.key}
-                  onClick={() => setTypeFilter(p.key as "ALL" | ProposedTestType)}
+                  onClick={() => {
+                    setTypeFilter(p.key as "ALL" | ProposedTestType);
+                    if (p.key === "ALL") {
+                      setSourceFilter("ALL");
+                    }
+                  }}
                   style={{
                     padding: "6px 14px",
                     borderRadius: 20,
@@ -1008,6 +1050,84 @@ export function ProposedTestCasesPanel({
                 </button>
               );
             })}
+
+            {/* Source Count Filter Buttons */}
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                marginLeft: 10,
+                paddingLeft: 14,
+                borderLeft: "1px solid #cbd5e1",
+              }}
+            >
+              {/* AI Generated Filter Button */}
+              <button
+                type="button"
+                onClick={() => setSourceFilter((prev) => (prev === "AI_GENERATED" ? "ALL" : "AI_GENERATED"))}
+                aria-label={`Filter by AI Generated test cases (${aiGeneratedCount})`}
+                title="Filter by AI Generated test cases"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "6px 14px",
+                  borderRadius: 20,
+                  border: sourceFilter === "AI_GENERATED" ? "none" : "1px solid #e2e8f0",
+                  background: sourceFilter === "AI_GENERATED" ? "#0f172a" : "#fff",
+                  color: sourceFilter === "AI_GENERATED" ? "#fff" : "#475569",
+                  fontSize: 12,
+                  fontWeight: 800,
+                  cursor: "pointer",
+                  transition: "all 0.15s ease",
+                }}
+              >
+                <span
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: "50%",
+                    background: sourceFilter === "AI_GENERATED" ? "#38bdf8" : "#0ea5e9",
+                  }}
+                />
+                <span>AI Generated:</span>
+                <span style={{ fontWeight: 800 }}>{aiGeneratedCount}</span>
+              </button>
+
+              {/* BRD Generated Filter Button */}
+              <button
+                type="button"
+                onClick={() => setSourceFilter((prev) => (prev === "BRD_DOCUMENT" ? "ALL" : "BRD_DOCUMENT"))}
+                aria-label={`Filter by BRD Generated test cases (${brdGeneratedCount})`}
+                title="Filter by BRD Generated test cases"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "6px 14px",
+                  borderRadius: 20,
+                  border: sourceFilter === "BRD_DOCUMENT" ? "none" : "1px solid #e2e8f0",
+                  background: sourceFilter === "BRD_DOCUMENT" ? "#0f172a" : "#fff",
+                  color: sourceFilter === "BRD_DOCUMENT" ? "#fff" : "#475569",
+                  fontSize: 12,
+                  fontWeight: 800,
+                  cursor: "pointer",
+                  transition: "all 0.15s ease",
+                }}
+              >
+                <span
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: "50%",
+                    background: sourceFilter === "BRD_DOCUMENT" ? "#c084fc" : "#7c3aed",
+                  }}
+                />
+                <span>BRD Generated:</span>
+                <span style={{ fontWeight: 800 }}>{brdGeneratedCount}</span>
+              </button>
+            </div>
 
             {selectedSuiteName && (
               <span

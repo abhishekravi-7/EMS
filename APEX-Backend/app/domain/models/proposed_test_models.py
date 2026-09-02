@@ -105,7 +105,7 @@ class ProposedTestCase(BaseModel):
     steps: list[str] = Field(default_factory=list)
     expected_result: str
     status: ProposedTestStatus = ProposedTestStatus.PROPOSED
-    generation_source: str = "STATIC_ANALYSIS"
+    generation_source: str = "AI_GENERATED"
     api_spec: ApiTestSpec | None = None
     unit_spec: UnitTestSpec | None = None
     ui_spec: UiTestSpec | None = None
@@ -135,6 +135,8 @@ class ProposedTestMetrics(BaseModel):
     skipped: int = 0
     not_executed: int = 0
     gaps_count: int = 0
+    ai_generated_count: int = 0
+    brd_generated_count: int = 0
     duration: str = "0.0s"
     pass_percentage: str = "0%"
     unit_metrics: ProposedTestTypeBreakdown = Field(default_factory=ProposedTestTypeBreakdown)
