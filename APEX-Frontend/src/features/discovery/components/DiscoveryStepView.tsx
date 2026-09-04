@@ -1,48 +1,33 @@
-import React, { useState } from "react";
-import { FaCheckCircle, FaSearch, FaStopwatch, FaChartBar } from "react-icons/fa";
+import React, { useState, useEffect } from "react";
+import { FaCheckCircle, FaSearch, FaStopwatch, FaChartBar, FaExclamationTriangle } from "react-icons/fa";
 import { wizardStyles as styles } from "@/shared/components/wizard/wizardStyles";
 import { renderWizardIconBadge, renderStatusChip, renderBackButtonLabel, renderForwardButtonLabel } from "@/shared/components/wizard";
 import { Modal, Button } from "@/shared/components/ui";
 import type { RepoAnalysis, RepoFile, RepoInfo } from "@/shared/types/domain";
-import { getFileContent, getDiscoveryFileContent } from "../services/discoveryService";
+import { getFileContent, getDiscoveryFileContent, getDashboardStats, type DashboardStatsResponse } from "../services/discoveryService";
 import { getLocalProjectFileContent } from "@/features/connect/services/connectService";
 import { DiscoveryLoader } from "./DiscoveryLoader";
 import DiscoveryDetailModal, { type CompositionSegment, type MigrationSummarySegment } from "./DiscoveryDetailModal";
 import type { useDiscoveryState } from "../hooks/useDiscoveryState";
 
-// --- Mock Data Constants (Fallbacks) ---------------------------------------
-
-const MOCK_COMPOSITION: CompositionSegment[] = [
-  { label: "Java Files", count: 1248, value: 1248, percent: 56, color: "#0ea5e9" },
-  { label: "XML / Config", count: 542, value: 542, percent: 24, color: "#f59e0b" },
-  { label: "Test Files", count: 286, value: 286, percent: 13, color: "#6366f1" },
-  { label: "Resources", count: 132, value: 132, percent: 6, color: "#8b5cf6" },
-  { label: "Others", count: 26, value: 26, percent: 1, color: "#94a3b8" },
-];
-
-const MOCK_ANALYSIS = [
-  { label: "Java 8 Features Detected", count: 125, severity: "High" as const },
-  { label: "Deprecated APIs", count: 38, severity: "Medium" as const },
-  { label: "javax → jakarta", count: 73, severity: "High" as const },
-  { label: "Spring Framework (<= 5)", count: 12, severity: "Low" as const },
-  { label: "Security Vulnerabilities", count: 9, severity: "Critical" as const },
-  { label: "Code Smells / Complexity", count: 156, severity: "Medium" as const },
-  { label: "Legacy APIs (e.g., Date, Vector)", count: 63, severity: "High" as const },
-  { label: "Migration Blockers", count: 5, severity: "Critical" as const },
-];
-
-const MOCK_SUMMARY: MigrationSummarySegment[] = [
-  { label: "Auto Migratable", count: 342, value: 342, percent: 73, color: "#22c55e" },
-  { label: "Manual Changes", count: 27, value: 27, percent: 6, color: "#f59e0b" },
-  { label: "Needs Review", count: 45, value: 45, percent: 10, color: "#6366f1" },
-  { label: "Compilation Errors", count: 5, value: 5, percent: 1, color: "#ef4444" },
-  { label: "Completed", count: 44, value: 44, percent: 10, color: "#0ea5e9" },
-];
-
 // --- Dynamic Data Calculation for Detail Modal -----------------------------
 
-const getDynamicCompositionData = (repoAnalysis: RepoAnalysis | null): CompositionSegment[] => {
-  if (!repoAnalysis) return MOCK_COMPOSITION;
+const getDynamicCompositionData = (
+  repoAnalysis: RepoAnalysis | null,
+  stats?: DashboardStatsResponse | null
+): CompositionSegment[] => {
+  if (stats) {
+    const comp = stats.repositoryComposition;
+    const total = comp.totalFiles || 1;
+    const calc = (val: number) => Math.round((val / total) * 100);
+    return [
+      { label: "Java Files", count: comp.javaFiles, value: comp.javaFiles, percent: calc(comp.javaFiles), color: "#0ea5e9" },
+      { label: "XML / Config", count: comp.xmlConfigFiles, value: comp.xmlConfigFiles, percent: calc(comp.xmlConfigFiles), color: "#f59e0b" },
+      { label: "Others", count: comp.otherFiles, value: comp.otherFiles, percent: calc(comp.otherFiles), color: "#94a3b8" },
+    ];
+  }
+
+  if (!repoAnalysis) return [];
 
   // Use more aggressive methods to determine Java and Config counts
   const analysisJavaTotal = repoAnalysis.microservice_eligibility?.analysisDiagnostics?.java_files_total;
@@ -94,46 +79,87 @@ const getDynamicCompositionData = (repoAnalysis: RepoAnalysis | null): Compositi
   ].filter(c => c.count > 0 || c.label === "Java Files");
 };
 
-const getDynamicAnalysisFindings = (repoAnalysis: RepoAnalysis | null) => {
-  if (!repoAnalysis) return MOCK_ANALYSIS;
+const getDynamicAnalysisFindings = (
+  repoAnalysis: RepoAnalysis | null,
+  stats?: DashboardStatsResponse | null
+) => {
+  if (stats) {
+    const ma = stats.modernizationAnalysis;
+    const findings: AnalysisFinding[] = [];
+
+    findings.push({ label: `Java ${ma.sourceJavaVersion} Features Detected`, count: ma.javaVersionFeatureCount, severity: "High" });
+
+    if (ma.deprecatedApiCount !== undefined) {
+      findings.push({ label: "Deprecated APIs", count: ma.deprecatedApiCount, severity: "Medium" });
+    }
+    if (ma.javaxMigrationCount !== undefined) {
+      findings.push({ label: "javax → jakarta", count: ma.javaxMigrationCount, severity: "High" });
+    }
+    if (ma.oldSpringUsageCount !== undefined) {
+      findings.push({ label: "Spring Framework (<= 5)", count: ma.oldSpringUsageCount, severity: "Low" });
+    }
+    if (ma.securityVulnerabilityCount !== undefined) {
+      findings.push({ label: "Security Vulnerabilities", count: ma.securityVulnerabilityCount, severity: "Critical" });
+    }
+    if (ma.codeSmellCount !== undefined) {
+      findings.push({ label: "Code Smells / Complexity", count: ma.codeSmellCount, severity: "Medium" });
+    }
+    if (ma.legacyApiCount !== undefined) {
+      findings.push({ label: "Legacy APIs", count: ma.legacyApiCount, severity: "High" });
+    }
+    if (ma.migrationBlockerCount !== undefined) {
+      findings.push({ label: "Migration Blockers", count: ma.migrationBlockerCount, severity: "Critical" });
+    }
+
+    return findings;
+  }
+
+  if (!repoAnalysis) return [];
 
   const findings = [];
   const javaCount = repoAnalysis.java_file_count || repoAnalysis.java_files?.length || 0;
 
   if (repoAnalysis.java_version === "8" || repoAnalysis.java_version_from_build === "8") {
-    findings.push({ label: "Java 8 Features Detected", count: javaCount || 125, severity: "High" as const });
+    findings.push({ label: "Java 8 Features Detected", count: javaCount || 0, severity: "High" as const });
   }
 
   if (repoAnalysis.structure.has_pom_xml) {
-    findings.push({ label: "javax → jakarta", count: 73, severity: "High" as const });
+    findings.push({ label: "javax → jakarta", count: 0, severity: "High" as const });
   }
 
   findings.push({ label: "Security Vulnerabilities", count: 0, severity: "Low" as const });
 
-  // Fill with mock for remaining items if empty to match visual spec
-  if (findings.length < 3) return MOCK_ANALYSIS;
-
   return findings;
 };
 
-const getDynamicMigrationSummary = (repoAnalysis: RepoAnalysis | null): MigrationSummarySegment[] => {
-  if (!repoAnalysis) return MOCK_SUMMARY;
+const getDynamicMigrationSummary = (
+  repoAnalysis: RepoAnalysis | null,
+  stats?: DashboardStatsResponse | null
+): MigrationSummarySegment[] => {
+  if (stats) {
+    const s = stats.migrationSummary;
+    const total = s.totalItems || 1;
+    const calc = (val: number) => Math.round((val / total) * 100);
 
-  const autoCount = repoAnalysis.dependencies?.length || 0;
-  const manualCount = 27; // Placeholder for logic not yet exposed
-  const reviewCount = 45;
-  const errorCount = 5;
-  const completedCount = 44;
+    if (s.status === "NOT_STARTED") {
+       return [
+         { label: "Migration not started", count: 0, value: 0, percent: 0, color: "#94a3b8" }
+       ];
+    }
 
-  const total = autoCount + manualCount + reviewCount + errorCount + completedCount || 1;
-  const calcPercent = (val: number) => Math.round((val / total) * 100);
+    return [
+      { label: "Auto Migratable", count: s.autoMigratable, value: s.autoMigratable, percent: calc(s.autoMigratable), color: "#22c55e" },
+      { label: "Manual Changes", count: s.manualChanges, value: s.manualChanges, percent: calc(s.manualChanges), color: "#f59e0b" },
+      { label: "Needs Review", count: s.needsReview, value: s.needsReview, percent: calc(s.needsReview), color: "#6366f1" },
+      { label: "Compilation Errors", count: s.compilationErrors, value: s.compilationErrors, percent: calc(s.compilationErrors), color: "#ef4444" },
+      { label: "Completed", count: s.completed, value: s.completed, percent: calc(s.completed), color: "#0ea5e9" },
+    ];
+  }
+
+  if (!repoAnalysis) return [];
 
   return [
-    { label: "Auto Migratable", count: autoCount, value: autoCount, percent: calcPercent(autoCount), color: "#22c55e" },
-    { label: "Manual Changes", count: manualCount, value: manualCount, percent: calcPercent(manualCount), color: "#f59e0b" },
-    { label: "Needs Review", count: reviewCount, value: reviewCount, percent: calcPercent(reviewCount), color: "#6366f1" },
-    { label: "Compilation Errors", count: errorCount, value: errorCount, percent: calcPercent(errorCount), color: "#ef4444" },
-    { label: "Completed", count: completedCount, value: completedCount, percent: calcPercent(completedCount), color: "#0ea5e9" },
+    { label: "Migration not started", count: 0, value: 0, percent: 0, color: "#94a3b8" }
   ];
 };
 
@@ -285,6 +311,33 @@ export function DiscoveryStepView({
   const { isLocalRepoRef, extractLocalRepoPath } = repoUtils;
 
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [dashboardStats, setDashboardStats] = useState<DashboardStatsResponse | null>(null);
+  const [dashboardLoading, setDashboardLoading] = useState(false);
+  const [dashboardError, setDashboardError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isDetailModalOpen && jobId && !isLocalRepoRef(selectedRepo?.url)) {
+      setDashboardLoading(true);
+      setDashboardError(null);
+      getDashboardStats(jobId)
+        .then((stats) => {
+          setDashboardStats(stats);
+        })
+        .catch((err) => {
+          console.error("Failed to fetch dashboard stats:", err);
+          setDashboardError("Failed to load real-time statistics.");
+        })
+        .finally(() => {
+          setDashboardLoading(false);
+        });
+    }
+  }, [isDetailModalOpen, jobId, selectedRepo?.url, isLocalRepoRef]);
+
+  // Reset stats when repo changes
+  useEffect(() => {
+    setDashboardStats(null);
+    setDashboardError(null);
+  }, [jobId]);
 
   const handleFileClick = async (file: RepoFile) => {
     if (file.type === "dir") {
@@ -551,32 +604,58 @@ export function DiscoveryStepView({
         title="Dashboard Overview"
         width="1100px"
       >
-        <DiscoveryDetailModal
-          compositionData={getDynamicCompositionData(repoAnalysis)}
-          analysisFindings={getDynamicAnalysisFindings(repoAnalysis)}
-          migrationSummary={getDynamicMigrationSummary(repoAnalysis)}
-          totalFiles={getDynamicCompositionData(repoAnalysis).reduce((acc, curr) => acc + curr.count, 0)}
-          totalMigrationItems={getDynamicMigrationSummary(repoAnalysis).reduce((acc, curr) => acc + curr.count, 0)}
-          onViewAllFiles={() => {
-            setIsDetailModalOpen(false);
-            setShowFileExplorer(true);
-            // Scroll to file explorer using the new ID
-            const explorer = document.getElementById("discovery-file-explorer-section");
-            if (explorer) explorer.scrollIntoView({ behavior: "smooth" });
-          }}
-          onViewFullAnalysis={() => {
-            setIsDetailModalOpen(false);
-            // Scroll to frameworks section using the new ID
-            const frameworks = document.getElementById("discovery-frameworks-section");
-            if (frameworks) frameworks.scrollIntoView({ behavior: "smooth" });
-          }}
-          onViewMigrationDetails={() => {
-            setIsDetailModalOpen(false);
-            // Scroll to technical spec using the new ID
-            const spec = document.getElementById("discovery-technical-spec-section");
-            if (spec) spec.scrollIntoView({ behavior: "smooth" });
-          }}
-        />
+        {dashboardLoading ? (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "400px", gap: "20px" }}>
+            <div className="discovery-dashboard-spinner" style={{
+                width: '40px',
+                height: '40px',
+                border: '4px solid #f3f3f3',
+                borderTop: '4px solid #6366f1',
+                borderRadius: '50%',
+                animation: 'spin 1s linear infinite'
+            }} />
+            <style>{`
+                @keyframes spin {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(360deg); }
+                }
+            `}</style>
+            <p style={{ color: "#64748b", fontSize: "14px", fontWeight: 500 }}>Fetching real-time repository statistics...</p>
+          </div>
+        ) : dashboardError ? (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "400px", gap: "16px", padding: "40px", textAlign: "center" }}>
+             <FaExclamationTriangle size={48} color="#ef4444" style={{ opacity: 0.8 }} />
+             <div>
+               <h3 style={{ fontSize: "18px", fontWeight: 700, color: "#1e293b", marginBottom: "8px" }}>Oops! Statistics Unavailable</h3>
+               <p style={{ color: "#64748b", fontSize: "14px", maxWidth: "400px" }}>{dashboardError}</p>
+             </div>
+             <Button variant="secondary" onClick={() => setIsDetailModalOpen(false)}>Close</Button>
+          </div>
+        ) : (
+          <DiscoveryDetailModal
+            compositionData={getDynamicCompositionData(repoAnalysis, dashboardStats)}
+            analysisFindings={getDynamicAnalysisFindings(repoAnalysis, dashboardStats)}
+            migrationSummary={getDynamicMigrationSummary(repoAnalysis, dashboardStats)}
+            totalFiles={dashboardStats?.repositoryComposition.totalFiles ?? getDynamicCompositionData(repoAnalysis).reduce((acc, curr) => acc + curr.count, 0)}
+            totalMigrationItems={dashboardStats?.migrationSummary.totalItems ?? getDynamicMigrationSummary(repoAnalysis).reduce((acc, curr) => acc + curr.count, 0)}
+            onViewAllFiles={() => {
+              setIsDetailModalOpen(false);
+              setShowFileExplorer(true);
+              const explorer = document.getElementById("discovery-file-explorer-section");
+              if (explorer) explorer.scrollIntoView({ behavior: "smooth" });
+            }}
+            onViewFullAnalysis={() => {
+              setIsDetailModalOpen(false);
+              const frameworks = document.getElementById("discovery-frameworks-section");
+              if (frameworks) frameworks.scrollIntoView({ behavior: "smooth" });
+            }}
+            onViewMigrationDetails={() => {
+              setIsDetailModalOpen(false);
+              const spec = document.getElementById("discovery-technical-spec-section");
+              if (spec) spec.scrollIntoView({ behavior: "smooth" });
+            }}
+          />
+        )}
       </Modal>
     </div>
   );

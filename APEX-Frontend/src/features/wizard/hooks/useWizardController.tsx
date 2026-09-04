@@ -853,7 +853,7 @@ const classifyDependencyRisk = (dep: DependencyInfo): { risk: DependencyRiskLeve
 };
 
 const categorizeDependencies = (dependencies: DependencyInfo[]): CategorizedDependency[] => {
-  return dependencies.map((dep) => {
+  const result = dependencies.map((dep) => {
     const { risk, reason } = classifyDependencyRisk(dep);
     return {
       ...dep,
@@ -862,6 +862,20 @@ const categorizeDependencies = (dependencies: DependencyInfo[]): CategorizedDepe
       risk,
       reason,
     };
+  });
+
+  const SEVERITY_ORDER: Record<string, number> = {
+    critical: 0,
+    high: 1,
+    medium: 2,
+    low: 3,
+  };
+
+  return result.sort((a, b) => {
+    const aOrder = SEVERITY_ORDER[a.risk] ?? 4;
+    const bOrder = SEVERITY_ORDER[b.risk] ?? 4;
+    if (aOrder !== bOrder) return aOrder - bOrder;
+    return a.displayName.localeCompare(b.displayName);
   });
 };
 
@@ -2784,7 +2798,17 @@ export function useWizardController() {
               {dep.risk.toUpperCase()}
             </span>
           </div>
-          <div style={styles.categorizedDependencyVersion}>{dep.current_version || "Unknown version"}</div>
+          <div style={styles.categorizedDependencyVersion}>
+            {(dep.resolvedVersion && dep.resolvedVersion !== "Unknown version") ||
+            (dep.current_version && dep.current_version !== "Unknown version")
+              ? dep.resolvedVersion || dep.current_version
+              : "Version unavailable"}
+            {dep.versionSource && (
+              <span style={{ fontSize: 11, color: "#64748b", marginLeft: 6, fontWeight: 500 }}>
+                · {dep.versionSource}
+              </span>
+            )}
+          </div>
           <div style={styles.dependencyMetaRow}>
             <span style={styles.dependencyCategoryBadge}>{dep.category}</span>
             {dep.status && (

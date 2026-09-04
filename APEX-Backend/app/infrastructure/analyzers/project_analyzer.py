@@ -117,7 +117,7 @@ class ProjectAnalyzer:
                 spring_boot_signal = True
                 spring_entry_class = entrypoint.entry_class
 
-        dependencies = self._dependencies.analyze(pom_root, build_gradle_text)
+        dependencies = self._dependencies.analyze(pom_root, build_gradle_text, project_root)
         build_plugins = self._metadata.detect_plugins(pom_root, build_gradle_text)
         bom_versions = self._metadata.detect_boms(pom_root, build_gradle_text)
         frameworks = self._metadata.detect_frameworks(

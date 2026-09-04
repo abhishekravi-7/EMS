@@ -39,6 +39,7 @@ class MigrationRunResult:
     spring_boot_version_after: str | None = None
     phase_results: list[dict] = field(default_factory=list)
     skipped_recipes: list[dict] = field(default_factory=list)
+    rule_executions: list[dict[str, Any]] = field(default_factory=list)
 
 class AutomatedMigrationRunner:
     def __init__(self) -> None:
@@ -95,5 +96,6 @@ class AutomatedMigrationRunner:
             already_compatible=result.status == "NO_CHANGES",
             spring_conversion_requested=bool(conversion_types and "spring_boot" in conversion_types),
             spring_boot_version_before=analysis.spring_boot_version,
-            phase_results=[{"id": p, "status": "completed" if result.success else "failed"} for p in plan.activePacks]
+            phase_results=[{"id": p, "status": "completed" if result.success else "failed"} for p in plan.activePacks],
+            rule_executions=result.rule_executions
         )

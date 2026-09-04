@@ -204,6 +204,7 @@ class StartMigrationUseCase:
                 springBootVersionAfter=result.spring_boot_version_after,
                 springSourceFramework=spring_source_framework,
                 springTargetFramework=spring_target_framework,
+                ruleExecutions=result.rule_executions,
             )
 
             if not result.success:

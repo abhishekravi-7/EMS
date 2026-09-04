@@ -149,7 +149,7 @@ export default function MigrationWizardPage() {
           <img
             src={apexLogo}
             alt="Java APEX"
-            style={{ height: 32, width: "auto", objectFit: "contain", display: "block", marginBottom: 20 }}
+            style={{ height: 48, width: "auto", objectFit: "contain", display: "block" }}
           />
         </div>
 

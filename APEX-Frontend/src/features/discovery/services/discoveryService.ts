@@ -21,6 +21,9 @@ export interface DiscoveryDependency {
   groupId: string;
   artifactId: string;
   version: string | null;
+  declaredVersion?: string | null;
+  resolvedVersion?: string | null;
+  versionSource?: string | null;
 }
 
 export interface DiscoveryProject {
@@ -131,6 +134,9 @@ export function mapDiscoveryToRepoAnalysis(response: DiscoveryResponse): RepoAna
     current_version: dep.version ?? "",
     new_version: null,
     status: "detected",
+    declaredVersion: dep.declaredVersion,
+    resolvedVersion: dep.resolvedVersion,
+    versionSource: dep.versionSource,
   }));
 
   return {
@@ -511,4 +517,44 @@ export async function getBrdMetadata(jobId: string): Promise<any> {
   }
 
   return response.json();
+}
+
+export interface DashboardStatsResponse {
+  repositoryId: string;
+  jobId: string;
+  repositoryName: string;
+  repositoryComposition: {
+    totalFiles: number;
+    javaFiles: number;
+    xmlConfigFiles: number;
+    otherFiles: number;
+  };
+  modernizationAnalysis: {
+    sourceJavaVersion: string;
+    javaVersionFeatureCount: number;
+    deprecatedApiCount?: number;
+    javaxMigrationCount?: number;
+    oldSpringUsageCount?: number;
+    securityVulnerabilityCount?: number;
+    codeSmellCount?: number;
+    legacyApiCount?: number;
+    migrationBlockerCount?: number;
+  };
+  migrationSummary: {
+    status: string;
+    totalItems: number;
+    autoMigratable: number;
+    manualChanges: number;
+    needsReview: number;
+    compilationErrors: number;
+    completed: number;
+  };
+  generatedAt: string;
+}
+
+export async function getDashboardStats(jobId: string): Promise<DashboardStatsResponse> {
+  return requestJson<DashboardStatsResponse>(
+    `/v1/discovery/${encodeURIComponent(jobId)}/dashboard-stats`,
+    "Failed to fetch dashboard statistics"
+  );
 }

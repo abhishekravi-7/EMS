@@ -108,7 +108,7 @@ const LandingPage: React.FC = () => {
         <div className="apex-container">
           <nav className="apex-navbar">
             <div className="apex-logo" onClick={() => navigate("/")} style={{ cursor: "pointer" }}>
-              <img src={apexLogo} alt="Java APEX" style={{ height: 38, width: "auto", objectFit: "contain", display: "block" }} />
+              <img src={apexLogo} alt="Java APEX" style={{ height: 48, width: "auto", objectFit: "contain", display: "block" }} />
             </div>
 
             {/* <ul className="apex-nav-links">
