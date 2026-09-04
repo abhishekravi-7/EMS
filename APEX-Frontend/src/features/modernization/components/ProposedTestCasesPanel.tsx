@@ -18,12 +18,18 @@ import {
   getProposedTests,
   getProposedTestsStatus,
 } from "../services/proposedTestService";
+import type { TestResult, TestSelectionItem } from "../services/existingTestService";
 
 interface ProposedTestCasesPanelProps {
   jobId: string;
   repoAnalysis?: RepoAnalysis | Record<string, unknown> | null;
   localApiTestCases?: Array<Record<string, unknown>>;
   hasUI?: boolean;
+  discoveredTests?: TestResult[];
+  isRunning?: boolean;
+  selectedSources?: { llm: boolean; functionalDoc: boolean; existing: boolean };
+  onSelectedSourcesChange?: (sources: { llm: boolean; functionalDoc: boolean; existing: boolean }) => void;
+  onRunTests?: (selection: TestSelectionItem[]) => void;
 }
 
 interface SliceItem {
@@ -133,11 +139,64 @@ function renderDonutChart(
   );
 }
 
+export type ProposedTestSourceCategory = "AI_GENERATED" | "BRD_DOCUMENT";
+
+export function getProposedTestSourceCategory(p: ProposedTestCase): ProposedTestSourceCategory {
+  const genSource = (p.generation_source || "").toUpperCase();
+  const source = (p.source || "").toLowerCase();
+  const id = (p.id || "").toUpperCase();
+
+  if (
+    genSource === "BRD_DOCUMENT" ||
+    genSource === "FUNCTIONAL_DOC" ||
+    genSource === "FUNCTIONAL_DOCUMENT" ||
+    (id.includes("BRD") && genSource !== "BRD_AND_AI") ||
+    source === "brd document" ||
+    source === "brd business requirement"
+  ) {
+    return "BRD_DOCUMENT";
+  }
+
+  return "AI_GENERATED";
+}
+
+export function filterAndDeduplicateProposals(list: ProposedTestCase[]): ProposedTestCase[] {
+  const seen = new Set<string>();
+  const unique: ProposedTestCase[] = [];
+  for (const item of list) {
+    // Exclude any existing test cases from the proposed test collection
+    const genSource = (item.generation_source || "").toUpperCase();
+    const source = (item.source || "").toLowerCase();
+    const id = (item.id || "").toUpperCase();
+    if (
+      genSource === "EXISTING" ||
+      genSource === "EXISTING_TESTS" ||
+      id.includes("EXT") ||
+      source.includes("existing repository") ||
+      source.includes("existing test")
+    ) {
+      continue;
+    }
+
+    const key = item.id || `${item.type}::${item.title}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      unique.push(item);
+    }
+  }
+  return unique;
+}
+
 export function ProposedTestCasesPanel({
   jobId,
   repoAnalysis,
   localApiTestCases,
   hasUI,
+  discoveredTests = [],
+  isRunning: _isRunning = false,
+  selectedSources,
+  onSelectedSourcesChange,
+  onRunTests,
 }: ProposedTestCasesPanelProps) {
   const [proposals, setProposals] = useState<ProposedTestCase[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -149,9 +208,114 @@ export function ProposedTestCasesPanel({
   const [sourceFilter, setSourceFilter] = useState<"ALL" | "AI_GENERATED" | "BRD_DOCUMENT">("ALL");
   const [selectedSuiteName, setSelectedSuiteName] = useState<string | null>(null);
 
+  // Test Execution Selection Checkboxes (Controlled with fallback)
+  const [localLlmSelected, setLocalLlmSelected] = useState(true);
+  const [localFunctionalDocSelected, setLocalFunctionalDocSelected] = useState(false);
+  const [localExistingSelected, setLocalExistingSelected] = useState(true);
+  const [validationMessage, setValidationMessage] = useState<string | null>(null);
+
+  const isLlmSelected = selectedSources ? selectedSources.llm : localLlmSelected;
+  const isFunctionalDocSelected = selectedSources ? selectedSources.functionalDoc : localFunctionalDocSelected;
+  const isExistingSelected = selectedSources ? selectedSources.existing : localExistingSelected;
+
+  const handleToggleLlm = (checked: boolean) => {
+    if (onSelectedSourcesChange && selectedSources) {
+      onSelectedSourcesChange({ ...selectedSources, llm: checked });
+    } else {
+      setLocalLlmSelected(checked);
+    }
+    if (validationMessage) setValidationMessage(null);
+  };
+
+  const handleToggleFunctionalDoc = (checked: boolean) => {
+    if (onSelectedSourcesChange && selectedSources) {
+      onSelectedSourcesChange({ ...selectedSources, functionalDoc: checked });
+    } else {
+      setLocalFunctionalDocSelected(checked);
+    }
+    if (validationMessage) setValidationMessage(null);
+  };
+
+  const handleToggleExisting = (checked: boolean) => {
+    if (onSelectedSourcesChange && selectedSources) {
+      onSelectedSourcesChange({ ...selectedSources, existing: checked });
+    } else {
+      setLocalExistingSelected(checked);
+    }
+    if (validationMessage) setValidationMessage(null);
+  };
+
   // Review Drawer / Modal
   const [reviewTest, setReviewTest] = useState<ProposedTestCase | null>(null);
   const [selectedSuiteModal, setSelectedSuiteModal] = useState<{ name: string; tests: ProposedTestCase[] } | null>(null);
+  const [frameworkNotice, setFrameworkNotice] = useState<string | null>(null);
+
+  const _handleExecuteSelectedTests = () => {
+    if (!isLlmSelected && !isFunctionalDocSelected && !isExistingSelected) {
+      setValidationMessage("Select at least one test case type to run.");
+      return;
+    }
+    setValidationMessage(null);
+
+    const selectedItems: TestSelectionItem[] = [];
+    const seen = new Set<string>();
+
+    // 1. LLM Generated Test Cases
+    if (isLlmSelected) {
+      proposals.forEach((p) => {
+        if (getProposedTestSourceCategory(p) === "AI_GENERATED") {
+          const testName = p.title || p.id;
+          const suiteName = p.source || p.type || "LLMTests";
+          const identity = `${suiteName.toLowerCase()}::${testName.toLowerCase()}`;
+          if (!seen.has(identity)) {
+            seen.add(identity);
+            selectedItems.push({
+              name: testName,
+              suite: suiteName,
+            });
+          }
+        }
+      });
+    }
+
+    // 2. Functional Testing Document Test Cases
+    if (isFunctionalDocSelected) {
+      proposals.forEach((p) => {
+        if (getProposedTestSourceCategory(p) === "BRD_DOCUMENT") {
+          const testName = p.title || p.id;
+          const suiteName = p.source || p.type || "FunctionalDocTests";
+          const identity = `${suiteName.toLowerCase()}::${testName.toLowerCase()}`;
+          if (!seen.has(identity)) {
+            seen.add(identity);
+            selectedItems.push({
+              name: testName,
+              suite: suiteName,
+            });
+          }
+        }
+      });
+    }
+
+    // 3. Existing Repository Test Cases (from discovered repository tests)
+    if (isExistingSelected) {
+      (discoveredTests || []).forEach((t) => {
+        const testName = t.name || t.methodname || t.test_name || t.title || "Test";
+        const suiteName = t.suite || t.classname || t.spec || t.file || "TestSuite";
+        const identity = `${suiteName.toLowerCase()}::${testName.toLowerCase()}`;
+        if (!seen.has(identity)) {
+          seen.add(identity);
+          selectedItems.push({
+            name: testName,
+            suite: suiteName,
+          });
+        }
+      });
+    }
+
+    if (onRunTests) {
+      onRunTests(selectedItems);
+    }
+  };
 
   // Primary Data Fetch & Seamless Fallback Mapping
   useEffect(() => {
@@ -195,7 +359,7 @@ export function ProposedTestCasesPanel({
       // 2. If Backend Proposals are found, use them
       if (fetchedProposals.length > 0) {
         if (isMounted) {
-          setProposals(normalizeProposals(fetchedProposals));
+          setProposals(filterAndDeduplicateProposals(normalizeProposals(fetchedProposals)));
           setIsLoading(false);
         }
         return;
@@ -350,7 +514,7 @@ export function ProposedTestCasesPanel({
       });
 
       if (isMounted) {
-        setProposals(syntheticProposals);
+        setProposals(filterAndDeduplicateProposals(normalizeProposals(syntheticProposals)));
         setIsLoading(false);
       }
     }
@@ -361,40 +525,28 @@ export function ProposedTestCasesPanel({
     };
   }, [jobId, repoAnalysis, localApiTestCases, hasUI]);
 
-  // Derived Counts
+  // Derived Counts from the single unique proposals collection
   const totalCount = proposals.length;
   const uiCount = useMemo(() => proposals.filter((p) => p.type === "UI").length, [proposals]);
-  const apiCount = useMemo(() => proposals.filter((p) => p.type === "API").length, [proposals]);
+  const apiCount = useMemo(() => proposals.filter((p) => p.type === "API" || p.type === "UNIT").length, [proposals]);
   const unitCount = useMemo(() => proposals.filter((p) => p.type === "UNIT").length, [proposals]);
 
   const p0Count = useMemo(() => proposals.filter((p) => p.priority === "HIGH").length, [proposals]);
   const p1Count = useMemo(() => proposals.filter((p) => p.priority === "MEDIUM").length, [proposals]);
   const p2Count = useMemo(() => proposals.filter((p) => p.priority === "LOW").length, [proposals]);
-  const p3Count = 0;
+  const p3Count = useMemo(() => proposals.filter((p) => (p.priority as string) === "P3" || (p.priority as string) === "LOWEST").length, [proposals]);
 
   // Must Have vs Good To Have
   const mustHaveCount = p0Count;
-  const goodToHaveCount = p1Count + p2Count;
+  const goodToHaveCount = p1Count + p2Count + p3Count;
 
-  // Source Counts (AI Generated vs BRD Generated)
+  // Source Counts (Unified using getProposedTestSourceCategory)
   const aiGeneratedCount = useMemo(() => {
-    return proposals.filter(
-      (p) =>
-        p.generation_source === "AI_GENERATED" ||
-        p.generation_source === "STATIC_ANALYSIS" ||
-        (!p.generation_source && !p.id.includes("BRD"))
-    ).length;
+    return proposals.filter((p) => getProposedTestSourceCategory(p) === "AI_GENERATED").length;
   }, [proposals]);
 
   const brdGeneratedCount = useMemo(() => {
-    return proposals.filter(
-      (p) =>
-        p.generation_source === "BRD_DOCUMENT" ||
-        p.generation_source === "BRD_AND_AI" ||
-        p.id.includes("BRD") ||
-        p.source === "BRD Document" ||
-        p.source === "BRD Business Requirement"
-    ).length;
+    return proposals.filter((p) => getProposedTestSourceCategory(p) === "BRD_DOCUMENT").length;
   }, [proposals]);
 
   // Suite / Category Breakdown Grouping
@@ -426,7 +578,7 @@ export function ProposedTestCasesPanel({
   const p0Pct = totalCount > 0 ? ((p0Count / totalCount) * 100).toFixed(1) : "0.0";
   const p1Pct = totalCount > 0 ? ((p1Count / totalCount) * 100).toFixed(1) : "0.0";
   const p2Pct = totalCount > 0 ? ((p2Count / totalCount) * 100).toFixed(1) : "0.0";
-  const p3Pct = "0.0";
+  const p3Pct = totalCount > 0 ? ((p3Count / totalCount) * 100).toFixed(1) : "0.0";
 
   const typeSlices: SliceItem[] = [
     { label: "API", value: apiCount, percentage: apiPct, color: "#059669" },
@@ -467,17 +619,9 @@ export function ProposedTestCasesPanel({
 
       let matchesSource = true;
       if (sourceFilter === "AI_GENERATED") {
-        matchesSource =
-          t.generation_source === "AI_GENERATED" ||
-          t.generation_source === "STATIC_ANALYSIS" ||
-          (!t.generation_source && !t.id.includes("BRD"));
+        matchesSource = getProposedTestSourceCategory(t) === "AI_GENERATED";
       } else if (sourceFilter === "BRD_DOCUMENT") {
-        matchesSource =
-          t.generation_source === "BRD_DOCUMENT" ||
-          t.generation_source === "BRD_AND_AI" ||
-          t.id.includes("BRD") ||
-          t.source === "BRD Document" ||
-          t.source === "BRD Business Requirement";
+        matchesSource = getProposedTestSourceCategory(t) === "BRD_DOCUMENT";
       }
 
       return matchesSearch && matchesType && matchesPriority && matchesSuite && matchesSource;
@@ -1095,12 +1239,12 @@ export function ProposedTestCasesPanel({
                 <span style={{ fontWeight: 800 }}>{aiGeneratedCount}</span>
               </button>
 
-              {/* BRD Generated Filter Button */}
+              {/* Functional Testing Document Generated Filter Button */}
               <button
                 type="button"
                 onClick={() => setSourceFilter((prev) => (prev === "BRD_DOCUMENT" ? "ALL" : "BRD_DOCUMENT"))}
-                aria-label={`Filter by BRD Generated test cases (${brdGeneratedCount})`}
-                title="Filter by BRD Generated test cases"
+                aria-label={`Filter by Functional Testing Document Generated test cases (${brdGeneratedCount})`}
+                title="Filter by Functional Testing Document Generated test cases"
                 style={{
                   display: "inline-flex",
                   alignItems: "center",
@@ -1114,6 +1258,7 @@ export function ProposedTestCasesPanel({
                   fontWeight: 800,
                   cursor: "pointer",
                   transition: "all 0.15s ease",
+                  whiteSpace: "nowrap",
                 }}
               >
                 <span
@@ -1124,7 +1269,7 @@ export function ProposedTestCasesPanel({
                     background: sourceFilter === "BRD_DOCUMENT" ? "#c084fc" : "#7c3aed",
                   }}
                 />
-                <span>BRD Generated:</span>
+                <span>Functional Testing Document Generated:</span>
                 <span style={{ fontWeight: 800 }}>{brdGeneratedCount}</span>
               </button>
             </div>
@@ -1379,18 +1524,171 @@ export function ProposedTestCasesPanel({
             Showing {filteredProposals.length} of {totalCount} proposed functional test scenarios
           </div>
         </div>
+
+        {/* ── Test Execution Selection Control ─────────────────────────────── */}
+        <div
+          id="test-execution-selection-section"
+          style={{
+            background: "#f8fafc",
+            borderRadius: 14,
+            border: "1px solid #e2e8f0",
+            padding: "18px 22px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 14,
+          }}
+        >
+          <div style={{ fontSize: 13, fontWeight: 800, color: "#0f172a" }}>
+            Test Cases to Execute:
+          </div>
+
+          {/* 3 Checkboxes in a Single Horizontal Row */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 28,
+              flexWrap: "wrap",
+            }}
+          >
+            {/* Checkbox 1: LLM Generated Test Cases */}
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+              <input
+                type="checkbox"
+                id="llm-generated-tests"
+                checked={isLlmSelected}
+                onChange={(e) => handleToggleLlm(e.target.checked)}
+                style={{
+                  width: 16,
+                  height: 16,
+                  cursor: "pointer",
+                  accentColor: "#7c3aed",
+                }}
+              />
+              <label
+                htmlFor="llm-generated-tests"
+                style={{
+                  fontSize: 13,
+                  fontWeight: 700,
+                  color: "#1e293b",
+                  cursor: "pointer",
+                  userSelect: "none",
+                }}
+              >
+                LLM Generated Test Cases
+              </label>
+            </div>
+
+            {/* Checkbox 2: Functional Testing Document Test Cases */}
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+              <input
+                type="checkbox"
+                id="functional-doc-tests"
+                checked={isFunctionalDocSelected}
+                onChange={(e) => handleToggleFunctionalDoc(e.target.checked)}
+                style={{
+                  width: 16,
+                  height: 16,
+                  cursor: "pointer",
+                  accentColor: "#7c3aed",
+                }}
+              />
+              <label
+                htmlFor="functional-doc-tests"
+                style={{
+                  fontSize: 13,
+                  fontWeight: 700,
+                  color: "#1e293b",
+                  cursor: "pointer",
+                  userSelect: "none",
+                }}
+              >
+                Functional Testing Document Test Cases
+              </label>
+            </div>
+
+            {/* Checkbox 3: Existing Test Cases */}
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+              <input
+                type="checkbox"
+                id="existing-test-cases"
+                checked={isExistingSelected}
+                onChange={(e) => handleToggleExisting(e.target.checked)}
+                style={{
+                  width: 16,
+                  height: 16,
+                  cursor: "pointer",
+                  accentColor: "#7c3aed",
+                }}
+              />
+              <label
+                htmlFor="existing-test-cases"
+                style={{
+                  fontSize: 13,
+                  fontWeight: 700,
+                  color: "#1e293b",
+                  cursor: "pointer",
+                  userSelect: "none",
+                }}
+              >
+                Existing Test Cases
+              </label>
+            </div>
+          </div>
+
+          {validationMessage && (
+            <div style={{ fontSize: 12, color: "#dc2626", fontWeight: 700 }}>
+              ⚠ {validationMessage}
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* ── 5. TESTING FRAMEWORK SECTION (Informational Only) ──────────────── */}
+      {/* ── 5. TESTING FRAMEWORK SECTION ─────────────────────────────────── */}
       <div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
           <h4 style={{ fontSize: 13, fontWeight: 800, color: "#0f172a", textTransform: "uppercase", letterSpacing: 0.5, margin: 0 }}>
-            TESTING FRAMEWORK RECOMMENDATIONS (INFORMATIONAL)
+            FUNCTIONAL TESTING FRAMEWORK
           </h4>
-          <span style={{ fontSize: 11, fontWeight: 700, color: "#64748b" }}>
-            ℹ No runner execution triggered
+          <span style={{ fontSize: 11, fontWeight: 700, color: "#7c3aed" }}>
+            🎭 Playwright Execution Engine Enabled
           </span>
         </div>
+
+        {/* Framework Notice Alert */}
+        {frameworkNotice && (
+          <div
+            style={{
+              padding: "10px 16px",
+              borderRadius: 8,
+              background: "#fffbeb",
+              border: "1px solid #fde68a",
+              color: "#92400e",
+              fontSize: 12,
+              fontWeight: 700,
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: 12,
+            }}
+          >
+            <span>ℹ {frameworkNotice}</span>
+            <button
+              type="button"
+              onClick={() => setFrameworkNotice(null)}
+              style={{
+                background: "transparent",
+                border: "none",
+                color: "#92400e",
+                cursor: "pointer",
+                fontWeight: 900,
+                fontSize: 14,
+              }}
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
           {/* Card 1: Playwright */}
@@ -1406,60 +1704,85 @@ export function ProposedTestCasesPanel({
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
               <span style={{ fontSize: 14, fontWeight: 900, color: "#0f172a" }}>🎭 Playwright</span>
               <span style={{ fontSize: 9, fontWeight: 900, padding: "2px 6px", borderRadius: 4, background: "#f5f3ff", color: "#7c3aed", border: "1px solid #ddd6fe" }}>
-                RECOMMENDED
+                RECOMMENDED / AVAILABLE
               </span>
             </div>
             <p style={{ fontSize: 11, color: "#64748b", margin: "0 0 10px 0", lineHeight: 1.4 }}>
-              Modern E2E browser automation with built-in trace viewer, auto-wait assertions, and headless execution.
+              Modern E2E browser automation &amp; HTTP API testing with built-in trace viewer, auto-wait assertions, and headless execution.
             </p>
-            <div style={{ fontSize: 10, fontWeight: 700, color: "#16a34a" }}>
-              ✓ Native Playwright UI runner supported
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: "#16a34a" }}>
+                ✓ Native Playwright UI &amp; API runner
+              </span>
+              <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 6, background: "#ecfdf5", color: "#059669", border: "1px solid #a7f3d0" }}>
+                ENABLED
+              </span>
             </div>
           </div>
 
           {/* Card 2: Selenium */}
           <div
+            onClick={() => setFrameworkNotice("Selenium support is coming soon.")}
             style={{
-              background: "#fff",
+              background: "#f8fafc",
               borderRadius: 14,
-              border: "1px solid #e2e8f0",
+              border: "1px dashed #cbd5e1",
               padding: "16px 20px",
+              opacity: 0.85,
+              cursor: "not-allowed",
+              transition: "all 0.15s ease",
             }}
+            title="Selenium support is coming soon."
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-              <span style={{ fontSize: 14, fontWeight: 900, color: "#0f172a" }}>🌐 Selenium WebDriver</span>
-              <span style={{ fontSize: 9, fontWeight: 800, padding: "2px 6px", borderRadius: 4, background: "#f8fafc", color: "#64748b", border: "1px solid #e2e8f0" }}>
-                ALTERNATIVE
+              <span style={{ fontSize: 14, fontWeight: 900, color: "#64748b" }}>🌐 Selenium WebDriver</span>
+              <span style={{ fontSize: 9, fontWeight: 800, padding: "2px 6px", borderRadius: 4, background: "#fef3c7", color: "#b45309", border: "1px solid #fde68a" }}>
+                COMING SOON
               </span>
             </div>
-            <p style={{ fontSize: 11, color: "#64748b", margin: "0 0 10px 0", lineHeight: 1.4 }}>
+            <p style={{ fontSize: 11, color: "#94a3b8", margin: "0 0 10px 0", lineHeight: 1.4 }}>
               Industry-standard web testing framework with multi-language grid support for legacy enterprise setups.
             </p>
-            <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b" }}>
-              Compatible with JUnit / TestNG runners
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8" }}>
+                Legacy grid execution
+              </span>
+              <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 6, background: "#f1f5f9", color: "#64748b", border: "1px solid #e2e8f0" }}>
+                DISABLED
+              </span>
             </div>
           </div>
 
           {/* Card 3: Cypress */}
           <div
+            onClick={() => setFrameworkNotice("Cypress support is coming soon.")}
             style={{
-              background: "#fff",
+              background: "#f8fafc",
               borderRadius: 14,
-              border: "1px solid #e2e8f0",
+              border: "1px dashed #cbd5e1",
               padding: "16px 20px",
+              opacity: 0.85,
+              cursor: "not-allowed",
+              transition: "all 0.15s ease",
             }}
+            title="Cypress support is coming soon."
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-              <span style={{ fontSize: 14, fontWeight: 900, color: "#0f172a" }}>🟢 Cypress</span>
-              <span style={{ fontSize: 9, fontWeight: 800, padding: "2px 6px", borderRadius: 4, background: "#f8fafc", color: "#64748b", border: "1px solid #e2e8f0" }}>
-                ALTERNATIVE
+              <span style={{ fontSize: 14, fontWeight: 900, color: "#64748b" }}>🟢 Cypress</span>
+              <span style={{ fontSize: 9, fontWeight: 800, padding: "2px 6px", borderRadius: 4, background: "#fef3c7", color: "#b45309", border: "1px solid #fde68a" }}>
+                COMING SOON
               </span>
             </div>
-            <p style={{ fontSize: 11, color: "#64748b", margin: "0 0 10px 0", lineHeight: 1.4 }}>
+            <p style={{ fontSize: 11, color: "#94a3b8", margin: "0 0 10px 0", lineHeight: 1.4 }}>
               Frontend-centric testing framework running directly in the browser runtime with visual time-travel.
             </p>
-            <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b" }}>
-              Ideal for SPA frontends &amp; component testing
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8" }}>
+                SPA browser runner
+              </span>
+              <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 6, background: "#f1f5f9", color: "#64748b", border: "1px solid #e2e8f0" }}>
+                DISABLED
+              </span>
             </div>
           </div>
         </div>

@@ -42,9 +42,78 @@ class ProposedTestGenerator:
                 return [self._create_baseline_smoke_test("PTC-001")]
             return self._reindex_proposals(ai_proposals)
 
-        # Merge & deduplicate AI and BRD test cases
+        # Merge & deduplicate AI and BRD test cases (proposed tests only include new AI/BRD tests)
         combined = self._merge_and_deduplicate(ai_proposals, brd_proposals)
         return self._reindex_proposals(combined)
+
+    def _generate_existing_proposals(self) -> list[ProposedTestCase]:
+        existing_list = self.analysis.get("existing_tests", [])
+        proposals: list[ProposedTestCase] = []
+        seen = set()
+        for idx, t in enumerate(existing_list):
+            name = (
+                t.get("name")
+                or t.get("test_name")
+                or t.get("methodname")
+                or t.get("method_name")
+                or f"testCase{idx+1}"
+            )
+            suite = (
+                t.get("suite")
+                or t.get("classname")
+                or t.get("class_name")
+                or t.get("file")
+                or "ExistingTestSuite"
+            )
+            if isinstance(suite, str) and ("\\" in suite or "/" in suite):
+                suite = Path(suite).stem
+            key = f"{suite}::{name}".lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            test_type_str = str(t.get("type", "")).upper()
+            prop_type = ProposedTestType.UI if "PLAYWRIGHT" in test_type_str or "SELENIUM" in test_type_str else (
+                ProposedTestType.API if "API" in test_type_str or "REST" in test_type_str else ProposedTestType.UNIT
+            )
+
+            proposals.append(
+                ProposedTestCase(
+                    id=f"PTC-EXT-{idx+1:03d}",
+                    title=f"Execute {suite}.{name}",
+                    description=f"Existing repository test case '{name}' in suite '{suite}'.",
+                    type=prop_type,
+                    priority=ProposedTestPriority.HIGH,
+                    source="Existing Repository",
+                    reason=f"Existing test discovered in repository suite {suite}.",
+                    preconditions=["Migrated application compiled and target environment ready"],
+                    steps=[
+                        f"Load existing test suite {suite}",
+                        f"Execute test method {name} against migrated application",
+                        "Verify assertion outcomes and execution status",
+                    ],
+                    expected_result="Test executes with 0 assertion failures",
+                    status=ProposedTestStatus.PROPOSED,
+                    generation_source="EXISTING",
+                    unit_spec=UnitTestSpec(
+                        target_class=str(suite),
+                        target_method=str(name),
+                    ),
+                )
+            )
+        return proposals
+
+    def _merge_and_deduplicate_existing(
+        self,
+        base_proposals: list[ProposedTestCase],
+        existing_proposals: list[ProposedTestCase],
+    ) -> list[ProposedTestCase]:
+        merged = list(base_proposals)
+        seen_titles = {p.title.lower() for p in base_proposals}
+        for ep in existing_proposals:
+            if ep.title.lower() not in seen_titles:
+                seen_titles.add(ep.title.lower())
+                merged.append(ep)
+        return merged
 
     def _generate_code_analysis_proposals(self) -> list[ProposedTestCase]:
         proposals: list[ProposedTestCase] = []
@@ -145,61 +214,7 @@ class ProposedTestGenerator:
                     )
                 )
 
-        # 2. Generate Unit Proposals from Services
-        services = self.analysis.get("services", [])
-        for svc in services:
-            svc_name = svc.get("name", "Service")
-            methods = svc.get("methods", [])
-
-            for m in methods[:4]:
-                m_name = m.get("name", "execute")
-                sig = f"UNIT:{svc_name}:{m_name.lower()}"
-                if sig in seen_signatures:
-                    continue
-                seen_signatures.add(sig)
-
-                is_covered = any(
-                    m_name.lower() in em or f"test{m_name.lower()}" in em
-                    for em in self.existing_methods
-                )
-
-                if not is_covered:
-                    ptc_id = f"PTC-{counter:03d}"
-                    counter += 1
-                    title = f"Unit test for {svc_name}.{m_name}() business logic"
-                    reason = f"Public business method '{m_name}' in {svc_name} has no matching unit test."
-                    priority = ProposedTestPriority.HIGH if any(k in m_name.lower() for k in ["validate", "calculate", "process", "save", "auth"]) else ProposedTestPriority.MEDIUM
-
-                    proposals.append(
-                        ProposedTestCase(
-                            id=ptc_id,
-                            title=title,
-                            description=f"Execute {svc_name}.{m_name}() with mock inputs to ensure calculation/business rules execute correctly.",
-                            type=ProposedTestType.UNIT,
-                            priority=priority,
-                            source=f"{svc_name}.java",
-                            reason=reason,
-                            preconditions=[f"Instantiate {svc_name} with mocked dependencies"],
-                            steps=[
-                                f"Prepare mock input data for {m_name}()",
-                                f"Call {svc_name}.{m_name}(args)",
-                                "Assert return value and verify repository/collaborator interactions",
-                            ],
-                            expected_result="Method returns expected output without throwing unhandled exceptions",
-                            status=ProposedTestStatus.PROPOSED,
-                            generation_source="AI_GENERATED",
-                            unit_spec=UnitTestSpec(
-                                target_class=svc_name,
-                                target_method=m_name,
-                                input_data={"mockParam": "sampleValue"},
-                                mock_data={"repo": "MockRepository"},
-                                expected_output={"result": "valid"},
-                                assertions=["assertNotNull(result)", "assertEquals(expected, result)"],
-                            ),
-                        )
-                    )
-
-        # 3. Generate UI Proposals from UI Workflows
+        # 2. Generate UI Proposals from UI Workflows
         ui_workflows = self.analysis.get("ui_workflows", [])
         for ui in ui_workflows:
             ui_name = ui.get("name", "Page")
@@ -323,11 +338,15 @@ class ProposedTestGenerator:
                     assertions=["expect(page).toBeVisible()"],
                 )
             elif matched_svc:
-                test_type = ProposedTestType.UNIT
-                source_label = f"{matched_svc.get('name')}.java"
-                unit_spec = UnitTestSpec(
-                    target_class=matched_svc.get("name", "Service"),
-                    assertions=["assertNotNull(result)"],
+                svc_name = matched_svc.get('name', 'Service')
+                source_label = f"{svc_name} Controller"
+                test_type = ProposedTestType.API
+                api_spec = ApiTestSpec(
+                    method="POST" if wf.is_negative or "create" in wf.name.lower() or "save" in wf.name.lower() else "GET",
+                    endpoint=f"/api/{svc_name.lower().replace('service', '')}",
+                    headers={"Content-Type": "application/json"},
+                    expected_status=200 if not wf.is_negative else 400,
+                    assertions=["status == 200" if not wf.is_negative else "status in [400, 422]"],
                 )
             else:
                 # Default to API/Contract flow

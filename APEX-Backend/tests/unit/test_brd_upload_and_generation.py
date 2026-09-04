@@ -108,6 +108,112 @@ def test_brd_analyzer_docx_extraction():
         assert any(r.id == "FR-201" for r in result.requirements)
 
 
+def test_brd_analyzer_xlsx_extraction():
+    with TemporaryDirectory() as tmpdir:
+        xlsx_path = Path(tmpdir) / "business_spec.xlsx"
+
+        # Create a multi-sheet synthetic xlsx archive with sharedStrings, workbook, and multiple worksheets
+        with zipfile.ZipFile(xlsx_path, "w") as zf:
+            # Shared strings
+            shared_strings_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+            <sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="7" uniqueCount="7">
+                <si><t>Requirement ID</t></si>
+                <si><t>FR-301: Payment Gateway Integration</t></si>
+                <si><t>Payment processing workflow with tokenized cards</t></si>
+                <si><t>Workflow 1: Checkout Payment Flow</t></si>
+                <si><t>1. User selects payment method</t></si>
+                <si><t>2. Card is authorized</t></si>
+                <si><t>3. Order confirmed</t></si>
+            </sst>"""
+            zf.writestr("xl/sharedStrings.xml", shared_strings_xml)
+
+            # Workbook
+            wb_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+            <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+                <sheets>
+                    <sheet name="Requirements" sheetId="1" r:id="rId1"/>
+                    <sheet name="Workflows" sheetId="2" r:id="rId2"/>
+                </sheets>
+            </workbook>"""
+            zf.writestr("xl/workbook.xml", wb_xml)
+
+            # Worksheet 1: Requirements
+            sheet1_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+            <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+                <sheetData>
+                    <row r="1">
+                        <c r="A1" t="s"><v>0</v></c>
+                        <c r="B1" t="s"><v>1</v></c>
+                    </row>
+                    <row r="2">
+                        <c r="A2" t="s"><v>2</v></c>
+                    </row>
+                </sheetData>
+            </worksheet>"""
+            zf.writestr("xl/worksheets/sheet1.xml", sheet1_xml)
+
+            # Worksheet 2: Workflows
+            sheet2_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+            <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+                <sheetData>
+                    <row r="1">
+                        <c r="A1" t="s"><v>3</v></c>
+                    </row>
+                    <row r="2">
+                        <c r="A2" t="s"><v>4</v></c>
+                    </row>
+                    <row r="3">
+                        <c r="A3" t="s"><v>5</v></c>
+                    </row>
+                    <row r="4">
+                        <c r="A4" t="s"><v>6</v></c>
+                    </row>
+                </sheetData>
+            </worksheet>"""
+            zf.writestr("xl/worksheets/sheet2.xml", sheet2_xml)
+
+        analyzer = BrdAnalyzer(xlsx_path, job_id="job_test_xlsx")
+        result = analyzer.extract()
+
+        assert result.error is None
+        assert len(result.requirements) >= 1
+        assert any("FR-301" in r.id or "301" in r.title for r in result.requirements)
+        assert len(result.workflows) >= 1
+        assert any("Checkout" in w.name or "Payment" in w.name for w in result.workflows)
+
+
+def test_brd_analyzer_xls_xml_extraction():
+    with TemporaryDirectory() as tmpdir:
+        xls_path = Path(tmpdir) / "business_spec.xls"
+
+        # Create XML Spreadsheet 2003 format
+        xml_spreadsheet = """<?xml version="1.0"?>
+        <Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+                  xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+            <Worksheet ss:Name="Requirements">
+                <Table>
+                    <Row>
+                        <Cell><Data ss:Type="String">FR-401: Order Fulfillment</Data></Cell>
+                        <Cell><Data ss:Type="String">Warehouse dispatch and tracking notification</Data></Cell>
+                    </Row>
+                    <Row>
+                        <Cell><Data ss:Type="String">Workflow 1: Order Dispatch Journey</Data></Cell>
+                        <Cell><Data ss:Type="String">1. Pick items -> 2. Pack box -> 3. Ship order</Data></Cell>
+                    </Row>
+                </Table>
+            </Worksheet>
+        </Workbook>"""
+        xls_path.write_text(xml_spreadsheet, encoding="utf-8")
+
+        analyzer = BrdAnalyzer(xls_path, job_id="job_test_xls")
+        result = analyzer.extract()
+
+        assert result.error is None
+        assert len(result.requirements) >= 1
+        assert any("FR-401" in r.id or "401" in r.title for r in result.requirements)
+        assert len(result.workflows) >= 1
+
+
 def test_brd_analyzer_empty_file():
     with TemporaryDirectory() as tmpdir:
         empty_path = Path(tmpdir) / "empty.txt"

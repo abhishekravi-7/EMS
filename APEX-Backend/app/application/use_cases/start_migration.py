@@ -127,6 +127,16 @@ class StartMigrationUseCase:
 
         destination = self._resolve_destination(config, connect)
 
+        proposed_test_sources = (
+            request.get("proposed_test_sources")
+            if "proposed_test_sources" in request
+            else (
+                request.get("selected_test_sources")
+                if "selected_test_sources" in request
+                else options.get("proposedTestSources")
+            )
+        )
+
         store = MigrationReportStore(WorkspacePaths(job_id))
         report = {
             "jobId": job_id,
@@ -142,6 +152,7 @@ class StartMigrationUseCase:
             "runSonar": bool(options.get("runSonar") or request.get("run_sonar")),
             "runFossa": bool(options.get("runFossa") or request.get("run_fossa")),
             "runTests": bool(options.get("runTests") or request.get("run_tests")),
+            "proposedTestSources": proposed_test_sources,
             "destination": destination,
             "targetRepo": None,
             "startedAt": _now(),
@@ -362,6 +373,27 @@ class StartMigrationUseCase:
             )
             store.append_logs([f"Migration completed. Published to {target_repo}"])
             logger.info("Migration completed for job %s -> %s", job_id, target_repo)
+
+            # --- Step 6: Automatically execute Proposed Functional Tests based strictly on user's selection ---
+            try:
+                from app.application.use_cases.proposed_tests.proposed_test_service import proposed_test_service
+                selected_pt_sources = report.get("proposedTestSources")
+                # Ensure proposals are generated
+                proposals = proposed_test_service.get_proposed_tests(job_id)
+                if not proposals:
+                    proposals = proposed_test_service.generate_proposed_tests(job_id)
+
+                if selected_pt_sources is not None:
+                    if len(selected_pt_sources) > 0:
+                        store.append_logs([f"Starting Proposed Test execution for selected sources: {', '.join(selected_pt_sources)}"])
+                        proposed_test_service.run_approved_tests(job_id, sources=selected_pt_sources)
+                    else:
+                        store.append_logs(["No Proposed Test sources selected for execution."])
+                        proposed_test_service.run_approved_tests(job_id, sources=[])
+                else:
+                    proposed_test_service.run_approved_tests(job_id, sources=["LLM", "FUNCTIONAL_DOC", "EXISTING"])
+            except Exception as pt_exc:  # noqa: BLE001
+                logger.warning(f"Post-migration proposed test execution notice for job {job_id}: {pt_exc}")
 
             # Refresh the chatbot's vector index
             self._reindex_knowledge_base(job_id)
@@ -781,9 +813,12 @@ class StartMigrationUseCase:
             return f"{source_url.rstrip('/').removesuffix('.git')}/tree/{branch}"
 
         # Default: create a new repo under the configured owner and push.
+        target_owner = destination.get("targetOwner")
+        if not target_owner or target_owner in ("JavaAPEX", "Javaapex"):
+            target_owner = settings.github_target_owner or target_owner
         created = self._repo_creator.create(
             destination.get("targetRepoName") or "",
-            owner=destination.get("targetOwner"),
+            owner=target_owner,
             host=destination.get("targetHost"),
         )
         self._repo_pusher.push(

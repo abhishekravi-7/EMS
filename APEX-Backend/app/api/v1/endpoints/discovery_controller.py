@@ -183,7 +183,7 @@ async def upload_brd_document(
     raw_filename = file.filename
     clean_name = re.sub(r"[^\w\.\-_]", "_", Path(raw_filename).name)
     ext = Path(clean_name).suffix.lower()
-    allowed_extensions = {".pdf", ".docx", ".doc", ".txt", ".md"}
+    allowed_extensions = {".pdf", ".docx", ".doc", ".xlsx", ".xls", ".txt", ".md"}
 
     if ext not in allowed_extensions:
         raise HTTPException(
@@ -316,6 +316,10 @@ async def view_brd_document(
             media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         elif ext == ".doc":
             media_type = "application/msword"
+        elif ext == ".xlsx":
+            media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        elif ext == ".xls":
+            media_type = "application/vnd.ms-excel"
 
         content = target_file.read_bytes()
         return Response(

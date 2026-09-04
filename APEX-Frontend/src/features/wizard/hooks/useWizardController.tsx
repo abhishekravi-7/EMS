@@ -448,7 +448,7 @@ const MIGRATION_STEPS = [
   },
 ];
 
-const DEFAULT_TARGET_GITHUB_OWNER = "Javaapex";
+const DEFAULT_TARGET_GITHUB_OWNER = import.meta.env?.VITE_GITHUB_TARGET_OWNER || "Ganga-balaguru16";
 const DEFAULT_TARGET_GITHUB_HOST = "github.com";
 
 const getIndicatorStep = (step: number) => Math.min(step, MIGRATION_STEPS.length);
@@ -1153,10 +1153,10 @@ export function useWizardController() {
       : sourceRepositoryContext?.host || DEFAULT_TARGET_GITHUB_HOST;
   const targetRepositoryOwner =
     currentMigrationApproach === "fork"
-      ? DEFAULT_TARGET_GITHUB_OWNER
+      ? (import.meta.env?.VITE_GITHUB_TARGET_OWNER || githubUserLogin || DEFAULT_TARGET_GITHUB_OWNER)
       : sourceRepositoryContext?.platform === "github" && githubUserLogin
         ? githubUserLogin
-        : sourceRepositoryContext?.owner || githubUserLogin || "owner";
+        : sourceRepositoryContext?.owner || githubUserLogin || DEFAULT_TARGET_GITHUB_OWNER;
   const sourceRepositoryName =
     selectedRepo?.name || sourceRepositoryContext?.repo || repoUrl.split("/").pop()?.replace(".git", "") || "repo";
 
@@ -3918,72 +3918,7 @@ export function useWizardController() {
     };
   }, [step, repoAnalysis, detectedSourceVersionForTargets, detectedJavaVersion, riskLevel, availableTargetVersions.length]);
 
-  useEffect(() => {
-    if (step !== 1 || !urlValidation.valid || showEnterpriseToken || patToken.trim()) {
-      setRepoAccessCheckLoading(false);
-      return;
-    }
 
-    const normalizedUrl = urlValidation.normalizedUrl;
-    let cancelled = false;
-
-    // Show loading immediately so the "Have a PAT?" hyperlink doesn't flash
-    // before the debounced visibility check starts.
-    setRepoAccessCheckLoading(true);
-
-    const timer = setTimeout(() => {
-
-        getRepoVisibility(normalizedUrl, currentToken)
-        .then((visibility) => {
-          if (cancelled) return;
-          if (visibility.requires_token || visibility.visibility === "private") {
-            setIsPrivateRepo(true);
-            setError("");
-            resetAccessTokenValidationState();
-            return;
-          }
-
-          setIsPrivateRepo(false);
-          setError("");
-        })
-        .catch((err) => {
-          if (cancelled) return;
-          // If the backend returned 400 (invalid URL parse), don't show PAT card.
-          // For all other errors (network failures, 500, timeouts, etc.),
-          // conservatively treat as private — the backend's anonymous fallback
-          // succeeds for public repos, so reaching here means the repo is
-          // genuinely private/inaccessible or the server couldn't be reached.
-          const isUrlError = err?.status === 400;
-          const message = err instanceof Error ? err.message : "";
-          const shouldShowPrivateRepoState = !isUrlError && isPrivateRepoAccessError(message);
-          setIsPrivateRepo(shouldShowPrivateRepoState);
-          setError(shouldShowPrivateRepoState ? "" : message || "");
-          if (shouldShowPrivateRepoState) {
-            resetAccessTokenValidationState();
-          }
-        })
-        .finally(() => {
-          if (!cancelled) {
-            setRepoAccessCheckLoading(false);
-          }
-        });
-    }, 700);
-
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [
-    currentToken,
-    patToken,
-    resetAccessTokenValidationState,
-    setIsPrivateRepo,
-    setRepoAccessCheckLoading,
-    showEnterpriseToken,
-    step,
-    urlValidation.normalizedUrl,
-    urlValidation.valid,
-  ]);
 
   useEffect(() => {
     if (step === 2 && selectedRepo && repoAnalysis && !analysisLoading) {
@@ -4349,6 +4284,11 @@ export function useWizardController() {
       return "github";
     };
 
+    const selectedSourcesList: string[] = [];
+    if (modernizationState.selectedTestSources.llm) selectedSourcesList.push("LLM");
+    if (modernizationState.selectedTestSources.functionalDoc) selectedSourcesList.push("FUNCTIONAL_DOC");
+    if (modernizationState.selectedTestSources.existing) selectedSourcesList.push("EXISTING");
+
     return {
       source_repo_url: selectedRepo?.url || repoUrl,
       target_repo_name: finalTargetRepoName,
@@ -4367,6 +4307,8 @@ export function useWizardController() {
       run_fossa: runFossa,
       fix_business_logic: fixBusinessLogic,
       functional_test_method: functionalTestToolMethod.length > 0 ? functionalTestToolMethod : undefined,
+      proposed_test_sources: selectedSourcesList,
+      selected_test_sources: selectedSourcesList,
     };
   }, [
     sourceRepositoryName,
@@ -4389,6 +4331,7 @@ export function useWizardController() {
     runFossa,
     fixBusinessLogic,
     functionalTestToolMethod,
+    modernizationState.selectedTestSources,
   ]);
 
   useEffect(() => {

@@ -1,4 +1,5 @@
 import React from "react";
+export { MigrationProposedTestSection } from "./MigrationProposedTestSection";
 import { API_BASE_URL } from "@/services/config/env";
 import {
   downloadTestcaseDoc,

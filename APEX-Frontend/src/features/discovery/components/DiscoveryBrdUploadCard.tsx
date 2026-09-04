@@ -7,6 +7,7 @@ import {
   FaSpinner,
   FaFilePdf,
   FaFileWord,
+  FaFileExcel,
   FaFileAlt,
   FaCloudUploadAlt,
   FaEye,
@@ -36,6 +37,7 @@ function getFileFormatIcon(fileType: string) {
   const type = fileType.toUpperCase();
   if (type.includes("PDF")) return <FaFilePdf style={{ color: "#ef4444" }} />;
   if (type.includes("DOC")) return <FaFileWord style={{ color: "#2563eb" }} />;
+  if (type.includes("XLS")) return <FaFileExcel style={{ color: "#16a34a" }} />;
   return <FaFileAlt style={{ color: "#059669" }} />;
 }
 
@@ -84,12 +86,12 @@ export function DiscoveryBrdUploadCard({
       return;
     }
 
-    const validExtensions = [".pdf", ".docx", ".doc", ".txt", ".md"];
+    const validExtensions = [".pdf", ".docx", ".doc", ".xlsx", ".xls", ".txt", ".md"];
     const fileExt = `.${file.name.split(".").pop()?.toLowerCase() || ""}`;
 
     if (!validExtensions.includes(fileExt)) {
       setErrorMessage(
-        `Unsupported file type '${fileExt}'. Please select a .pdf, .docx, .doc, .txt, or .md file.`
+        `Unsupported file type '${fileExt}'. Please select a .pdf, .docx, .doc, .xlsx, .xls, .txt, or .md file.`
       );
       return;
     }
@@ -197,7 +199,7 @@ export function DiscoveryBrdUploadCard({
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <div style={{ fontSize: 16, fontWeight: 800, color: "#0f172a" }}>
-                Business Requirements Document (BRD)
+                Functional Testing Requirement Document
               </div>
               <span
                 style={{
@@ -216,7 +218,7 @@ export function DiscoveryBrdUploadCard({
               </span>
             </div>
             <div style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>
-              Upload your functional specification or BRD to automatically generate business-workflow-based Proposed Test Cases.
+              Upload your functional testing requirement document to automatically generate business-workflow-based Proposed Test Cases.
             </div>
           </div>
         </div>
@@ -237,7 +239,7 @@ export function DiscoveryBrdUploadCard({
                 fontWeight: 800,
               }}
             >
-              <FaCheckCircle /> BRD Attached
+              <FaCheckCircle /> Document Attached
             </span>
           </div>
         )}
@@ -269,14 +271,14 @@ export function DiscoveryBrdUploadCard({
         <input
           ref={fileInputRef}
           type="file"
-          accept=".pdf,.docx,.doc,.txt,.md"
+          accept=".pdf,.docx,.doc,.xlsx,.xls,.txt,.md"
           style={{ display: "none" }}
           onChange={handleFileInputChange}
         />
 
         {isLoadingMetadata ? (
           <div style={{ display: "flex", alignItems: "center", gap: 10, padding: 20, color: "#64748b", fontSize: 13 }}>
-            <FaSpinner className="animate-spin" /> Checking for uploaded BRD...
+            <FaSpinner className="animate-spin" /> Checking for uploaded document...
           </div>
         ) : brdMetadata ? (
           /* Attached File Display */
@@ -318,8 +320,8 @@ export function DiscoveryBrdUploadCard({
                 type="button"
                 onClick={() => void handleView()}
                 disabled={isViewing || isUploading}
-                aria-label="View BRD document"
-                title="View BRD document"
+                aria-label="View document"
+                title="View document"
                 style={{
                   padding: "6px 14px",
                   borderRadius: 8,
@@ -344,8 +346,8 @@ export function DiscoveryBrdUploadCard({
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isUploading || isViewing}
-                aria-label="Replace BRD document"
-                title="Replace BRD document"
+                aria-label="Replace document"
+                title="Replace document"
                 style={{
                   padding: "6px 14px",
                   borderRadius: 8,
@@ -370,8 +372,8 @@ export function DiscoveryBrdUploadCard({
                 type="button"
                 onClick={() => void handleDelete()}
                 disabled={isUploading || isViewing}
-                aria-label="Remove BRD document"
-                title="Remove BRD document"
+                aria-label="Remove document"
+                title="Remove document"
                 style={{
                   padding: "6px 12px",
                   borderRadius: 8,
@@ -415,7 +417,7 @@ export function DiscoveryBrdUploadCard({
             {isUploading ? (
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, padding: 10 }}>
                 <FaSpinner className="animate-spin" size={24} style={{ color: "#7c3aed" }} />
-                <div style={{ fontSize: 13, fontWeight: 700, color: "#0f172a" }}>Uploading and validating BRD document...</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#0f172a" }}>Uploading and validating document...</div>
               </div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
@@ -435,10 +437,10 @@ export function DiscoveryBrdUploadCard({
                   <FaCloudUploadAlt />
                 </div>
                 <div style={{ fontSize: 14, fontWeight: 800, color: "#0f172a" }}>
-                  Drag &amp; drop your BRD here, or <span style={{ color: "#7c3aed" }}>browse files</span>
+                  Drag &amp; drop your functional testing requirement document here, or <span style={{ color: "#7c3aed" }}>browse files</span>
                 </div>
                 <div style={{ fontSize: 12, color: "#64748b" }}>
-                  Supports PDF, Word (.docx, .doc), Markdown (.md), and plain text (.txt) up to 25MB
+                  Supports PDF, Word (.docx, .doc), Excel (.xlsx, .xls), Markdown (.md), and plain text (.txt) up to 25MB
                 </div>
               </div>
             )}

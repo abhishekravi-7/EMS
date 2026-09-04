@@ -73,6 +73,12 @@ class BrdAnalyzer:
         if ext == ".docx":
             return self._extract_docx_text()
 
+        if ext == ".xlsx":
+            return self._extract_xlsx_text()
+
+        if ext == ".xls":
+            return self._extract_xls_text()
+
         if ext == ".pdf":
             return self._extract_pdf_text()
 
@@ -80,6 +86,171 @@ class BrdAnalyzer:
         try:
             return self.file_path.read_text(encoding="utf-8", errors="replace")
         except Exception:  # noqa: BLE001
+            return ""
+
+    def _extract_xlsx_text(self) -> str:
+        try:
+            with zipfile.ZipFile(self.file_path, "r") as xlsx_zip:
+                namelist = set(xlsx_zip.namelist())
+
+                # 1. Parse shared strings table (xl/sharedStrings.xml)
+                shared_strings: list[str] = []
+                if "xl/sharedStrings.xml" in namelist:
+                    try:
+                        import defusedxml.ElementTree as ET
+
+                        ss_tree = ET.fromstring(xlsx_zip.read("xl/sharedStrings.xml"))
+                        for si in ss_tree:
+                            text_pieces = []
+                            for el in si.iter():
+                                if el.tag.endswith("t") and el.text:
+                                    text_pieces.append(el.text)
+                            shared_strings.append("".join(text_pieces))
+                    except Exception as ss_err:  # noqa: BLE001
+                        logger.warning(f"Error parsing sharedStrings.xml: {ss_err}")
+
+                # 2. Parse workbook structure to map sheet IDs to names (xl/workbook.xml)
+                sheet_names: dict[str, str] = {}
+                if "xl/workbook.xml" in namelist:
+                    try:
+                        import defusedxml.ElementTree as ET
+
+                        wb_tree = ET.fromstring(xlsx_zip.read("xl/workbook.xml"))
+                        for sheet_el in wb_tree.iter():
+                            if sheet_el.tag.endswith("sheet"):
+                                s_name = sheet_el.get("name", "")
+                                s_id = sheet_el.get("sheetId", "")
+                                r_id = sheet_el.get(
+                                    "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id",
+                                    "",
+                                )
+                                if s_name:
+                                    if s_id:
+                                        sheet_names[f"sheet{s_id}"] = s_name
+                                    if r_id:
+                                        sheet_names[r_id] = s_name
+                    except Exception as wb_err:  # noqa: BLE001
+                        logger.warning(f"Error parsing workbook.xml: {wb_err}")
+
+                # 3. Find and sort all worksheet files (xl/worksheets/sheet*.xml)
+                sheet_files = [
+                    f
+                    for f in xlsx_zip.namelist()
+                    if f.startswith("xl/worksheets/sheet") and f.endswith(".xml")
+                ]
+
+                def _sheet_sort_key(name: str) -> int:
+                    m = re.search(r"sheet(\d+)\.xml", name)
+                    return int(m.group(1)) if m else 999
+
+                sheet_files.sort(key=_sheet_sort_key)
+
+                extracted_sections: list[str] = []
+
+                for sheet_file in sheet_files:
+                    try:
+                        import defusedxml.ElementTree as ET
+
+                        sheet_stem = Path(sheet_file).stem
+                        display_name = sheet_names.get(sheet_stem, sheet_stem.capitalize())
+
+                        sheet_tree = ET.fromstring(xlsx_zip.read(sheet_file))
+                        sheet_rows: list[str] = []
+
+                        for row_el in sheet_tree.iter():
+                            if not row_el.tag.endswith("row"):
+                                continue
+
+                            row_cells: list[str] = []
+                            for c_el in row_el.iter():
+                                if not c_el.tag.endswith("c"):
+                                    continue
+
+                                cell_type = c_el.get("t", "")
+                                val = ""
+
+                                if cell_type == "s":
+                                    # Index into sharedStrings
+                                    v_el = next((x for x in c_el if x.tag.endswith("v")), None)
+                                    if v_el is not None and v_el.text and v_el.text.isdigit():
+                                        idx = int(v_el.text)
+                                        if 0 <= idx < len(shared_strings):
+                                            val = shared_strings[idx]
+                                elif cell_type == "inlineStr":
+                                    val = "".join(
+                                        x.text or "" for x in c_el.iter() if x.tag.endswith("t")
+                                    )
+                                else:
+                                    v_el = next((x for x in c_el if x.tag.endswith("v")), None)
+                                    if v_el is not None and v_el.text:
+                                        val = v_el.text
+
+                                clean_val = val.strip()
+                                if clean_val:
+                                    row_cells.append(clean_val)
+
+                            if row_cells:
+                                sheet_rows.append(" | ".join(row_cells))
+
+                        if sheet_rows:
+                            sheet_content = f"### Sheet: {display_name}\n" + "\n".join(sheet_rows)
+                            extracted_sections.append(sheet_content)
+                    except Exception as s_err:  # noqa: BLE001
+                        logger.warning(f"Error parsing worksheet {sheet_file}: {s_err}")
+
+                return "\n\n".join(extracted_sections)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"Failed to extract text from xlsx: {e}")
+            return ""
+
+    def _extract_xls_text(self) -> str:
+        try:
+            raw_bytes = self.file_path.read_bytes()
+            # 1. Check for XML Spreadsheet 2003 format
+            if b"<?xml" in raw_bytes[:100] or b"<Workbook" in raw_bytes[:500]:
+                text_content = raw_bytes.decode("utf-8", errors="replace")
+                import defusedxml.ElementTree as ET
+
+                wb_tree = ET.fromstring(text_content)
+                sheets_extracted: list[str] = []
+                for ws in wb_tree.iter():
+                    if ws.tag.endswith("Worksheet"):
+                        s_name = ws.get(
+                            "{urn:schemas-microsoft-com:office:spreadsheet}Name", "Sheet"
+                        )
+                        rows_list = []
+                        for row in ws.iter():
+                            if row.tag.endswith("Row"):
+                                cells = []
+                                for cell in row.iter():
+                                    if cell.tag.endswith("Data") and cell.text:
+                                        cells.append(cell.text.strip())
+                                if cells:
+                                    rows_list.append(" | ".join(cells))
+                        if rows_list:
+                            sheets_extracted.append(f"### Sheet: {s_name}\n" + "\n".join(rows_list))
+                if sheets_extracted:
+                    return "\n\n".join(sheets_extracted)
+
+            # 2. Extract printable strings from binary BIFF stream
+            ascii_strings = re.findall(rb"[\x20-\x7E\t\r\n]{4,}", raw_bytes)
+            decoded_lines = []
+            for s in ascii_strings:
+                try:
+                    dec = s.decode("utf-8", errors="ignore").strip()
+                    if (
+                        dec
+                        and len(dec) >= 3
+                        and not dec.startswith("Font")
+                        and not dec.startswith("Style")
+                    ):
+                        decoded_lines.append(dec)
+                except Exception:  # noqa: BLE001
+                    pass  # nosec B110
+
+            return "\n\n".join(decoded_lines)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"Failed to extract text from xls: {e}")
             return ""
 
     def _extract_docx_text(self) -> str:

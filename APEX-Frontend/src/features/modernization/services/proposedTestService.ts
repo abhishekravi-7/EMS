@@ -133,6 +133,9 @@ export interface ProposedTestStatusResponse {
     total: number;
     completed: number;
   };
+  allure_report_available?: boolean;
+  allure_report_url?: string | null;
+  selected_sources?: string[];
   metrics?: ProposedTestMetrics;
   logs?: Array<{ ts: string; msg: string; level: string }>;
   proposals?: ProposedTestCase[];
@@ -141,11 +144,18 @@ export interface ProposedTestStatusResponse {
 export interface ProposedTestResultsResponse {
   job_id: string;
   status: string;
+  allure_report_available?: boolean;
+  allure_report_url?: string | null;
+  selected_sources?: string[];
   metrics?: ProposedTestMetrics;
   test_cases: ProposedTestCase[];
 }
 
 // ── API Functions ─────────────────────────────────────────────────────────────
+
+export function getAllureReportUrl(jobId: string): string {
+  return `/api/v1/migration/${encodeURIComponent(jobId)}/proposed-tests/allure-report/index.html`;
+}
 
 export async function generateProposedTests(jobId: string): Promise<ProposedTestCase[]> {
   return requestJson<ProposedTestCase[]>(
@@ -222,11 +232,17 @@ export interface ProposedTestRunResponse {
   [key: string]: unknown;
 }
 
-export async function runApprovedProposedTests(jobId: string): Promise<ProposedTestRunResponse> {
+export async function runApprovedProposedTests(
+  jobId: string,
+  payload?: { sources?: string[]; test_ids?: string[] }
+): Promise<ProposedTestRunResponse> {
   return requestJson<ProposedTestRunResponse>(
     `/v1/migration/${encodeURIComponent(jobId)}/proposed-tests/run`,
     "Failed to run approved proposed tests",
-    { method: "POST" }
+    {
+      method: "POST",
+      body: payload,
+    }
   );
 }
 
