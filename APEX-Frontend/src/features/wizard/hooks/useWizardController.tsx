@@ -969,7 +969,31 @@ export function useWizardController() {
     }
   };
 
-  const [step, setStep] = useState(() => initialStep);
+  const [step, setStepState] = useState(() => initialStep);
+
+  const setStep = useCallback((target: number | ((prev: number) => number)) => {
+    if (typeof target === "number") {
+      const targetRoute = STEP_ROUTES[target] || "/connect";
+      const currentRoute = location.pathname.replace(/\/+$/, "") || "/";
+      setStepState(target);
+      if (currentRoute !== targetRoute) {
+        navigate(targetRoute, { replace: target === 7 });
+      }
+    } else {
+      setStepState((prev) => {
+        const nextStep = target(prev);
+        const targetRoute = STEP_ROUTES[nextStep] || "/connect";
+        const currentRoute = location.pathname.replace(/\/+$/, "") || "/";
+        if (currentRoute !== targetRoute) {
+          setTimeout(() => {
+            navigate(targetRoute, { replace: nextStep === 7 });
+          }, 0);
+        }
+        return nextStep;
+      });
+    }
+  }, [location.pathname, navigate]);
+
   const [maxVisitedIndicatorStep, setMaxVisitedIndicatorStep] = useState(
     Math.max(persistedFormState?.maxVisitedIndicatorStep ?? 1, getIndicatorStep(initialStep))
   );
@@ -1580,6 +1604,7 @@ export function useWizardController() {
 
   const documentPrefetchKeyRef = useRef<string>("");
   const documentPrefetchPromiseRef = useRef<Promise<PrefetchedBrdDocument | null> | null>(null);
+  const discoveryInFlightKeyRef = useRef<string>("");
   const migrationPollingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const migrationPollingInFlightRef = useRef(false);
   const migrationPollingErrorCountRef = useRef(0);
@@ -2667,6 +2692,7 @@ export function useWizardController() {
       });
     }
 
+    setStrategyCompleted(true);
     setStep(nextStep);
   };
 
@@ -2960,6 +2986,7 @@ export function useWizardController() {
     setDocumentPrefetchStatus("idle");
     documentPrefetchKeyRef.current = "";
     documentPrefetchPromiseRef.current = null;
+    discoveryInFlightKeyRef.current = "";
     resetTargetRepoNaming();
   }
 
@@ -3020,10 +3047,110 @@ export function useWizardController() {
     };
   }, [setTargetVersions]);
 
+  // Step 1: Connect completed
+  const isConnectCompleted = Boolean(
+    (selectedRepo && (selectedRepo.url || selectedRepo.name)) ||
+    (connectState?.jobId && repoUrl) ||
+    Boolean(connectState?.jobId) ||
+    Boolean(selectedRepo)
+  );
+
+  // Track milestone completion across steps and backward navigation
+  const [discoveryCompleted, setDiscoveryCompleted] = useState<boolean>(false);
+  const [strategyCompleted, setStrategyCompleted] = useState<boolean>(false);
+  const [migrationCompleted, setMigrationCompleted] = useState<boolean>(false);
+
+  const continueToStrategy = useCallback(() => {
+    setDiscoveryCompleted(true);
+    setStep(3);
+  }, [setStep]);
+
+  useEffect(() => {
+    if (!isConnectCompleted) {
+      setDiscoveryCompleted(false);
+      setStrategyCompleted(false);
+      setMigrationCompleted(false);
+    }
+  }, [isConnectCompleted]);
+
+  useEffect(() => {
+    if (
+      migrationJob?.status === "completed" ||
+      resultExecState?.status === "COMPLETED" ||
+      step === 7
+    ) {
+      setMigrationCompleted(true);
+    }
+  }, [migrationJob?.status, resultExecState?.status, step]);
+
+  // Step 2: Discovery completed (strictly when repoAnalysis is ready AND user explicitly clicked Continue to Strategy)
+  const isDiscoveryCompleted =
+    isConnectCompleted &&
+    Boolean(repoAnalysis && !analysisLoading) &&
+    discoveryCompleted;
+
+  // Step 3: Strategy completed (strictly when Discovery completed AND user explicitly clicked Continue to Migration)
+  const isStrategyCompleted = isDiscoveryCompleted && strategyCompleted;
+
+  // Step 4: Migration completed (only after migration process has actually completed)
+  const isMigrationCompleted =
+    isStrategyCompleted &&
+    Boolean(
+      migrationJob?.status === "completed" ||
+      migrationCompleted ||
+      resultExecState?.status === "COMPLETED" ||
+      step === 7
+    );
+
+  // Step 5: Results completed (only when viewed/completed at results phase)
+  const isResultsCompleted =
+    isMigrationCompleted &&
+    Boolean(step === 7 || (migrationJob?.status === "completed" && step === 7));
+
+  // Highest completed step number (0 to 5)
+  const highestCompletedStep = isResultsCompleted
+    ? 5
+    : isMigrationCompleted
+      ? 4
+      : isStrategyCompleted
+        ? 3
+        : isDiscoveryCompleted
+          ? 2
+          : isConnectCompleted
+            ? 1
+            : 0;
+
+  const isStepCompleted = (stepId: number): boolean => {
+    return stepId <= highestCompletedStep;
+  };
+
+  const isStepAccessible = (stepId: number): boolean => {
+    if (stepId === 1) return true;
+    return (stepId - 1) <= highestCompletedStep;
+  };
+
+  const getMaxAllowedRouteStep = (highestCompleted: number): number => {
+    if (highestCompleted <= 0) return 1;
+    if (highestCompleted === 1) return 2;
+    if (highestCompleted === 2) return 3;
+    if (highestCompleted === 3) return 6;
+    return 7;
+  };
+
   useEffect(() => {
     const routeStep = getStepFromPath(location.pathname);
-    setStep((currentStep) => (routeStep !== currentStep ? routeStep : currentStep));
-  }, [location.pathname]);
+    // Route guard: prevent manually navigating or skipping forward to locked steps
+    const maxAllowedStep = getMaxAllowedRouteStep(highestCompletedStep);
+
+    if (routeStep > maxAllowedStep) {
+      const fallbackRoute = STEP_ROUTES[maxAllowedStep] || "/connect";
+      navigate(fallbackRoute, { replace: true });
+      setStepState(maxAllowedStep);
+      return;
+    }
+
+    setStepState((current) => (current !== routeStep ? routeStep : current));
+  }, [location.pathname, highestCompletedStep, navigate]);
 
   useEffect(() => {
     setMaxVisitedIndicatorStep((currentMax) =>
@@ -3039,19 +3166,6 @@ export function useWizardController() {
       mainEl.scrollTop = 0;
     }
   }, [step]);
-
-  useEffect(() => {
-    const targetRoute = STEP_ROUTES[step] || "/";
-    const currentRoute = location.pathname.replace(/\/+$/, "") || "/";
-
-    // if (currentRoute !== targetRoute) {
-    //   navigate(targetRoute);
-    // }
-    if (currentRoute !== targetRoute) {
-  navigate(targetRoute, { replace: step === 7 });
-}
-
-  }, [step, location.pathname, navigate]);
 
   const persistedWizardFormState = useMemo(
     () =>
@@ -3797,9 +3911,15 @@ export function useWizardController() {
   }, [migrationJob, migrationJob?.progress_percent, migrationJob?.status, setAnimationProgress, step]);
 
   useEffect(() => {
-    if (step === 2 && selectedRepo && !repoAnalysis) {
+    if (step === 2 && selectedRepo && !repoAnalysis && !analysisLoading) {
       const isLocalProject = isLocalRepoRef(selectedRepo.url);
+      const discoveryKey = `${selectedRepo.url}::${jobId || ""}::${currentToken || ""}`;
 
+      if (discoveryInFlightKeyRef.current === discoveryKey) {
+        return;
+      }
+
+      discoveryInFlightKeyRef.current = discoveryKey;
       setAnalysisLoading(true);
       setError("");
 
@@ -3815,6 +3935,7 @@ export function useWizardController() {
       analyzePromise
         .then((analysis) => applyRepositoryAnalysis(analysis))
         .catch((err) => {
+          discoveryInFlightKeyRef.current = "";
           const message = err?.message || "Failed to analyze repository.";
           if (isPrivateRepoAccessError(message)) {
             setIsPrivateRepo(true);
@@ -3839,6 +3960,7 @@ export function useWizardController() {
         .finally(() => setAnalysisLoading(false));
     }
   }, [
+    analysisLoading,
     applyRepositoryAnalysis,
     currentToken,
     enrichAnalysisWithPomVersion,
@@ -4441,6 +4563,9 @@ export function useWizardController() {
   const resetWizard = () => {
     setStep(1);
     setMaxVisitedIndicatorStep(1);
+    setDiscoveryCompleted(false);
+    setStrategyCompleted(false);
+    setMigrationCompleted(false);
     setRepoUrl("");
     setSelectedRepo(null);
     setRepoAnalysis(null);
@@ -4617,7 +4742,11 @@ export function useWizardController() {
     getAutoGeneratedTargetName,
     targetRepositoryHost,
     targetRepositoryOwner,
+    continueToStrategy,
     continueWithTargetVersion,
+    setDiscoveryCompleted,
+    setStrategyCompleted,
+    setMigrationCompleted,
     modernizationState,
     functionalTestToolMethod,
     setFunctionalTestToolMethod,
@@ -4639,5 +4768,13 @@ export function useWizardController() {
     useLLMTests,
     renderStepIndicator,
     maxVisitedIndicatorStep,
+    highestCompletedStep,
+    isStepCompleted,
+    isStepAccessible,
+    isConnectCompleted,
+    isDiscoveryCompleted,
+    isStrategyCompleted,
+    isMigrationCompleted,
+    isResultsCompleted,
   };
 }

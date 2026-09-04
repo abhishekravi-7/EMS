@@ -66,6 +66,21 @@ class RunDiscoveryUseCase:
         repo_name = connect.get("repoName", "")
         visibility = connect.get("repoVisibility", "PUBLIC")
 
+        paths = WorkspacePaths(job_id)
+
+        # Check if discovery was already completed and the cloned workspace is intact
+        existing_report = self._job_repository.read_discovery_report(job_id)
+        if (
+            existing_report
+            and existing_report.get("status") == STATUS_COMPLETED
+            and paths.original_repo_dir.is_dir()
+        ):
+            logger.info("Reusing existing discovery report for job %s (%s)", job_id, repo_url)
+            response = self._reconstruct_response_from_report(
+                job_id, repo_url, owner, repo_name, visibility, existing_report
+            )
+            return DiscoveryOutcome(response=response, report=existing_report)
+
         # The PAT is never persisted with the connect report (secret at rest);
         # it comes from the client on this request, falling back to the env token.
         token = (
@@ -77,7 +92,6 @@ class RunDiscoveryUseCase:
         logger.info("Discovery started for job %s (%s)", job_id, repo_url)
 
         # 2. Prepare workspace + clone into original-repo.
-        paths = WorkspacePaths(job_id)
         workspace = WorkspaceManager(paths)
         workspace.ensure_job_dirs()
         workspace.prepare_original_repo_target()
@@ -191,6 +205,17 @@ class RunDiscoveryUseCase:
             "bomVersions": [bom.to_dict() for bom in analysis.bom_versions],
             "frameworks": analysis.frameworks,
             "dependencyCount": analysis.dependency_count,
+            "hasTests": analysis.has_tests,
+            "javaFileCount": len(analysis.java_files),
+            "totalFileCount": analysis.total_file_count,
+            "defaultBranch": "main",
+            "buildWarning": analysis.build_warning,
+            "sourceLayout": {
+                "hasSrcMain": analysis.has_src_main,
+                "hasSrcTest": analysis.has_src_test,
+            },
+            "springFrameworkVersion": analysis.spring_framework_version,
+            "springEntryClass": analysis.spring_entry_class,
             "javaMigrationEligible": eligibility.java_migration_eligible,
             "javaMigrationReason": eligibility.java_migration_reason,
             "springDetected": eligibility.spring_detected,
@@ -202,10 +227,84 @@ class RunDiscoveryUseCase:
             "detectedFiles": {
                 "pomXml": analysis.has_pom_xml,
                 "buildGradle": analysis.has_build_gradle or analysis.has_build_gradle_kts,
+                "buildGradleKts": analysis.has_build_gradle_kts,
                 "packageJson": analysis.has_package_json,
             },
             "springBootConversion": eligibility.to_dict(),
             "createdAt": created_at,
+        }
+
+    @classmethod
+    def _reconstruct_response_from_report(
+        cls,
+        job_id: str,
+        repo_url: str,
+        owner: str,
+        repo_name: str,
+        visibility: str,
+        report: dict[str, Any],
+    ) -> dict[str, Any]:
+        frontend_info = report.get("frontend") or {}
+        frontend_detected = bool(frontend_info.get("detected", False))
+        frontend_type = frontend_info.get("type") if frontend_detected else None
+
+        detected_files = report.get("detectedFiles") or {}
+        source_layout = report.get("sourceLayout") or {
+            "hasSrcMain": bool(detected_files.get("pomXml") or detected_files.get("buildGradle")),
+            "hasSrcTest": bool(report.get("hasTests", False)),
+        }
+
+        spring_boot_conv = report.get("springBootConversion") or {}
+
+        return {
+            "jobId": job_id,
+            "status": STATUS_COMPLETED,
+            "message": "Repository discovery completed successfully.",
+            "repository": {
+                "repoUrl": repo_url,
+                "owner": owner,
+                "repoName": repo_name,
+                "visibility": visibility,
+            },
+            "project": {
+                "buildTool": report.get("buildTool"),
+                "currentJavaVersion": report.get("currentJavaVersion"),
+                "springBootVersion": report.get("springBootVersion"),
+                "projectType": report.get("projectType", "STANDARD_JAVA"),
+                "multiModule": bool(report.get("multiModule", False)),
+                "modules": report.get("modules", []),
+                "dependenciesCount": report.get("dependencyCount", len(report.get("dependencies", []))),
+                "frontendDetected": frontend_detected,
+                "frontendType": frontend_type,
+                "dependencies": report.get("dependencies", []),
+                "buildPlugins": report.get("buildPlugins", []),
+                "bomVersions": report.get("bomVersions", []),
+                "frameworks": report.get("frameworks", []),
+                "hasTests": bool(report.get("hasTests", False)),
+                "javaFileCount": report.get("javaFileCount", 0),
+                "totalFileCount": report.get("totalFileCount", 0),
+                "defaultBranch": report.get("defaultBranch", "main"),
+                "buildWarning": report.get("buildWarning"),
+                "frontend": frontend_info,
+                "detectedFiles": {
+                    "pomXml": bool(detected_files.get("pomXml", False)),
+                    "buildGradle": bool(detected_files.get("buildGradle", False)),
+                    "buildGradleKts": bool(detected_files.get("buildGradleKts", False)),
+                    "packageJson": bool(detected_files.get("packageJson", False)),
+                },
+                "sourceLayout": source_layout,
+                "springFrameworkVersion": report.get("springFrameworkVersion"),
+                "springEntryClass": report.get("springEntryClass"),
+                "javaMigrationEligible": report.get("javaMigrationEligible", True),
+                "javaMigrationReason": report.get("javaMigrationReason", ""),
+                "springDetected": bool(report.get("springDetected", False)),
+                "springBootDetected": bool(report.get("springBootDetected", False)),
+                "springBootConversionEligible": bool(report.get("springBootConversionEligible", False)),
+                "springBootUpgradeEligible": bool(report.get("springBootUpgradeEligible", False)),
+                "eligibilityReason": report.get("eligibilityReason", ""),
+                "springBootConversion": spring_boot_conv,
+            },
+            "nextStep": NEXT_STEP,
         }
 
     @staticmethod

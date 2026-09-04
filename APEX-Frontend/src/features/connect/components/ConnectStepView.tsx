@@ -460,7 +460,7 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
               disabled={
                 connecting ||
                 !urlValidation.valid ||
-                (shouldShowPatInput && accessTokenValidationState !== "valid" && !patToken.trim())
+                (shouldShowPatInput && accessTokenValidationState !== "valid")
               }
               onClick={() => void handleRepositoryContinue()}
             >
