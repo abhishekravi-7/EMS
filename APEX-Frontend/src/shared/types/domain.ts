@@ -25,6 +25,9 @@ export interface DependencyInfo {
   current_version: string;
   new_version: string | null;
   status: string;
+  declaredVersion?: string | null;
+  resolvedVersion?: string | null;
+  versionSource?: string | null;
 }
 
 export interface DetectedFramework {

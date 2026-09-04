@@ -30,6 +30,8 @@ import {
   generateGithubDocument,
   generateLocalProjectDocument,
   runDiscovery,
+  uploadBrd,
+  getBrdMetadata,
   type GithubDocumentResponse,
 } from "@/features/discovery/services/discoveryService";
 import {
@@ -851,7 +853,7 @@ const classifyDependencyRisk = (dep: DependencyInfo): { risk: DependencyRiskLeve
 };
 
 const categorizeDependencies = (dependencies: DependencyInfo[]): CategorizedDependency[] => {
-  return dependencies.map((dep) => {
+  const result = dependencies.map((dep) => {
     const { risk, reason } = classifyDependencyRisk(dep);
     return {
       ...dep,
@@ -860,6 +862,20 @@ const categorizeDependencies = (dependencies: DependencyInfo[]): CategorizedDepe
       risk,
       reason,
     };
+  });
+
+  const SEVERITY_ORDER: Record<string, number> = {
+    critical: 0,
+    high: 1,
+    medium: 2,
+    low: 3,
+  };
+
+  return result.sort((a, b) => {
+    const aOrder = SEVERITY_ORDER[a.risk] ?? 4;
+    const bOrder = SEVERITY_ORDER[b.risk] ?? 4;
+    if (aOrder !== bOrder) return aOrder - bOrder;
+    return a.displayName.localeCompare(b.displayName);
   });
 };
 
@@ -1057,6 +1073,52 @@ export function useWizardController() {
   } = discoveryState;
   const [conversionDecision, setConversionDecision] = useState<"yes" | "no" | null>(null);
   const [showFolderStructure, setShowFolderStructure] = useState(false);
+
+  // BRD Upload State
+  const [brdFile, setBrdFile] = useState<File | null>(null);
+  const [brdUploadStatus, setBrdUploadStatus] = useState<"IDLE" | "FILE_SELECTED" | "UPLOADING" | "UPLOAD_SUCCESS" | "UPLOAD_FAILED" | "EXISTING_ATTACHMENT">("IDLE");
+  const [brdMetadata, setBrdMetadata] = useState<{ filename: string; size: number; uploadedAt: string } | null>(null);
+  const [brdUploadError, setBrdUploadError] = useState<string | null>(null);
+
+  const handleBrdFileSelect = (file: File | null) => {
+    setBrdFile(file);
+    if (file) {
+      setBrdUploadStatus("FILE_SELECTED");
+      setBrdUploadError(null);
+    } else {
+      setBrdUploadStatus(brdMetadata ? "EXISTING_ATTACHMENT" : "IDLE");
+    }
+  };
+
+  const handleBrdUpload = async () => {
+    if (!brdFile || !connectState.jobId) return;
+
+    setBrdUploadStatus("UPLOADING");
+    setBrdUploadError(null);
+
+    try {
+      const metadata = await uploadBrd(connectState.jobId, brdFile);
+      setBrdMetadata(metadata);
+      setBrdUploadStatus("UPLOAD_SUCCESS");
+      setBrdFile(null);
+    } catch (err) {
+      setBrdUploadStatus("UPLOAD_FAILED");
+      setBrdUploadError(err instanceof Error ? err.message : "Failed to upload BRD");
+    }
+  };
+
+  const fetchBrdMetadata = useCallback(async (jobId: string) => {
+    try {
+      const metadata = await getBrdMetadata(jobId);
+      if (metadata) {
+        setBrdMetadata(metadata);
+        setBrdUploadStatus("EXISTING_ATTACHMENT");
+      }
+    } catch (err) {
+      console.error("Failed to fetch BRD metadata", err);
+    }
+  }, []);
+
   const strategyState = useStrategyState(persistedFormState, generateRepoTimestamp);
   const {
     targetRepoNamesByApproach,
@@ -2762,7 +2824,17 @@ export function useWizardController() {
               {dep.risk.toUpperCase()}
             </span>
           </div>
-          <div style={styles.categorizedDependencyVersion}>{dep.current_version || "Unknown version"}</div>
+          <div style={styles.categorizedDependencyVersion}>
+            {(dep.resolvedVersion && dep.resolvedVersion !== "Unknown version") ||
+            (dep.current_version && dep.current_version !== "Unknown version")
+              ? dep.resolvedVersion || dep.current_version
+              : "Version unavailable"}
+            {dep.versionSource && (
+              <span style={{ fontSize: 11, color: "#64748b", marginLeft: 6, fontWeight: 500 }}>
+                · {dep.versionSource}
+              </span>
+            )}
+          </div>
           <div style={styles.dependencyMetaRow}>
             <span style={styles.dependencyCategoryBadge}>{dep.category}</span>
             {dep.status && (
@@ -3842,6 +3914,7 @@ export function useWizardController() {
     documentPrefetchStatus !== "error";
   const isDiscoveryPending =
     analysisLoading ||
+    (step === 2 && selectedRepo && !repoAnalysis) ||
     Boolean(
       repoAnalysis &&
       (!repoPreviewInitialized || !microserviceAssessmentResolved || isTechnicalDocumentWarmPending)
@@ -3909,6 +3982,12 @@ export function useWizardController() {
       setAnimationProgress(0);
     }
   }, [migrationJob, migrationJob?.progress_percent, migrationJob?.status, setAnimationProgress, step]);
+
+  useEffect(() => {
+    if (step === 2 && jobId) {
+      void fetchBrdMetadata(jobId);
+    }
+  }, [step, jobId, fetchBrdMetadata]);
 
   useEffect(() => {
     if (step === 2 && selectedRepo && !repoAnalysis && !analysisLoading) {
@@ -4709,6 +4788,12 @@ export function useWizardController() {
     applyDetectedSourceVersion,
     setUserSelectedVersion,
     documentGenerationLoading,
+    brdFile,
+    brdUploadStatus,
+    brdMetadata,
+    brdUploadError,
+    handleBrdFileSelect,
+    handleBrdUpload,
     conversionDecision,
     setConversionDecision,
     showFolderStructure,

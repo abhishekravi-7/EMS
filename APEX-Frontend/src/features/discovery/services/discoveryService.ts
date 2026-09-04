@@ -21,6 +21,9 @@ export interface DiscoveryDependency {
   groupId: string;
   artifactId: string;
   version: string | null;
+  declaredVersion?: string | null;
+  resolvedVersion?: string | null;
+  versionSource?: string | null;
 }
 
 export interface DiscoveryProject {
@@ -131,6 +134,9 @@ export function mapDiscoveryToRepoAnalysis(response: DiscoveryResponse): RepoAna
     current_version: dep.version ?? "",
     new_version: null,
     status: "detected",
+    declaredVersion: dep.declaredVersion,
+    resolvedVersion: dep.resolvedVersion,
+    versionSource: dep.versionSource,
   }));
 
   return {
@@ -484,12 +490,14 @@ export async function generateLocalProjectDocument(
 }
 
 export interface BrdMetadata {
-  job_id: string;
+  job_id?: string;
   filename: string;
-  file_type: string;
-  size_bytes: number;
-  uploaded_at: string;
-  status: string;
+  file_type?: string;
+  size_bytes?: number;
+  size?: number;
+  uploaded_at?: string;
+  uploadedAt?: string;
+  status?: string;
 }
 
 export async function uploadBrdDocument(jobId: string, file: File): Promise<BrdMetadata> {
@@ -505,6 +513,8 @@ export async function uploadBrdDocument(jobId: string, file: File): Promise<BrdM
     }
   );
 }
+
+export const uploadBrd = uploadBrdDocument;
 
 export async function getBrdMetadata(jobId: string): Promise<BrdMetadata | null> {
   try {
@@ -538,3 +548,44 @@ export async function getBrdDocumentBlob(jobId: string): Promise<{ blob: Blob; c
   const blob = await response.blob();
   return { blob, contentType };
 }
+
+export interface DashboardStatsResponse {
+  repositoryId: string;
+  jobId: string;
+  repositoryName: string;
+  repositoryComposition: {
+    totalFiles: number;
+    javaFiles: number;
+    xmlConfigFiles: number;
+    otherFiles: number;
+  };
+  modernizationAnalysis: {
+    sourceJavaVersion: string;
+    javaVersionFeatureCount: number;
+    deprecatedApiCount?: number;
+    javaxMigrationCount?: number;
+    oldSpringUsageCount?: number;
+    securityVulnerabilityCount?: number;
+    codeSmellCount?: number;
+    legacyApiCount?: number;
+    migrationBlockerCount?: number;
+  };
+  migrationSummary: {
+    status: string;
+    totalItems: number;
+    autoMigratable: number;
+    manualChanges: number;
+    needsReview: number;
+    compilationErrors: number;
+    completed: number;
+  };
+  generatedAt: string;
+}
+
+export async function getDashboardStats(jobId: string): Promise<DashboardStatsResponse> {
+  return requestJson<DashboardStatsResponse>(
+    `/v1/discovery/${encodeURIComponent(jobId)}/dashboard-stats`,
+    "Failed to fetch dashboard statistics"
+  );
+}
+

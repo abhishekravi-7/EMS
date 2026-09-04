@@ -68,6 +68,8 @@ class BuildMetadataAnalyzer:
             frameworks.add("spring-framework")
         if any("spring-security" in item for item in coordinates):
             frameworks.add("spring-security")
+        if any(item.startswith("org.springframework.cloud:") for item in coordinates):
+            frameworks.add("spring-cloud")
         if any(item.startswith("org.hibernate") for item in groups):
             frameworks.add("hibernate")
         if any(item.startswith("jakarta.") for item in groups):

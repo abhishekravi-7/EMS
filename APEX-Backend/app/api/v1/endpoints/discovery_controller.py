@@ -15,7 +15,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, verify_job_ownership
@@ -27,15 +27,38 @@ from app.application.use_cases.browse_repository import RepositoryFileBrowser
 from app.core.exceptions import DiscoveryError, RepositoryBrowseError
 from app.domain.models.brd_models import BrdMetadata
 from app.infrastructure.persistence.database import get_db_optional
+from app.infrastructure.persistence.job_repository import JobRepository
 from app.infrastructure.persistence.models import User
 from app.infrastructure.workspace.workspace_paths import WorkspacePaths
 from app.schemas.discovery_schema import DiscoveryRequest, DiscoveryResponse
+
+from app.application.use_cases.get_dashboard_stats import GetDashboardStatsUseCase
+from app.schemas.dashboard_schema import DashboardStatsResponse
 
 router = APIRouter(tags=["discovery"])
 
 _pipeline = DiscoveryPipeline()
 _file_browser = RepositoryFileBrowser()
 _microservice_use_case = AssessMicroserviceEligibilityUseCase()
+_dashboard_stats_use_case = GetDashboardStatsUseCase()
+
+
+@router.get(
+    "/discovery/{job_id}/dashboard-stats",
+    response_model=DashboardStatsResponse,
+    summary="Get aggregated dashboard statistics for the migration job.",
+)
+async def get_dashboard_stats(
+    job_id: str,
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session | None = Depends(get_db_optional),  # noqa: B008
+) -> DashboardStatsResponse:
+    verify_job_ownership(db, job_id, current_user)
+    try:
+        return await run_in_threadpool(_dashboard_stats_use_case.execute, job_id)
+    except Exception as exc:
+        logger.exception("Error generating dashboard stats")
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.post(
@@ -139,6 +162,19 @@ async def get_discovery_file_content(
 
 
 @router.get(
+    "/discovery/{job_id}/microservice-eligibility:1",
+    include_in_schema=False,
+)
+async def get_microservice_eligibility_compat(
+    job_id: str,
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session | None = Depends(get_db_optional),  # noqa: B008
+) -> JSONResponse:
+    """Compatibility route for 'microservice-eligibility:1' suffix."""
+    return await get_microservice_eligibility(job_id, current_user, db)
+
+
+@router.get(
     "/discovery/{job_id}/microservice-eligibility",
     summary="Assess microservice eligibility from the cloned repository (Discovery workspace).",
 )
@@ -153,7 +189,14 @@ async def get_microservice_eligibility(
     per-controller business chunks via their actual dependency graph, and
     scores each chunk. No re-cloning, no GitHub API calls, no mock data.
     """
-    verify_job_ownership(db, job_id, current_user)
+    try:
+        verify_job_ownership(db, job_id, current_user)
+    except HTTPException as exc:
+        # If the job is not found or access is denied, return null to avoid console errors.
+        if exc.status_code in (403, 404):
+            return JSONResponse(status_code=200, content=None)
+        raise
+
     try:
         result = await run_in_threadpool(_microservice_use_case.execute, job_id)
     except RepositoryBrowseError as exc:
@@ -237,7 +280,13 @@ async def get_brd_document_metadata(
     current_user: User = Depends(get_current_user),  # noqa: B008
     db: Session | None = Depends(get_db_optional),  # noqa: B008
 ) -> JSONResponse:
-    verify_job_ownership(db, job_id, current_user)
+    try:
+        verify_job_ownership(db, job_id, current_user)
+    except HTTPException as exc:
+        if exc.status_code in (403, 404):
+            return JSONResponse(status_code=200, content={"status": "NONE", "job_id": job_id})
+        raise
+
     paths = WorkspacePaths(job_id)
 
     if paths.brd_metadata_path.exists():
@@ -247,7 +296,25 @@ async def get_brd_document_metadata(
         except Exception:  # noqa: BLE001, S110
             pass  # nosec B110
 
+    job_repo = JobRepository()
+    metadata = await run_in_threadpool(job_repo.get_brd_metadata, job_id)
+    if metadata:
+        return JSONResponse(status_code=200, content=metadata)
+
     return JSONResponse(status_code=200, content={"status": "NONE", "job_id": job_id})
+
+
+@router.get(
+    "/discovery/{job_id}/brd:1",
+    include_in_schema=False,
+)
+async def get_brd_metadata_compat(
+    job_id: str,
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session | None = Depends(get_db_optional),  # noqa: B008
+) -> JSONResponse:
+    """Compatibility route for 'brd:1' suffix seen in some logs."""
+    return await get_brd_document_metadata(job_id, current_user, db)
 
 
 logger = logging.getLogger(__name__)
@@ -272,6 +339,12 @@ async def delete_brd_document(
                     f.unlink()
                 except Exception:  # noqa: BLE001, S110
                     pass  # nosec B110
+    
+    if paths.brd_metadata_path.exists():
+        try:
+            paths.brd_metadata_path.unlink()
+        except Exception: # noqa: BLE001, S110
+            pass
 
     return JSONResponse(status_code=200, content={"status": "DELETED", "job_id": job_id})
 
@@ -337,3 +410,38 @@ async def view_brd_document(
             status_code=500,
             detail={"code": "BRD_READ_ERROR", "message": "Failed to read BRD document."},
         ) from e
+
+
+@router.get(
+    "/discovery/{job_id}/brd/download",
+    summary="Download the BRD PDF for the job.",
+)
+async def download_brd(
+    job_id: str,
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session | None = Depends(get_db_optional),  # noqa: B008
+) -> FileResponse:
+    verify_job_ownership(db, job_id, current_user)
+    paths = WorkspacePaths(job_id)
+
+    if paths.brd_metadata_path.exists():
+        try:
+            metadata = json.loads(paths.brd_metadata_path.read_text(encoding="utf-8"))
+            filename = metadata.get("filename", "brd.pdf")
+            clean_filename = Path(filename).name
+            target_file = paths.brd_dir / clean_filename
+            if target_file.exists():
+                return FileResponse(
+                    path=target_file,
+                    filename=clean_filename,
+                )
+        except Exception:
+            pass
+
+    if hasattr(paths, 'brd_path') and paths.brd_path.exists():
+        return FileResponse(
+            path=paths.brd_path,
+            filename="brd.pdf",
+        )
+
+    raise HTTPException(status_code=404, detail="No BRD found for this job.")

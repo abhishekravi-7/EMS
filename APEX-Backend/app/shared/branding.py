@@ -16,9 +16,9 @@ from collections.abc import AsyncIterator
 _ENGINE_NAME = "the Java APEX migration engine"
 
 # Recipe coordinates: dotted identifiers under the recipe-engine namespace.
-_COORDINATE_RE = re.compile(r"\borg\.openrewrite\.[\w.$]+", re.IGNORECASE)
+_COORDINATE_RE = re.compile(r"\bcom\.javaapex\.migration\.[\w.$]+", re.IGNORECASE)
 # The migration tool name itself, however spaced/hyphenated.
-_MIGRATION_TOOL_RE = re.compile(r"\bopen[\s-]?rewrite\b", re.IGNORECASE)
+_MIGRATION_TOOL_RE = re.compile(r"\bOpenRewrite\b", re.IGNORECASE)
 
 # Safety cap: if a single unbroken token grows past this without any whitespace,
 # flush it anyway so a pathological no-space stream can't buffer forever.

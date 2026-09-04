@@ -22,7 +22,7 @@ const shellStyles: { [key: string]: React.CSSProperties } = {
   header: {
     background: "rgba(255, 255, 255, 0.92)",
     borderBottom: "1px solid #e2e8f0",
-    padding: "14px 28px 14px 100px",
+    padding: "0 28px 0 24px",
     width: "100%",
     boxSizing: "border-box",
     display: "flex",
@@ -32,9 +32,10 @@ const shellStyles: { [key: string]: React.CSSProperties } = {
     rowGap: 10,
     position: "sticky",
     top: 0,
-    zIndex: 20,
+    zIndex: 1100,
     backdropFilter: "blur(12px)",
     boxShadow: "0 10px 30px rgba(15, 23, 42, 0.04)",
+    height: 67,
   },
   main: {
     flex: 1,
@@ -117,7 +118,7 @@ const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             src={apexLogo}
             alt="APEX Logo"
             className="app-shell-logo-image"
-            style={{ width: 60, height: 40, objectFit: "contain", borderRadius: 8, cursor: "pointer" }}
+            style={{ height: 48, width: "auto", objectFit: "contain", borderRadius: 8, cursor: "pointer" }}
             onClick={() => navigate("/")}
           />
           <div style={{ display: "flex", flexDirection: "column" }}>

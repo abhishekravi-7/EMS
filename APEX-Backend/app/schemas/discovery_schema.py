@@ -35,6 +35,9 @@ class DiscoveryDependency(BaseModel):
     group_id: str = Field(..., alias="groupId")
     artifact_id: str = Field(..., alias="artifactId")
     version: Optional[str] = None
+    declared_version: Optional[str] = Field(None, alias="declaredVersion")
+    resolved_version: Optional[str] = Field(None, alias="resolvedVersion")
+    version_source: Optional[str] = Field(None, alias="versionSource")
 
     model_config = {"populate_by_name": True}
 

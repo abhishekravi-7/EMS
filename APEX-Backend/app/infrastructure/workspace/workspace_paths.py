@@ -88,3 +88,11 @@ class WorkspacePaths:
     def brd_metadata_path(self) -> Path:
         return self.brd_dir / "metadata.json"
 
+    @property
+    def attachments_dir(self) -> Path:
+        return self.job_dir / "attachments"
+
+    @property
+    def brd_path(self) -> Path:
+        return self.attachments_dir / "brd.pdf"
+

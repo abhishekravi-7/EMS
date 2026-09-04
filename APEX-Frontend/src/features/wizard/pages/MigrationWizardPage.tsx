@@ -54,6 +54,12 @@ export default function MigrationWizardPage() {
     applyDetectedSourceVersion,
     setUserSelectedVersion,
     documentGenerationLoading,
+    brdFile,
+    brdUploadStatus,
+    brdMetadata,
+    brdUploadError,
+    handleBrdFileSelect,
+    handleBrdUpload,
     conversionDecision,
     setConversionDecision,
     showFolderStructure,
@@ -150,7 +156,7 @@ export default function MigrationWizardPage() {
           <img
             src={apexLogo}
             alt="Java APEX"
-            style={{ height: 32, width: "auto", objectFit: "contain", display: "block", marginBottom: 20 }}
+            style={{ height: 48, width: "auto", objectFit: "contain", display: "block" }}
           />
         </div>
 
@@ -242,6 +248,12 @@ export default function MigrationWizardPage() {
               applyDetectedSourceVersion={applyDetectedSourceVersion}
               setUserSelectedVersion={setUserSelectedVersion}
               documentGenerationLoading={documentGenerationLoading}
+              brdFile={brdFile}
+              brdUploadStatus={brdUploadStatus}
+              brdMetadata={brdMetadata}
+              brdUploadError={brdUploadError}
+              handleBrdFileSelect={handleBrdFileSelect}
+              handleBrdUpload={handleBrdUpload}
               conversionDecision={conversionDecision}
               setConversionDecision={setConversionDecision}
               showFolderStructure={showFolderStructure}
