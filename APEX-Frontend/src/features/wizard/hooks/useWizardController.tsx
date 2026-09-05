@@ -1988,6 +1988,7 @@ export function useWizardController() {
           : await getMicroserviceEligibility(selectedRepo.url, currentToken, repoAnalysis);
       setMicroserviceResult(result);
     } catch (err) {
+      if (handleJobIdError(err)) return;
       const message = err instanceof Error ? err.message : String(err);
       console.error("Failed to fetch microservice eligibility", message);
       setError("Unable to determine microservice eligibility from backend. Please try again.");
@@ -4626,6 +4627,34 @@ export function useWizardController() {
 
     clearWizardStorage();
   };
+
+  const handleJobIdError = useCallback(
+    (err: any) => {
+      const status = err?.status || err?.httpStatus;
+      const detail = err?.detail;
+      const code = typeof detail === "object" ? detail?.code : err?.code;
+      const message = err?.message || (typeof detail === "string" ? detail : String(err));
+
+      // 403 Forbidden (Unauthorized access to job) or 404 with JOB_NOT_FOUND code
+      if (
+        status === 403 ||
+        (status === 404 && (code === "JOB_NOT_FOUND" || message.includes("No migration job found")))
+      ) {
+        console.warn("Detected stale or unauthorized migration job ID. Resetting wizard state.", {
+          status,
+          code,
+          message,
+        });
+        resetWizard();
+        setError(
+          "Your session has expired or the migration job is no longer available. Please connect your repository again."
+        );
+        return true;
+      }
+      return false;
+    },
+    [setError]
+  );
 
   const renderStepIndicator = () => (
     <div style={styles.stepIndicator}>

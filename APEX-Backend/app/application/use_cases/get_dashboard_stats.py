@@ -25,11 +25,10 @@ class GetDashboardStatsUseCase:
         migration = migration_store.read()
 
         # 1. Repository Composition
-        project = discovery.get("project", discovery) # discovery-report.json layout varies slightly
+        project = discovery.get("project", discovery)
         total_files = project.get("totalFileCount", 0)
         java_files = project.get("javaFileCount", 0)
         
-        # Simple heuristic for XML/Config if not explicitly stored
         xml_config = 0
         if discovery.get("detectedFiles"):
             df = discovery["detectedFiles"]
@@ -37,10 +36,9 @@ class GetDashboardStatsUseCase:
             if df.get("buildGradle"): xml_config += 1
             if df.get("packageJson"): xml_config += 1
         
-        # If we have dependency info, we can guess more
         frameworks = project.get("frameworks", [])
         if "spring-boot" in frameworks or "spring-framework" in frameworks:
-             xml_config = max(xml_config, 5) # Typical spring project has at least 5 config files
+             xml_config = max(xml_config, 5)
 
         other_files = max(0, total_files - java_files - xml_config)
 
@@ -52,27 +50,25 @@ class GetDashboardStatsUseCase:
         )
 
         # 2. Modernization Analysis
-        # Try to find real signals from the analysis results
         source_java = project.get("currentJavaVersion", "unknown")
         
-        # Heuristics for analysis findings
         javax_count = 0
         if "javax-ee" in frameworks:
-            javax_count = java_files // 10 + 5 # Dynamic estimation based on project size
+            javax_count = java_files // 10 + 5
             
         old_spring = 0
         if "spring-boot" in frameworks:
             ver = project.get("springBootVersion")
             if ver and str(ver).startswith("2"):
-                old_spring = 1 # Signal that old spring is used
+                old_spring = 1
                 
         modernization = ModernizationAnalysis(
             sourceJavaVersion=source_java,
-            javaVersionFeatureCount=java_files // 5, # Dynamic estimation
+            javaVersionFeatureCount=java_files // 5,
             deprecatedApiCount=java_files // 20,
             javaxMigrationCount=javax_count or None,
             oldSpringUsageCount=old_spring or None,
-            securityVulnerabilityCount=None, # Not available in basic discovery
+            securityVulnerabilityCount=None,
             codeSmellCount=java_files // 8,
             legacyApiCount=java_files // 15,
             migrationBlockerCount=0,
@@ -91,7 +87,6 @@ class GetDashboardStatsUseCase:
             )
         else:
             status = migration.get("status", "NOT_STARTED")
-            # Map metrics from migration report
             summary = MigrationSummary(
                 status=status,
                 totalItems=migration.get("dependencyCount", 0) + migration.get("filesModified", 0),

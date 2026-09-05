@@ -236,6 +236,7 @@ interface DiscoveryStepViewProps {
   onChooseDifferentRepository: () => void;
   onContinueToStrategy: () => void;
   onError: (message: string) => void;
+  onHandleJobError?: (err: any) => boolean;
 }
 
 export function DiscoveryStepView({
@@ -271,6 +272,7 @@ export function DiscoveryStepView({
   onChooseDifferentRepository,
   onContinueToStrategy,
   onError,
+  onHandleJobError,
 }: DiscoveryStepViewProps) {
   const {
     repoAnalysis,
@@ -324,6 +326,7 @@ export function DiscoveryStepView({
           setDashboardStats(stats);
         })
         .catch((err) => {
+          if (onHandleJobError?.(err)) return;
           console.error("Failed to fetch dashboard stats:", err);
           setDashboardError("Failed to load real-time statistics.");
         })

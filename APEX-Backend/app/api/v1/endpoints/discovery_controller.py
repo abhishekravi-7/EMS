@@ -7,6 +7,8 @@ lives here.
 
 from __future__ import annotations
 
+import logging
+from typing import Any
 from fastapi import APIRouter, Body, Depends, Query, File, UploadFile, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, FileResponse
@@ -27,12 +29,27 @@ from app.schemas.discovery_schema import DiscoveryRequest, DiscoveryResponse
 from app.application.use_cases.get_dashboard_stats import GetDashboardStatsUseCase
 from app.schemas.dashboard_schema import DashboardStatsResponse
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(tags=["discovery"])
 
 _pipeline = DiscoveryPipeline()
 _file_browser = RepositoryFileBrowser()
 _microservice_use_case = AssessMicroserviceEligibilityUseCase()
 _dashboard_stats_use_case = GetDashboardStatsUseCase()
+
+
+@router.get(
+    "/discovery/{job_id}/dashboard-stats:1",
+    include_in_schema=False,
+)
+async def get_dashboard_stats_compat(
+    job_id: str,
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session | None = Depends(get_db_optional),  # noqa: B008
+) -> Any:
+    """Compatibility route for 'dashboard-stats:1' suffix."""
+    return await get_dashboard_stats(job_id, current_user, db)
 
 
 @router.get(
@@ -44,8 +61,15 @@ async def get_dashboard_stats(
     job_id: str,
     current_user: User = Depends(get_current_user),  # noqa: B008
     db: Session | None = Depends(get_db_optional),  # noqa: B008
-) -> DashboardStatsResponse:
-    verify_job_ownership(db, job_id, current_user)
+) -> Any:
+    try:
+        verify_job_ownership(db, job_id, current_user)
+    except HTTPException as exc:
+        # If the job is not found or access is denied, return null to avoid console errors.
+        if exc.status_code in (403, 404):
+            return JSONResponse(status_code=200, content=None)
+        raise
+
     try:
         return await run_in_threadpool(_dashboard_stats_use_case.execute, job_id)
     except Exception as exc:

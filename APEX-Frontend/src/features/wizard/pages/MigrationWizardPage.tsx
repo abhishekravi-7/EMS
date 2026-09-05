@@ -112,6 +112,7 @@ export default function MigrationWizardPage() {
     selectedLLMProvider,
     useLLMTests,
     maxVisitedIndicatorStep,
+    handleJobIdError,
   } = useWizardController();
 
   const { setContext } = useChatbot();
@@ -264,6 +265,7 @@ export default function MigrationWizardPage() {
               }}
               onContinueToStrategy={() => setStep(3)}
               onError={setError}
+              onHandleJobError={handleJobIdError}
             />
           </DiscoveryPage>
         )}
