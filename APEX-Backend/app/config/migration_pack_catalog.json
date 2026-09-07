@@ -11,7 +11,7 @@
       "phases": [
         {
           "id": "BUILD_CONFIGURATION",
-          "rules": ["MAVEN-JAVA-RELEASE-11"]
+          "rules": ["MAVEN-JAVA-UPGRADE"]
         }
       ]
     },
@@ -26,7 +26,7 @@
       "phases": [
         {
           "id": "BUILD_CONFIGURATION",
-          "rules": ["MAVEN-JAVA-RELEASE-17"]
+          "rules": ["MAVEN-JAVA-UPGRADE"]
         }
       ]
     },
@@ -41,7 +41,7 @@
       "phases": [
         {
           "id": "BUILD_CONFIGURATION",
-          "rules": ["MAVEN-JAVA-RELEASE-21"]
+          "rules": ["MAVEN-JAVA-UPGRADE"]
         }
       ]
     },
@@ -58,5 +58,11 @@
         }
       ]
     }
+  ],
+  "springBootMappings": [
+    { "targetJava": 11, "targetSpringBoot": "2.7.18" },
+    { "targetJava": 17, "targetSpringBoot": "3.2.5" },
+    { "targetJava": 21, "targetSpringBoot": "3.3.2" },
+    { "targetJava": 25, "targetSpringBoot": "3.4.0" }
   ]
 }

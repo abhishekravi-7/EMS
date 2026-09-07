@@ -226,6 +226,16 @@ async def get_microservice_eligibility(
             status_code=exc.http_status,
             content={"jobId": job_id, "status": exc.status, "message": exc.message},
         )
+    except Exception as exc:
+        logger.exception("Unexpected error in microservice eligibility for job %s", job_id)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "jobId": job_id,
+                "status": "ERROR",
+                "message": f"An internal error occurred during microservice assessment: {exc}",
+            },
+        )
 
     return JSONResponse(status_code=200, content=result)
 

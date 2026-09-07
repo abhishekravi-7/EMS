@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,7 @@ from app.infrastructure.analyzers.project_analyzer import ProjectAnalyzer
 from app.infrastructure.java_runtime import build_compatible_java_target
 from app.infrastructure.migration_engine.ast_automated_migration_runner import AstMigrationRunner, AstMigrationRunResult
 from app.infrastructure.migration_engine.ast_rule_mapper import AstRuleMapper
+from app.shared.command_runner import resolve_executable, run_command
 
 logger = logging.getLogger(__name__)
 
@@ -58,20 +60,21 @@ class AutomatedMigrationRunner:
         extra_recipes: list[Any] | None = None,
     ) -> MigrationRunResult:
         logger.info("Starting custom AST-based migration for %s", migrated_repo_dir)
-        
+
         # 1. Discovery
         analysis = self._analyzer.analyze(migrated_repo_dir)
         effective_target, _ = build_compatible_java_target(target_java_version)
-        
+
         # 2. Planning
         plan = self._mapper.build_plan(
             project_root=migrated_repo_dir,
             source_java=analysis.current_java_version,
             target_java=effective_target,
             build_tool=build_tool,
-            frameworks=analysis.frameworks
+            frameworks=analysis.frameworks,
+            current_boot_version=analysis.spring_boot_version
         )
-        
+
         # 3. Execution (Java Engine CLI)
         result = self._ast_runner.run(migrated_repo_dir, {
             "planId": plan.planId,
@@ -81,21 +84,132 @@ class AutomatedMigrationRunner:
             "buildSystem": plan.buildSystem,
             "activePacks": plan.activePacks,
             "activeRules": plan.activeRules,
-            "activeVisitors": plan.activeVisitors
+            "activeVisitors": plan.activeVisitors,
+            "targetSpringBootVersion": plan.targetSpringBootVersion
         })
-        
+
+        # 4. Post-migration discovery to find the new version
+        # Use robust Maven evaluation for the final report
+        post_analysis = self._analyzer.analyze(migrated_repo_dir)
+        boot_before = analysis.spring_boot_version
+        boot_after = self._get_effective_boot_version(migrated_repo_dir) or post_analysis.spring_boot_version or boot_before
+
+        java_before = analysis.current_java_version
+        java_after = self._get_effective_java_version(migrated_repo_dir) or post_analysis.current_java_version or java_before
+
+        note = None
+        status = result.status
+
+        if plan.incompatibleReason:
+             status = "MANUAL_REVIEW"
+             note = plan.incompatibleReason
+        elif boot_before and plan.targetSpringBootVersion:
+            if self._is_newer(boot_before, plan.targetSpringBootVersion):
+                status = "MANUAL_REVIEW"
+                note = f"The source Spring Boot version ({boot_before}) is newer than the configured target ({plan.targetSpringBootVersion}). Automated downgrade was skipped."
+            elif boot_before == plan.targetSpringBootVersion:
+                note = "The project already uses the configured target Spring Boot version."
+
+        phase_results = []
+        for p in plan.activePacks:
+             p_status = "completed" if result.success else "failed"
+             if p == "springboot2-to-3" and boot_before == boot_after and boot_before is not None:
+                  p_status = "unchanged"
+             if p.startswith("java") and java_before == java_after and java_before != "UNKNOWN":
+                  p_status = "unchanged"
+             phase_results.append({"id": p, "status": p_status})
+
         return MigrationRunResult(
             success=result.success,
-            status=result.status,
+            status=status,
             tool=build_tool.lower(),
             project_dir=migrated_repo_dir,
             log_lines=result.log_lines,
             error_lines=result.error_lines,
-            effective_target_java_version=effective_target,
-            recipes=plan.activePacks, # Mapping packs to "recipes" for UI consistency
-            already_compatible=result.status == "NO_CHANGES",
+            effective_target_java_version=java_after if java_after != "UNKNOWN" else effective_target,
+            recipes=plan.activePacks,
+            already_compatible=result.status == "NO_CHANGES" or (
+                boot_before == boot_after and java_before == java_after
+                and boot_before is not None and java_before != "UNKNOWN"
+            ),
             spring_conversion_requested=bool(conversion_types and "spring_boot" in conversion_types),
-            spring_boot_version_before=analysis.spring_boot_version,
-            phase_results=[{"id": p, "status": "completed" if result.success else "failed"} for p in plan.activePacks],
-            rule_executions=result.rule_executions
+            spring_boot_version_before=boot_before,
+            spring_boot_version_after=boot_after,
+            phase_results=phase_results,
+            rule_executions=result.rule_executions,
+            spring_conversion_supported=True if boot_after else None,
+            spring_conversion_note=note
         )
+
+    def _get_effective_java_version(self, project_dir: Path) -> str | None:
+        """Use Maven to resolve the effective Java version."""
+        mvn = resolve_executable("mvn")
+        if not mvn or not (project_dir / "pom.xml").exists():
+            return None
+
+        # Priority properties to check
+        for expr in ["java.version", "maven.compiler.release", "maven.compiler.source"]:
+            cmd = [mvn, "-q", "help:evaluate", f"-Dexpression={expr}", "-DforceStdout", "-B"]
+            res = run_command(cmd, cwd=project_dir, timeout=30)
+            val = res.stdout.strip()
+            if res.succeeded and val and not val.startswith("[") and val != "null":
+                # Normalize 1.8 -> 8 etc.
+                if val.startswith("1."):
+                    return val.split(".")[1]
+                return val
+        return None
+
+    def _get_effective_boot_version(self, project_dir: Path) -> str | None:
+        """Use Maven to resolve the effective Spring Boot version."""
+        mvn = resolve_executable("mvn")
+        if not mvn or not (project_dir / "pom.xml").exists():
+            return None
+
+        # 1. Try common properties/parent via help:evaluate
+        for expr in ["project.parent.version", "spring-boot.version", "spring.boot.version"]:
+            cmd = [mvn, "-q", "help:evaluate", f"-Dexpression={expr}", "-DforceStdout", "-B"]
+            res = run_command(cmd, cwd=project_dir, timeout=30)
+            val = res.stdout.strip()
+            if res.succeeded and val and not val.startswith("[") and val != "null":
+                if re.match(r"^\d+\.\d+\.\d+", val):
+                    return val
+
+        # 2. Fallback to dependency list
+        cmd = [mvn, "dependency:list", "-DincludeGroupIds=org.springframework.boot", "-DincludeArtifactIds=spring-boot-starter", "-DoutputAbsoluteArtifactFilename=false", "-B"]
+        res = run_command(cmd, cwd=project_dir, timeout=60)
+        if res.succeeded:
+            for line in res.stdout.splitlines():
+                if ":spring-boot-starter:jar:" in line:
+                    parts = line.split(":spring-boot-starter:jar:")
+                    if len(parts) > 1:
+                        return parts[1].split(":")[0].strip()
+        return None
+
+    def _is_newer(self, v1: str, v2: str) -> bool:
+        """Simple Maven-like version comparison.
+        Returns True if v1 is strictly newer than v2.
+        """
+        def _parse(v: str) -> list[int]:
+            # Normalize: 3.2.5.RELEASE -> 3.2.5, 3.2.0-RC1 -> 3.2.0
+            # Just take the numeric parts
+            parts = []
+            for p in re.split(r"[.\-]", v):
+                if p.isdigit():
+                    parts.append(int(p))
+                else:
+                    # Non-numeric parts like RELEASE or RC1 are ignored or treated as 0
+                    break
+            return parts
+
+        p1 = _parse(v1)
+        p2 = _parse(v2)
+
+        # Compare element by element
+        for i in range(max(len(p1), len(p2))):
+            val1 = p1[i] if i < len(p1) else 0
+            val2 = p2[i] if i < len(p2) else 0
+            if val1 > val2:
+                return True
+            if val1 < val2:
+                return False
+        return False

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import React from "react";
 import {
   FaCheckCircle,
@@ -119,23 +119,41 @@ export function ResultReportView({
     security_hotspots: SONAR_FINDINGS_PAGE_SIZE,
   });
 
+  // Reset filters and findings counts when migration job changes
   useEffect(() => {
-    setSonarFindingFilter("all");
-    setCodeSmellSeverityFilter("all");
-    setVisibleSonarFindingCounts({
-      bugs: SONAR_FINDINGS_PAGE_SIZE,
-      vulnerabilities: SONAR_FINDINGS_PAGE_SIZE,
-      code_smells: SONAR_FINDINGS_PAGE_SIZE,
-      security_hotspots: SONAR_FINDINGS_PAGE_SIZE,
-    });
-  }, [migrationJob?.job_id, migrationJob?.sonar_report, migrationJob?.sonar_scan_mode]);
+    const jobId = migrationJob?.job_id;
+    if (!jobId) return;
 
-  const toggleReportAccordion = (section: "sonar" | "fossa" | "issues") => {
-    setReportAccordionState((prev) => ({
-      ...prev,
-      [section]: !prev[section],
-    }));
-  };
+    // Use a stable check to avoid infinite re-render loops
+    setSonarFindingFilter((prev) => (prev === "all" ? prev : "all"));
+    setCodeSmellSeverityFilter((prev) => (prev === "all" ? prev : "all"));
+    setVisibleSonarFindingCounts((prev) => {
+      const isAtDefault =
+        prev.bugs === SONAR_FINDINGS_PAGE_SIZE &&
+        prev.vulnerabilities === SONAR_FINDINGS_PAGE_SIZE &&
+        prev.code_smells === SONAR_FINDINGS_PAGE_SIZE &&
+        prev.security_hotspots === SONAR_FINDINGS_PAGE_SIZE;
+
+      if (isAtDefault) return prev;
+
+      return {
+        bugs: SONAR_FINDINGS_PAGE_SIZE,
+        vulnerabilities: SONAR_FINDINGS_PAGE_SIZE,
+        code_smells: SONAR_FINDINGS_PAGE_SIZE,
+        security_hotspots: SONAR_FINDINGS_PAGE_SIZE,
+      };
+    });
+  }, [migrationJob?.job_id, migrationJob?.sonar_scan_mode]);
+
+  const toggleReportAccordion = useCallback((section: "sonar" | "fossa" | "issues") => {
+    setReportAccordionState((prev) => {
+      if (prev[section] === !prev[section]) return prev; // Should not happen but for safety
+      return {
+        ...prev,
+        [section]: !prev[section],
+      };
+    });
+  }, [setReportAccordionState]);
 
   const handleRerunTests = async () => {
     if (!migrationJob) return;
@@ -253,7 +271,7 @@ export function ResultReportView({
     Math.max(migrationJob?.sonar_code_smells ?? 0, sonarCodeSmellDetails.length) +
     Math.max(migrationJob?.sonar_bugs ?? 0, sonarBugDetails.length) +
     Math.max(migrationJob?.sonar_security_hotspots ?? 0, sonarHotspotDetails.length);
-  const sonarCategoryCards = [
+  const sonarCategoryCards = React.useMemo(() => [
     {
       key: "bugs" as const,
       label: "Bugs",
@@ -294,8 +312,9 @@ export function ResultReportView({
       surface: "linear-gradient(180deg, #f3fffd 0%, #ffffff 100%)",
       tint: "#99f6e4",
     },
-  ];
-  const visibleSonarSections = [
+  ], [migrationJob?.sonar_bugs, migrationJob?.sonar_vulnerabilities, migrationJob?.sonar_code_smells, migrationJob?.sonar_security_hotspots, sonarBugDetails.length, sonarVulnerabilityDetails.length, sonarCodeSmellDetails.length, sonarHotspotDetails.length]);
+
+  const visibleSonarSections = React.useMemo(() => [
     {
       key: "vulnerabilities" as const,
       title: "Vulnerabilities",
@@ -342,7 +361,7 @@ export function ResultReportView({
           ? "Summary count is available, but detailed bug items were not returned by the current Sonar API response."
           : "No bug findings were reported.",
     },
-  ].filter((section) => sonarFindingFilter === "all" || section.key === sonarFindingFilter);
+  ].filter((section) => sonarFindingFilter === "all" || section.key === sonarFindingFilter), [migrationJob?.sonar_vulnerabilities, migrationJob?.sonar_code_smells, migrationJob?.sonar_security_hotspots, migrationJob?.sonar_bugs, sonarVulnerabilityDetails, sonarCodeSmellDetails, sonarHotspotDetails, sonarBugDetails, filteredCodeSmellDetails, sonarFindingFilter, codeSmellSeverityFilter]);
 
   const renderSonarIssueCard = (
     issue: SonarIssueDetail | SonarHotspotDetail,

@@ -3149,12 +3149,11 @@ export function useWizardController() {
   useEffect(() => {
     if (
       migrationJob?.status === "completed" ||
-      resultExecState?.status === "COMPLETED" ||
       step === 7
     ) {
-      setMigrationCompleted(true);
+      setMigrationCompleted((prev) => (prev ? prev : true));
     }
-  }, [migrationJob?.status, resultExecState?.status, step]);
+  }, [migrationJob?.status, step]);
 
   // Step 2: Discovery completed (strictly when repoAnalysis is ready AND user explicitly clicked Continue to Strategy)
   const isDiscoveryCompleted =
@@ -4471,10 +4470,10 @@ export function useWizardController() {
     }, [step, migrationJob?.job_id, migrationJob?.status]);
   */
   useEffect(() => {
-      if ((step === 5 || step === 6) && migrationJob?.status === "completed") {
-        setStep(7);
-      }
-    }, [step, migrationJob?.status]);
+    if (migrationJob?.status === "completed" || resultExecState?.migrationJob?.status === "completed" || step === 7) {
+      setMigrationCompleted((prev) => (prev ? prev : true));
+    }
+  }, [migrationJob?.status, resultExecState?.migrationJob?.status, step]);
 
   const buildMigrationRequest = useCallback(() => {
     const repoName = sourceRepositoryName;

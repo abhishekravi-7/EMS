@@ -280,7 +280,7 @@ export function StrategyStepView({
               const isMed  = count > 10;
               const dColor = isHigh ? "#7c3aed" : isMed ? "#2563eb" : "#0ea5e9";
               const dBg    = isHigh ? "#ede9fe"  : isMed ? "#eff6ff"  : "#f0f9ff";
-              const dLabel = count === 0 ? "None" : isHigh ? `${count} · Complex` : isMed ? `${count} · Moderate` : `${count} · Light`;
+              const dLabel = count.toString();
               return (
                 <div className="strat-assessment-card" style={{ animationDelay: "0.26s" }}>
                   <div className="strat-assessment-icon-wrap" style={{ background: dBg, color: dColor }}>

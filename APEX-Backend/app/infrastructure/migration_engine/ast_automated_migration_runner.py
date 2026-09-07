@@ -69,7 +69,7 @@ class AstMigrationRunner:
             status = result_data.get("status", "FAILED")
             
             return AstMigrationRunResult(
-                success=status in ("SUCCESS", "PARTIAL", "NO_CHANGES"),
+                success=status in ("SUCCESS", "PARTIAL", "NO_CHANGES", "MANUAL_REVIEW"),
                 status=status,
                 changed_files=result_data.get("changedFiles", []),
                 rule_executions=result_data.get("ruleExecutions", []),
