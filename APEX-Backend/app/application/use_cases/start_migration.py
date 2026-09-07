@@ -573,6 +573,15 @@ class StartMigrationUseCase:
             parts.append(
                 f"Upgraded {len(result.dependency_upgrades)} dependency/dependencies: {upgrades}."
             )
+        elif result.dependency_migration_status == "NOT_APPLICABLE":
+            parts.append("Dependency migration was not selected for this migration.")
+
+        if result.plugin_upgrades:
+            p_upgrades = ", ".join(
+                f"{u['coordinate']} {u['oldVersion'] or '?'} -> {u['newVersion']}"
+                for u in result.plugin_upgrades
+            )
+            parts.append(f"Upgraded {len(result.plugin_upgrades)} build plugin(s): {p_upgrades}.")
 
         if result.skipped_recipes:
             skipped = "; ".join(

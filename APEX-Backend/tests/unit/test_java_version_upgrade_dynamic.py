@@ -56,7 +56,8 @@ class TestJavaVersionUpgradeDynamic(unittest.TestCase):
             source_java="8",
             target_java="17",
             build_tool="MAVEN",
-            frameworks=[]
+            frameworks=[],
+            conversion_types=["java_version"]
         )
         self.assertIn("MAVEN-JAVA-UPGRADE", plan.activeRules)
         self.assertEqual(plan.targetJavaVersion, 17)
@@ -67,7 +68,8 @@ class TestJavaVersionUpgradeDynamic(unittest.TestCase):
             source_java="17",
             target_java="17",
             build_tool="MAVEN",
-            frameworks=[]
+            frameworks=[],
+            conversion_types=["java_version"]
         )
         # Should not include upgrade rules if already compatible
         self.assertNotIn("MAVEN-JAVA-UPGRADE", plan.activeRules)
@@ -78,7 +80,8 @@ class TestJavaVersionUpgradeDynamic(unittest.TestCase):
             source_java="21",
             target_java="17",
             build_tool="MAVEN",
-            frameworks=[]
+            frameworks=[],
+            conversion_types=["java_version"]
         )
         self.assertNotIn("MAVEN-JAVA-UPGRADE", plan.activeRules)
         self.assertEqual(plan.targetJavaVersion, 17)

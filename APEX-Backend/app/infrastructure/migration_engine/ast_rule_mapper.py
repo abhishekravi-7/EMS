@@ -17,12 +17,14 @@ class AstMigrationPlan:
     activeVisitors: list[str] = field(default_factory=list)
     targetSpringBootVersion: str | None = None
     incompatibleReason: str | None = None
+    dependencyMappings: list[dict[str, str]] = field(default_factory=list)
+    pluginMappings: list[dict[str, str]] = field(default_factory=list)
 
 def load_catalog() -> dict[str, Any]:
     try:
         return json.loads(settings.migration_recipe_catalog_path.read_text(encoding="utf-8"))
     except Exception:
-        return {"packs": [], "springBootMappings": []}
+        return {"packs": [], "springBootMappings": [], "dependencyMappings": [], "pluginMappings": []}
 
 def _parse_major(version: str | None) -> int | None:
     if not version:
@@ -44,9 +46,9 @@ class AstRuleMapper:
         target_java: str,
         build_tool: str,
         frameworks: list[str],
-        current_boot_version: str | None = None
+        current_boot_version: str | None = None,
+        conversion_types: list[str] | None = None
     ) -> AstMigrationPlan:
-        # Simplified deterministic planning logic
         selected_packs = []
         selected_rules = []
         selected_visitors = []
@@ -54,13 +56,18 @@ class AstRuleMapper:
         source_major = _parse_major(source_java) or 8
         target_major = _parse_major(target_java) or 17
 
-        # 1. Java Version Packs
-        if source_major < 11 and target_major >= 11:
-            selected_packs.append("java8-to-11")
-        if source_major < 17 and target_major >= 17:
-            selected_packs.append("java11-to-17")
-        if source_major < 21 and target_major >= 21:
-            selected_packs.append("java17-to-21")
+        # 1. Java Version Packs (Implicitly always considered if java_version is in conversion_types)
+        if conversion_types and "java_version" in conversion_types:
+            if source_major < 11 and target_major >= 11:
+                selected_packs.append("java8-to-11")
+            if source_major < 17 and target_major >= 17:
+                selected_packs.append("java11-to-17")
+            if source_major < 21 and target_major >= 21:
+                selected_packs.append("java17-to-21")
+            
+            # Always include dependency and plugin upgrade if Java is being upgraded
+            selected_packs.append("dependency-upgrade")
+            selected_packs.append("plugin-upgrade")
 
         # 2. Framework Packs
         target_boot = None
@@ -72,19 +79,22 @@ class AstRuleMapper:
                     break
 
             if target_boot:
-                # Only add the upgrade pack if current version is older or unknown
-                is_older = not current_boot_version or self._is_newer(target_boot, current_boot_version)
-                if is_older:
+                # Only add the upgrade pack if current version is older
+                if not current_boot_version or self._is_newer(target_boot, current_boot_version):
                      selected_packs.append("springboot2-to-3")
 
         if "jakarta-ee" in frameworks or "javax-ee" in frameworks:
             selected_packs.append("javax-to-jakarta")
-            selected_visitors.append("JAVAX-TO-JAKARTA")
 
-        # 3. Resolve Rules from Catalog for Selected Packs
+        # 3. Resolve Rules and Visitors from Catalog
         all_packs = self._catalog.get("packs", [])
         for pack_id in selected_packs:
-            pack_def = next((p for p in all_packs if p["id"] == pack_id), None)
+            pack_def = None
+            for p in all_packs:
+                if p["id"] == pack_id:
+                    pack_def = p
+                    break
+            
             if pack_def:
                 for phase in pack_def.get("phases", []):
                     selected_rules.extend(phase.get("rules", []))
@@ -99,7 +109,6 @@ class AstRuleMapper:
             selected_visitors.append("IMPORT-CLEANUP")
 
         # 5. Validate Compatibility (e.g. SB3 requires Java 17+)
-        # We can add a flag or reason if incompatible
         incompatible_reason = None
         if target_boot and target_boot.startswith("3.") and target_major < 17:
              incompatible_reason = "The selected Java target is not compatible with the target Spring Boot version (Spring Boot 3 requires Java 17+)."
@@ -114,7 +123,9 @@ class AstRuleMapper:
             activeRules=selected_rules,
             activeVisitors=selected_visitors,
             targetSpringBootVersion=target_boot,
-            incompatibleReason=incompatible_reason
+            incompatibleReason=incompatible_reason,
+            dependencyMappings=self._catalog.get("dependencyMappings", []),
+            pluginMappings=self._catalog.get("pluginMappings", [])
         )
 
     def _is_newer(self, v1: str, v2: str) -> bool:

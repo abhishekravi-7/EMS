@@ -42,6 +42,9 @@ class MigrationRunResult:
     phase_results: list[dict] = field(default_factory=list)
     skipped_recipes: list[dict] = field(default_factory=list)
     rule_executions: list[dict[str, Any]] = field(default_factory=list)
+    dependency_migration_status: str = "NOT_APPLICABLE"
+    plugin_upgrades: list[dict] = field(default_factory=list)
+    plugin_migration_status: str = "NOT_APPLICABLE"
 
 class AutomatedMigrationRunner:
     def __init__(self) -> None:
@@ -67,16 +70,17 @@ class AutomatedMigrationRunner:
 
         # 2. Planning
         plan = self._mapper.build_plan(
-            project_root=migrated_repo_dir,
+            project_root=analysis.project_root,
             source_java=analysis.current_java_version,
             target_java=effective_target,
             build_tool=build_tool,
             frameworks=analysis.frameworks,
-            current_boot_version=analysis.spring_boot_version
+            current_boot_version=analysis.spring_boot_version,
+            conversion_types=conversion_types
         )
 
         # 3. Execution (Java Engine CLI)
-        result = self._ast_runner.run(migrated_repo_dir, {
+        result = self._ast_runner.run(analysis.project_root, {
             "planId": plan.planId,
             "projectRoot": str(plan.projectRoot),
             "sourceJavaVersion": plan.sourceJavaVersion,
@@ -85,17 +89,37 @@ class AutomatedMigrationRunner:
             "activePacks": plan.activePacks,
             "activeRules": plan.activeRules,
             "activeVisitors": plan.activeVisitors,
-            "targetSpringBootVersion": plan.targetSpringBootVersion
+            "targetSpringBootVersion": plan.targetSpringBootVersion,
+            "dependencyMappings": plan.dependencyMappings
         })
 
         # 4. Post-migration discovery to find the new version
         # Use robust Maven evaluation for the final report
         post_analysis = self._analyzer.analyze(migrated_repo_dir)
         boot_before = analysis.spring_boot_version
-        boot_after = self._get_effective_boot_version(migrated_repo_dir) or post_analysis.spring_boot_version or boot_before
+        boot_after = self._get_effective_boot_version(post_analysis.project_root) or post_analysis.spring_boot_version or boot_before
 
         java_before = analysis.current_java_version
-        java_after = self._get_effective_java_version(migrated_repo_dir) or post_analysis.current_java_version or java_before
+        java_after = self._get_effective_java_version(post_analysis.project_root) or post_analysis.current_java_version or java_before
+
+        # 5. Dependency upgrade results
+        dependency_upgrades = self._compare_dependencies(analysis.dependencies, post_analysis.dependencies, plan.dependencyMappings)
+        
+        dep_status = "NOT_APPLICABLE"
+        if conversion_types and "java_version" in conversion_types:
+             if dependency_upgrades:
+                  dep_status = "UPGRADED"
+             else:
+                  dep_status = "UNCHANGED"
+
+        # 6. Plugin upgrade results
+        plugin_upgrades = self._compare_plugins(analysis.build_plugins, post_analysis.build_plugins, plan.pluginMappings)
+        plugin_status = "NOT_APPLICABLE"
+        if conversion_types and "java_version" in conversion_types:
+             if plugin_upgrades:
+                  plugin_status = "UPGRADED"
+             else:
+                  plugin_status = "UNCHANGED"
 
         note = None
         status = result.status
@@ -138,8 +162,88 @@ class AutomatedMigrationRunner:
             phase_results=phase_results,
             rule_executions=result.rule_executions,
             spring_conversion_supported=True if boot_after else None,
-            spring_conversion_note=note
+            spring_conversion_note=note,
+            dependency_upgrades=dependency_upgrades,
+            dependency_migration_status=dep_status,
+            plugin_upgrades=plugin_upgrades,
+            plugin_migration_status=plugin_status
         )
+
+    def _compare_plugins(self, before: list[Any], after: list[Any], mappings: list[dict[str, str]]) -> list[dict]:
+        """Compare build plugins before and after and report changes."""
+        upgrades = []
+        
+        def get_plugin_key(p: Any) -> tuple[str, str]:
+            # Handle both old and new BuildPlugin structures safely
+            gid = getattr(p, "group_id", None)
+            aid = getattr(p, "artifact_id", None)
+            
+            if gid is None or aid is None:
+                # Fallback to parsing 'id' field if it exists (old structure)
+                pid = getattr(p, "id", "")
+                if ":" in pid:
+                    parts = pid.split(":")
+                    gid = parts[0]
+                    aid = parts[1]
+                else:
+                    gid = "org.apache.maven.plugins"
+                    aid = pid
+            
+            return (gid or "org.apache.maven.plugins", aid or "")
+
+        after_map = {get_plugin_key(p): p for p in after}
+        
+        mapping_dict = {(m["groupId"], m["artifactId"]): m["targetVersion"] for m in mappings}
+
+        for p_before in before:
+            key = get_plugin_key(p_before)
+            p_after = after_map.get(key)
+            
+            if p_after:
+                v_before = p_before.version
+                v_after = p_after.version
+                
+                if v_before and v_after and v_before != v_after:
+                    upgrades.append({
+                        "coordinate": f"{key[0]}:{key[1]}",
+                        "groupId": key[0],
+                        "artifactId": key[1],
+                        "oldVersion": v_before,
+                        "newVersion": v_after,
+                        "status": "UPGRADED"
+                    })
+        return upgrades
+
+    def _compare_dependencies(self, before: list[Any], after: list[Any], mappings: list[dict[str, str]]) -> list[dict]:
+        """Compare dependencies before and after and report changes."""
+        upgrades = []
+        after_map = {(d.group_id, d.artifact_id): d for d in after}
+
+        mapping_dict = {(m["groupId"], m["artifactId"]): m["targetVersion"] for m in mappings}
+
+        for dep_before in before:
+            key = (dep_before.group_id, dep_before.artifact_id)
+            dep_after = after_map.get(key)
+
+            if dep_after:
+                v_before = dep_before.resolved_version or dep_before.version
+                v_after = dep_after.resolved_version or dep_after.version
+
+                if v_before != v_after and v_before != "Unknown version" and v_after != "Unknown version":
+                    upgrades.append({
+                        "coordinate": f"{dep_before.group_id}:{dep_before.artifact_id}",
+                        "groupId": dep_before.group_id,
+                        "artifactId": dep_before.artifact_id,
+                        "oldVersion": v_before,
+                        "newVersion": v_after,
+                        "resolvedVersion": v_after,
+                        "status": "UPGRADED",
+                        "versionSource": dep_after.version_source
+                    })
+                elif key in mapping_dict:
+                    # If it was supposed to be upgraded but isn't
+                    pass
+        return upgrades
 
     def _get_effective_java_version(self, project_dir: Path) -> str | None:
         """Use Maven to resolve the effective Java version."""
