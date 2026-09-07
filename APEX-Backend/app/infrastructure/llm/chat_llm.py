@@ -54,12 +54,12 @@ class ChatLLM:
         user_prompt: str,
         endpoint: str | None = None,
     ) -> AsyncIterator[str]:
-        # Use Ollama as primary; Groq as fallback.
+        # Use Groq as primary when configured; Ollama as fallback.
         providers = []
-        if self._ollama.is_configured:
-            providers.append(self._ollama)
         if self._groq.is_configured:
             providers.append(self._groq)
+        if self._ollama.is_configured:
+            providers.append(self._ollama)
 
         if not providers:
             raise ChatLLMNotConfiguredError("No LLM providers are configured; both Groq and Ollama are unavailable.")

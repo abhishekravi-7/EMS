@@ -13,10 +13,9 @@ export interface ConnectPageProps {
  * or upload a local Java project to begin migration analysis.
  */
 const ConnectPage: React.FC<ConnectPageProps> = ({ children }) => (
-  <section className="page-connect" data-step="connect">
+  <div className="connect-page-wrapper">
     {children}
-  </section>
+  </div>
 );
  
 export default ConnectPage;
- 

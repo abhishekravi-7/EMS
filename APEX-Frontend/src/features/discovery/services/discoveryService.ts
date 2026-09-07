@@ -40,6 +40,11 @@ export interface DiscoveryProject {
   dependencies?: DiscoveryDependency[];
   hasTests?: boolean;
   javaFileCount?: number;
+  javaFiles?: string[];
+  configFileCount?: number;
+  configFiles?: string[];
+  otherFileCount?: number;
+  otherFiles?: string[];
   totalFileCount?: number;
   defaultBranch?: string;
   buildWarning?: string | null;
@@ -56,6 +61,7 @@ export interface DiscoveryProject {
   springBootUpgradeEligible?: boolean;
   eligibilityReason?: string;
   springBootConversion?: SpringBootConversionEligibility;
+  frameworks?: string[];
 }
 
 export interface DiscoveryResponse {
@@ -147,13 +153,23 @@ export function mapDiscoveryToRepoAnalysis(response: DiscoveryResponse): RepoAna
     build_tool: normalizeBuildTool(project.buildTool),
     java_version: javaVersion,
     java_version_from_build: javaVersion,
-    java_files: [],
-    java_file_count: project.javaFileCount,
+    spring_boot_version: project.springBootVersion ?? null,
+    java_files: project.javaFiles ?? (project as any).java_files ?? [],
+    java_file_count: project.javaFileCount ?? (project.javaFiles?.length || 0),
+    config_files: project.configFiles ?? (project as any).config_files ?? [],
+    config_file_count: project.configFileCount ?? (project.configFiles?.length || 0),
+    other_files: project.otherFiles ?? (project as any).other_files ?? [],
+    other_file_count: project.otherFileCount ?? (project.otherFiles?.length || 0),
     total_file_count: project.totalFileCount,
     has_tests: Boolean(project.hasTests),
     dependencies,
     api_endpoints: [],
-    detected_frameworks: [],
+    detected_frameworks: (project.frameworks ?? []).map((f) => ({
+      name: f,
+      path: project.detectedFiles?.pomXml ? "pom.xml" : "build.gradle",
+      type: "FRAMEWORK",
+    })),
+    frameworks: project.frameworks ?? [],
     structure: {
       has_pom_xml: Boolean(project.detectedFiles?.pomXml),
       has_build_gradle: Boolean(project.detectedFiles?.buildGradle),

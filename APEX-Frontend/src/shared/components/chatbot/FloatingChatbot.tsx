@@ -1,44 +1,13 @@
 import React, { useEffect, useId, useRef, useState, useCallback, useMemo } from "react";
-import { API_BASE_URL } from "@/services/config/env";
 import { useChatbot } from "@/shared/context/ChatbotContext";
+import { sendMessage, determineThinkingState } from "@/shared/services/chatService";
+import type {
+  ChatMessage,
+  ContentBlock,
+  SourceReference,
+  ComparisonTableSpec,
+} from "@/shared/types/chat";
 import "./FloatingChatbot.css";
-
-type Role = "user" | "assistant" | "system";
-
-interface ComparisonTableSpec {
-  caption?: string;
-  headers: string[];
-  rows: string[][];
-}
-
-interface ChatMessage {
-  id: string;
-  role: Role;
-  content: string;
-  rationale?: string[];
-  comparisonTable?: ComparisonTableSpec | null;
-  details?: Record<string, unknown> | null;
-  createdAt: string;
-}
-
-type ContentBlock =
-  | { kind: "paragraph"; text: string }
-  | { kind: "heading"; text: string; level: number }
-  | { kind: "list"; items: string[]; ordered: boolean }
-  | { kind: "table"; table: ComparisonTableSpec };
-
-// Props are no longer needed
-// interface Props {
-//   repoUrl?: string | null;
-//   strategyContext?: StrategyPageContext | null;
-// }
-
-// New type for source references returned by the backend
-interface SourceReference {
-  title: string;
-  url: string;
-  excerpt?: string;
-}
 
 const normalizeComparisonTable = (value: unknown): ComparisonTableSpec | null => {
   if (!value || typeof value !== "object") return null;
@@ -110,7 +79,30 @@ const parseMarkdownContentBlocks = (content: string): ContentBlock[] => {
   };
 
   while (index < lines.length) {
-    const line = lines[index] || "";
+    const line = lines[index] ?? "";
+
+    // Fenced Code Block
+    if (line.trim().startsWith("```")) {
+      flushParagraph();
+      const language = line.trim().slice(3).trim();
+      const codeLines: string[] = [];
+      index += 1;
+      while (index < lines.length) {
+        const codeLine = lines[index] ?? "";
+        if (codeLine.trim().startsWith("```")) {
+          index += 1;
+          break;
+        }
+        codeLines.push(codeLine);
+        index += 1;
+      }
+      blocks.push({
+        kind: "code",
+        code: codeLines.join("\n"),
+        language: language || undefined,
+      });
+      continue;
+    }
 
     // Headings
     const headingMatch = line.match(/^(#{1,6})\s+(.+)$/);
@@ -125,7 +117,7 @@ const parseMarkdownContentBlocks = (content: string): ContentBlock[] => {
       continue;
     }
 
-    // Lists (simplified)
+    // Lists
     const listMatch = line.match(/^(\s*)([-*+]|\d+\.)\s+(.+)$/);
     if (listMatch) {
       flushParagraph();
@@ -194,9 +186,71 @@ const parseMarkdownContentBlocks = (content: string): ContentBlock[] => {
 };
 
 /**
- * Memoized block component to prevent unnecessary re-renders of stable markdown parts.
+ * Fenced code block with language indicator and copy-to-clipboard functionality.
+ */
+const CodeBlock: React.FC<{ code: string; language?: string }> = ({ code, language }) => {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    try {
+      navigator.clipboard.writeText(code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // ignore
+    }
+  };
+
+  return (
+    <div className="strategy-chat-code-wrapper">
+      <div className="strategy-chat-code-header">
+        <span className="strategy-chat-code-lang">{(language || "code").toUpperCase()}</span>
+        <button
+          type="button"
+          onClick={handleCopy}
+          className="strategy-chat-code-copy-btn"
+          aria-label="Copy code"
+          title="Copy code"
+        >
+          {copied ? (
+            <>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+              <span>Copied!</span>
+            </>
+          ) : (
+            <>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>
+              <span>Copy</span>
+            </>
+          )}
+        </button>
+      </div>
+      <pre className="strategy-chat-code-pre">
+        <code>{code}</code>
+      </pre>
+    </div>
+  );
+};
+
+/**
+ * Memoized block component for markdown elements.
  */
 const MarkdownBlock = React.memo(({ block, messageId, index }: { block: ContentBlock; messageId: string; index: number }) => {
+  if (block.kind === "code") {
+    return (
+      <CodeBlock
+        key={`${messageId}_c_${index}`}
+        code={block.code}
+        language={block.language}
+      />
+    );
+  }
+
   if (block.kind === "heading") {
     const headingTag = `h${Math.min(block.level, 6)}` as keyof React.JSX.IntrinsicElements;
     return React.createElement(
@@ -231,7 +285,7 @@ const MarkdownBlock = React.memo(({ block, messageId, index }: { block: ContentB
 
   const blockColumnCount = Math.max(
     block.table.headers.length,
-      ...block.table.rows.map((row: string[]) => row.length)
+    ...block.table.rows.map((row: string[]) => row.length)
   );
 
   return (
@@ -247,8 +301,8 @@ const MarkdownBlock = React.memo(({ block, messageId, index }: { block: ContentB
           </tr>
         </thead>
         <tbody>
-            {block.table.rows.map((row: string[], rowIndex: number) => (
-              <tr key={`${messageId}_tr_${index}_${rowIndex}`}>
+          {block.table.rows.map((row: string[], rowIndex: number) => (
+            <tr key={`${messageId}_tr_${index}_${rowIndex}`}>
               {Array.from({ length: blockColumnCount }, (_, colIndex: number) => (
                 <td key={`${messageId}_td_${index}_${rowIndex}_${colIndex}`}>
                   {renderInlineMarkdown(row[colIndex] || "")}
@@ -262,9 +316,23 @@ const MarkdownBlock = React.memo(({ block, messageId, index }: { block: ContentB
   );
 });
 
-const AssistantMessageContent = React.memo(({ message, sources }: { message: ChatMessage, sources: SourceReference[] }) => {
-  const blocks = useMemo(() => parseMarkdownContentBlocks(message.content || ""), [message.content]);
+const isThinkingContent = (content: string): boolean => {
+  const c = (content || "").trim();
+  const phases = [
+    "Reading strategy page",
+    "Using page context",
+    "Preparing answer",
+    "Preparing answer...",
+    "Analyzing your application...",
+    "Analyzing repository context...",
+    "Analyzing testcase results...",
+    "Analyzing data, please wait...",
+  ];
+  return phases.includes(c) || (c.endsWith("...") && c.length < 40);
+};
 
+const AssistantMessageContent = React.memo(({ message, sources }: { message: ChatMessage; sources: SourceReference[] }) => {
+  const blocks = useMemo(() => parseMarkdownContentBlocks(message.content || ""), [message.content]);
   const comparisonTable = useMemo(() => normalizeComparisonTable(message.details?.comparison_table), [message.details]);
   const hasMarkdownTable = blocks.some((block) => block.kind === "table");
 
@@ -318,7 +386,9 @@ const AssistantMessageContent = React.memo(({ message, sources }: { message: Cha
             <ul>
               {sources.map((s, i) => (
                 <li key={i} className="strategy-chat-source-item">
-                  <a href={s.url} target="_blank" rel="noopener noreferrer">{s.title}</a>
+                  <a href={s.url} target="_blank" rel="noopener noreferrer">
+                    {s.title}
+                  </a>
                   {s.excerpt && <p className="source-excerpt">{s.excerpt}</p>}
                 </li>
               ))}
@@ -339,88 +409,146 @@ function makeStorageKey(repoUrl?: string | null) {
   return `${STORAGE_KEY_PREFIX}_${repoId}`;
 }
 
-export default function FloatingChatbot() {
-  const { repoUrl, strategyContext } = useChatbot();
-  const assistantName = "JavaApex Assistant";
+interface DynamicRobotHeroProps {
+  activeTheme?: "blue" | "purple" | "green" | "orange";
+}
 
-  const AssistantLogo: React.FC<{ size?: number; className?: string }> = ({ size = 46, className }) => {
-    const idSuffix = useId().replace(/:/g, "");
-    const orbId = `assistant_orb_${idSuffix}`;
-    const glowId = `assistant_glow_${idSuffix}`;
-    const sparkleId = `assistant_sparkle_${idSuffix}`;
+const DynamicRobotHero: React.FC<DynamicRobotHeroProps> = ({ activeTheme = "blue" }) => {
+  const [tilt, setTilt] = useState({ x: 0, y: 0, active: false });
+  const [bouncing, setBouncing] = useState(false);
+  const [showSpeech, setShowSpeech] = useState(false);
+  const speechTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    return (
-      <svg
-        className={className}
-        width={size}
-        height={size}
-        viewBox="0 0 96 96"
-        fill="none"
-        aria-hidden
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        <defs>
-          <radialGradient id={orbId} cx="0.28" cy="0.22" r="0.92">
-            <stop offset="0" stopColor="#FF8BE8" />
-            <stop offset="0.34" stopColor="#C66BFF" />
-            <stop offset="0.68" stopColor="#6484FF" />
-            <stop offset="1" stopColor="#2A86FF" />
-          </radialGradient>
-          <radialGradient id={glowId} cx="0.34" cy="0.28" r="0.8">
-            <stop offset="0" stopColor="#FFFFFF" stopOpacity="1" />
-            <stop offset="0.38" stopColor="#FFFFFF" stopOpacity="0.52" />
-            <stop offset="1" stopColor="#FFFFFF" stopOpacity="0" />
-          </radialGradient>
-          <linearGradient id={sparkleId} x1="28" y1="28" x2="68" y2="68" gradientUnits="userSpaceOnUse">
-            <stop offset="0" stopColor="#FFFFFF" />
-            <stop offset="1" stopColor="#FFFFFF" stopOpacity="0.92" />
-          </linearGradient>
-        </defs>
-        <circle cx="48" cy="48" r="39" fill={`url(#${orbId})`} />
-        <circle cx="48" cy="48" r="31" fill={`url(#${glowId})`} opacity="0.95" />
-        <circle cx="38" cy="32" r="11" fill="#FFFFFF" opacity="0.18" />
-        <circle cx="61" cy="62" r="9" fill="#FFFFFF" opacity="0.1" />
-        <path
-          d="M48 25.5c1.2 3.2 2.7 5.4 4.8 6.6 2.1 1.2 4.4 1.8 7 1.8-2.6 0-4.9.6-7 1.8-2.1 1.2-3.6 3.4-4.8 6.6-1.2-3.2-2.7-5.4-4.8-6.6-2.1-1.2-4.4-1.8-7-1.8 2.6 0 4.9-.6 7-1.8 2.1-1.2 3.6-3.4 4.8-6.6Z"
-          fill={`url(#${sparkleId})`}
-          opacity="0.98"
-        />
-        <path
-          d="M34.5 40.5c.9 2.3 1.9 3.9 3.4 4.8 1.5.8 3.1 1.2 5 1.2-1.9 0-3.5.4-5 1.2-1.5.8-2.5 2.4-3.4 4.8-.9-2.3-1.9-3.9-3.4-4.8-1.5-.8-3.1-1.2-5-1.2 1.9 0 3.5-.4 5-1.2 1.5-.8 2.5-2.4 3.4-4.8Z"
-          fill={`url(#${sparkleId})`}
-          opacity="0.95"
-        />
-        <path
-          d="M52.2 46.2c.5 1.2 1 2 1.8 2.5.8.4 1.7.6 2.7.6-1 0-1.9.2-2.7.6-.8.5-1.3 1.3-1.8 2.5-.5-1.2-1-2-1.8-2.5-.8-.4-1.7-.6-2.7-.6 1 0 1.9-.2 2.7-.6.8-.5 1.3-1.3 1.8-2.5Z"
-          fill={`url(#${sparkleId})`}
-          opacity="1"
-        />
-      </svg>
-    );
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left - rect.width / 2;
+    const y = e.clientY - rect.top - rect.height / 2;
+    const rotateX = -(y / (rect.height / 2)) * 12;
+    const rotateY = (x / (rect.width / 2)) * 12;
+    setTilt({ x: rotateX, y: rotateY, active: true });
   };
 
-  // Rotating descriptive messages for the answer phase
-  const AnimatedRetrieving: React.FC = () => {
-    const messages = [
-      "Reading strategy page",
-      "Using page context",
-      "Preparing answer",
-    ];
-    const [idx, setIdx] = useState(0);
-    useEffect(() => {
-      const t = setInterval(() => setIdx((i) => (i + 1) % messages.length), 800);
-      return () => clearInterval(t);
-    }, [messages.length]);
+  const handleMouseLeave = () => {
+    setTilt({ x: 0, y: 0, active: false });
+  };
+
+  const handleClick = () => {
+    setBouncing(true);
+    setShowSpeech(true);
+    if (speechTimerRef.current) clearTimeout(speechTimerRef.current);
+    speechTimerRef.current = setTimeout(() => {
+      setShowSpeech(false);
+      setBouncing(false);
+    }, 2000);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (speechTimerRef.current) clearTimeout(speechTimerRef.current);
+    };
+  }, []);
+
+  return (
+    <div
+      className="strategy-chat-hero-image-container"
+      onMouseMove={handleMouseMove}
+      onMouseLeave={handleMouseLeave}
+      onClick={handleClick}
+      title="Click to interact with JavaApex Assistant!"
+    >
+      <div className={`strategy-robot-aura strategy-robot-aura-${activeTheme}`} />
+
+      <svg
+        className="strategy-robot-orbits"
+        viewBox="0 0 200 140"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+        aria-hidden
+      >
+        <ellipse
+          cx="100"
+          cy="70"
+          rx="86"
+          ry="32"
+          stroke="url(#orbitGrad1)"
+          strokeWidth="1.2"
+          strokeDasharray="4 6"
+          className="strategy-robot-orbit-ring"
+        />
+        <ellipse
+          cx="100"
+          cy="70"
+          rx="70"
+          ry="24"
+          stroke="url(#orbitGrad2)"
+          strokeWidth="1"
+          strokeDasharray="3 5"
+          className="strategy-robot-orbit-ring-reverse"
+        />
+        <defs>
+          <linearGradient id="orbitGrad1" x1="14" y1="38" x2="186" y2="102" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stopColor="#38bdf8" stopOpacity="0.8" />
+            <stop offset="50%" stopColor="#818cf8" stopOpacity="0.3" />
+            <stop offset="100%" stopColor="#3b82f6" stopOpacity="0.8" />
+          </linearGradient>
+          <linearGradient id="orbitGrad2" x1="30" y1="46" x2="170" y2="94" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stopColor="#a855f7" stopOpacity="0.7" />
+            <stop offset="100%" stopColor="#06b6d4" stopOpacity="0.7" />
+          </linearGradient>
+        </defs>
+        <circle cx="24" cy="64" r="2.5" fill="#38bdf8" className="strategy-robot-sparkle" />
+        <circle cx="176" cy="76" r="2" fill="#818cf8" className="strategy-robot-sparkle" style={{ animationDelay: "0.8s" }} />
+        <circle cx="138" cy="44" r="1.8" fill="#3b82f6" className="strategy-robot-sparkle" style={{ animationDelay: "1.4s" }} />
+        <circle cx="62" cy="96" r="2.2" fill="#06b6d4" className="strategy-robot-sparkle" style={{ animationDelay: "2s" }} />
+      </svg>
+
+      <div
+        className={`strategy-robot-figure ${tilt.active ? "" : "strategy-robot-floating"} ${bouncing ? "strategy-robot-bounce" : ""}`}
+        style={
+          tilt.active
+            ? {
+                transform: `rotateX(${tilt.x}deg) rotateY(${tilt.y}deg) scale(1.04)`,
+              }
+            : undefined
+        }
+      >
+        <img src="/robot-assistant.jpg" alt="JavaApex Assistant" />
+      </div>
+
+      {showSpeech && (
+        <div className="strategy-robot-speech-bubble">
+          👋 Ready to modernize your Java stack!
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default function FloatingChatbot() {
+  const { repoUrl, strategyContext, projectContext, appContext } = useChatbot();
+  const assistantName = "JavaApex Assistant";
+
+  // Thinking indicator component with subtle animation
+  const AnimatedRetrieving: React.FC<{ label?: string }> = ({ label = "Preparing answer..." }) => {
     return (
-      <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
-          <circle cx="12" cy="12" r="10" stroke="#93c5fd" strokeWidth="2" opacity="0.18" />
-          <path d="M22 12a10 10 0 0 0-10-10" stroke="#2563eb" strokeWidth="2" strokeLinecap="round" />
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="strategy-chat-spin" style={{ color: "#3b82f6" }}>
+          <circle cx="12" cy="2" r="2.5" fill="currentColor" opacity="1" />
+          <circle cx="19" cy="5" r="2.5" fill="currentColor" opacity="0.8" />
+          <circle cx="22" cy="12" r="2.5" fill="currentColor" opacity="0.6" />
+          <circle cx="19" cy="19" r="2.5" fill="currentColor" opacity="0.4" />
+          <circle cx="12" cy="22" r="2.5" fill="currentColor" opacity="0.2" />
+          <circle cx="5" cy="19" r="2.5" fill="currentColor" opacity="0.2" />
+          <circle cx="2" cy="12" r="2.5" fill="currentColor" opacity="0.2" />
+          <circle cx="5" cy="5" r="2.5" fill="currentColor" opacity="0.2" />
         </svg>
-        <span style={{ color: "#475569" }}>{messages[idx]}</span>
+        <span style={{ color: "#0f172a", fontWeight: 500, fontSize: "14px", whiteSpace: "nowrap" }}>
+          {label}
+        </span>
       </span>
     );
   };
+
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
   const [hovered, setHovered] = useState(false);
@@ -434,8 +562,8 @@ export default function FloatingChatbot() {
   const abortedByUserRef = useRef(false);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [isAutoScrolling, setIsAutoScrolling] = useState(true);
+  const [heroTheme, setHeroTheme] = useState<"blue" | "purple" | "green" | "orange">("blue");
 
-  // Map of assistant message ID to its source references
   const [sourcesMap, setSourcesMap] = useState<Record<string, SourceReference[]>>({});
 
   const storageKey = makeStorageKey(repoUrl);
@@ -464,20 +592,10 @@ export default function FloatingChatbot() {
   const handleScroll = useCallback(() => {
     if (!scrollContainerRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
-
-    // We are at the bottom if we're within 50px of the actual bottom
     const isAtBottom = scrollHeight - scrollTop - clientHeight < 50;
 
-    setIsAutoScrolling((prev) => {
-        if (prev === isAtBottom) return prev;
-        return isAtBottom;
-    });
-
-    setShowScrollButton((prev) => {
-        const shouldShow = !isAtBottom;
-        if (prev === shouldShow) return prev;
-        return shouldShow;
-    });
+    setIsAutoScrolling((prev) => (prev === isAtBottom ? prev : isAtBottom));
+    setShowScrollButton((prev) => (prev === !isAtBottom ? prev : !isAtBottom));
   }, []);
 
   useEffect(() => {
@@ -488,217 +606,136 @@ export default function FloatingChatbot() {
 
   useEffect(() => {
     if (open) {
-        // initial scroll when opened
-        setTimeout(() => scrollToBottom("auto"), 100);
+      setTimeout(() => {
+        scrollToBottom("auto");
+        textareaRef.current?.focus();
+      }, 100);
     }
   }, [open]);
 
-  // persist lastSeenAt when panel opens or messages are read
-  
-
   const addMessage = (msg: ChatMessage) => setMessages((m) => [...m, msg]);
 
-  const handleSend = async (overrideText?: string) => {
-    const text = (overrideText ?? input).trim();
-    if (!text) return;
-    const userMsg: ChatMessage = {
+  const handleSend = async (textToSend?: string) => {
+    const text = (typeof textToSend === "string" ? textToSend : input).trim();
+    if (!text || sending) return;
+
+    // Cache input in case of immediate dispatch error
+    const prevInput = input;
+    setInput("");
+    setOpen(true);
+    setSending(true);
+
+    const userMessage: ChatMessage = {
       id: `u_${Date.now()}`,
       role: "user",
       content: text,
       createdAt: new Date().toISOString(),
     };
-    addMessage(userMsg);
-    setInput("");
-    setOpen(true);
-    setSending(true);
+    addMessage(userMessage);
+
+    // Initial contextual thinking label
+    const initialThinking = determineThinkingState(text);
 
     const assistantPlaceholder: ChatMessage = {
       id: `a_${Date.now()}`,
       role: "assistant",
-      content: "",
+      content: initialThinking,
       createdAt: new Date().toISOString(),
     };
     addMessage(assistantPlaceholder);
 
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    abortedByUserRef.current = false;
+
+    let streamedBuffer = "";
+
     try {
-      // Use POST streaming endpoint that emits SSE-like events
-      const url = `${API_BASE_URL}/strategy/query/stream`;
-      const controller = new AbortController();
-      abortControllerRef.current = controller;
-      abortedByUserRef.current = false;
-
-      // Filter out technical phase messages and limit to last 3 rounds (6 messages)
-      const chatHistory = messages
-        .filter((m) => {
-          const content = (m.content || "").toString();
-          const phaseStates = ["Reading strategy page", "Using page context", "Preparing answer"];
-          return !phaseStates.includes(content) && content.trim().length > 0;
-        })
-        .slice(-6)
-        .map((m) => ({
-          role: m.role,
-          content: m.content,
-        }));
-
-      const resp = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          repo_url: repoUrl || undefined,
-          question: text,
-          strategy_context: strategyContext || undefined,
-          history: chatHistory,
-        }),
-        signal: controller.signal,
-      });
-
-      if (!resp.ok || !resp.body) {
-        // fallback to non-streaming if available
-        throw new Error(`Streaming request failed: ${resp.status} ${resp.statusText}`);
-      }
-
-      const reader = resp.body.getReader();
-      const decoder = new TextDecoder("utf-8");
-      let buffer = "";
-
-      const flushEvent = (raw: string) => {
-        const lines = raw.split("\n");
-        let event: string | null = null;
-        const dataLines: string[] = [];
-        for (const ln of lines) {
-          if (ln.startsWith("event:")) {
-            event = ln.replace(/^event:\s*/, "").trim();
-          } else if (ln.startsWith("data:")) {
-            dataLines.push(ln.replace(/^data:\s*/, ""));
-          }
-        }
-        if (dataLines.length === 0) return;
-        try {
-          const payload = JSON.parse(dataLines.join("\n"));
-          if (event === "phase") {
-            const msg = payload?.message || payload?.phase || "...";
-            setMessages((prev) => prev.map((m) => (m.id === assistantPlaceholder.id ? { ...m, content: msg } : m)));
-          } else if (event === "references") {
-            const sources = payload?.sources || [];
-            if (sources.length) {
-              setSourcesMap((prev) => ({ ...prev, [assistantPlaceholder.id]: sources }));
-            }
-          } else if (event === "chunk") {
-            const chunk = payload?.chunk || payload?.text || "";
-            if (chunk) {
-              setMessages((prev) =>
-                prev.map((m) => {
-                  if (m.id !== assistantPlaceholder.id) return m;
-                  const phaseStates = ["Reading strategy page", "Using page context", "Preparing answer"];
-                  const current = (m.content || "").toString();
-                  const base = phaseStates.includes(current) ? "" : current;
-                  return { ...m, content: `${base}${chunk}`.replace(/\s{2,}/g, " ") };
-                })
-              );
-            }
-          } else if (event === "final") {
-            const parsed = payload?.parsed || {};
-            const details = payload?.details || {};
-            const answer = parsed.answer || payload?.parsed?.answer || payload?.answer || "";
-            const rationale = parsed.rationale || parsed.reasons || [];
-            const comparisonTable = normalizeComparisonTable(details?.comparison_table || parsed?.comparison_table);
-            // Extract source references from the payload
-            const sources: SourceReference[] = payload?.sources || [];
-            setMessages((prev) =>
-              prev.map((m) => {
-                if (m.id !== assistantPlaceholder.id) return m;
-                // Preserve streamed content if it's longer and non-empty
-                const phaseStates = ["Reading strategy page", "Using page context", "Preparing answer"];
-                const current = (m.content || "").toString();
-                const isPhase = phaseStates.includes(current);
-                const finalContent = answer
-                  ? ((!isPhase && current.length > answer.length) ? current : answer)
-                  : (isPhase ? "..." : current || "...");
-                return {
-                  ...m,
-                  content: finalContent,
-                  rationale,
-                  comparisonTable,
-                  details: {
-                    ...(details as Record<string, unknown>),
-                    parsed,
-                    comparison_table: comparisonTable,
-                  },
-                };
-              })
-            );
-            // Store sources associated with this assistant message
-            if (sources.length) {
-              setSourcesMap((prev) => ({ ...prev, [assistantPlaceholder.id]: sources }));
-            }
-          } else if (event === "error") {
-            const errMsg = payload?.message || JSON.stringify(payload);
-            // Map known technical errors to user-friendly messages
-            let displayMsg = errMsg;
-            if (
-              errMsg.includes("Local Ollama server could not be reached") ||
-              errMsg.includes("OLLAMA_UNAVAILABLE") ||
-              errMsg.includes("ollama serve")
-            ) {
-              displayMsg =
-                "⚠️ The local AI service is unavailable. Please start Ollama: run `ollama serve` in a terminal, then try again.";
-            } else if (errMsg.includes("OLLAMA_MODEL_NOT_FOUND") || errMsg.includes("ollama pull")) {
-              displayMsg = `⚠️ The required AI model is not installed. ${errMsg}`;
-            } else if (errMsg.includes("OLLAMA_TIMEOUT")) {
-              displayMsg = "⚠️ The AI model took too long to respond. It may still be loading — please wait and try again.";
-            } else if (errMsg.includes("All configured LLM providers failed")) {
-              displayMsg =
-                "⚠️ Both the primary and fallback AI services are unavailable. Please check your network connection or start Ollama (`ollama serve`).";
-            } else if (
-              errMsg.includes("CHAT_LLM_NOT_CONFIGURED") ||
-              errMsg.includes("No chat model is available")
-            ) {
-              displayMsg =
-                "⚠️ No AI model is configured. Please set LLM_2 in the backend .env or run a local Ollama server.";
-            }
+      const result = await sendMessage({
+        question: text,
+        repoUrl,
+        strategyContext,
+        projectContext,
+        appContext,
+        history: [...messages, userMessage],
+        onPhase: (phase) => {
+          if (!streamedBuffer) {
             setMessages((prev) =>
               prev.map((m) =>
-                m.id === assistantPlaceholder.id ? { ...m, content: `Error: ${displayMsg}` } : m
+                m.id === assistantPlaceholder.id ? { ...m, content: phase } : m
               )
             );
           }
-        } catch {
-          // ignore parse errors
-        }
-      };
+        },
+        onReferences: (sources) => {
+          if (sources.length > 0) {
+            setSourcesMap((prev) => ({ ...prev, [assistantPlaceholder.id]: sources }));
+          }
+        },
+        onChunk: (chunk) => {
+          streamedBuffer += chunk;
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantPlaceholder.id ? { ...m, content: streamedBuffer } : m
+            )
+          );
+        },
+        signal: controller.signal,
+      });
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        let idx = buffer.indexOf("\n\n");
-        while (idx !== -1) {
-          const raw = buffer.slice(0, idx).trim();
-          if (raw) flushEvent(raw);
-          buffer = buffer.slice(idx + 2);
-          idx = buffer.indexOf("\n\n");
-        }
+      setMessages((prev) =>
+        prev.map((m) => {
+          if (m.id !== assistantPlaceholder.id) return m;
+          return {
+            ...m,
+            content: result.answer || streamedBuffer || "...",
+            rationale: result.rationale,
+            comparisonTable: result.comparisonTable,
+          };
+        })
+      );
+
+      if (result.sources && result.sources.length > 0) {
+        setSourcesMap((prev) => ({ ...prev, [assistantPlaceholder.id]: result.sources! }));
       }
+    } catch (err: unknown) {
+      const aborted =
+        abortedByUserRef.current ||
+        (err instanceof Error && (err.name === "AbortError" || err.message === "AbortError"));
 
-      // flush remaining
-      if (buffer.trim()) flushEvent(buffer.trim());
-    } catch (err) {
-      // handle abort vs other errors
-      const aborted = abortedByUserRef.current || (err instanceof Error && err.name === "AbortError");
       if (aborted) {
-        const stopText = `Stopped by user.`;
-        setMessages((prev) => prev.map((m) => (m.id === assistantPlaceholder.id ? { ...m, content: stopText } : m)));
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantPlaceholder.id
+              ? { ...m, content: streamedBuffer || "Response stopped by user." }
+              : m
+          )
+        );
       } else {
-        const errorText = `Error: ${err instanceof Error ? err.message : String(err)}`;
-        setMessages((prev) => prev.map((m) => (m.id === assistantPlaceholder.id ? { ...m, content: errorText } : m)));
+        // Graceful error display without exposing technical stack traces or tokens
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantPlaceholder.id
+              ? {
+                  ...m,
+                  content:
+                    "I couldn't complete that request right now. Please try asking again or select one of the quick actions.",
+                }
+              : m
+          )
+        );
+        // Preserve user input text if nothing was streamed
+        if (!streamedBuffer) {
+          setInput(prevInput);
+        }
       }
     } finally {
       setSending(false);
-      try {
-        abortControllerRef.current = null;
-        abortedByUserRef.current = false;
-      } catch { /* ignore */ }
+      abortControllerRef.current = null;
+      abortedByUserRef.current = false;
+      setTimeout(() => {
+        textareaRef.current?.focus();
+      }, 50);
     }
   };
 
@@ -708,14 +745,15 @@ export default function FloatingChatbot() {
       abortedByUserRef.current = true;
       try {
         ctrl.abort();
-      } catch { /* ignore */ }
+      } catch {
+        // ignore
+      }
       setSending(false);
     }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
-      // Press Enter to send, Shift+Enter for newline
       e.preventDefault();
       void handleSend();
     }
@@ -725,205 +763,361 @@ export default function FloatingChatbot() {
     setMessages([]);
     try {
       localStorage.removeItem(storageKey);
-    } catch { /* ignore */ }
+    } catch {
+      // ignore
+    }
   };
-
-  const latestAssistantMessage = [...messages].reverse().find((message) => message.role === "assistant");
-  const showingTypingState =
-    sending ||
-    ["Reading strategy page", "Using page context", "Preparing answer"].includes(
-      (latestAssistantMessage?.content || "").toString()
-    );
 
   return (
     <div>
-      {/* Floating button */}
-      <button
+      {/* Floating launcher */}
+      <div className="strategy-chat-launcher-container">
+        {hovered && (
+          <div className="strategy-chat-launcher-tooltip">
+            {open ? "Close Assistant" : "✨ Ask JavaApex Assistant"}
+          </div>
+        )}
+        <button
           onClick={() => setOpen((v) => !v)}
           onMouseEnter={() => setHovered(true)}
           onMouseLeave={() => setHovered(false)}
-          aria-label="Open strategy chat"
-          title="Open JavaApex Assistant"
-          style={{
-            position: "fixed",
-            right: 20,
-            bottom: 20,
-            width: 60,
-            height: 60,
-            borderRadius: 30,
-            background: "transparent",
-            border: "none",
-            boxShadow: hovered ? "0 10px 30px rgba(2,6,23,0.28)" : "0 6px 20px rgba(2,6,23,0.2)",
-            cursor: "pointer",
-            zIndex: 1100,
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-            transition: "transform 160ms ease, box-shadow 160ms ease",
-            transform: hovered ? "scale(1.06) rotate(-6deg)" : "none",
-            padding: 0,
-          }}
+          aria-label={open ? "Close JavaApex Assistant" : "Open JavaApex Assistant"}
+          title={open ? "Close JavaApex Assistant" : "Open JavaApex Assistant"}
+          className={`strategy-chat-launcher-btn ${open ? "strategy-chat-launcher-open" : ""}`}
         >
-          <AssistantLogo size={34} />
+          <span className="strategy-chat-launcher-halo" aria-hidden />
+          {!open && <span className="strategy-chat-launcher-radar" aria-hidden />}
+
+          {open ? (
+            <span className="strategy-chat-launcher-close-icon">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </span>
+          ) : (
+            <>
+              <div className="strategy-chat-launcher-avatar-wrap">
+                <img src="/robot-assistant.jpg" alt="JavaApex Robot" className="strategy-chat-launcher-avatar" />
+              </div>
+              <span className="strategy-chat-launcher-sparkle" aria-hidden>✨</span>
+              <span className="strategy-chat-launcher-badge" aria-hidden title="Online" />
+            </>
+          )}
         </button>
+      </div>
 
       {/* Chat panel */}
       <div
-          ref={panelRef}
-          className="strategy-chat-panel"
-          style={{
-            position: "fixed",
-            right: 20,
-            left: "auto",
-            bottom: 100,
-            top: "auto",
-            width: 600,
-            height: 700,
-            maxWidth: "calc(100vw - 40px)",
-            maxHeight: "calc(100vh - 120px)",
-            zIndex: 1100,
-            display: "flex",
-            flexDirection: "column",
-            overflow: "hidden",
-            transition: "opacity 300ms ease, transform 300ms cubic-bezier(0.175, 0.885, 0.32, 1.275), visibility 300ms",
-            transformOrigin: "bottom right",
-            ...(!open ? {
+        ref={panelRef}
+        className="strategy-chat-panel"
+        style={{
+          position: "fixed",
+          right: 20,
+          left: "auto",
+          bottom: 95,
+          top: "auto",
+          width: 520,
+          height: 640,
+          maxWidth: "calc(100vw - 32px)",
+          maxHeight: "calc(100vh - 110px)",
+          zIndex: 1100,
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+          transition: "opacity 300ms ease, transform 300ms cubic-bezier(0.175, 0.885, 0.32, 1.275), visibility 300ms",
+          transformOrigin: "bottom right",
+          ...(!open
+            ? {
                 opacity: 0,
                 transform: "scale(0.85) translateY(20px)",
                 visibility: "hidden",
-                pointerEvents: "none"
-            } : {
+                pointerEvents: "none",
+              }
+            : {
                 opacity: 1,
                 transform: "scale(1) translateY(0)",
                 visibility: "visible",
-                pointerEvents: "auto"
-            })
-          }}
-        >
-          <div className="strategy-chat-header">
-            <div className="strategy-chat-brand">
-              <div className="strategy-chat-avatar" aria-hidden>
-                <AssistantLogo size={54} className="strategy-chat-avatar-image" />
+                pointerEvents: "auto",
+              }),
+        }}
+      >
+        {/* Header */}
+        <div className="strategy-chat-header">
+          <div className="strategy-chat-brand">
+            <div className="strategy-chat-avatar" aria-hidden>
+              <div className="strategy-chat-avatar-img-wrap">
+                <img src="/robot-assistant.jpg" alt="JavaApex Robot" className="strategy-chat-avatar-photo" />
               </div>
-              <div style={{ minWidth: 0 }}>
-                <div className="strategy-chat-title">{assistantName}</div>
-              </div>
+              <span className="strategy-chat-online-indicator" />
             </div>
-            <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-              <button onClick={clearHistory} title="Clear history" style={{ border: "none", background: "transparent", cursor: "pointer", color: "#6b7280", padding: 6 }}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M3 6h18" stroke="#6b7280" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M8 6v12a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2V6" stroke="#6b7280" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M10 11v6" stroke="#6b7280" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M14 11v6" stroke="#6b7280" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-              </button>
-              <button onClick={() => setOpen(false)} title="Close" style={{ border: "none", background: "transparent", cursor: "pointer", color: "#6b7280", padding: 6 }}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M18 6L6 18M6 6l12 12" stroke="#6b7280" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
-              </button>
+            <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: "2px" }}>
+              <div className="strategy-chat-title">{assistantName}</div>
+              <div className="strategy-chat-subtitle">Online and ready to help</div>
             </div>
           </div>
+          <div className="strategy-chat-header-actions">
+            <button onClick={clearHistory} title="Clear history" className="strategy-chat-header-btn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 6h18" />
+                <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                <line x1="10" y1="11" x2="10" y2="17" />
+                <line x1="14" y1="11" x2="14" y2="17" />
+              </svg>
+            </button>
+            <button onClick={() => setOpen(false)} title="Close" className="strategy-chat-header-btn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
+        </div>
 
-          <div className="strategy-chat-body" ref={scrollContainerRef} onScroll={handleScroll}>
-            <div className="strategy-chat-canvas">
-              {showingTypingState && (
-                <div className="strategy-chat-status">
-                  <span className="strategy-chat-status-spinner" aria-hidden>
-                    <span />
-                  </span>
-                  <span>Analyzing data, please wait...</span>
+        {/* Body */}
+        <div className="strategy-chat-body" ref={scrollContainerRef} onScroll={handleScroll}>
+          <div className="strategy-chat-canvas">
+            {messages.length === 0 ? (
+              <div className="strategy-chat-hero">
+                <DynamicRobotHero activeTheme={heroTheme} />
+                <div className="strategy-chat-hero-title">
+                  Hi! I'm <span style={{ color: "#2563eb" }}>JavaApex</span> Assistant
                 </div>
-              )}
+                <div className="strategy-chat-hero-subtitle">
+                  Ask me anything about your migration, code, dependencies, or modernization journey.
+                </div>
+                <div className="strategy-chat-hero-suggestions">
+                  <button
+                    type="button"
+                    className="strategy-chat-suggestion-card"
+                    onClick={() =>
+                      void handleSend(
+                        "Explain the important parts of my application and identify the main components."
+                      )
+                    }
+                    onMouseEnter={() => setHeroTheme("blue")}
+                    onMouseLeave={() => setHeroTheme("blue")}
+                  >
+                    <div className="strategy-chat-suggestion-icon" style={{ background: "#eff6ff", color: "#2563eb" }}>
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="16 18 22 12 16 6"></polyline>
+                        <polyline points="8 6 2 12 8 18"></polyline>
+                      </svg>
+                    </div>
+                    <div className="strategy-chat-suggestion-text">
+                      <strong>Explain Code</strong>
+                      <span>Architecture & components</span>
+                    </div>
+                    <div className="strategy-chat-suggestion-arrow">›</div>
+                  </button>
 
-              {messages.length === 0 ? (
-                <div className="strategy-chat-empty-state" aria-live="polite">
-                  <div className="strategy-chat-empty-state-badge">Chat ready</div>
+                  <button
+                    type="button"
+                    className="strategy-chat-suggestion-card"
+                    onClick={() =>
+                      void handleSend(
+                        "Analyze the dependencies detected in my project and identify compatibility or migration concerns."
+                      )
+                    }
+                    onMouseEnter={() => setHeroTheme("purple")}
+                    onMouseLeave={() => setHeroTheme("blue")}
+                  >
+                    <div className="strategy-chat-suggestion-icon" style={{ background: "#faf5ff", color: "#9333ea" }}>
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+                        <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
+                        <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
+                      </svg>
+                    </div>
+                    <div className="strategy-chat-suggestion-text">
+                      <strong>Dependencies</strong>
+                      <span>Frameworks & bytecode</span>
+                    </div>
+                    <div className="strategy-chat-suggestion-arrow">›</div>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="strategy-chat-suggestion-card"
+                    onClick={() =>
+                      void handleSend(
+                        "Based on the current migration findings, what fixes should I prioritize?"
+                      )
+                    }
+                    onMouseEnter={() => setHeroTheme("green")}
+                    onMouseLeave={() => setHeroTheme("blue")}
+                  >
+                    <div className="strategy-chat-suggestion-icon" style={{ background: "#f0fdf4", color: "#16a34a" }}>
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M9 18h6"></path>
+                        <path d="M10 22h4"></path>
+                        <path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14"></path>
+                      </svg>
+                    </div>
+                    <div className="strategy-chat-suggestion-text">
+                      <strong>Suggest Fixes</strong>
+                      <span>Prioritized remediation</span>
+                    </div>
+                    <div className="strategy-chat-suggestion-arrow">›</div>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="strategy-chat-suggestion-card"
+                    onClick={() =>
+                      void handleSend(
+                        "What migration insights should be included in the migration report?"
+                      )
+                    }
+                    onMouseEnter={() => setHeroTheme("orange")}
+                    onMouseLeave={() => setHeroTheme("blue")}
+                  >
+                    <div className="strategy-chat-suggestion-icon" style={{ background: "#fff7ed", color: "#ea580c" }}>
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                        <polyline points="14 2 14 8 20 8"></polyline>
+                        <line x1="16" y1="13" x2="8" y2="13"></line>
+                        <line x1="16" y1="17" x2="8" y2="17"></line>
+                        <polyline points="10 9 9 9 8 9"></polyline>
+                      </svg>
+                    </div>
+                    <div className="strategy-chat-suggestion-text">
+                      <strong>Migration Report</strong>
+                      <span>Executive insights</span>
+                    </div>
+                    <div className="strategy-chat-suggestion-arrow">›</div>
+                  </button>
                 </div>
-              ) : (
-                <div className="strategy-chat-messages">
-                  {messages.map((m) => (
-                    <div
-                      key={m.id}
-                      className={`strategy-chat-row ${m.role === "user" ? "strategy-chat-row-user" : "strategy-chat-row-assistant"}`}
-                    >
-                      <div className="strategy-chat-message-stack">
-                        <div
-                          className={`strategy-chat-bubble ${
-                            m.role === "user" ? "strategy-chat-bubble-user" : "strategy-chat-bubble-assistant"
-                          }`}
-                        >
-                          {m.role === "assistant" &&
-                          ["Reading strategy page", "Using page context", "Preparing answer"].includes((m.content || "").toString()) ? (
-                            <AnimatedRetrieving />
-                          ) : (
-                            m.role === "assistant" ? (
-                              <AssistantMessageContent
-                                message={m}
-                                sources={sourcesMap[m.id] ?? []}
-                              />
-                            ) : m.content || ""
-                          )}
-                        </div>
+              </div>
+            ) : (
+              <div className="strategy-chat-messages">
+                {messages.map((m) => (
+                  <div
+                    key={m.id}
+                    className={`strategy-chat-row ${
+                      m.role === "user" ? "strategy-chat-row-user" : "strategy-chat-row-assistant"
+                    }`}
+                  >
+                    <div className="strategy-chat-message-stack">
+                      <div
+                        className={`strategy-chat-bubble ${
+                          m.role === "user"
+                            ? "strategy-chat-bubble-user"
+                            : "strategy-chat-bubble-assistant"
+                        }`}
+                      >
+                        {m.role === "assistant" && isThinkingContent(m.content) ? (
+                          <AnimatedRetrieving label={m.content} />
+                        ) : m.role === "assistant" ? (
+                          <AssistantMessageContent
+                            message={m}
+                            sources={sourcesMap[m.id] ?? []}
+                          />
+                        ) : (
+                          <div className="strategy-chat-user-content">
+                            <div className="strategy-chat-user-text">{m.content || ""}</div>
+                            <div className="strategy-chat-user-meta">
+                              <span className="strategy-chat-user-time">
+                                {new Date(m.createdAt || Date.now()).toLocaleTimeString([], {
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })}
+                              </span>
+                              <div className="strategy-chat-user-avatar">
+                                <svg viewBox="0 0 24 24" fill="currentColor">
+                                  <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
+                                </svg>
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
-                  ))}
-                  <div ref={messagesEndRef} />
-                </div>
-              )}
-            </div>
-            {showScrollButton && (
-              <button
-                className="strategy-chat-scroll-latest"
-                onClick={() => {
-                  setIsAutoScrolling(true);
-                  scrollToBottom("smooth");
-                }}
-                title="Scroll to latest"
-              >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
-                  <path d="M7 13l5 5 5-5M7 6l5 5 5-5" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-                <span>New messages</span>
-              </button>
+                  </div>
+                ))}
+                <div ref={messagesEndRef} />
+              </div>
             )}
           </div>
-
-          <div className="strategy-chat-composer-shell">
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (sending) {
-                  handleStop();
-                } else {
-                  void handleSend();
-                }
+          {showScrollButton && (
+            <button
+              className="strategy-chat-scroll-latest"
+              onClick={() => {
+                setIsAutoScrolling(true);
+                scrollToBottom("smooth");
               }}
-              className="strategy-chat-composer"
+              title="Scroll to latest"
             >
-              <textarea
-                ref={textareaRef}
-                placeholder="Ask your queries"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                rows={2}
-                className="strategy-chat-input"
-              />
-              <button
-                type="submit"
-                className={`strategy-chat-send ${sending ? "strategy-chat-send-stop" : ""}`}
-                aria-label={sending ? "Stop generation" : "Send question"}
-                title={sending ? "Stop generation" : "Send question"}
-              >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+                <path d="M7 13l5 5 5-5M7 6l5 5 5-5" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              <span>New messages</span>
+            </button>
+          )}
+        </div>
+
+        {/* Input Composer */}
+        <div className="strategy-chat-composer-shell">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (sending) {
+                handleStop();
+              } else {
+                void handleSend();
+              }
+            }}
+            className="strategy-chat-composer"
+          >
+            <div className="strategy-chat-composer-inner">
+              <button type="button" className="strategy-chat-attach" aria-label="Attach file">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+                </svg>
+              </button>
+              <div className="strategy-chat-input-wrapper">
+                <textarea
+                  ref={textareaRef}
+                  placeholder="Ask your queries..."
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  rows={1}
+                  className="strategy-chat-input"
+                />
+              </div>
+              {!input && <span className="strategy-chat-hint">Press Enter to send</span>}
+            </div>
+            <button
+              type="submit"
+              disabled={!input.trim() && !sending}
+              className={`strategy-chat-send ${sending ? "strategy-chat-send-stop" : ""}`}
+              aria-label={sending ? "Stop generation" : "Send question"}
+              title={sending ? "Stop generation" : "Send question"}
+            >
+              <span className="strategy-chat-send-icon-wrapper">
                 {sending ? (
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
                     <rect x="7" y="7" width="10" height="10" rx="2.2" fill="currentColor" />
                   </svg>
                 ) : (
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                    <path d="M5 12h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                    <path d="m12 5 7 7-7 7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                    <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
                   </svg>
                 )}
-              </button>
-            </form>
+              </span>
+            </button>
+          </form>
+          <div className="strategy-chat-footer">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+              <polyline points="9 12 11 14 15 10"></polyline>
+            </svg>
+            Your data stays secure and private.
           </div>
         </div>
+      </div>
     </div>
   );
 }

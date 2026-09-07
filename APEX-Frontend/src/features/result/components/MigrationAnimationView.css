@@ -1,0 +1,925 @@
+/* =======================================================
+   Java APEX - Migration Loader Horizontal Pipeline UI
+   ======================================================= */
+
+.migration-loader-card {
+  position: relative;
+  background: #ffffff;
+  border-radius: 24px;
+  border: 1px solid rgba(226, 232, 240, 0.85);
+  box-shadow: 0 10px 40px rgba(15, 23, 42, 0.04), 0 2px 10px rgba(15, 23, 42, 0.02);
+  padding: 28px 32px 24px;
+  width: 100%;
+  max-width: none;
+  height: auto;
+  min-height: calc(100vh - var(--header-height, 67px) - 24px);
+  min-height: calc(100dvh - var(--header-height, 67px) - 24px);
+  box-sizing: border-box;
+  overflow-x: hidden;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  margin-bottom: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  flex: 1;
+}
+
+@supports (justify-content: safe center) {
+  .migration-loader-card {
+    justify-content: safe center;
+  }
+}
+
+/* Background Wave Curves */
+.migration-bg-wave-tl {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 320px;
+  height: 260px;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.7;
+}
+
+.migration-bg-wave-bl {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 360px;
+  height: 240px;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.6;
+}
+
+.migration-bg-wave-br {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 340px;
+  height: 220px;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.5;
+}
+
+/* Top Right Dot Matrix */
+.migration-bg-dots {
+  position: absolute;
+  top: 32px;
+  right: 40px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Header Section */
+.migration-header-section {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  margin-bottom: 30px;
+}
+
+/* Java APEX Animated Logo (Cup + Wordmark) */
+:root {
+  --logo-blue: #1688ff;
+  --logo-indigo: #4f46e5;
+  --logo-violet: #6d3df5;
+}
+
+.migration-header-section .logo-stage {
+  position: relative;
+  width: auto;
+  max-width: 380px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  isolation: isolate;
+  margin: 0 auto 18px;
+  cursor: pointer;
+  user-select: none;
+}
+
+/* Very subtle glow behind the logo */
+.migration-header-section .logo-stage::before {
+  content: "";
+  position: absolute;
+  width: 220px;
+  height: 48px;
+  border-radius: 999px;
+  background: radial-gradient(
+    ellipse,
+    rgba(61, 126, 255, 0.16) 0%,
+    rgba(102, 61, 245, 0.06) 42%,
+    transparent 72%
+  );
+  filter: blur(16px);
+  opacity: 0;
+  animation: glowIn 0.9s ease-out 0.25s forwards;
+  z-index: -1;
+}
+
+.migration-header-section .logo {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: max-content;
+  height: 100%;
+}
+
+/* Cup */
+.migration-header-section .cup {
+  width: clamp(50px, 6vw, 62px);
+  height: auto;
+  max-height: 52px;
+  object-fit: contain;
+  flex: 0 0 auto;
+  display: block;
+  margin-right: -10px;
+  margin-top: 6px;
+  opacity: 0;
+  transform: translateY(20px) scale(0.72);
+  transform-origin: 50% 80%;
+  filter: drop-shadow(0 6px 12px rgba(40, 93, 190, 0.12));
+  animation:
+    cupEnter 0.75s cubic-bezier(.2,.9,.25,1.25) 0.05s forwards,
+    cupFloat 3.8s ease-in-out 0.9s infinite;
+}
+
+/* Java APEX wordmark */
+.migration-header-section .wordmark-wrap {
+  position: relative;
+  width: clamp(170px, 22vw, 215px);
+  height: auto;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  opacity: 0;
+  transform: translateX(18px) scale(0.95);
+  filter: blur(4px);
+  animation: wordmarkEnter 0.8s cubic-bezier(.18,.88,.25,1) 0.28s forwards;
+  overflow: hidden;
+}
+
+.migration-header-section .wordmark {
+  width: 100%;
+  height: auto;
+  display: block;
+  object-fit: contain;
+}
+
+/* Moving highlight over the wordmark */
+.migration-header-section .wordmark-wrap::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    105deg,
+    transparent 35%,
+    rgba(255,255,255,.85) 48%,
+    transparent 61%
+  );
+  background-size: 240% 100%;
+  background-position: 145% 0;
+  mix-blend-mode: screen;
+  opacity: 0;
+  animation:
+    shineIn 0.1s linear 1.15s forwards,
+    shineMove 2.5s cubic-bezier(.25,.7,.25,1) 1.2s infinite;
+}
+
+@keyframes cupEnter {
+  0% {
+    opacity: 0;
+    transform: translateY(20px) scale(0.72);
+  }
+  70% {
+    opacity: 1;
+    transform: translateY(-3px) scale(1.04);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes cupFloat {
+  0%, 100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-4px) rotate(-0.7deg);
+  }
+}
+
+@keyframes wordmarkEnter {
+  0% {
+    opacity: 0;
+    transform: translateX(18px) scale(0.95);
+    filter: blur(4px);
+  }
+  65% {
+    opacity: 1;
+    transform: translateX(-3px) scale(1.01);
+    filter: blur(0);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes glowIn {
+  from { opacity: 0; transform: scale(.75); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes shineIn {
+  to { opacity: .75; }
+}
+
+@keyframes shineMove {
+  0%   { background-position: 145% 0; }
+  45%  { background-position: -45% 0; }
+  100% { background-position: -45% 0; }
+}
+
+/* Replay animation by adding .replay to .logo-stage */
+.migration-header-section .logo-stage.replay .cup {
+  animation:
+    cupEnter 0.75s cubic-bezier(.2,.9,.25,1.25) 0.05s both,
+    cupFloat 3.8s ease-in-out 0.9s infinite;
+}
+
+.migration-header-section .logo-stage.replay .wordmark-wrap {
+  animation: wordmarkEnter 0.8s cubic-bezier(.18,.88,.25,1) 0.28s both;
+}
+
+/* Main Title: Modernizing {repoName} */
+.migration-modernizing-title {
+  font-size: 34px;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: -0.025em;
+  margin: 0 0 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.migration-title-purple {
+  color: #7c3aed;
+  font-weight: 800;
+}
+
+.migration-title-reponame {
+  color: #0f172a;
+  font-weight: 800;
+}
+
+.migration-repo-highlight {
+  color: #0f172a;
+  font-weight: 800;
+}
+
+/* Version Pill Badge: Java X → Java Y */
+.migration-version-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 7px 24px;
+  border-radius: 9999px;
+  background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 25%, #4f46e5 65%, #7c3aed 100%);
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 700;
+  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.35), 0 2px 6px rgba(37, 99, 235, 0.2);
+  margin-bottom: 16px;
+  letter-spacing: 0.01em;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.migration-version-pill:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.45);
+}
+
+.migration-version-arrow {
+  font-size: 15px;
+  line-height: 1;
+}
+
+/* Subtitle */
+.migration-header-subtitle {
+  font-size: 14.5px;
+  color: #64748b;
+  line-height: 1.55;
+  max-width: 500px;
+  margin: 0 auto;
+}
+
+/* Horizontal Pipeline Stepper */
+.migration-pipeline-wrap {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 920px);
+  max-width: 960px;
+  margin: 0 auto 30px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  box-sizing: border-box;
+}
+
+.migration-step-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  width: 124px;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.migration-node-circle-wrap {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.migration-node-circle {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+  z-index: 2;
+}
+
+/* Circle Colors by Step */
+.migration-circle-step-1 {
+  background: #e0f2fe;
+  color: #0284c7;
+}
+
+.migration-circle-step-2 {
+  background: #f3e8ff;
+  color: #9333ea;
+}
+
+.migration-circle-step-3 {
+  background: #dcfce7;
+  color: #16a34a;
+}
+
+.migration-circle-step-4 {
+  background: #fef3c7;
+  color: #d97706;
+}
+
+.migration-circle-step-5 {
+  background: #f1f5f9;
+  color: #94a3b8;
+}
+
+/* Step 5 active & completed vibrant styling */
+.migration-step-in-progress .migration-circle-step-5,
+.migration-step-completed .migration-circle-step-5 {
+  background: #eff6ff;
+  color: #2563eb;
+  border: 1.5px solid #bfdbfe;
+}
+
+/* Active Highlight Ring & Scaling for In-Progress Node */
+.migration-step-active .migration-node-circle,
+.migration-step-in-progress .migration-node-circle {
+  transform: scale(1.1);
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.2), 0 8px 22px rgba(37, 99, 235, 0.18);
+}
+
+.migration-step-in-progress .migration-circle-step-1 {
+  box-shadow: 0 0 0 4px rgba(2, 132, 199, 0.25), 0 8px 22px rgba(2, 132, 199, 0.22);
+}
+
+.migration-step-in-progress .migration-circle-step-2 {
+  box-shadow: 0 0 0 4px rgba(147, 51, 234, 0.25), 0 8px 22px rgba(147, 51, 234, 0.22);
+}
+
+.migration-step-in-progress .migration-circle-step-3 {
+  box-shadow: 0 0 0 4px rgba(22, 163, 74, 0.25), 0 8px 22px rgba(22, 163, 74, 0.22);
+}
+
+.migration-step-in-progress .migration-circle-step-4 {
+  box-shadow: 0 0 0 4px rgba(217, 119, 6, 0.25), 0 8px 22px rgba(217, 119, 6, 0.22);
+}
+
+.migration-step-in-progress .migration-circle-step-5 {
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.25), 0 8px 22px rgba(37, 99, 235, 0.22);
+}
+
+/* Concentric Active Dashed Orbit Ring */
+.migration-node-active-ring {
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 2px dashed;
+  pointer-events: none;
+  z-index: 3;
+  animation: orbitRingSpin 4s linear infinite;
+}
+
+.migration-ring-step-1 { border-color: #0284c7; }
+.migration-ring-step-2 { border-color: #9333ea; }
+.migration-ring-step-3 { border-color: #16a34a; }
+.migration-ring-step-4 { border-color: #d97706; }
+.migration-ring-step-5 { border-color: #2563eb; }
+
+@keyframes orbitRingSpin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Concentric Active Ripple Pulse */
+.migration-node-active-pulse {
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 1;
+  animation: activeNodeRipple 2.2s cubic-bezier(0.2, 0, 0.3, 1) infinite;
+}
+
+.migration-pulse-step-1 { background: rgba(2, 132, 199, 0.25); }
+.migration-pulse-step-2 { background: rgba(147, 51, 234, 0.25); }
+.migration-pulse-step-3 { background: rgba(22, 163, 74, 0.25); }
+.migration-pulse-step-4 { background: rgba(217, 119, 6, 0.25); }
+.migration-pulse-step-5 { background: rgba(37, 99, 235, 0.25); }
+
+@keyframes activeNodeRipple {
+  0% { transform: scale(1); opacity: 0.85; }
+  60% { transform: scale(1.4); opacity: 0; }
+  100% { transform: scale(1.4); opacity: 0; }
+}
+
+/* Icon Micro-Animations for In-Progress State */
+.migration-step-in-progress .icon-step-1 { animation: iconSearchSway 2.4s ease-in-out infinite; }
+.migration-step-in-progress .icon-step-2 { animation: iconDiagramPulse 2.4s ease-in-out infinite; }
+.migration-step-in-progress .icon-step-3 { animation: iconCodeBounce 2.4s ease-in-out infinite; }
+.migration-step-in-progress .icon-step-4 { animation: iconPencilWiggle 2.4s ease-in-out infinite; }
+.migration-step-in-progress .icon-step-5 { animation: iconDocFloat 2.4s ease-in-out infinite; }
+
+@keyframes iconSearchSway {
+  0%, 100% { transform: rotate(0deg) scale(1); }
+  25% { transform: rotate(-8deg) scale(1.08); }
+  75% { transform: rotate(8deg) scale(1.08); }
+}
+
+@keyframes iconDiagramPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.15); }
+}
+
+@keyframes iconCodeBounce {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.14); }
+}
+
+@keyframes iconPencilWiggle {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-10deg) translate(-1px, -1px); }
+  75% { transform: rotate(10deg) translate(1px, 1px); }
+}
+
+@keyframes iconDocFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2.5px); }
+}
+
+/* Pending Node Opacity */
+.migration-step-pending .migration-node-circle {
+  opacity: 0.75;
+}
+
+/* Completed Badge (top-right checkmark) with Pop-In Animation */
+.migration-node-check-badge {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.16);
+  z-index: 4;
+  animation: badgePopIn 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@keyframes badgePopIn {
+  0% { transform: scale(0); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.migration-badge-step-1 { background: #0284c7; }
+.migration-badge-step-2 { background: #9333ea; }
+.migration-badge-step-3 { background: #16a34a; }
+.migration-badge-step-4 { background: #d97706; }
+.migration-badge-step-5 { background: #2563eb; }
+
+/* Step Title Text (2 lines) */
+.migration-node-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.35;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* Step Status Subtext */
+.migration-node-status {
+  font-size: 12px;
+  margin-top: 4px;
+  font-weight: 500;
+}
+
+.migration-status-completed {
+  color: #64748b;
+}
+
+.migration-status-in-progress {
+  color: #2563eb;
+  font-weight: 700;
+}
+
+.migration-status-pending {
+  color: #94a3b8;
+}
+
+/* Connecting Lines Between Nodes */
+.migration-pipeline-line {
+  flex: 1;
+  height: 3px;
+  margin-top: 27px;
+  min-width: 20px;
+  border-radius: 999px;
+  position: relative;
+  overflow: hidden;
+  transition: background 0.4s ease, box-shadow 0.4s ease;
+}
+
+.migration-line-active-0 {
+  background: #38bdf8;
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.5);
+}
+
+.migration-line-active-1 {
+  background: #a855f7;
+  box-shadow: 0 0 8px rgba(168, 85, 247, 0.5);
+}
+
+.migration-line-active-2 {
+  background: #22c55e;
+  box-shadow: 0 0 8px rgba(34, 197, 94, 0.5);
+}
+
+.migration-line-active-3 {
+  background: #f59e0b;
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.5);
+}
+
+.migration-line-pending {
+  background: #e2e8f0;
+}
+
+/* Dynamic light packet stream flowing through active line */
+.migration-line-stream {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.95) 50%,
+    transparent 100%
+  );
+  width: 45%;
+  animation: lineStreamFlow 1.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.beam-0 { animation-delay: 0s; }
+.beam-1 { animation-delay: 0.35s; }
+.beam-2 { animation-delay: 0.7s; }
+.beam-3 { animation-delay: 1.05s; }
+
+@keyframes lineStreamFlow {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
+}
+
+/* Progress Bar Section */
+.migration-progressbar-row {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 720px);
+  max-width: 740px;
+  margin: 0 auto 20px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  box-sizing: border-box;
+}
+
+.migration-progressbar-track {
+  flex: 1;
+  height: 12px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  overflow: visible;
+  position: relative;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.migration-progressbar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #1d4ed8 0%, #2563eb 40%, #0284c7 75%, #38bdf8 100%);
+  position: relative;
+  transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 2px 10px rgba(37, 99, 235, 0.35);
+}
+
+/* Dynamic moving glossy light sheen */
+.migration-progressbar-shimmer {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.45) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: progressShimmer 2s linear infinite;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+@keyframes progressShimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Glowing beacon tip at leading edge */
+.migration-progressbar-glow-tip {
+  position: absolute;
+  top: 50%;
+  right: -3px;
+  width: 14px;
+  height: 14px;
+  transform: translateY(-50%);
+  border-radius: 50%;
+  background: #ffffff;
+  border: 2px solid #38bdf8;
+  box-shadow: 0 0 10px #38bdf8, 0 0 18px rgba(37, 99, 235, 0.8);
+  animation: tipPulse 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes tipPulse {
+  0% { transform: translateY(-50%) scale(0.9); box-shadow: 0 0 6px #38bdf8, 0 0 12px rgba(37, 99, 235, 0.6); }
+  100% { transform: translateY(-50%) scale(1.15); box-shadow: 0 0 12px #38bdf8, 0 0 22px rgba(37, 99, 235, 0.95); }
+}
+
+.migration-progressbar-label {
+  font-size: 19px;
+  font-weight: 800;
+  color: #1d4ed8;
+  font-variant-numeric: tabular-nums;
+  min-width: 48px;
+  text-align: right;
+  letter-spacing: -0.02em;
+}
+
+/* Sub-Task Status Pill Card */
+.migration-subtask-card {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: rgba(248, 250, 252, 0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 18px;
+  padding: 14px 24px;
+  width: min(100%, 540px);
+  max-width: 540px;
+  margin: 0 auto;
+  box-shadow: 0 4px 18px rgba(15, 23, 42, 0.03);
+  box-sizing: border-box;
+}
+
+.migration-ring-spinner {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 3.5px solid #e0f2fe;
+  border-top-color: #2563eb;
+  animation: migrationSpin 0.9s linear infinite;
+  flex-shrink: 0;
+}
+
+.migration-subtask-check-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #dcfce7;
+  border: 1.5px solid #86efac;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(34, 197, 94, 0.2);
+}
+
+@keyframes migrationSpin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.migration-subtask-divider {
+  width: 1px;
+  height: 26px;
+  background: rgba(203, 213, 225, 0.8);
+  flex-shrink: 0;
+}
+
+.migration-subtask-content {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+
+.migration-subtask-headline {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.migration-subtask-subtext {
+  font-size: 12px;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.migration-subtask-timer {
+  color: #2563eb;
+  font-weight: 600;
+}
+
+/* Footer Section */
+.migration-footer-quote {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 24px;
+  font-size: 12.5px;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.migration-footer-quote-line {
+  width: 32px;
+  height: 1px;
+  background: #cbd5e1;
+}
+
+.migration-footer-brand {
+  position: absolute;
+  bottom: 24px;
+  right: 36px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #475569;
+  letter-spacing: 0.06em;
+  user-select: none;
+}
+
+.migration-footer-brand .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.migration-footer-brand .dot-1 { background: #38bdf8; }
+.migration-footer-brand .dot-2 { background: #60a5fa; }
+.migration-footer-brand .dot-3 { background: #2563eb; }
+.migration-footer-brand .dot-4 { background: #1d4ed8; }
+
+.migration-footer-brand .brand-name {
+  margin-left: 6px;
+}
+
+/* Responsive adjustments */
+@media (max-width: 1200px) {
+  .migration-pipeline-wrap {
+    width: min(100%, 860px);
+  }
+  .migration-step-node {
+    width: 112px;
+  }
+}
+
+@media (max-width: 992px) {
+  .migration-modernizing-title {
+    font-size: 28px;
+  }
+  .migration-step-node {
+    width: 98px;
+  }
+  .migration-node-title {
+    font-size: 12px;
+  }
+  .migration-node-circle {
+    width: 46px;
+    height: 46px;
+    font-size: 16px;
+  }
+  .migration-node-circle-wrap {
+    width: 48px;
+    height: 48px;
+    margin-bottom: 8px;
+  }
+  .migration-pipeline-line {
+    margin-top: 24px;
+    min-width: 14px;
+  }
+}
+
+@media (max-width: 768px) {
+  .migration-loader-card {
+    padding: 20px 14px 18px;
+    min-height: calc(100vh - var(--header-height, 67px) - 20px);
+    min-height: calc(100dvh - var(--header-height, 67px) - 20px);
+  }
+  .migration-pipeline-wrap {
+    overflow-x: auto;
+    justify-content: flex-start;
+    padding-bottom: 8px;
+    gap: 12px;
+    width: 100%;
+  }
+  .migration-step-node {
+    width: 106px;
+    flex-shrink: 0;
+  }
+  .migration-pipeline-line {
+    min-width: 16px;
+  }
+  .migration-modernizing-title {
+    font-size: 22px;
+  }
+  .migration-footer-brand {
+    position: static;
+    margin-top: 20px;
+    justify-content: center;
+  }
+}

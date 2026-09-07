@@ -102,7 +102,39 @@ class RepositoryFileBrowser:
         target = self._resolve_target(root, relative_path)
 
         if not target.exists():
-            raise RepositoryPathNotFoundError()
+            filename = Path(relative_path).name
+            lower_name = filename.lower()
+            matches = [f for f in root.rglob(filename) if f.is_file()]
+            if matches:
+                target = matches[0]
+            else:
+                for f in root.rglob("*"):
+                    if f.is_file():
+                        fn_lower = f.name.lower()
+                        if fn_lower == lower_name:
+                            target = f
+                            break
+                        if lower_name.startswith("readme") and fn_lower.startswith("readme"):
+                            target = f
+                            break
+                        if lower_name == "pom.xml" and fn_lower.startswith("build.gradle"):
+                            target = f
+                            break
+                        if lower_name.startswith("build.gradle") and fn_lower == "pom.xml":
+                            target = f
+                            break
+                        if lower_name in ("application.properties", "application.yml", "application.yaml") and fn_lower in ("application.yml", "application.yaml", "application.properties"):
+                            target = f
+                            break
+                        if lower_name == "application.java" and "application.java" in fn_lower:
+                            target = f
+                            break
+                        if "securityconfig" in lower_name and "securityconfig" in fn_lower:
+                            target = f
+                            break
+                if not target.exists():
+                    raise RepositoryPathNotFoundError()
+
         if not target.is_file():
             raise RepositoryPathInvalidError("The requested path is not a file.")
 
