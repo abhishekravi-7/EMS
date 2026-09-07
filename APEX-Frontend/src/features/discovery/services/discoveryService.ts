@@ -489,34 +489,64 @@ export async function generateLocalProjectDocument(
   };
 }
 
-export async function uploadBrd(jobId: string, file: File): Promise<any> {
+export interface BrdMetadata {
+  job_id?: string;
+  filename: string;
+  file_type?: string;
+  size_bytes?: number;
+  size?: number;
+  uploaded_at?: string;
+  uploadedAt?: string;
+  status?: string;
+}
+
+export async function uploadBrdDocument(jobId: string, file: File): Promise<BrdMetadata> {
   const formData = new FormData();
   formData.append("file", file);
 
-  const response = await performRequest(`/v1/discovery/${encodeURIComponent(jobId)}/brd`, {
-    method: "POST",
-    body: formData,
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: "Upload failed" }));
-    throw new Error(error.message || "Failed to upload BRD");
-  }
-
-  return response.json();
+  return requestJson<BrdMetadata>(
+    `/v1/discovery/${encodeURIComponent(jobId)}/brd`,
+    "Failed to upload BRD document",
+    {
+      method: "POST",
+      body: formData,
+    }
+  );
 }
 
-export async function getBrdMetadata(jobId: string): Promise<any> {
-  const response = await performRequest(`/v1/discovery/${encodeURIComponent(jobId)}/brd`, {
-    method: "GET",
-  });
+export const uploadBrd = uploadBrdDocument;
 
-  if (!response.ok) {
-    if (response.status === 404) return null;
-    throw new Error("Failed to fetch BRD metadata");
+export async function getBrdMetadata(jobId: string): Promise<BrdMetadata | null> {
+  try {
+    const res = await requestJson<BrdMetadata & { status?: string }>(
+      `/v1/discovery/${encodeURIComponent(jobId)}/brd`,
+      "Failed to fetch BRD metadata"
+    );
+    if (!res || res.status === "NONE") return null;
+    return res;
+  } catch {
+    return null;
   }
+}
 
-  return response.json();
+export async function deleteBrdDocument(jobId: string): Promise<{ status: string; job_id: string }> {
+  return requestJson<{ status: string; job_id: string }>(
+    `/v1/discovery/${encodeURIComponent(jobId)}/brd`,
+    "Failed to remove BRD document",
+    {
+      method: "DELETE",
+    }
+  );
+}
+
+export async function getBrdDocumentBlob(jobId: string): Promise<{ blob: Blob; contentType: string }> {
+  const response = await performRequest(`/v1/discovery/${encodeURIComponent(jobId)}/brd/file`);
+  if (!response.ok) {
+    throw new Error("Failed to load BRD document for viewing.");
+  }
+  const contentType = response.headers.get("content-type") || "application/octet-stream";
+  const blob = await response.blob();
+  return { blob, contentType };
 }
 
 export interface DashboardStatsResponse {
@@ -558,3 +588,4 @@ export async function getDashboardStats(jobId: string): Promise<DashboardStatsRe
     "Failed to fetch dashboard statistics"
   );
 }
+

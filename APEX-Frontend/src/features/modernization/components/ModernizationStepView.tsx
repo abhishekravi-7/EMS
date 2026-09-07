@@ -18,6 +18,7 @@ import { ExistingTestLogs } from "./ExistingTestLogs";
 import { ExistingTestValidationReport } from "./ExistingTestValidationReport";
 import { FunctionalTestingTabs } from "./FunctionalTestingTabs";
 import { ProposedTestCasesPanel } from "./ProposedTestCasesPanel";
+import { runApprovedProposedTests } from "../services/proposedTestService";
 import { TestReportsModal, type TestReportData } from "./TestReportsModal";
 import { wizardStyles as styles } from "@/shared/components/wizard/wizardStyles";
 import { renderWizardIconBadge, renderBackButtonLabel } from "@/shared/components/wizard";
@@ -664,6 +665,7 @@ export function ModernizationStepView({
     }, 800);
 
     try {
+      void runApprovedProposedTests(jobId).catch(() => null);
       const res = await runExistingTests(jobId, selection);
       if (res?.status === 'RUNNING' || res?.started === true) {
         return;
@@ -1099,6 +1101,7 @@ export function ModernizationStepView({
               <>
                 {/* 2. EXISTING TEST COVERAGE (8 Metric Cards) */}
                 <ExistingTestCoverage
+                  jobId={jobId}
                   metrics={{
                     ...existingExecResult.metrics,
                     total: displayTestResults.length || discoveredTests.length || existingExecResult.metrics?.total || 0,
@@ -1138,6 +1141,11 @@ export function ModernizationStepView({
           repoAnalysis={repoAnalysis}
           localApiTestCases={localApiTestCases}
           hasUI={hasUI}
+          discoveredTests={discoveredTests}
+          isRunning={isRunningExisting}
+          selectedSources={modernization?.selectedTestSources}
+          onSelectedSourcesChange={modernization?.setSelectedTestSources}
+          onRunTests={(selection) => void handleRunExistingTests(selection)}
         />
 
         {/*

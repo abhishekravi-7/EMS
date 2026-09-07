@@ -7,11 +7,16 @@ lives here.
 
 from __future__ import annotations
 
+import json
 import logging
+import re
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
-from fastapi import APIRouter, Body, Depends, Query, File, UploadFile, HTTPException
+
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, verify_job_ownership
@@ -20,14 +25,15 @@ from app.application.use_cases.assess_microservice_eligibility import (
     AssessMicroserviceEligibilityUseCase,
 )
 from app.application.use_cases.browse_repository import RepositoryFileBrowser
+from app.application.use_cases.get_dashboard_stats import GetDashboardStatsUseCase
 from app.core.exceptions import DiscoveryError, RepositoryBrowseError
+from app.domain.models.brd_models import BrdMetadata
 from app.infrastructure.persistence.database import get_db_optional
 from app.infrastructure.persistence.job_repository import JobRepository
 from app.infrastructure.persistence.models import User
-from app.schemas.discovery_schema import DiscoveryRequest, DiscoveryResponse
-
-from app.application.use_cases.get_dashboard_stats import GetDashboardStatsUseCase
+from app.infrastructure.workspace.workspace_paths import WorkspacePaths
 from app.schemas.dashboard_schema import DashboardStatsResponse
+from app.schemas.discovery_schema import DiscoveryRequest, DiscoveryResponse
 
 logger = logging.getLogger(__name__)
 
@@ -226,29 +232,65 @@ async def get_microservice_eligibility(
 
 @router.post(
     "/discovery/{job_id}/brd",
-    summary="Upload a BRD attachment for the job.",
+    summary="Upload a Business Requirements Document (BRD) for the migration job.",
 )
-async def upload_brd(
+async def upload_brd_document(
     job_id: str,
-    file: UploadFile = File(...),
+    file: UploadFile = File(...),  # noqa: B008
     current_user: User = Depends(get_current_user),  # noqa: B008
     db: Session | None = Depends(get_db_optional),  # noqa: B008
 ) -> JSONResponse:
     verify_job_ownership(db, job_id, current_user)
-    
-    # Simple validation: accept only PDFs and max 10MB (example)
-    if file.content_type != "application/pdf":
-         return JSONResponse(status_code=415, content={"message": "Only PDF files are supported."})
-    
-    content = await file.read()
-    if len(content) > 10 * 1024 * 1024:
-         return JSONResponse(status_code=413, content={"message": "File is too large (max 10MB)."})
 
-    job_repo = JobRepository()
-    metadata = await run_in_threadpool(
-        job_repo.save_brd_attachment, job_id, content, file.filename
+    if not file or not file.filename:
+        raise HTTPException(status_code=400, detail="No file provided")
+
+    raw_filename = file.filename
+    clean_name = re.sub(r"[^\w\.\-_]", "_", Path(raw_filename).name)
+    ext = Path(clean_name).suffix.lower()
+    allowed_extensions = {".pdf", ".docx", ".doc", ".xlsx", ".xls", ".txt", ".md"}
+
+    if ext not in allowed_extensions:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file format '{ext}'. Supported formats: {', '.join(sorted(allowed_extensions))}",
+        )
+
+    # Read and check size
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty (0 bytes)")
+
+    max_size_bytes = 25 * 1024 * 1024  # 25 MB
+    if len(content) > max_size_bytes:
+        raise HTTPException(status_code=400, detail="File exceeds maximum allowed size of 25MB")
+
+    paths = WorkspacePaths(job_id)
+    paths.brd_dir.mkdir(parents=True, exist_ok=True)
+
+    # Clear prior BRD files if any
+    for existing in paths.brd_dir.iterdir():
+        if existing.is_file():
+            try:
+                existing.unlink()
+            except Exception:  # noqa: BLE001, S110
+                pass  # nosec B110
+
+    target_file = paths.brd_dir / clean_name
+    target_file.write_bytes(content)
+
+    metadata = BrdMetadata(
+        job_id=job_id,
+        filename=clean_name,
+        file_type=ext.lstrip(".").upper(),
+        size_bytes=len(content),
+        uploaded_at=datetime.now(timezone.utc).isoformat(),
+        status="UPLOADED",
     )
-    return JSONResponse(status_code=200, content=metadata)
+
+    paths.brd_metadata_path.write_text(json.dumps(metadata.model_dump(), indent=2), encoding="utf-8")
+
+    return JSONResponse(status_code=200, content=metadata.model_dump())
 
 
 @router.get(
@@ -261,14 +303,14 @@ async def get_brd_metadata_compat(
     db: Session | None = Depends(get_db_optional),  # noqa: B008
 ) -> JSONResponse:
     """Compatibility route for 'brd:1' suffix seen in some logs."""
-    return await get_brd_metadata(job_id, current_user, db)
+    return await get_brd_document_metadata(job_id, current_user, db)
 
 
 @router.get(
     "/discovery/{job_id}/brd",
-    summary="Get BRD attachment metadata if it exists.",
+    summary="Get uploaded BRD document metadata for the migration job.",
 )
-async def get_brd_metadata(
+async def get_brd_document_metadata(
     job_id: str,
     current_user: User = Depends(get_current_user),  # noqa: B008
     db: Session | None = Depends(get_db_optional),  # noqa: B008
@@ -276,14 +318,117 @@ async def get_brd_metadata(
     try:
         verify_job_ownership(db, job_id, current_user)
     except HTTPException as exc:
-        # If the job is not found or access is denied, return null to avoid console errors.
         if exc.status_code in (403, 404):
-            return JSONResponse(status_code=200, content=None)
+            return JSONResponse(status_code=200, content={"status": "NONE", "job_id": job_id})
         raise
+
+    paths = WorkspacePaths(job_id)
+
+    if paths.brd_metadata_path.exists():
+        try:
+            data = json.loads(paths.brd_metadata_path.read_text(encoding="utf-8"))
+            return JSONResponse(status_code=200, content=data)
+        except Exception:  # noqa: BLE001, S110
+            pass  # nosec B110
+
     job_repo = JobRepository()
     metadata = await run_in_threadpool(job_repo.get_brd_metadata, job_id)
-    # Returning 200 with null instead of 404 to avoid noisy console errors on the frontend.
-    return JSONResponse(status_code=200, content=metadata)
+    if metadata:
+        return JSONResponse(status_code=200, content=metadata)
+
+    return JSONResponse(status_code=200, content={"status": "NONE", "job_id": job_id})
+
+
+@router.delete(
+    "/discovery/{job_id}/brd",
+    summary="Remove uploaded BRD document for the migration job.",
+)
+async def delete_brd_document(
+    job_id: str,
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session | None = Depends(get_db_optional),  # noqa: B008
+) -> JSONResponse:
+    verify_job_ownership(db, job_id, current_user)
+    paths = WorkspacePaths(job_id)
+
+    if paths.brd_dir.exists():
+        for f in paths.brd_dir.iterdir():
+            if f.is_file():
+                try:
+                    f.unlink()
+                except Exception:  # noqa: BLE001, S110
+                    pass  # nosec B110
+    
+    if paths.brd_metadata_path.exists():
+        try:
+            paths.brd_metadata_path.unlink()
+        except Exception: # noqa: BLE001, S110
+            pass
+
+    return JSONResponse(status_code=200, content={"status": "DELETED", "job_id": job_id})
+
+
+@router.get(
+    "/discovery/{job_id}/brd/file",
+    summary="View the uploaded BRD document for the migration job.",
+)
+async def view_brd_document(
+    job_id: str,
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session | None = Depends(get_db_optional),  # noqa: B008
+) -> Response:
+    verify_job_ownership(db, job_id, current_user)
+    paths = WorkspacePaths(job_id)
+
+    if not paths.brd_metadata_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "BRD_NOT_FOUND", "message": "No BRD document uploaded for this job."},
+        )
+
+    try:
+        metadata = json.loads(paths.brd_metadata_path.read_text(encoding="utf-8"))
+        filename = metadata.get("filename", "")
+        clean_filename = Path(filename).name
+        target_file = paths.brd_dir / clean_filename
+
+        if not target_file.exists() or not target_file.is_file():
+            raise HTTPException(
+                status_code=404,
+                detail={"code": "BRD_FILE_NOT_FOUND", "message": "BRD document file not found."},
+            )
+
+        ext = target_file.suffix.lower()
+        media_type = "application/octet-stream"
+        if ext == ".pdf":
+            media_type = "application/pdf"
+        elif ext in [".txt", ".md"]:
+            media_type = "text/plain; charset=utf-8"
+        elif ext == ".docx":
+            media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        elif ext == ".doc":
+            media_type = "application/msword"
+        elif ext == ".xlsx":
+            media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        elif ext == ".xls":
+            media_type = "application/vnd.ms-excel"
+
+        content = target_file.read_bytes()
+        return Response(
+            content=content,
+            media_type=media_type,
+            headers={
+                "Content-Disposition": f'inline; filename="{clean_filename}"',
+            },
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error serving BRD file for job {job_id}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail={"code": "BRD_READ_ERROR", "message": "Failed to read BRD document."},
+        ) from e
 
 
 @router.get(
@@ -296,21 +441,26 @@ async def download_brd(
     db: Session | None = Depends(get_db_optional),  # noqa: B008
 ) -> FileResponse:
     verify_job_ownership(db, job_id, current_user)
-    job_repo = JobRepository()
-    metadata = await run_in_threadpool(job_repo.get_brd_metadata, job_id)
-    if not metadata:
-        raise HTTPException(status_code=404, detail="No BRD found for this job.")
+    paths = WorkspacePaths(job_id)
 
-    from app.infrastructure.workspace.workspace_paths import WorkspacePaths
-    # We use job_repo._storage_dir which is initialized from settings.storage_dir
-    paths = WorkspacePaths(job_id, storage_dir=job_repo._storage_dir)
-    target_path = paths.brd_path
+    if paths.brd_metadata_path.exists():
+        try:
+            metadata = json.loads(paths.brd_metadata_path.read_text(encoding="utf-8"))
+            filename = metadata.get("filename", "brd.pdf")
+            clean_filename = Path(filename).name
+            target_file = paths.brd_dir / clean_filename
+            if target_file.exists():
+                return FileResponse(
+                    path=target_file,
+                    filename=clean_filename,
+                )
+        except Exception:
+            pass
 
-    if not target_path.exists():
-        raise HTTPException(status_code=404, detail="BRD file missing on disk.")
+    if hasattr(paths, 'brd_path') and paths.brd_path.exists():
+        return FileResponse(
+            path=paths.brd_path,
+            filename="brd.pdf",
+        )
 
-    return FileResponse(
-        path=target_path,
-        media_type="application/pdf",
-        filename=metadata.get("filename", "brd.pdf")
-    )
+    raise HTTPException(status_code=404, detail="No BRD found for this job.")

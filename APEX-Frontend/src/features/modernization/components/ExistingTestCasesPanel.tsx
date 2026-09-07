@@ -21,7 +21,7 @@ interface ExistingTestCasesPanelProps {
 }
 
 export function ExistingTestCasesPanel({
-  jobId: _jobId,
+  jobId,
   discoveredTests,
   framework,
   onRunSelected,
@@ -175,6 +175,7 @@ export function ExistingTestCasesPanel({
 
       {/* Existing Test Coverage 8-Cards Grid (Discovery State Before Execution) */}
       <ExistingTestCoverage
+        jobId={jobId}
         metrics={discoveryMetrics}
         discoveredTests={discoveredTests}
         testResults={mappedDiscoveredTests}

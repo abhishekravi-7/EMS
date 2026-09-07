@@ -24,6 +24,7 @@ export interface PersistedWizardFormState {
   runSonar: boolean;
   runFossa: boolean;
   fixBusinessLogic: boolean;
+  selectedTestSources?: { llm: boolean; functionalDoc: boolean; existing: boolean };
   functionalTestToolMethod?: string[];
   functionalTestExecutionMode?: string;
   migrationApproach: string;

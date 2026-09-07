@@ -68,6 +68,10 @@ const MigrationUnitTestSection = React.lazy(async () => {
   const module = await import("./MigrationReportSections");
   return { default: module.MigrationUnitTestSection };
 });
+const MigrationProposedTestSection = React.lazy(async () => {
+  const module = await import("./MigrationReportSections");
+  return { default: module.MigrationProposedTestSection };
+});
 
 interface ResultReportViewProps {
   resultExec: ReturnType<typeof useMigrationExecution>;
@@ -1234,6 +1238,11 @@ export function ResultReportView({
               rerunTestsLoading={rerunTestsLoading}
               onRerunTests={handleRerunTests}
               onDownloadUnitTestReport={handleDownloadUnitTestReport}
+            />
+
+            <MigrationProposedTestSection
+              styles={styles}
+              migrationJob={migrationJob}
             />
 
             <MigrationJmeterSection

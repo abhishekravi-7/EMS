@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import {
   FaVial,
   FaCheckCircle,
@@ -9,8 +9,11 @@ import {
   FaStepForward,
   FaBullseye,
   FaPlay,
+  FaFileAlt,
+  FaSpinner,
 } from "react-icons/fa";
 import type { TestResult, TestSelectionItem } from "../services/existingTestService";
+import { getBrdMetadata, getBrdDocumentBlob } from "@/features/discovery/services/discoveryService";
 
 interface MetricCardProps {
   label: string;
@@ -85,6 +88,7 @@ function MetricCard({ label, value, color, bgColor, icon }: MetricCardProps) {
 }
 
 interface ExistingTestCoverageProps {
+  jobId?: string;
   metrics: {
     total?: number;
     executed?: number;
@@ -112,6 +116,7 @@ interface ExistingTestCoverageProps {
 }
 
 export function ExistingTestCoverage({
+  jobId,
   metrics,
   discoveredTests = [],
   testResults = [],
@@ -119,6 +124,51 @@ export function ExistingTestCoverage({
   onRunAll,
   onOpenReport,
 }: ExistingTestCoverageProps) {
+  const [hasDocument, setHasDocument] = useState(false);
+  const [isViewingDocument, setIsViewingDocument] = useState(false);
+  const [docError, setDocError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!jobId) {
+      setHasDocument(false);
+      return;
+    }
+    let isMounted = true;
+    async function checkDoc() {
+      try {
+        const meta = await getBrdMetadata(jobId!);
+        if (isMounted && meta && meta.filename) {
+          setHasDocument(true);
+        } else if (isMounted) {
+          setHasDocument(false);
+        }
+      } catch {
+        if (isMounted) setHasDocument(false);
+      }
+    }
+    void checkDoc();
+    return () => {
+      isMounted = false;
+    };
+  }, [jobId]);
+
+  const handleViewDocument = async () => {
+    if (!jobId || isViewingDocument) return;
+    setIsViewingDocument(true);
+    setDocError(null);
+    try {
+      const { blob, contentType } = await getBrdDocumentBlob(jobId);
+      const typedBlob = new Blob([blob], { type: contentType });
+      const url = URL.createObjectURL(typedBlob);
+      window.open(url, "_blank", "noopener,noreferrer");
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch {
+      setDocError("Failed to open the Functional Testing Document.");
+      setTimeout(() => setDocError(null), 5000);
+    } finally {
+      setIsViewingDocument(false);
+    }
+  };
   // Use canonical discovered dataset count (from testResults/discoveredTests/metrics)
   const canonicalTotal = (testResults && testResults.length > 0)
     ? testResults.length
@@ -180,7 +230,37 @@ export function ExistingTestCoverage({
             Existing Test Coverage
           </span>
         </div>
-      <div style={{ display: "flex", gap: 10 }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          {hasDocument && (
+            <button
+              type="button"
+              onClick={() => void handleViewDocument()}
+              disabled={isViewingDocument}
+              style={{
+                padding: "8px 16px",
+                background: "#ffffff",
+                color: "#7c3aed",
+                border: "1px solid #ddd6fe",
+                borderRadius: 8,
+                fontWeight: 700,
+                fontSize: 12,
+                cursor: isViewingDocument ? "wait" : "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                transition: "all 0.15s ease",
+              }}
+              title="View Functional Testing Document"
+              aria-label="View Functional Testing Document"
+            >
+              {isViewingDocument ? (
+                <FaSpinner className="animate-spin" size={12} />
+              ) : (
+                <FaFileAlt size={12} style={{ color: "#7c3aed" }} />
+              )}
+              <span>View Document</span>
+            </button>
+          )}
           {onOpenReport && (
             <button
               onClick={onOpenReport}
@@ -221,6 +301,22 @@ export function ExistingTestCoverage({
           </button>
         </div>
       </div>
+
+      {docError && (
+        <div
+          style={{
+            marginBottom: 16,
+            padding: "8px 14px",
+            borderRadius: 8,
+            background: "#fef2f2",
+            border: "1px solid #fecaca",
+            color: "#dc2626",
+            fontSize: 12,
+          }}
+        >
+          ⚠ {docError}
+        </div>
+      )}
 
       {/* Grid containing the 8 Metric Cards */}
       <div

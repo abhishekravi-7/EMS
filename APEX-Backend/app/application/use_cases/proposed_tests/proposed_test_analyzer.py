@@ -44,6 +44,7 @@ class ProposedTestAnalyzer:
             "entities": entities,
             "ui_workflows": ui_workflows,
             "existing_coverage": existing_coverage,
+            "existing_tests": self.existing_tests,
         }
 
     def _scan_controllers_and_endpoints(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:

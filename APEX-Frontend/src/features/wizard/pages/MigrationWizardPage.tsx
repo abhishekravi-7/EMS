@@ -111,8 +111,15 @@ export default function MigrationWizardPage() {
     resultExecState,
     selectedLLMProvider,
     useLLMTests,
+    continueToStrategy,
+    setDiscoveryCompleted,
+    setStrategyCompleted,
+    setMigrationCompleted,
     maxVisitedIndicatorStep,
     handleJobIdError,
+    highestCompletedStep,
+    isStepCompleted,
+    isStepAccessible,
   } = useWizardController();
 
   const { setContext } = useChatbot();
@@ -140,7 +147,7 @@ export default function MigrationWizardPage() {
     }
   }, [step]);
 
-  const activeSidebarStepId = step >= 5 ? 5 : step;
+  const activeSidebarStepId = step === 7 ? 5 : step >= 4 ? 4 : step;
 
   return (
     <div className="wizard-dashboard-layout">
@@ -157,32 +164,37 @@ export default function MigrationWizardPage() {
         <div className="wizard-steps-list">
           {WIZARD_SIDEBAR_STEPS.map((s, index) => {
             const isCurrent = activeSidebarStepId === s.id;
-
-            // A step is "completed" when maxVisitedIndicatorStep has passed it.
-            // This persists even when the user navigates backward — going to step 2
-            // does NOT lose the completed status of steps 3 or 4.
-            const isCompleted = maxVisitedIndicatorStep > s.id;
-
-            // Navigation rule:
-            //  • Completed step  → freely clickable in EITHER direction (free jump).
-            //  • Current step    → no-op (already here).
-            //  • Never-visited   → locked; must use Continue button to unlock first.
-            const canClick = !isCurrent && isCompleted;
-            const isLocked  = !isCurrent && !isCompleted; // truly never reached yet
+            const isCompleted = isStepCompleted(s.id);
+            const isAccessible = isStepAccessible(s.id);
+            const isAvailable = !isCurrent && !isCompleted && isAccessible;
+            const isLocked = !isCurrent && !isAccessible;
+            const canClick = !isCurrent && isAccessible;
 
             return (
               <React.Fragment key={s.id}>
                 <div
-                  className={`wizard-step-item ${isCurrent ? "is-active" : ""} ${isCompleted ? "is-completed" : ""} ${isLocked ? "is-locked" : ""}`}
+                  className={`wizard-step-item ${isCurrent ? "is-active" : ""} ${isCompleted && !isCurrent ? "is-completed" : ""} ${isAvailable ? "is-available" : ""} ${isLocked ? "is-locked" : ""}`}
                   onClick={() => {
                     if (canClick) {
-                      setStep(s.id);
+                      if (s.id === 5) {
+                        setStep(migrationJob?.status === "completed" ? 7 : 6);
+                      } else {
+                        setStep(s.id);
+                      }
                     }
                   }}
                   style={{
                     cursor: canClick ? "pointer" : isLocked ? "not-allowed" : "default",
                   }}
-                  title={isLocked ? "Complete the previous step first to unlock this one" : undefined}
+                  title={
+                    isLocked
+                      ? "Complete the previous step first to unlock this one"
+                      : isCompleted
+                        ? "Completed step — click to navigate"
+                        : isAvailable
+                          ? "Available next step — click to navigate"
+                          : undefined
+                  }
                 >
                   <div className="wizard-step-icon-wrap">
                     <s.icon size={18} />
@@ -190,7 +202,7 @@ export default function MigrationWizardPage() {
 
                   <div className="wizard-step-details-reveal">
                     <div className="wizard-step-num-badge">
-                      {s.number}
+                      {isCompleted && !isCurrent ? <FaCheckCircle size={12} color="#16a34a" /> : s.number}
                     </div>
                     <div className="wizard-step-text-col">
                       <span className="wizard-step-title">{s.title}</span>
@@ -199,7 +211,7 @@ export default function MigrationWizardPage() {
                   </div>
                 </div>
                 {index < WIZARD_SIDEBAR_STEPS.length - 1 && (
-                  <div className={`wizard-step-divider ${isCompleted ? "is-completed" : ""}`} />
+                  <div className={`wizard-step-divider ${s.id <= highestCompletedStep && (s.id + 1) <= highestCompletedStep ? "is-completed" : ""}`} />
                 )}
               </React.Fragment>
             );
@@ -258,12 +270,15 @@ export default function MigrationWizardPage() {
               technicalSpecificationHelperText={technicalSpecificationHelperText}
               onBack={() => setStep(1)}
               onChooseDifferentRepository={() => {
+                setDiscoveryCompleted(false);
+                setStrategyCompleted(false);
+                setMigrationCompleted(false);
                 setStep(1);
                 setSelectedRepo(null);
                 setRepoAnalysis(null);
                 setRepoUrl("");
               }}
-              onContinueToStrategy={() => setStep(3)}
+              onContinueToStrategy={continueToStrategy}
               onError={setError}
               onHandleJobError={handleJobIdError}
             />

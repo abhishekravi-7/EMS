@@ -917,27 +917,44 @@ export function DiscoveryTechnicalSpecificationCard({
   onGenerate,
 }: TechnicalSpecificationCardProps) {
   return (
-    <div id="discovery-technical-spec-section" style={{ ...styles.documentCard, flex: 1, minWidth: 0 }}>
-      <div style={styles.documentCardHeader}>
-        <div style={styles.documentCardTitleRow}>
-          <span
-            className="wizard-icon-badge wizard-icon-badge-sm"
-            style={buildWizardAccentVars("#2563eb")}
-          >
-            <FaFileAlt />
-          </span>
-          <div style={styles.documentCardTitle}>Technical Specification Document</div>
-        </div>
-        <div style={styles.documentCardSubtitle}>
-          Generate a repository-grounded technical specification document and download it as PDF-ready HTML.
+    <div
+      id="discovery-technical-spec-section"
+      style={{
+        ...styles.documentCard,
+        marginTop: 0,
+        marginBottom: 0,
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "space-between",
+        boxSizing: "border-box",
+        flex: 1,
+        minWidth: 0,
+      }}
+    >
+      <div>
+        <div style={styles.documentCardHeader}>
+          <div style={styles.documentCardTitleRow}>
+            <span
+              className="wizard-icon-badge wizard-icon-badge-sm"
+              style={buildWizardAccentVars("#2563eb")}
+            >
+              <FaFileAlt />
+            </span>
+            <div style={styles.documentCardTitle}>Technical Specification Document</div>
+          </div>
+          <div style={styles.documentCardSubtitle}>
+            Generate a repository-grounded technical specification document and download it as PDF-ready HTML.
+          </div>
         </div>
       </div>
-      <div style={styles.documentActionRow}>
-        <button style={styles.primaryBtn} disabled={disabled} onClick={onGenerate}>
-          {buttonLabel}
-        </button>
+      <div>
+        <div style={styles.documentActionRow}>
+          <button style={styles.primaryBtn} disabled={disabled} onClick={onGenerate}>
+            {buttonLabel}
+          </button>
+        </div>
+        <div style={styles.documentHelperText}>{helperText}</div>
       </div>
-      <div style={styles.documentHelperText}>{helperText}</div>
     </div>
   );
 }

@@ -194,7 +194,7 @@ const DiscoveryTechnicalSpecificationCard = React.lazy(async () => {
   return { default: module.DiscoveryTechnicalSpecificationCard };
 });
 const DiscoveryBrdUploadCard = React.lazy(async () => {
-  const module = await import("./MigrationDiscoverySections");
+  const module = await import("./DiscoveryBrdUploadCard");
   return { default: module.DiscoveryBrdUploadCard };
 });
 
@@ -557,7 +557,17 @@ export function DiscoveryStepView({
                       )} */}
 
                       {repoAnalysis && (
-                        <div style={{ display: "flex", gap: 20, marginTop: 20, flexWrap: "wrap" }}>
+                        <div
+                          id="discovery-document-cards-container"
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))",
+                            gap: 20,
+                            marginTop: 20,
+                            marginBottom: 24,
+                            alignItems: "stretch",
+                          }}
+                        >
                           <DiscoveryTechnicalSpecificationCard
                             styles={styles}
                             disabled={documentGenerationLoading !== null || !repoAnalysis}
@@ -567,16 +577,10 @@ export function DiscoveryStepView({
                               void handleGenerateBrdDocument();
                             }}
                           />
+
                           <DiscoveryBrdUploadCard
+                            jobId={jobId}
                             styles={styles}
-                            status={brdUploadStatus}
-                            metadata={brdMetadata}
-                            error={brdUploadError}
-                            selectedFile={brdFile}
-                            onFileSelect={handleBrdFileSelect}
-                            onUpload={() => {
-                              void handleBrdUpload();
-                            }}
                           />
                         </div>
                       )}

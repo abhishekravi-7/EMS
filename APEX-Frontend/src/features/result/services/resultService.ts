@@ -660,3 +660,11 @@ export async function downloadFunctionalTestFile(jobId: string, path: string): P
 export function getFunctionalTestReportUrl(jobId: string, tool: string): string {
   return `${API_BASE_URL}/migration/${jobId}/functional-test-report/${tool.toLowerCase()}`;
 }
+
+// Download the full Proposed Test Report as JSON
+export async function downloadProposedTestReport(jobId: string): Promise<Blob> {
+  return requestBlob(
+    `/migration/${encodeURIComponent(jobId)}/proposed-tests/report/download`,
+    "Failed to download proposed tests report."
+  );
+}
