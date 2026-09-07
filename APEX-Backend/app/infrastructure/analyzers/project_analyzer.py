@@ -56,6 +56,8 @@ class ProjectAnalysis:
     has_src_test: bool
     has_tests: bool
     java_files: list[str] = field(default_factory=list)
+    config_files: list[str] = field(default_factory=list)
+    other_files: list[str] = field(default_factory=list)
     total_file_count: int = 0
 
     @property
@@ -105,7 +107,11 @@ class ProjectAnalyzer:
         spring_boot_version = self._spring_boot.detect(pom_root, build_gradle_text)
         spring_boot_signal = self._spring_boot.has_signal(pom_root, build_gradle_text)
         spring_framework_version = self._spring_framework.detect(pom_root, build_gradle_text)
-        java_files = file_utils.find_files(project_root, ".java")
+        all_files = file_utils.find_files(project_root, "")
+        java_files = [f for f in all_files if f.lower().endswith(".java")]
+        config_exts = (".xml", ".yml", ".yaml", ".properties", ".gradle", ".gradle.kts", ".json", ".conf", ".config", ".toml")
+        config_files = [f for f in all_files if any(f.lower().endswith(ext) for ext in config_exts)]
+        other_files = [f for f in all_files if f not in java_files and f not in config_files]
 
         spring_entry_class: str | None = None
         if not spring_boot_version and not spring_boot_signal:
@@ -167,6 +173,8 @@ class ProjectAnalyzer:
             has_src_test=has_src_test,
             has_tests=has_src_test,
             java_files=java_files,
+            config_files=config_files,
+            other_files=other_files,
             total_file_count=total_file_count,
         )
 

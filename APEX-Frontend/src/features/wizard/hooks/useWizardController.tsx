@@ -3137,7 +3137,6 @@ export function useWizardController() {
   // Track milestone completion across steps and backward navigation
   const [discoveryCompleted, setDiscoveryCompleted] = useState<boolean>(false);
   const [strategyCompleted, setStrategyCompleted] = useState<boolean>(false);
-  const [migrationCompleted, setMigrationCompleted] = useState<boolean>(false);
 
   const continueToStrategy = useCallback(() => {
     setDiscoveryCompleted(true);
@@ -3148,19 +3147,8 @@ export function useWizardController() {
     if (!isConnectCompleted) {
       setDiscoveryCompleted(false);
       setStrategyCompleted(false);
-      setMigrationCompleted(false);
     }
   }, [isConnectCompleted]);
-
-  useEffect(() => {
-    if (
-      migrationJob?.status === "completed" ||
-      resultExecState?.status === "COMPLETED" ||
-      step === 7
-    ) {
-      setMigrationCompleted(true);
-    }
-  }, [migrationJob?.status, resultExecState?.status, step]);
 
   // Step 2: Discovery completed (strictly when repoAnalysis is ready AND user explicitly clicked Continue to Strategy)
   const isDiscoveryCompleted =
@@ -3176,8 +3164,6 @@ export function useWizardController() {
     isStrategyCompleted &&
     Boolean(
       migrationJob?.status === "completed" ||
-      migrationCompleted ||
-      resultExecState?.status === "COMPLETED" ||
       step === 7
     );
 
@@ -3916,12 +3902,14 @@ export function useWizardController() {
     documentPrefetchStatus !== "ready" &&
     documentPrefetchStatus !== "error";
   const isDiscoveryPending =
-    analysisLoading ||
-    (step === 2 && selectedRepo && !repoAnalysis) ||
-    Boolean(
-      repoAnalysis &&
-      (!repoPreviewInitialized || !microserviceAssessmentResolved || isTechnicalDocumentWarmPending)
-    );
+    !error &&
+    isJavaProject !== false &&
+    (analysisLoading ||
+      (step === 2 && selectedRepo && !repoAnalysis) ||
+      Boolean(
+        repoAnalysis &&
+          (!repoPreviewInitialized || !microserviceAssessmentResolved || isTechnicalDocumentWarmPending)
+      ));
  
   useEffect(() => {
     if (!isDiscoveryPending) {
@@ -3993,7 +3981,7 @@ export function useWizardController() {
   }, [step, jobId, fetchBrdMetadata]);
 
   useEffect(() => {
-    if (step === 2 && selectedRepo && !repoAnalysis && !analysisLoading) {
+    if (step === 2 && selectedRepo && !repoAnalysis && !analysisLoading && !error && isJavaProject !== false) {
       const isLocalProject = isLocalRepoRef(selectedRepo.url);
       const discoveryKey = `${selectedRepo.url}::${jobId || ""}::${currentToken || ""}`;
 
@@ -4015,11 +4003,14 @@ export function useWizardController() {
               .then(async (result) => enrichAnalysisWithPomVersion(result.analysis, selectedRepo.url, currentToken));
 
       analyzePromise
-        .then((analysis) => applyRepositoryAnalysis(analysis))
+        .then((analysis) => {
+          setIsJavaProject(true);
+          applyRepositoryAnalysis(analysis);
+        })
         .catch((err) => {
-          discoveryInFlightKeyRef.current = "";
           const message = err?.message || "Failed to analyze repository.";
           if (isPrivateRepoAccessError(message)) {
+            discoveryInFlightKeyRef.current = "";
             setIsPrivateRepo(true);
             setStep(1);
             setError("");
@@ -4037,6 +4028,15 @@ export function useWizardController() {
             }
             return;
           }
+
+          if (
+            message.toLowerCase().includes("unsupported") ||
+            message.toLowerCase().includes("no maven or gradle") ||
+            err?.status === "UNSUPPORTED_PROJECT"
+          ) {
+            setIsJavaProject(false);
+          }
+
           setError(message);
         })
         .finally(() => setAnalysisLoading(false));
@@ -4046,12 +4046,15 @@ export function useWizardController() {
     applyRepositoryAnalysis,
     currentToken,
     enrichAnalysisWithPomVersion,
+    error,
+    isJavaProject,
     jobId,
     repoAnalysis,
     selectedRepo,
     setAccessTokenValidationMessage,
     setAccessTokenValidationState,
     setAnalysisLoading,
+    setIsJavaProject,
     setIsPrivateRepo,
     showEnterpriseToken,
     step,
@@ -4524,11 +4527,10 @@ export function useWizardController() {
     };
     }, [step, migrationJob?.job_id, migrationJob?.status]);
   */
-  useEffect(() => {
-      if ((step === 5 || step === 6) && migrationJob?.status === "completed") {
-        setStep(7);
-      }
-    }, [step, migrationJob?.status]);
+  // NOTE: Intentionally removed the duplicate setStep(7) useEffect that was
+  // previously here. The migration polling loop (above) already calls setStep(7)
+  // when status === "completed". Having two effects doing the same thing caused
+  // a step flicker loop.
 
   const buildMigrationRequest = useCallback(() => {
     const repoName = sourceRepositoryName;
@@ -4699,7 +4701,6 @@ export function useWizardController() {
     setMaxVisitedIndicatorStep(1);
     setDiscoveryCompleted(false);
     setStrategyCompleted(false);
-    setMigrationCompleted(false);
     setRepoUrl("");
     setSelectedRepo(null);
     setRepoAnalysis(null);
@@ -4888,7 +4889,6 @@ export function useWizardController() {
     continueWithTargetVersion,
     setDiscoveryCompleted,
     setStrategyCompleted,
-    setMigrationCompleted,
     modernizationState,
     functionalTestToolMethod,
     setFunctionalTestToolMethod,

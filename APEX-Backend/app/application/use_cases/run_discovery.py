@@ -29,6 +29,7 @@ from app.infrastructure.git.repository_cloner import RepositoryCloner
 from app.infrastructure.persistence.job_repository import JobRepository
 from app.infrastructure.workspace.workspace_manager import WorkspaceManager
 from app.infrastructure.workspace.workspace_paths import WorkspacePaths
+from app.shared import file_utils
 
 logger = logging.getLogger(__name__)
 
@@ -207,6 +208,11 @@ class RunDiscoveryUseCase:
             "dependencyCount": analysis.dependency_count,
             "hasTests": analysis.has_tests,
             "javaFileCount": len(analysis.java_files),
+            "javaFiles": list(analysis.java_files)[:200],
+            "configFileCount": len(analysis.config_files),
+            "configFiles": list(analysis.config_files)[:100],
+            "otherFileCount": len(analysis.other_files),
+            "otherFiles": list(analysis.other_files)[:100],
             "totalFileCount": analysis.total_file_count,
             "defaultBranch": "main",
             "buildWarning": analysis.build_warning,
@@ -254,7 +260,23 @@ class RunDiscoveryUseCase:
             "hasSrcTest": bool(report.get("hasTests", False)),
         }
 
-        spring_boot_conv = report.get("springBootConversion") or {}
+        paths = WorkspacePaths(job_id)
+        java_files = report.get("javaFiles") or []
+        config_files = report.get("configFiles")
+        other_files = report.get("otherFiles")
+
+        if (not java_files or config_files is None or other_files is None) and paths.original_repo_dir.is_dir():
+            all_files = file_utils.find_files(paths.original_repo_dir, "")
+            if not java_files:
+                java_files = [f for f in all_files if f.lower().endswith(".java")][:200]
+            if config_files is None:
+                config_exts = (".xml", ".yml", ".yaml", ".properties", ".gradle", ".gradle.kts", ".json", ".conf", ".config", ".toml")
+                config_files = [f for f in all_files if any(f.lower().endswith(ext) for ext in config_exts)][:100]
+            if other_files is None:
+                other_files = [f for f in all_files if f not in (java_files or []) and f not in (config_files or [])][:100]
+
+        config_files = config_files or []
+        other_files = other_files or []
 
         return {
             "jobId": job_id,
@@ -281,8 +303,13 @@ class RunDiscoveryUseCase:
                 "bomVersions": report.get("bomVersions", []),
                 "frameworks": report.get("frameworks", []),
                 "hasTests": bool(report.get("hasTests", False)),
-                "javaFileCount": report.get("javaFileCount", 0),
-                "totalFileCount": report.get("totalFileCount", 0),
+                "javaFileCount": report.get("javaFileCount") or len(java_files),
+                "javaFiles": java_files,
+                "configFileCount": report.get("configFileCount") or len(config_files),
+                "configFiles": config_files,
+                "otherFileCount": report.get("otherFileCount") or len(other_files),
+                "otherFiles": other_files,
+                "totalFileCount": report.get("totalFileCount") or (len(java_files) + len(config_files) + len(other_files)),
                 "defaultBranch": report.get("defaultBranch", "main"),
                 "buildWarning": report.get("buildWarning"),
                 "frontend": frontend_info,
@@ -344,6 +371,11 @@ class RunDiscoveryUseCase:
                 "frameworks": analysis.frameworks,
                 "hasTests": analysis.has_tests,
                 "javaFileCount": len(analysis.java_files),
+                "javaFiles": list(analysis.java_files)[:200],
+                "configFileCount": len(analysis.config_files),
+                "configFiles": list(analysis.config_files)[:100],
+                "otherFileCount": len(analysis.other_files),
+                "otherFiles": list(analysis.other_files)[:100],
                 "totalFileCount": analysis.total_file_count,
                 "defaultBranch": "main",
                 "buildWarning": analysis.build_warning,

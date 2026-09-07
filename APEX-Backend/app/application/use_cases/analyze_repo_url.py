@@ -96,7 +96,11 @@ def _to_repo_analysis(owner: str, repo: str, analysis: ProjectAnalysis) -> dict[
         "has_tests": bool(analysis.has_tests),
         "dependencies": dependencies,
         "api_endpoints": [],
-        "detected_frameworks": [],
+        "detected_frameworks": [
+            {"name": f, "path": "pom.xml" if analysis.has_pom_xml else "build.gradle", "type": "FRAMEWORK"}
+            for f in analysis.frameworks
+        ],
+        "frameworks": analysis.frameworks,
         "structure": {
             "has_pom_xml": bool(analysis.has_pom_xml),
             "has_build_gradle": bool(analysis.has_build_gradle),
