@@ -309,7 +309,83 @@ CHECKLIST FOR EVALUATION:
 2. Mock Validity: Are mocked dependencies set up with valid method signatures present in the source?
 3. Assertion Strength: Are there non-trivial assertions (no assertTrue(true), no empty test bodies)?
 4. Type Alignment: Are parameter types and exception types matching the target source code?
+"""
 
-Respond with ONLY the strict JSON object matching the system prompt schema."""
+
+DEPENDENCY_ANALYSIS_SYSTEM_PROMPT = """You are a senior Java migration and dependency architecture engineer analyzing the dependencies of an actual software repository. You always answer with a single, strict JSON object and nothing else - no markdown fences, no commentary outside the JSON.
+
+Use ONLY the repository context supplied to you. Assess each dependency based on its actual version, role, framework compatibility, Java version, application architecture, and migration target.
+
+CRITICAL RULES:
+1. Do NOT classify dependencies solely because their names contain words like 'spring', 'jpa', 'security', 'jdbc', etc.
+2. Do NOT assign a risk merely because a dependency belongs to a particular category.
+3. NEVER invent CVEs, vulnerabilities, versions, usage, or compatibility problems that are not supported by the supplied context.
+4. Risk levels are migration compatibility & architectural risks (e.g. Jakarta EE namespace jump, deprecated APIs, major breaking changes, unmaintained legacy versions), NOT confirmed CVE reports.
+5. If evidence is insufficient, state that the risk is uncertain or based on limited evidence.
+6. Return EXACTLY the input dependency IDs/coordinates provided - do not fabricate or drop any dependencies.
+
+The JSON object must have exactly these keys:
+- "overall_risk": string, one of "CRITICAL", "HIGH", "MEDIUM", "LOW".
+- "complexity": string, one of "NONE", "LIGHT", "MODERATE", "COMPLEX".
+- "overall_explanation": string, a concise explanation describing why the repository has that overall dependency risk.
+- "complexity_explanation": string, a concise explanation of the dependency complexity based on volume and technical migration complexity.
+- "dependencies": array of objects, one for each input dependency, each with:
+    - "id": string matching the provided dependency id/coordinate (e.g. "group:artifact").
+    - "group": string (e.g. "org.springframework.boot").
+    - "artifact": string (e.g. "spring-boot-starter-web").
+    - "name": string, human-friendly dependency name or artifact name.
+    - "version": string, the current/detected version from the input (do not change).
+    - "category": string, one of "Framework", "Persistence", "Security", "Database", "Testing", "Logging", "Web", "Build", "Utility", "Other".
+    - "risk": string, one of "CRITICAL", "HIGH", "MEDIUM", "LOW".
+    - "explanation": string, repository-specific reasoning explaining why this dependency has this risk in this project context.
+    - "recommendation": string, actionable recommendation on what to check, upgrade, replace, or validate during migration.
+"""
+
+
+def build_dependency_analysis_prompt(
+    *,
+    dependencies: list[dict[str, Any]],
+    source_java_version: str | None,
+    target_java_version: str | None,
+    build_tool: str | None,
+    frameworks: list[Any],
+    testing_frameworks: list[Any],
+    spring_boot_version: str | None,
+    api_endpoint_count: int,
+) -> str:
+    dep_items = []
+    for dep in dependencies:
+        gid = dep.get("group_id") or dep.get("groupId") or dep.get("group") or ""
+        aid = dep.get("artifact_id") or dep.get("artifactId") or dep.get("artifact") or ""
+        ver = dep.get("current_version") or dep.get("resolved_version") or dep.get("version") or "unknown"
+        scope = dep.get("scope") or "compile"
+        coord = f"{gid}:{aid}" if gid and aid else (aid or gid or "unknown")
+        dep_id = dep.get("id") or coord
+        dep_items.append(
+            f"- id: \"{dep_id}\" | coordinate: \"{coord}\" | version: \"{ver}\" | scope: \"{scope}\""
+        )
+
+    dep_block = "\n".join(dep_items) if dep_items else "No dependencies provided."
+
+    fw_str = ", ".join(str(f.get("name") if isinstance(f, dict) else f) for f in frameworks) or "None detected"
+    test_fw_str = ", ".join(str(t.get("name") if isinstance(t, dict) else t) for t in testing_frameworks) or "None detected"
+
+    return f"""Analyze the following dependencies for Java migration readiness from Java {source_java_version or 'unknown'} to Java {target_java_version or '17+'}.
+
+PROJECT CONTEXT:
+- Build Tool: {build_tool or 'unknown'}
+- Source Java Version: {source_java_version or 'unknown'}
+- Target Java Version: {target_java_version or '17+ (LTS)'}
+- Spring Boot Version: {spring_boot_version or 'Not detected / Not applicable'}
+- Detected Frameworks: {fw_str}
+- Testing Frameworks: {test_fw_str}
+- API Endpoints Count: {api_endpoint_count}
+- Total Dependencies: {len(dependencies)}
+
+DEPENDENCY LIST TO EVALUATE:
+{dep_block}
+
+Evaluate each dependency above. Return ONLY the strict JSON object with 'overall_risk', 'complexity', 'overall_explanation', 'complexity_explanation', and 'dependencies' matching the system prompt schema."""
+
 
 

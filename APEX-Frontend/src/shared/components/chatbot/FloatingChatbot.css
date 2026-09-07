@@ -1304,11 +1304,18 @@
 .strategy-chat-launcher-container {
   position: fixed;
   right: 24px;
-  bottom: 24px;
+  bottom: 96px;
   z-index: 1200;
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+@media (max-width: 768px) {
+  .strategy-chat-launcher-container {
+    right: 16px;
+    bottom: 84px;
+  }
 }
 
 .strategy-chat-launcher-btn {

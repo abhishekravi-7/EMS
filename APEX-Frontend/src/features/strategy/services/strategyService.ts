@@ -213,10 +213,59 @@ export interface StrategyPageContext {
   }>;
 }
 
-export interface StrategyAnswerResponse {
-  answer: string;
-  rationale?: string[];
-  details?: Record<string, unknown>;
+export interface AnalyzedDependencyItem {
+  id: string;
+  group: string;
+  artifact: string;
+  name: string;
+  version: string;
+  category: string;
+  risk: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | string;
+  explanation: string;
+  recommendation: string;
+}
+
+export interface DependencyRiskCounts {
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  total: number;
+}
+
+export interface DependencyAnalysisRequest {
+  dependencies: DependencyInfo[];
+  source_java_version?: string | null;
+  target_java_version?: string | null;
+  build_tool?: string | null;
+  frameworks?: unknown[];
+  testing_frameworks?: unknown[];
+  spring_boot_version?: string | null;
+  api_endpoint_count?: number;
+  job_id?: string | null;
+}
+
+export interface DependencyAnalysisResponse {
+  overall_risk: string;
+  complexity: string;
+  overall_explanation: string;
+  complexity_explanation: string;
+  counts: DependencyRiskCounts;
+  dependencies: AnalyzedDependencyItem[];
+  provider_used: string;
+}
+
+export async function analyzeDependencies(
+  request: DependencyAnalysisRequest
+): Promise<DependencyAnalysisResponse> {
+  return requestJson<DependencyAnalysisResponse>(
+    "/dependency-analysis",
+    "Failed to analyze dependencies",
+    {
+      method: "POST",
+      body: request,
+    }
+  );
 }
 
 export async function queryStrategy(
@@ -231,3 +280,4 @@ export async function queryStrategy(
     }
   );
 }
+

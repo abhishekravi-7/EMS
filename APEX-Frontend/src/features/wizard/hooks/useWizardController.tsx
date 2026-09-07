@@ -39,7 +39,10 @@ import {
   getJavaVersionRecommendation,
   getRiskExplanation,
   getDefaultRiskExplanation,
+  analyzeDependencies,
   type JavaVersionRecommendationResponse,
+  type DependencyAnalysisResponse,
+  type AnalyzedDependencyItem,
   type StrategyPageContext,
 } from "@/features/strategy/services/strategyService";
 import { ApiError } from "@/services/http/client";
@@ -264,9 +267,10 @@ type DependencyRiskFilter = DependencyRiskLevel | "all";
 
 interface CategorizedDependency extends DependencyInfo {
   displayName: string;
-  category: DependencyCategory;
+  category: DependencyCategory | string;
   risk: DependencyRiskLevel;
   reason: string;
+  recommendation?: string;
 }
 
 type MicroserviceAccordionKey =
@@ -854,8 +858,43 @@ const classifyDependencyRisk = (dep: DependencyInfo): { risk: DependencyRiskLeve
   };
 };
 
-const categorizeDependencies = (dependencies: DependencyInfo[]): CategorizedDependency[] => {
+const categorizeDependencies = (
+  dependencies: DependencyInfo[],
+  analysis?: DependencyAnalysisResponse | null
+): CategorizedDependency[] => {
+  const analyzedMap = new Map<string, AnalyzedDependencyItem>();
+  if (analysis?.dependencies) {
+    for (const item of analysis.dependencies) {
+      if (item.id) analyzedMap.set(item.id.toLowerCase(), item);
+      if (item.group && item.artifact) {
+        analyzedMap.set(`${item.group}:${item.artifact}`.toLowerCase(), item);
+      }
+      if (item.artifact) analyzedMap.set(item.artifact.toLowerCase(), item);
+    }
+  }
+
   const result = dependencies.map((dep) => {
+    const coord = `${dep.group_id}:${dep.artifact_id}`.toLowerCase();
+    const found =
+      analyzedMap.get(coord) ||
+      analyzedMap.get(dep.artifact_id?.toLowerCase() || "") ||
+      analyzedMap.get(dep.group_id?.toLowerCase() || "");
+
+    if (found) {
+      const riskNormalized = (found.risk || "LOW").toLowerCase() as DependencyRiskLevel;
+      const validRisk: DependencyRiskLevel = ["critical", "high", "medium", "low"].includes(riskNormalized)
+        ? riskNormalized
+        : "low";
+      return {
+        ...dep,
+        displayName: `${dep.group_id}:${dep.artifact_id}`,
+        category: (found.category || classifyDependencyCategory(dep)) as DependencyCategory,
+        risk: validRisk,
+        reason: found.explanation || `${dep.artifact_id} analyzed for Java migration compatibility.`,
+        recommendation: found.recommendation || "",
+      };
+    }
+
     const { risk, reason } = classifyDependencyRisk(dep);
     return {
       ...dep,
@@ -1151,10 +1190,15 @@ export function useWizardController() {
     setRiskExplanation,
     riskExplanationLoading,
     setRiskExplanationLoading,
+    dependencyAnalysis,
+    setDependencyAnalysis,
+    dependencyAnalysisLoading,
+    setDependencyAnalysisLoading,
     resetTargetRepoNaming,
     applyDetectedSourceVersion,
   } = strategyState;
   const fetchedRiskExplanationKeyRef = useRef<string>("");
+  const fetchedDependencyAnalysisKeyRef = useRef<string>("");
   const modernizationState = useModernizationState(persistedFormState);
   const {
     runTests,
@@ -1233,11 +1277,19 @@ export function useWizardController() {
     jobId,
   } = connectState;
   const currentMigrationApproach =
-    migrationApproach === "branch"
-      ? "branch"
-      : migrationApproach === "local"
-        ? "local"
-        : "fork";
+    !isPrivateRepo && migrationApproach === "branch"
+      ? "fork"
+      : migrationApproach === "branch"
+        ? "branch"
+        : migrationApproach === "local"
+          ? "local"
+          : "fork";
+
+  useEffect(() => {
+    if (!isPrivateRepo && migrationApproach === "branch") {
+      setMigrationApproach("fork");
+    }
+  }, [isPrivateRepo, migrationApproach, setMigrationApproach]);
   const targetRepoName = targetRepoNamesByApproach[currentMigrationApproach] ?? "";
   const sourceRepositoryContext = parseRepositoryContext(selectedRepo?.url || repoUrl);
   const targetRepositoryHost =
@@ -1644,32 +1696,47 @@ export function useWizardController() {
     tooltip: string;
     icon: React.ReactNode;
     color: string;
-  }>>(() => [
-    {
-      value: "fork",
-      label: "Create New Repository",
-      desc: "Push migrated code to a new repository under the Javaapex GitHub owner",
-      tooltip: "Creates an entirely new repository with the migrated code under the Javaapex GitHub owner by default.",
-      icon: <FaRocket />,
-      color: "#f59e0b",
-    },
-    {
-      value: "branch",
-      label: "Existing Repository (New Branch)",
-      desc: "Push migrated code to a new branch in the source repository",
-      tooltip: "Keeps the existing repository and publishes the migrated code on a separate branch for review and merge.",
-      icon: <FaProjectDiagram />,
-      color: "#22c55e",
-    },
-    {
+  }>>(() => {
+    const options: Array<{
+      value: MigrationApproachValue;
+      label: string;
+      desc: string;
+      tooltip: string;
+      icon: React.ReactNode;
+      color: string;
+    }> = [
+      {
+        value: "fork",
+        label: "Create New Repository",
+        desc: "Push migrated code to a new repository under the Javaapex GitHub owner",
+        tooltip: "Creates an entirely new repository with the migrated code under the Javaapex GitHub owner by default.",
+        icon: <FaRocket />,
+        color: "#f59e0b",
+      },
+    ];
+
+    if (isPrivateRepo) {
+      options.push({
+        value: "branch",
+        label: "Existing Repository (New Branch)",
+        desc: "Push migrated code to a new branch in the source repository",
+        tooltip: "Keeps the existing repository and publishes the migrated code on a separate branch for review and merge.",
+        icon: <FaProjectDiagram />,
+        color: "#22c55e",
+      });
+    }
+
+    options.push({
       value: "local",
       label: "Store In Local Folder",
       desc: "Save migrated code into a local folder on this machine",
       tooltip: "Creates a local folder such as {repo-name}-Migrated under the backend migration workspace instead of pushing to GitHub.",
       icon: <FaFolderOpen />,
       color: "#2563eb",
-    },
-  ], []);
+    });
+
+    return options;
+  }, [isPrivateRepo]);
 
   const documentPrefetchKeyRef = useRef<string>("");
   const documentPrefetchPromiseRef = useRef<Promise<PrefetchedBrdDocument | null> | null>(null);
@@ -2766,7 +2833,7 @@ export function useWizardController() {
   };
 
   const renderCategorizedDependencies = (dependencies: DependencyInfo[]) => {
-    const categorizedDependencies = categorizeDependencies(dependencies);
+    const categorizedDependencies = categorizeDependencies(dependencies, dependencyAnalysis);
     const riskCounts = categorizedDependencies.reduce(
       (acc, dep) => {
         acc[dep.risk] += 1;
@@ -2781,7 +2848,8 @@ export function useWizardController() {
     const attentionDependencies = visibleDependencies.filter((dep) => dep.risk !== "low");
     const otherDependencies = visibleDependencies.filter((dep) => dep.risk === "low");
     const dominantRisk: DependencyRiskLevel =
-      riskCounts.critical > 0 ? "critical" : riskCounts.high > 0 ? "high" : riskCounts.medium > 0 ? "medium" : "low";
+      (dependencyAnalysis?.overall_risk?.toLowerCase() as DependencyRiskLevel) ||
+      (riskCounts.critical > 0 ? "critical" : riskCounts.high > 0 ? "high" : riskCounts.medium > 0 ? "medium" : "low");
     const topAttentionNames = attentionDependencies.slice(0, 5).map((dep) => dep.artifact_id).join(", ");
     const activeFilterLabel = dependencyRiskFilter === "all" ? "All Dependencies" : `${dependencyRiskFilter.toUpperCase()} Only`;
 
@@ -2851,6 +2919,23 @@ export function useWizardController() {
             )}
           </div>
           <div style={{ ...styles.dependencyReasonText, color: colors.textColor }}>{dep.reason}</div>
+          {dep.recommendation && (
+            <div
+              style={{
+                marginTop: 8,
+                padding: "6px 10px",
+                borderRadius: 6,
+                background: "rgba(255, 255, 255, 0.7)",
+                border: `1px solid ${colors.border}`,
+                fontSize: 12,
+                lineHeight: 1.4,
+                color: colors.textColor,
+              }}
+            >
+              <strong style={{ fontWeight: 700 }}>Recommendation: </strong>
+              {dep.recommendation}
+            </div>
+          )}
         </div>
       );
     };
@@ -2860,7 +2945,13 @@ export function useWizardController() {
         <div style={styles.dependencyInsightsHeader}>
           <div style={styles.dependencyInsightsTitle}>Total Dependencies ({categorizedDependencies.length})</div>
           <div style={styles.dependencyInsightsSubtitle}>
-            Categorized from repository analysis. Risk levels are heuristic migration signals, not live CVE results.
+            {dependencyAnalysisLoading ? (
+              <span style={{ color: "#2563eb", fontWeight: 600 }}>Analyzing dependencies with AI...</span>
+            ) : dependencyAnalysis?.overall_explanation ? (
+              dependencyAnalysis.overall_explanation
+            ) : (
+              "Categorized from repository analysis. Risk levels are migration compatibility signals, not live CVE results."
+            )}
           </div>
         </div>
 
@@ -3615,7 +3706,10 @@ export function useWizardController() {
     ];
   }, [availableTargetVersions, detectedSourceVersionForTargets, versionRecommendation]);
 
-  const categorizedStrategyDependencies = useMemo(() => categorizeDependencies(repoAnalysis?.dependencies || []), [repoAnalysis?.dependencies]);
+  const categorizedStrategyDependencies = useMemo(
+    () => categorizeDependencies(repoAnalysis?.dependencies || [], dependencyAnalysis),
+    [repoAnalysis?.dependencies, dependencyAnalysis]
+  );
   const dependencyRiskSummary = useMemo(() => {
     return categorizedStrategyDependencies.reduce(
       (acc, dependency) => {
@@ -3980,84 +4074,121 @@ export function useWizardController() {
     }
   }, [step, jobId, fetchBrdMetadata]);
 
-  useEffect(() => {
-    if (step === 2 && selectedRepo && !repoAnalysis && !analysisLoading && !error && isJavaProject !== false) {
+  const executeAnalysis = useCallback(
+    async (isRerun = false) => {
+      if (!selectedRepo) return;
       const isLocalProject = isLocalRepoRef(selectedRepo.url);
       const discoveryKey = `${selectedRepo.url}::${jobId || ""}::${currentToken || ""}`;
 
-      if (discoveryInFlightKeyRef.current === discoveryKey) {
+      if (discoveryInFlightKeyRef.current === discoveryKey && analysisLoading) {
         return;
       }
 
       discoveryInFlightKeyRef.current = discoveryKey;
       setAnalysisLoading(true);
+      setAnalysisStartedAtMs(Date.now());
+      setAnalysisElapsedSeconds(0);
       setError("");
 
-      const analyzePromise = isLocalProject
-        ? analyzeLocalProject(extractLocalRepoPath(selectedRepo.url))
-            .then(async (result) => enrichAnalysisWithPomVersion(result.analysis, selectedRepo.url, ""))
-        : jobId
-          ? runDiscovery(jobId, currentToken)
-              .then(async (result) => enrichAnalysisWithPomVersion(result.analysis, selectedRepo.url, currentToken))
-          : analyzeRepoUrl(selectedRepo.url, currentToken, true)
-              .then(async (result) => enrichAnalysisWithPomVersion(result.analysis, selectedRepo.url, currentToken));
+      if (isRerun) {
+        setRepoAnalysis(null);
+        setRepoPreviewInitialized(false);
+        setMicroserviceAssessmentResolved(false);
+        setDocumentPrefetchStatus("idle");
+      }
 
-      analyzePromise
-        .then((analysis) => {
-          setIsJavaProject(true);
-          applyRepositoryAnalysis(analysis);
-        })
-        .catch((err) => {
-          const message = err?.message || "Failed to analyze repository.";
-          if (isPrivateRepoAccessError(message)) {
-            discoveryInFlightKeyRef.current = "";
-            setIsPrivateRepo(true);
-            setStep(1);
-            setError("");
-            if (currentToken.trim()) {
-              // Token was provided but still failed — may be insufficient scope or expired
-              setAccessTokenValidationState("invalid");
-              setAccessTokenValidationMessage(
-                "The provided PAT could not access this repository. Verify that your token has 'repo' scope and has not expired."
-              );
-            } else {
-              setAccessTokenValidationState("invalid");
-              setAccessTokenValidationMessage(
-                "Add a GitHub Personal Access Token with repo scope to continue analyzing this private repository."
-              );
-            }
-            return;
+      try {
+        const analyzePromise = isLocalProject
+          ? analyzeLocalProject(extractLocalRepoPath(selectedRepo.url))
+              .then(async (result) => enrichAnalysisWithPomVersion(result.analysis, selectedRepo.url, ""))
+          : jobId
+            ? runDiscovery(jobId, currentToken)
+                .then(async (result) => enrichAnalysisWithPomVersion(result.analysis, selectedRepo.url, currentToken))
+            : analyzeRepoUrl(selectedRepo.url, currentToken, true)
+                .then(async (result) => enrichAnalysisWithPomVersion(result.analysis, selectedRepo.url, currentToken));
+
+        const analysis = await analyzePromise;
+        setIsJavaProject(true);
+        applyRepositoryAnalysis(analysis);
+      } catch (err: any) {
+        const message = err?.message || "Failed to analyze repository.";
+        if (isPrivateRepoAccessError(message)) {
+          discoveryInFlightKeyRef.current = "";
+          setIsPrivateRepo(true);
+          setStep(1);
+          setError("");
+          if (currentToken.trim()) {
+            setAccessTokenValidationState("invalid");
+            setAccessTokenValidationMessage(
+              "The provided PAT could not access this repository. Verify that your token has 'repo' scope and has not expired."
+            );
+          } else {
+            setAccessTokenValidationState("invalid");
+            setAccessTokenValidationMessage(
+              "Add a GitHub Personal Access Token with repo scope to continue analyzing this private repository."
+            );
           }
+          return;
+        }
 
-          if (
-            message.toLowerCase().includes("unsupported") ||
-            message.toLowerCase().includes("no maven or gradle") ||
-            err?.status === "UNSUPPORTED_PROJECT"
-          ) {
-            setIsJavaProject(false);
-          }
+        if (
+          message.toLowerCase().includes("unsupported") ||
+          message.toLowerCase().includes("no maven or gradle") ||
+          err?.status === "UNSUPPORTED_PROJECT"
+        ) {
+          setIsJavaProject(false);
+        }
 
-          setError(message);
-        })
-        .finally(() => setAnalysisLoading(false));
+        setError(message);
+      } finally {
+        setAnalysisLoading(false);
+        discoveryInFlightKeyRef.current = "";
+      }
+    },
+    [
+      analysisLoading,
+      applyRepositoryAnalysis,
+      currentToken,
+      enrichAnalysisWithPomVersion,
+      extractLocalRepoPath,
+      isLocalRepoRef,
+      jobId,
+      selectedRepo,
+      setAccessTokenValidationMessage,
+      setAccessTokenValidationState,
+      setAnalysisElapsedSeconds,
+      setAnalysisLoading,
+      setAnalysisStartedAtMs,
+      setDocumentPrefetchStatus,
+      setError,
+      setIsJavaProject,
+      setIsPrivateRepo,
+      setMicroserviceAssessmentResolved,
+      setRepoAnalysis,
+      setRepoPreviewInitialized,
+      setStep,
+    ]
+  );
+
+  const handleRerunAnalysis = useCallback(async () => {
+    if (analysisLoading || isDiscoveryPending) {
+      return;
+    }
+    await executeAnalysis(true);
+  }, [analysisLoading, isDiscoveryPending, executeAnalysis]);
+
+  useEffect(() => {
+    if (step === 2 && selectedRepo && !repoAnalysis && !analysisLoading && !error && isJavaProject !== false) {
+      void executeAnalysis(false);
     }
   }, [
+    step,
+    selectedRepo,
+    repoAnalysis,
     analysisLoading,
-    applyRepositoryAnalysis,
-    currentToken,
-    enrichAnalysisWithPomVersion,
     error,
     isJavaProject,
-    jobId,
-    repoAnalysis,
-    selectedRepo,
-    setAccessTokenValidationMessage,
-    setAccessTokenValidationState,
-    setAnalysisLoading,
-    setIsJavaProject,
-    setIsPrivateRepo,
-    showEnterpriseToken,
-    step,
+    executeAnalysis,
   ]);
 
   // Never let a "Spring -> Spring Boot" selection survive into a newly
@@ -4176,6 +4307,61 @@ export function useWizardController() {
       cancelled = true;
     };
   }, [step, repoAnalysis, detectedSourceVersionForTargets, detectedJavaVersion, riskLevel]);
+
+  useEffect(() => {
+    if (step !== 3 || !repoAnalysis || !repoAnalysis.dependencies || repoAnalysis.dependencies.length === 0) {
+      return;
+    }
+
+    const depsKey = `${repoAnalysis.java_version || repoAnalysis.java_version_from_build || ""}_${repoAnalysis.build_tool || ""}_${effectiveTargetVersion || ""}_${repoAnalysis.dependencies.map((d) => `${d.group_id}:${d.artifact_id}:${d.current_version}`).join(";")}`;
+    if (fetchedDependencyAnalysisKeyRef.current === depsKey && dependencyAnalysis) {
+      return;
+    }
+
+    let cancelled = false;
+    fetchedDependencyAnalysisKeyRef.current = depsKey;
+    setDependencyAnalysisLoading(true);
+
+    analyzeDependencies({
+      dependencies: repoAnalysis.dependencies,
+      source_java_version: detectedSourceVersionForTargets,
+      target_java_version: effectiveTargetVersion,
+      build_tool: repoAnalysis.build_tool,
+      frameworks: repoAnalysis.frameworks || [],
+      testing_frameworks: repoAnalysis.testing_frameworks || [],
+      api_endpoint_count: repoAnalysis.api_endpoints?.length ?? 0,
+      job_id: jobId || undefined,
+    })
+      .then((res) => {
+        if (cancelled) return;
+        if (res && res.dependencies && res.dependencies.length > 0) {
+          setDependencyAnalysis(res);
+        }
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.warn("Dependency analysis fetch error, using client fallback:", err);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setDependencyAnalysisLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    step,
+    repoAnalysis,
+    detectedSourceVersionForTargets,
+    effectiveTargetVersion,
+    jobId,
+    dependencyAnalysis,
+    setDependencyAnalysis,
+    setDependencyAnalysisLoading,
+  ]);
+
 
 
 
@@ -4857,6 +5043,7 @@ export function useWizardController() {
     handleCheckMicroserviceEligibility,
     handleGenerateBrdDocument,
     handleOpenFrameworkFile,
+    handleRerunAnalysis,
     isDiscoveryPending,
     formattedAnalysisElapsed,
     formattedAnalysisCompleted,
@@ -4868,6 +5055,8 @@ export function useWizardController() {
     riskLevel,
     riskExplanation,
     riskExplanationLoading,
+    dependencyAnalysis,
+    dependencyAnalysisLoading,
     buildToolDisplayLabel,
     renderCategorizedDependencies,
     sourceAlreadyAtLatestSupportedVersion,

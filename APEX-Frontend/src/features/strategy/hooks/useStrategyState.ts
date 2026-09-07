@@ -71,6 +71,8 @@ export function useStrategyState(
 
   const [riskExplanation, setRiskExplanation] = useState<string | null>(null);
   const [riskExplanationLoading, setRiskExplanationLoading] = useState(false);
+  const [dependencyAnalysis, setDependencyAnalysis] = useState<import("../services/strategyService").DependencyAnalysisResponse | null>(null);
+  const [dependencyAnalysisLoading, setDependencyAnalysisLoading] = useState(false);
 
   function applyDetectedSourceVersion(version: string, status: "detected" | "unknown") {
     setSelectedSourceVersion(version);
@@ -113,8 +115,13 @@ export function useStrategyState(
     setRiskExplanation,
     riskExplanationLoading,
     setRiskExplanationLoading,
+    dependencyAnalysis,
+    setDependencyAnalysis,
+    dependencyAnalysisLoading,
+    setDependencyAnalysisLoading,
     applyDetectedSourceVersion,
     resetTargetRepoNaming,
   };
 }
+
 

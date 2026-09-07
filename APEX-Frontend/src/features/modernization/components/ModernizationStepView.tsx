@@ -229,6 +229,17 @@ export function ModernizationStepView({
     onStartMigration();
   };
 
+  // Lock body scroll when confirmation popup is active on long scrollable pages
+  useEffect(() => {
+    if (showQualityGateReminder) {
+      const originalOverflow = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+      return () => {
+        document.body.style.overflow = originalOverflow;
+      };
+    }
+  }, [showQualityGateReminder]);
+
   const existingLogRef = useRef<HTMLDivElement | null>(null);
   const existingPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -835,19 +846,22 @@ export function ModernizationStepView({
         data={testDetailReport}
       />
 
-      {/* ── Quality Gates Reminder Modal ────────────────────── */}
+      {/* ── Quality Gates Reminder Modal (Confirmation Popup) ── */}
       {showQualityGateReminder && (
         <div
           style={{
             position: "fixed",
             inset: 0,
+            width: "100vw",
+            height: "100vh",
             background: "rgba(15, 23, 42, 0.6)",
             backdropFilter: "blur(4px)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            zIndex: 9999,
-            padding: 20,
+            zIndex: 10000,
+            padding: "16px",
+            boxSizing: "border-box",
           }}
           onClick={() => setShowQualityGateReminder(false)}
         >
@@ -857,10 +871,14 @@ export function ModernizationStepView({
               borderRadius: 16,
               width: "100%",
               maxWidth: 480,
+              maxHeight: "calc(100vh - 32px)",
+              display: "flex",
+              flexDirection: "column",
               boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.2), 0 10px 10px -5px rgba(0, 0, 0, 0.08)",
               border: "1px solid #e2e8f0",
               overflow: "hidden",
               animation: "modFadeUp 0.25s cubic-bezier(0.16, 1, 0.3, 1) both",
+              margin: "auto",
             }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -873,6 +891,7 @@ export function ModernizationStepView({
                 padding: "20px 24px",
                 borderBottom: "1px solid #f1f5f9",
                 background: "#fffbeb",
+                flexShrink: 0,
               }}
             >
               <div
@@ -902,7 +921,16 @@ export function ModernizationStepView({
             </div>
 
             {/* Modal Body */}
-            <div style={{ padding: "24px", color: "#334155", fontSize: 14, lineHeight: 1.6 }}>
+            <div
+              style={{
+                padding: "24px",
+                color: "#334155",
+                fontSize: 14,
+                lineHeight: 1.6,
+                overflowY: "auto",
+                flex: "1 1 auto",
+              }}
+            >
               <p style={{ margin: 0, marginBottom: 10, fontWeight: 500 }}>
                 SonarQube and/or FOSSA quality gates have not been selected.
               </p>
@@ -920,6 +948,7 @@ export function ModernizationStepView({
                 padding: "16px 24px",
                 background: "#f8fafc",
                 borderTop: "1px solid #e2e8f0",
+                flexShrink: 0,
               }}
             >
               <button

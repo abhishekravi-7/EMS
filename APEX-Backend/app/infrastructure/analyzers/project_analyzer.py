@@ -107,11 +107,30 @@ class ProjectAnalyzer:
         spring_boot_version = self._spring_boot.detect(pom_root, build_gradle_text)
         spring_boot_signal = self._spring_boot.has_signal(pom_root, build_gradle_text)
         spring_framework_version = self._spring_framework.detect(pom_root, build_gradle_text)
-        all_files = file_utils.find_files(project_root, "")
+        all_files = file_utils.find_files(root, "")
         java_files = [f for f in all_files if f.lower().endswith(".java")]
-        config_exts = (".xml", ".yml", ".yaml", ".properties", ".gradle", ".gradle.kts", ".json", ".conf", ".config", ".toml")
-        config_files = [f for f in all_files if any(f.lower().endswith(ext) for ext in config_exts)]
+        config_exts = (
+            ".xml",
+            ".yml",
+            ".yaml",
+            ".properties",
+            ".gradle",
+            ".gradle.kts",
+            ".json",
+            ".conf",
+            ".config",
+            ".toml",
+            ".ini",
+            ".cfg",
+            ".env",
+            ".inf",
+            ".policy",
+        )
+        config_files = [
+            f for f in all_files if f not in java_files and any(f.lower().endswith(ext) for ext in config_exts)
+        ]
         other_files = [f for f in all_files if f not in java_files and f not in config_files]
+        total_file_count = len(all_files)
 
         spring_entry_class: str | None = None
         if not spring_boot_version and not spring_boot_signal:
@@ -143,7 +162,6 @@ class ProjectAnalyzer:
         # Scan the whole repo for a frontend (it commonly sits beside the backend,
         # e.g. repo/frontend + repo/backend).
         frontend = self._frontend.detect(root)
-        total_file_count = file_utils.count_files(root, "")
 
         has_src_main = file_utils.exists(project_root, "src", "main")
         has_src_test = file_utils.exists(project_root, "src", "test")

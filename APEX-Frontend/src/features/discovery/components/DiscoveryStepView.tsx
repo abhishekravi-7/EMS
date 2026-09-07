@@ -794,6 +794,7 @@ export function DiscoveryStepView({
       path: item.path,
       type: "file",
       size: 1024,
+      url: "",
     };
     setSelectedFile(mockFile);
 

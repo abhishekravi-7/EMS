@@ -21,9 +21,7 @@ from app.core.exceptions import (
     RepositoryWorkspaceNotFoundError,
 )
 from app.infrastructure.workspace.workspace_paths import WorkspacePaths
-
-# Never worth listing/descending into.
-_IGNORED_DIR_NAMES = {".git"}
+from app.shared.file_utils import _SKIP_DIRS
 
 # Safety cap so a huge binary/log file can't be dumped whole into a response.
 MAX_PREVIEW_FILE_BYTES = 1_000_000  # ~1 MB
@@ -77,7 +75,7 @@ class RepositoryFileBrowser:
 
         entries: list[RepoFileEntry] = []
         for child in target.iterdir():
-            if child.name in _IGNORED_DIR_NAMES:
+            if child.name in _SKIP_DIRS:
                 continue
 
             is_dir = child.is_dir()
