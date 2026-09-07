@@ -240,3 +240,59 @@ export async function stopExistingTests(jobId: string): Promise<{ stopped: boole
     { method: "POST" }
   );
 }
+
+export function classifyTestType(t: {
+  test_type?: string;
+  testType?: string;
+  type?: string;
+  category?: string;
+  framework?: string;
+  suite?: string;
+  classname?: string;
+  file?: string;
+  test_name?: string;
+  name?: string;
+  title?: string;
+}): "API" | "UI" | "Unit" {
+  const rawType = String(
+    t.test_type || t.testType || t.type || t.category || ""
+  ).toUpperCase();
+  const rawFw = String(t.framework || "").toUpperCase();
+  const suite = String(t.suite || t.classname || t.file || "").toUpperCase();
+
+  if (
+    rawType === "UI" ||
+    rawType.includes("UI") ||
+    rawType.includes("E2E") ||
+    rawType.includes("PLAYWRIGHT") ||
+    rawType.includes("CYPRESS") ||
+    rawType.includes("SELENIUM") ||
+    rawFw.includes("PLAYWRIGHT") ||
+    rawFw.includes("SELENIUM") ||
+    rawFw.includes("CYPRESS") ||
+    suite.includes("UITEST") ||
+    suite.includes("E2ETEST")
+  ) {
+    return "UI";
+  }
+
+  if (
+    rawType === "API" ||
+    rawType.includes("API") ||
+    rawType.includes("INTEGRATION") ||
+    rawType.includes("REST") ||
+    rawType.includes("HTTP") ||
+    rawType.includes("SPRING_BOOT_TEST") ||
+    rawFw.includes("REST_ASSURED") ||
+    rawFw.includes("RESTASSURED") ||
+    rawFw.includes("SUPERTEST") ||
+    suite.includes("APITEST") ||
+    suite.includes("CONTROLLERTEST") ||
+    suite.includes("INTEGRATIONTEST")
+  ) {
+    return "API";
+  }
+
+  return "Unit";
+}
+

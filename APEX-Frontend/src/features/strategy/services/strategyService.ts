@@ -31,8 +31,36 @@ export interface JavaVersionRecommendationResponse {
     risk?: string;
     reason?: string;
   }>;
+  risk_explanation?: string;
   already_at_latest_supported_version?: boolean;
   raw_recommendation?: Record<string, unknown>;
+}
+
+export interface RiskExplanationRequest {
+  risk_level: string;
+  source_java_version?: string | null;
+  build_tool?: string | null;
+  has_tests: boolean;
+  dependencies?: DependencyInfo[];
+  frameworks?: unknown[];
+  api_endpoint_count?: number;
+}
+
+export interface RiskExplanationResponse {
+  risk_level: string;
+  risk_explanation: string;
+  provider_used: string;
+}
+
+export function getDefaultRiskExplanation(level: string): string {
+  const normalized = (level || "").trim().toLowerCase();
+  if (normalized === "low") {
+    return "The project is already on a modern migration path with build tooling and tests detected.";
+  }
+  if (normalized === "medium") {
+    return "The project has build tooling, but tests are missing or limited.";
+  }
+  return "The project needs extra review because build tooling or Java metadata was not detected.";
 }
 
 // Canonical Java release list used to populate the source/target dropdowns.
@@ -84,6 +112,20 @@ export async function getJavaVersionRecommendation(
     }
   );
 }
+
+export async function getRiskExplanation(
+  request: RiskExplanationRequest
+): Promise<RiskExplanationResponse> {
+  return requestJson<RiskExplanationResponse>(
+    "/risk-explanation",
+    "Failed to get risk explanation",
+    {
+      method: "POST",
+      body: request,
+    }
+  );
+}
+
 
 export interface StrategyQueryRequest {
   repo_url?: string;

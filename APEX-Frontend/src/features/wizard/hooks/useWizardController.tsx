@@ -37,6 +37,8 @@ import {
 import {
   getJavaVersions,
   getJavaVersionRecommendation,
+  getRiskExplanation,
+  getDefaultRiskExplanation,
   type JavaVersionRecommendationResponse,
   type StrategyPageContext,
 } from "@/features/strategy/services/strategyService";
@@ -1145,9 +1147,14 @@ export function useWizardController() {
     sourceVersionStatus,
     setSourceVersionStatus,
     updateSourceVersion,
+    riskExplanation,
+    setRiskExplanation,
+    riskExplanationLoading,
+    setRiskExplanationLoading,
     resetTargetRepoNaming,
     applyDetectedSourceVersion,
   } = strategyState;
+  const fetchedRiskExplanationKeyRef = useRef<string>("");
   const modernizationState = useModernizationState(persistedFormState);
   const {
     runTests,
@@ -3507,11 +3514,7 @@ export function useWizardController() {
   
   const buildToolDisplayLabel = detectedSourceBuildTool || "Not Detected";
   const strategyRiskExplanation =
-    riskLevel === "low"
-      ? "The project is already on a modern migration path with build tooling and tests detected."
-      : riskLevel === "medium"
-        ? "The project has build tooling, but tests are missing or limited."
-        : "The project needs extra review because build tooling or Java metadata was not detected.";
+    riskExplanation || getDefaultRiskExplanation(riskLevel);
   const detectedSourceVersionForTargets = detectedJavaVersion || selectedSourceVersion;
   const detectedSourceVersionNumber = parseJavaVersion(detectedSourceVersionForTargets);
   const highestSupportedTargetVersion = useMemo(() => {
@@ -4098,6 +4101,9 @@ export function useWizardController() {
       .then((recommendation) => {
         if (cancelled) return;
         setVersionRecommendation(recommendation);
+        if (recommendation?.risk_explanation && !riskExplanation) {
+          setRiskExplanation(recommendation.risk_explanation);
+        }
       })
       .catch(() => {
         if (cancelled) return;
@@ -4118,6 +4124,55 @@ export function useWizardController() {
       cancelled = true;
     };
   }, [step, repoAnalysis, detectedSourceVersionForTargets, detectedJavaVersion, riskLevel, availableTargetVersions.length]);
+
+  useEffect(() => {
+    if (step !== 3 || !repoAnalysis) {
+      return;
+    }
+
+    const explanationKey = `${repoAnalysis.java_version || repoAnalysis.java_version_from_build || ""}_${repoAnalysis.build_tool || ""}_${repoAnalysis.has_tests}_${riskLevel || "unknown"}`;
+    if (fetchedRiskExplanationKeyRef.current === explanationKey && riskExplanation) {
+      return;
+    }
+
+    let cancelled = false;
+    fetchedRiskExplanationKeyRef.current = explanationKey;
+    setRiskExplanationLoading(true);
+
+    getRiskExplanation({
+      risk_level: riskLevel || "unknown",
+      source_java_version: detectedSourceVersionForTargets,
+      detected_java_version: detectedJavaVersion || repoAnalysis.java_version,
+      build_tool: repoAnalysis.build_tool,
+      dependencies: repoAnalysis.dependencies || [],
+      has_tests: repoAnalysis.has_tests,
+      test_frameworks: repoAnalysis.testing_frameworks || [],
+      frameworks: repoAnalysis.frameworks || [],
+      api_endpoint_count: repoAnalysis.api_endpoints?.length ?? 0,
+      llm_provider: "huggingface",
+    })
+      .then((res) => {
+        if (cancelled) return;
+        if (res?.risk_explanation) {
+          setRiskExplanation(res.risk_explanation);
+        } else {
+          setRiskExplanation(getDefaultRiskExplanation(riskLevel));
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setRiskExplanation(getDefaultRiskExplanation(riskLevel));
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setRiskExplanationLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [step, repoAnalysis, detectedSourceVersionForTargets, detectedJavaVersion, riskLevel]);
 
 
 
@@ -4810,6 +4865,8 @@ export function useWizardController() {
     strategyState,
     repoAnalysis,
     riskLevel,
+    riskExplanation,
+    riskExplanationLoading,
     buildToolDisplayLabel,
     renderCategorizedDependencies,
     sourceAlreadyAtLatestSupportedVersion,

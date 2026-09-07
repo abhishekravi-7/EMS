@@ -69,6 +69,9 @@ export function useStrategyState(
     persistedFormState?.updateSourceVersion ?? false
   );
 
+  const [riskExplanation, setRiskExplanation] = useState<string | null>(null);
+  const [riskExplanationLoading, setRiskExplanationLoading] = useState(false);
+
   function applyDetectedSourceVersion(version: string, status: "detected" | "unknown") {
     setSelectedSourceVersion(version);
     setSourceVersionStatus(status);
@@ -106,7 +109,12 @@ export function useStrategyState(
     sourceVersionStatus,
     setSourceVersionStatus,
     updateSourceVersion,
+    riskExplanation,
+    setRiskExplanation,
+    riskExplanationLoading,
+    setRiskExplanationLoading,
     applyDetectedSourceVersion,
     resetTargetRepoNaming,
   };
 }
+

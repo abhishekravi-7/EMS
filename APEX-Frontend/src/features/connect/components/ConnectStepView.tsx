@@ -63,13 +63,16 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
       ? "#166534"
       : accessTokenValidationState === "invalid"
         ? "#b45309"
-        : "#9a3412";
+        : accessTokenValidationState === "validating"
+          ? "#2563eb"
+          : "#9a3412";
   const tokenStatusIcon =
     accessTokenValidationState === "valid"
       ? <FaCheckCircle />
       : accessTokenValidationState === "invalid"
         ? <FaExclamationTriangle />
         : <FaInfoCircle />;
+
 
   return (
     <div className="page-connect" data-step="connect">
@@ -180,7 +183,7 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
               {/* Pre-input PAT helper when URL is empty */}
               {!repoUrl && !shouldShowPatInput && (
                 <div style={{ marginTop: 6, display: "flex", justifyContent: "center", alignItems: "center", minHeight: 20, fontSize: 11, color: "#64748b", gap: 6 }}>
-                  <span>Private repository?</span>
+                  
                   <button
                     type="button"
                     onClick={() => {
@@ -199,7 +202,7 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
                       textDecoration: "underline",
                     }}
                   >
-                    Need a PAT?
+                   
                   </button>
                 </div>
               )}
@@ -361,11 +364,12 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
                         : "A Personal Access Token (PAT) with repo scope is required to access a private repository."}
                     </p>
 
-                    <div style={{ display: "flex", gap: 6 }}>
+                    <div style={{ display: "flex", width: "100%" }}>
                       <input
                         type="password"
                         style={{
-                          flex: 1,
+                          width: "100%",
+                          boxSizing: "border-box",
                           padding: "6px 10px",
                           borderRadius: 6,
                           border: "1px solid #cbd5e1",
@@ -381,26 +385,20 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
                             setPatToken(e.target.value);
                           }
                         }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            void handleAccessTokenValidate();
+                          }
+                        }}
+                        onBlur={() => {
+                          if ((showEnterpriseToken ? githubToken : patToken).trim() && accessTokenValidationState === "idle") {
+                            void handleAccessTokenValidate();
+                          }
+                        }}
                         placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
                         autoComplete="off"
                       />
-                      <button
-                        type="button"
-                        style={{
-                          padding: "6px 12px",
-                          borderRadius: 6,
-                          background: "#2563eb",
-                          color: "#ffffff",
-                          border: "none",
-                          fontSize: 12,
-                          fontWeight: 600,
-                          cursor: "pointer",
-                        }}
-                        disabled={accessTokenValidationState === "validating"}
-                        onClick={() => void handleAccessTokenValidate()}
-                      >
-                        {accessTokenValidationState === "validating" ? "..." : "Validate"}
-                      </button>
                     </div>
                     <div style={{ fontSize: 11, color: tokenStatusColor, marginTop: 6, display: "flex", alignItems: "center", gap: 4 }}>
                       {tokenStatusIcon}

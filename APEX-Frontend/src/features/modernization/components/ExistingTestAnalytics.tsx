@@ -1,6 +1,11 @@
 import React, { useState, useMemo } from "react";
 import { FaTimes } from "react-icons/fa";
-import type { TestResult, FileSummary, TestSelectionItem } from "../services/existingTestService";
+import {
+  classifyTestType,
+  type TestResult,
+  type FileSummary,
+  type TestSelectionItem,
+} from "../services/existingTestService";
 
 export type DiscoveredOrExecutedTest = TestResult;
 export type { FileSummary };
@@ -223,11 +228,11 @@ export function ExistingTestAnalytics({
       let ui = 0;
 
       canonicalTests.forEach((t) => {
-        const rawType = String(t.test_type || t.testType || t.type || (t.category === "UI" ? "UI" : "API")).toUpperCase();
-        if (rawType.includes("UI") || rawType.includes("E2E") || rawType.includes("PLAYWRIGHT") || rawType.includes("CYPRESS") || rawType.includes("SELENIUM")) {
-          ui++;
-        } else if (rawType.includes("INTEGRATION") || rawType.includes("API") || rawType.includes("REST") || rawType.includes("HTTP")) {
+        const type = classifyTestType(t);
+        if (type === "API") {
           api++;
+        } else if (type === "UI") {
+          ui++;
         } else {
           unit++;
         }
@@ -248,7 +253,7 @@ export function ExistingTestAnalytics({
       let p3 = 0;
 
       canonicalTests.forEach((t) => {
-        const p = String(t.priority || "").toUpperCase();
+        const p = String((t as any).priority || "").toUpperCase();
         if (p === "P0" || p.includes("CRITICAL")) p0++;
         else if (p === "P1" || p.includes("HIGH")) p1++;
         else if (p === "P2" || p.includes("MEDIUM")) p2++;
@@ -264,12 +269,9 @@ export function ExistingTestAnalytics({
 
   const totalTests = totalDiscoveredCount;
 
-  // Display mapping: combine UNIT into API for display purposes only
-  const displayedApiCount = apiCount + unitCount;
-  const displayedUiCount = uiCount;
-
-  const apiPct = totalTests > 0 ? ((displayedApiCount / totalTests) * 100).toFixed(1) : "0.0";
-  const uiPct = totalTests > 0 ? ((displayedUiCount / totalTests) * 100).toFixed(1) : "0.0";
+  const apiPct = totalTests > 0 ? ((apiCount / totalTests) * 100).toFixed(1) : "0.0";
+  const uiPct = totalTests > 0 ? ((uiCount / totalTests) * 100).toFixed(1) : "0.0";
+  const unitPct = totalTests > 0 ? ((unitCount / totalTests) * 100).toFixed(1) : "0.0";
 
   const p0Pct = totalTests > 0 ? ((p0Count / totalTests) * 100).toFixed(1) : "0.0";
   const p1Pct = totalTests > 0 ? ((p1Count / totalTests) * 100).toFixed(1) : "0.0";
@@ -277,8 +279,9 @@ export function ExistingTestAnalytics({
   const p3Pct = totalTests > 0 ? ((p3Count / totalTests) * 100).toFixed(1) : "0.0";
 
   const typeSlices: SliceItem[] = [
-    { label: "API", value: displayedApiCount, percentage: apiPct, color: "#059669" },
-    { label: "UI", value: displayedUiCount, percentage: uiPct, color: "#7c3aed" },
+    { label: "API Tests", value: apiCount, percentage: apiPct, color: "#0284c7" },
+    { label: "UI Tests", value: uiCount, percentage: uiPct, color: "#7c3aed" },
+    { label: "Unit Tests", value: unitCount, percentage: unitPct, color: "#16a34a" },
   ];
 
   const prioritySlices: SliceItem[] = [
@@ -325,7 +328,7 @@ export function ExistingTestAnalytics({
             Suite Composition Breakdown
           </h3>
 
-          {/* Suites List inside a Scrollable Container (Shows ~7-8 suites at a time) */}
+          {/* Suites List inside a Scrollable Container */}
           <div
             style={{
               display: "flex",
@@ -363,45 +366,41 @@ export function ExistingTestAnalytics({
                     {suiteNameUpper}
                   </span>
 
-                  {/* Horizontal Bar with % badge */}
-                  <div
-                    style={{
-                      flex: 1,
-                      height: 18,
-                      background: "#f1f5f9",
-                      borderRadius: 12,
-                      overflow: "hidden",
-                      position: "relative",
-                      display: "flex",
-                      alignItems: "center",
-                    }}
-                  >
+                  {/* Horizontal Bar with count at the end */}
+                  <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8 }}>
                     <div
                       style={{
-                        width: `${pct}%`,
-                        height: "100%",
-                        background: "linear-gradient(90deg, #0284c7, #0ea5e9)",
-                        borderRadius: 12,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "flex-end",
-                        paddingRight: 6,
-                        transition: "width 0.5s ease",
+                        flex: 1,
+                        height: 12,
+                        background: "#f1f5f9",
+                        borderRadius: 10,
+                        overflow: "hidden",
+                        position: "relative",
                       }}
                     >
-                      <span style={{ fontSize: 9, fontWeight: 900, color: "#fff" }}>{pct}%</span>
+                      <div
+                        style={{
+                          width: `${Math.max(pct, 4)}%`,
+                          height: "100%",
+                          background: "linear-gradient(90deg, #0284c7, #38bdf8)",
+                          borderRadius: 10,
+                          transition: "width 0.5s ease",
+                        }}
+                      />
                     </div>
+                    <span style={{ fontSize: 11, fontWeight: 800, color: "#0f172a", minWidth: 20 }}>
+                      {s.total}
+                    </span>
                   </div>
 
-                  {/* Count & View Link */}
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, width: 75, justifyContent: "flex-end" }}>
-                    <span style={{ fontSize: 13, fontWeight: 800, color: "#0f172a" }}>{s.total}</span>
+                  {/* View Link */}
+                  <div style={{ width: 45, display: "flex", justifyContent: "flex-end" }}>
                     <button
                       onClick={() => {
                         if (onViewSuite) {
                           onViewSuite(s.file);
                         }
-        setSelectedSuiteModal({ name: baseName, tests: s.tests || [] });
+                        setSelectedSuiteModal({ name: baseName, tests: s.tests || [] });
                       }}
                       style={{
                         border: "none",
@@ -641,104 +640,62 @@ export function ExistingTestAnalytics({
               ) : (
                 selectedSuiteModal.tests.map((st, sIdx) => {
                   const testTitle = (st.test_name || st.name || st.title || st.methodname || `scenario_${sIdx + 1}`).replace(/\(\s*\)$/, "");
-                  const testDesc = (st.status === "FAILED" || st.status === "ERROR") && (st.failure_message || st.error)
-                    ? (st.failure_message || st.error)
-                    : st.file || st.spec || st.classname || `Validates ${selectedSuiteModal.name} test scenario`;
-                  const stStatus = (st.status || "NOT_EXECUTED").toUpperCase();
-                  const rawType = (st.test_type || st.testType || st.category || st.type || "API").toUpperCase();
-                  const displayType = rawType === "UNIT" ? "API" : (rawType.includes("UI") ? "UI" : "API");
+                  const filePath = st.file || st.spec || (st.classname ? `${st.classname}.java` : "") || selectedSuiteModal.name;
+                  const description = (st as any).description || (st as any).summary || null;
+                  const displayType = classifyTestType(st);
 
                   return (
                     <div
                       key={sIdx}
-                      onClick={() => {
-                        if (onSelectTest) {
-                          const selectedTest: TestResult = {
-                            test_name: st.test_name || st.name || st.title || `scenario_${sIdx + 1}`,
-                            name: st.name || st.test_name || st.title || `scenario_${sIdx + 1}`,
-                            title: st.title || st.test_name || st.name || `scenario_${sIdx + 1}`,
-                            suite: st.suite || st.spec || st.classname || selectedSuiteModal.name,
-                            spec: st.spec || st.suite || st.classname || selectedSuiteModal.name,
-                            status: (st.status || "NOT_EXECUTED") as TestResult["status"],
-                            duration: st.duration || "—",
-                            file: st.file || selectedSuiteModal.name,
-                            error: st.failure_message || st.error || null,
-                            failure_message: st.failure_message || st.error || null,
-                            framework: st.framework || undefined,
-                          };
-                          setSelectedSuiteModal(null);
-                          onSelectTest(selectedTest);
-                        }
-                      }}
                       style={{
-                        padding: "12px 16px",
+                        padding: "14px 18px",
                         borderRadius: 10,
                         border: "1px solid #e2e8f0",
                         background: "#f8fafc",
-                        cursor: onSelectTest ? "pointer" : "default",
                         display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        transition: "all 0.15s ease",
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = "#f1f5f9";
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = "#f8fafc";
+                        flexDirection: "column",
+                        gap: 6,
                       }}
                     >
-                      <div style={{ flex: 1, paddingRight: 16 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                          <span style={{ fontSize: 13, fontWeight: 800, color: "#0f172a" }}>{testTitle}</span>
-                          <span style={{
-                            fontSize: 9,
-                            fontWeight: 800,
-                            padding: "2px 6px",
-                            borderRadius: 4,
-                            background: displayType === "UI" ? "#faf5ff" : "#eff6ff",
-                            color: displayType === "UI" ? "#9333ea" : "#2563eb",
-                            border: `1px solid ${displayType === "UI" ? "#e9d5ff" : "#bfdbfe"}`,
-                          }}>
-                            {displayType}
-                          </span>
-                        </div>
-                        <div style={{ fontSize: 11, color: "#64748b", marginTop: 3, fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 520 }}>
-                          {testDesc}
-                        </div>
-                      </div>
-
-                      <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-                        {st.status && (
-                          <span style={{
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+                        <span style={{ fontSize: 13, fontWeight: 800, color: "#0f172a" }}>
+                          {testTitle}
+                        </span>
+                        <span
+                          style={{
                             fontSize: 10,
                             fontWeight: 800,
                             padding: "2px 8px",
-                            borderRadius: 6,
-                            background: stStatus === "PASSED" ? "#ecfdf5" : stStatus === "FAILED" || stStatus === "ERROR" ? "#fef2f2" : stStatus === "SKIPPED" ? "#fffbeb" : "#f1f5f9",
-                            color: stStatus === "PASSED" ? "#059669" : stStatus === "FAILED" || stStatus === "ERROR" ? "#dc2626" : stStatus === "SKIPPED" ? "#d97706" : "#64748b",
-                            border: `1px solid ${stStatus === "PASSED" ? "#a7f3d0" : stStatus === "FAILED" || stStatus === "ERROR" ? "#fecaca" : stStatus === "SKIPPED" ? "#fde68a" : "#e2e8f0"}`,
-                          }}>
-                            {stStatus === "NOT_EXECUTED" ? "NOT EXECUTED" : stStatus}
-                          </span>
-                        )}
-
-                        {onSelectTest && (
-                          <button
-                            style={{
-                              border: "none",
-                              background: "transparent",
-                              color: "#7c3aed",
-                              fontWeight: 800,
-                              fontSize: 11,
-                              cursor: "pointer",
-                              padding: 0,
-                            }}
-                          >
-                            Details →
-                          </button>
-                        )}
+                            borderRadius: 4,
+                            background: displayType === "UI" ? "#faf5ff" : displayType === "API" ? "#eff6ff" : "#ecfdf5",
+                            color: displayType === "UI" ? "#9333ea" : displayType === "API" ? "#2563eb" : "#047857",
+                            border: `1px solid ${displayType === "UI" ? "#e9d5ff" : displayType === "API" ? "#bfdbfe" : "#a7f3d0"}`,
+                            flexShrink: 0,
+                          }}
+                        >
+                          {displayType}
+                        </span>
                       </div>
+
+                      <div
+                        style={{
+                          fontSize: 11,
+                          color: "#64748b",
+                          fontFamily: "monospace",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                        title={filePath}
+                      >
+                        {filePath}
+                      </div>
+
+                      {description && (
+                        <div style={{ fontSize: 11, color: "#475569", marginTop: 2, lineHeight: 1.4 }}>
+                          {description}
+                        </div>
+                      )}
                     </div>
                   );
                 })

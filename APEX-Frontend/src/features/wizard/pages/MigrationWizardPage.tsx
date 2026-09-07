@@ -76,6 +76,8 @@ export default function MigrationWizardPage() {
     strategyState,
     repoAnalysis,
     riskLevel,
+    riskExplanation,
+    riskExplanationLoading,
     buildToolDisplayLabel,
     renderCategorizedDependencies,
     effectiveTargetVersion,
@@ -290,6 +292,8 @@ export default function MigrationWizardPage() {
               repoAnalysis={repoAnalysis}
               selectedRepo={selectedRepo}
               riskLevel={riskLevel}
+              riskExplanation={riskExplanation}
+              riskExplanationLoading={riskExplanationLoading}
               stepSummary="Review assessment results and define the migration roadmap"
               buildToolDisplayLabel={buildToolDisplayLabel}
               renderCategorizedDependencies={renderCategorizedDependencies}

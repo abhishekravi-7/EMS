@@ -20,6 +20,7 @@ framework version requirements).
 - "alternative_options": array of objects (possibly empty) for the OTHER allowed target versions, \
 each with "version" (string), "risk" (short string: "Low"/"Medium"/"High"), and "reason" (short string \
 explaining when someone would pick this instead).
+- "risk_explanation": string, a concise 1-2 sentence explanation of the application's migration risk level based on the provided risk level and repository analysis factors (build tool, Java version, automated tests, dependencies).
 
 Only recommend a version from the allowed target list you are given - never the current/source version, \
 and never a version outside that list."""
@@ -69,6 +70,66 @@ Project metadata detected from the real repository:
 {dependency_block}
 
 Respond with only the JSON object described in the system prompt."""
+
+
+RISK_EXPLANATION_SYSTEM_PROMPT = """You are a senior Java modernization architect. \
+Given a Java project's metadata and its calculated migration risk level, generate a concise, factual 1-2 sentence explanation of why the project has this risk level. \
+The JSON object must have exactly these keys:
+- "risk_explanation": string, a concise 1-2 sentence explanation grounded strictly in the supplied repository metadata and the calculated risk level.
+
+Rules:
+1. Ground the explanation strictly in the supplied repository data (build tool, Java version, automated tests, dependencies, frameworks).
+2. Do not invent facts or provide unsolicited recommendations.
+3. Keep the explanation to 1-2 sentences.
+4. Output only the single JSON object."""
+
+
+def build_risk_explanation_prompt(
+    *,
+    risk_level: str,
+    source_java_version: str | None,
+    build_tool: str | None,
+    has_tests: bool,
+    dependencies: list[dict[str, Any]] | None = None,
+    frameworks: list[Any] | None = None,
+    api_endpoint_count: int = 0,
+) -> str:
+    deps = dependencies or []
+    dependency_lines = [
+        f"- {dep.get('artifact_id') or dep.get('artifactId') or 'unknown'}"
+        f" ({dep.get('group_id') or dep.get('groupId') or 'unknown'})"
+        f" {dep.get('current_version') or dep.get('version') or ''}".strip()
+        for dep in deps[:20]
+        if isinstance(dep, dict)
+    ]
+    dependency_block = "\n".join(dependency_lines) if dependency_lines else "No dependencies detected."
+
+    fw_names = []
+    if frameworks:
+        for fw in frameworks:
+            if isinstance(fw, dict):
+                name = fw.get("name") or fw.get("label") or ""
+                if name:
+                    fw_names.append(name)
+            elif isinstance(fw, str):
+                fw_names.append(fw)
+
+    frameworks_str = ", ".join(fw_names) if fw_names else "Standard Java application"
+
+    return f"""Explain why this project has a calculated migration risk level of '{risk_level.upper()}'.
+
+Project Analysis Data:
+- Calculated Risk Level: {risk_level.upper()}
+- Source Java Version: {source_java_version or 'unknown'}
+- Build Tool: {build_tool or 'not detected'}
+- Automated Tests Detected: {'yes' if has_tests else 'no'}
+- Frameworks Detected: {frameworks_str}
+- REST API Endpoint Count: {api_endpoint_count}
+- Key Dependencies ({len(dependency_lines)} shown):
+{dependency_block}
+
+Provide a concise 1-2 sentence explanation for the '{risk_level.upper()}' risk level."""
+
 
 
 JUNIT_GENERATOR_SYSTEM_PROMPT = """You are a Senior Java Principal QA Engineer and Software Architect. \

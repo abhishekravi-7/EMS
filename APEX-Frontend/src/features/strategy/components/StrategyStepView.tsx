@@ -9,7 +9,11 @@ import {
   WizardSectionHeading,
 } from "@/shared/components/wizard";
 import type { RepoAnalysis, RepoInfo, DependencyInfo } from "@/shared/types/domain";
-import type { JavaVersionRecommendationResponse, StrategyPageContext } from "../services/strategyService";
+import {
+  type JavaVersionRecommendationResponse,
+  type StrategyPageContext,
+  getDefaultRiskExplanation,
+} from "../services/strategyService";
 import type { useStrategyState, JavaVersionOption } from "../hooks/useStrategyState";
 
 
@@ -52,6 +56,8 @@ interface StrategyStepViewProps {
   repoAnalysis: RepoAnalysis | null;
   selectedRepo: RepoInfo | null;
   riskLevel: string;
+  riskExplanation?: string | null;
+  riskExplanationLoading?: boolean;
   stepSummary: string;
   buildToolDisplayLabel: string;
   renderCategorizedDependencies: (dependencies: DependencyInfo[]) => React.ReactNode;
@@ -78,6 +84,8 @@ export function StrategyStepView({
   repoAnalysis,
   selectedRepo,
   riskLevel,
+  riskExplanation: propRiskExplanation,
+  riskExplanationLoading: propRiskExplanationLoading,
   stepSummary,
   buildToolDisplayLabel,
   renderCategorizedDependencies,
@@ -98,6 +106,7 @@ export function StrategyStepView({
   onContinue,
   strategyAssistantContext: _strategyAssistantContext,
 }: StrategyStepViewProps) {
+
   const {
     selectedSourceVersion,
     setSelectedSourceVersion,
@@ -111,9 +120,20 @@ export function StrategyStepView({
     setMigrationApproach,
     userSelectedVersion,
     setUserSelectedVersion,
+    riskExplanation,
+    riskExplanationLoading,
   } = strategy;
+
+  const effectiveRiskExplanation =
+    propRiskExplanation !== undefined ? propRiskExplanation : riskExplanation;
+  const effectiveRiskExplanationLoading =
+    propRiskExplanationLoading !== undefined
+      ? propRiskExplanationLoading
+      : riskExplanationLoading;
+
   const detectedSourceVersion =
     (repoAnalysis?.java_version || repoAnalysis?.java_version_from_build || selectedSourceVersion).toString().trim();
+
 
   // Spring -> Spring Boot conversion card: enabled/disabled purely from the
   // backend's Discovery-stage analysis of the actual cloned repository (never
@@ -195,14 +215,17 @@ export function StrategyStepView({
               <div style={{ color: "#86efac", fontWeight: 800, fontSize: 14, marginBottom: 12 }}>
                 ANALYSIS
               </div>
-              <div style={{ fontSize: 16, fontWeight: 700, lineHeight: 1.45 }}>
-                {riskLevel === "low"
-                  ? "The project is already on a modern migration path with build tooling and tests detected."
-                  : riskLevel === "medium"
-                    ? "The project has build tooling, but tests are missing or limited."
-                    : "The project needs extra review because build tooling or Java metadata was not detected."}
+              <div style={{ fontSize: 15, fontWeight: 600, lineHeight: 1.45 }}>
+                {effectiveRiskExplanationLoading ? (
+                  <span style={{ color: "#94a3b8", fontStyle: "italic" }}>
+                    Generating risk analysis...
+                  </span>
+                ) : (
+                  effectiveRiskExplanation || getDefaultRiskExplanation(riskLevel)
+                )}
               </div>
             </WizardInfoTooltip>
+
           </div>
 
           {/* ── Enhanced Assessment Cards ─────────────────────────── */}
@@ -275,25 +298,35 @@ export function StrategyStepView({
 
             {/* 4. Dependencies */}
             {(() => {
-              const count = repoAnalysis.dependencies?.length || 0;
-              const isHigh = count > 30;
-              const isMed  = count > 10;
-              const dColor = isHigh ? "#7c3aed" : isMed ? "#2563eb" : "#0ea5e9";
-              const dBg    = isHigh ? "#ede9fe"  : isMed ? "#eff6ff"  : "#f0f9ff";
-              const dLabel = count === 0 ? "None" : isHigh ? `${count} · Complex` : isMed ? `${count} · Moderate` : `${count} · Light`;
-              return (
-                <div className="strat-assessment-card" style={{ animationDelay: "0.26s" }}>
-                  <div className="strat-assessment-icon-wrap" style={{ background: dBg, color: dColor }}>
-                    <FaCubes />
-                  </div>
-                  <div className="strat-assessment-info">
-                    <div className="strat-assessment-label">Dependencies</div>
-                    <div className="strat-assessment-value" style={{ color: dColor }}>{dLabel}</div>
-                  </div>
-                </div>
-              );
-            })()}
+  const count = repoAnalysis.dependencies?.length || 0;
 
+  return (
+    <div
+      className="strat-assessment-card"
+      style={{ animationDelay: "0.26s" }}
+    >
+      <div
+        className="strat-assessment-icon-wrap"
+        style={{
+          background: "#f0f9ff",
+          color: "#0ea5e9",
+        }}
+      >
+        <FaCubes />
+      </div>
+
+      <div className="strat-assessment-info">
+        <div className="strat-assessment-label">Dependencies</div>
+        <div
+          className="strat-assessment-value"
+          style={{ color: "#0ea5e9" }}
+        >
+          {count}
+        </div>
+      </div>
+    </div>
+  );
+})()}
           </div>
 
           {repoAnalysis.dependencies && repoAnalysis.dependencies.length > 0 && (
@@ -764,10 +797,6 @@ export function StrategyStepView({
         )}
       </div>
 
-      <WizardSectionHeading
-        title="Migration Destination"
-        style={{ marginBottom: 14, marginTop: 20 }}
-      />
 
       <div style={styles.btnRow}>
         <button style={styles.secondaryBtn} onClick={onBack}>{renderBackButtonLabel()}</button>
