@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { FaInfoCircle } from "react-icons/fa";
+import { FaInfoCircle, FaSpinner } from "react-icons/fa";
 import { FunctionalTestingTabs } from "./FunctionalTestingTabs";
 import { ExistingTestCoverage } from "./ExistingTestCoverage";
 import { ExistingTestTable, type TestResult } from "./ExistingTestTable";
@@ -14,6 +14,7 @@ interface ExistingTestCasesPanelProps {
   onRunSelected?: (selection: TestResult[]) => void;
   onRunAll?: () => void;
   isRunning?: boolean;
+  isLoading?: boolean;
   onViewSuite?: (suiteName: string) => void;
   onSelectTest?: (test: TestResult) => void;
 }
@@ -23,6 +24,7 @@ export function ExistingTestCasesPanel({
   discoveredTests,
   framework,
   isRunning = false,
+  isLoading = false,
   onViewSuite: _onViewSuite,
   onSelectTest: _onSelectTest,
 }: ExistingTestCasesPanelProps) {
@@ -80,6 +82,49 @@ export function ExistingTestCasesPanel({
 
     return list;
   }, [discoveredTests, framework]);
+
+  if (isLoading) {
+    return (
+      <div
+        style={{
+          background: "#fff",
+          borderRadius: 20,
+          border: "1px solid #e2e8f0",
+          padding: "48px 24px",
+          marginTop: 24,
+          boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.05)",
+          textAlign: "center",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 12,
+        }}
+      >
+        <div
+          style={{
+            width: 56,
+            height: 56,
+            borderRadius: "50%",
+            background: "#eff6ff",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: "#3b82f6",
+            fontSize: 22,
+          }}
+        >
+          <FaSpinner style={{ animation: "spin 1s linear infinite" }} />
+        </div>
+        <div style={{ fontSize: 16, fontWeight: 800, color: "#0f172a" }}>
+          Discovering Existing Test Cases...
+        </div>
+        <div style={{ fontSize: 13, color: "#64748b", maxWidth: 360, lineHeight: 1.5 }}>
+          Scanning repository test suites, files, and annotations.
+        </div>
+      </div>
+    );
+  }
 
   if (discoveredTests.length === 0) {
     return (

@@ -60,8 +60,11 @@ class AstRuleMapper:
             
         # 2. Framework Packs
         if "spring-boot" in frameworks:
-            selected_packs.append("springboot2-to-3")
-        if "jakarta-ee" in frameworks or "javax-ee" in frameworks:
+            if target_major >= 17:
+                selected_packs.append("springboot2-to-3")
+            else:
+                selected_packs.append("springboot-to-2.7")
+        if ("jakarta-ee" in frameworks or "javax-ee" in frameworks or "spring-boot" in frameworks) and target_major >= 17:
             selected_packs.append("javax-to-jakarta")
             selected_visitors.append("JAVAX-TO-JAKARTA")
 

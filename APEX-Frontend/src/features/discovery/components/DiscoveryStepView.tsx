@@ -20,7 +20,6 @@ import {
   FaArrowRight,
   FaArrowLeft,
   FaTimes,
-  FaSave,
   FaDatabase,
   FaShieldAlt,
   FaWrench,
@@ -1471,25 +1470,6 @@ export function DiscoveryStepView({
                       <div className="discovery-preview-actions">
                         <button
                           type="button"
-                          className="discovery-preview-btn-secondary"
-                          onClick={() => setIsEditing(!isEditing)}
-                        >
-                          {isEditing ? "Cancel Edit" : "Edit File"}
-                        </button>
-                        {isEditing && (
-                          <button
-                            type="button"
-                            className="discovery-preview-btn-primary"
-                            onClick={() => {
-                              setFileContent(editedContent);
-                              setIsEditing(false);
-                            }}
-                          >
-                            <FaSave size={11} /> Save Changes
-                          </button>
-                        )}
-                        <button
-                          type="button"
                           className="discovery-preview-close-btn"
                           onClick={() => {
                             setSelectedFile(null);
@@ -1510,13 +1490,6 @@ export function DiscoveryStepView({
                           <div className="discovery-preview-spinner" />
                           <span>Loading file content...</span>
                         </div>
-                      ) : isEditing ? (
-                        <textarea
-                          className="discovery-preview-textarea"
-                          value={editedContent}
-                          onChange={(e) => setEditedContent(e.target.value)}
-                          spellCheck={false}
-                        />
                       ) : (
                         <pre className="discovery-preview-code">
                           <code>{fileContent || "// No content available"}</code>

@@ -35,8 +35,8 @@ _UUID = re.compile(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{
 _WINDOWS_PATH = re.compile(r"[A-Za-z]:\\[^\s\"'<>]+")
 _UNIX_PATH = re.compile(r"(?<![\w/])/(?:[\w.\-]+/)+[\w.\-]+")
 
-_RECIPE_FQN = re.compile(r"\bcom\.javaapex\.migration\.[\w$]+(?:\.[\w$]+)*")
-_MIGRATION_TOOL_WORD = re.compile(r"\bJava\s*APEX\b", re.IGNORECASE)
+_RECIPE_FQN = re.compile(r"\b(?:org\.openrewrite|com\.javaapex\.migration)\.[\w$]+(?:\.[\w$]+)*")
+_MIGRATION_TOOL_WORD = re.compile(r"\b(?:Java\s*APEX|OpenRewrite)\b", re.IGNORECASE)
 
 
 def _redact(line: str) -> str:
@@ -59,6 +59,8 @@ _RECIPE_CLASS_LABELS: dict[str, str] = {
     "MAVEN-JAVA-RELEASE-17": "Java 17 configuration",
     "MAVEN-JAVA-RELEASE-21": "Java 21 configuration",
     "JAVAX-TO-JAKARTA": "Jakarta namespace migration",
+    "JavaxMigrationToJakarta": "Jakarta namespace migration",
+    "UpgradeJavaVersion": "Java version configuration",
     "IMPORT-CLEANUP": "Import optimization",
 }
 
@@ -187,6 +189,7 @@ _NOISE_PATTERNS = [
     re.compile(r"^\[INFO]\s*-{3,}\s*$"),
     re.compile(r"^\[INFO]\s*---\s", re.IGNORECASE),  # maven plugin-goal banner
     re.compile(r"^>\s*task\s+:[\w:\-]+\s*$", re.IGNORECASE),  # gradle task line, not a failure
+    re.compile(r"^(?:org\.openrewrite|com\.javaapex)\.recipe:", re.IGNORECASE),
     re.compile(r"^downloading from|^downloaded from|^progress \(|^uploading", re.IGNORECASE),
 ]
 

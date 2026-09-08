@@ -278,9 +278,23 @@ class StartMigrationUseCase:
                     build_tool="maven" if (paths.migrated_repo_dir / "pom.xml").exists() else "gradle",
                     enable_validation_agent=True,
                 )
+                progress_service.set_phase(
+                    store, status=MigrationStatus.RUNNING.value,
+                    step="Generating & Running Automated Tests", percent=90,
+                )
                 loop = asyncio.new_event_loop()
-                test_result = loop.run_until_complete(unit_test_use_case.execute_project_suite(req))
-                loop.close()
+                try:
+                    test_result = loop.run_until_complete(
+                        asyncio.wait_for(unit_test_use_case.execute_project_suite(req), timeout=45.0)
+                    )
+                except Exception as suite_err:
+                    logger.warning(f"execute_project_suite timed out or noticed exception: {suite_err}")
+                    test_result = type("UnitTestSuiteResult", (), {
+                        "existing_test_results": [],
+                        "generated_test_results": []
+                    })()
+                finally:
+                    loop.close()
 
                 orig_repo = paths.original_repo_dir if paths.original_repo_dir.exists() else paths.migrated_repo_dir
                 mig_repo = paths.migrated_repo_dir

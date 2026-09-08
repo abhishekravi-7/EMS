@@ -421,10 +421,10 @@ export function useRepositoryConnect({
     // via the Connect backend before advancing. Navigation only happens on
     // success. Reuse a previously validated connect to avoid duplicate jobs.
     const connectUrl = buildConnectUrl(normalizedUrl);
-    if (connectUrl) {
-      const cached = lastConnectRef.current;
-      const alreadyConnected = cached?.url === connectUrl && cached?.token === (token || "");
+    const cached = lastConnectRef.current;
+    const alreadyConnected = Boolean(connectUrl && cached?.url === connectUrl && cached?.token === (token || ""));
 
+    if (connectUrl) {
       if (!alreadyConnected) {
         setConnecting(true);
         setError("");
@@ -459,7 +459,9 @@ export function useRepositoryConnect({
       }
     }
 
-    resetRepositorySelectionState();
+    if (!alreadyConnected) {
+      resetRepositorySelectionState();
+    }
     setSelectedRepo({
       name: normalizedUrl.split("/").pop() || "",
       full_name: normalizedUrl

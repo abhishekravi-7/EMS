@@ -55,6 +55,7 @@ import {
   type MigrationJobSummary,
   type MigrationResult,
 } from "@/features/result/services/resultService";
+import { scanExistingTests } from "@/features/modernization/services/existingTestService";
 import type {
   RepoAnalysis,
   DependencyInfo,
@@ -4650,6 +4651,15 @@ export function useWizardController() {
     setPrefetchedBrdDocument,
     technicalDocumentFallbackRepoName,
   ]);
+
+  // Background pre-fetch existing tests as soon as a valid repository session/jobId is available
+  useEffect(() => {
+    if (jobId) {
+      scanExistingTests(jobId).catch((err) => {
+        console.debug("Background prefetch of existing tests:", err);
+      });
+    }
+  }, [jobId]);
 
   // Auto-fill target names for each migration approach until the user customizes them.
   useEffect(() => {
