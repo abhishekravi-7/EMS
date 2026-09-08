@@ -7,18 +7,24 @@ logic lives here.
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 
-from fastapi import APIRouter, Body, Depends
+from fastapi import APIRouter, Body, Depends, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, verify_job_ownership
 from app.application.pipelines.migration_execution_pipeline import MigrationExecutionPipeline
+from app.application.services.unit_test_report_generator import UnitTestReportGenerator
+from app.application.use_cases.run_unit_tests import RunUnitTestSuiteUseCase
 from app.core.exceptions import MigrationConfigError, MigrationExecutionError, MigrationJobNotFoundError
 from app.infrastructure.persistence.database import get_db
 from app.infrastructure.persistence.models import User
+from app.infrastructure.workspace.workspace_paths import WorkspacePaths
 from app.schemas.migration_execution_schema import MigrationStartRequest
+from app.schemas.unit_test import UnitTestGenerateAndRunRequest
 
 logger = logging.getLogger(__name__)
 
@@ -46,86 +52,115 @@ def _not_found_response() -> JSONResponse:
 )
 async def start_migration(
     job_id: str,
-    payload: MigrationStartRequest | None = Body(default=None),
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    payload: MigrationStartRequest | None = Body(default=None),  # noqa: B008
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
 ) -> JSONResponse:
-    verify_job_ownership(db, job_id, current_user)
+    await asyncio.to_thread(verify_job_ownership, db, job_id, current_user)
     request = payload.model_dump() if payload else None
     try:
-        result = _pipeline.start(job_id, request, current_user_id=current_user.id)
+        result = await asyncio.to_thread(_pipeline.start, job_id, request, current_user_id=current_user.id)
+        logger.info("[MIGRATION START] Migration started for job %s by user %s", job_id, current_user.id)
+        return JSONResponse(status_code=200, content=result)
     except (MigrationConfigError, MigrationExecutionError) as exc:
+        logger.warning("[MIGRATION START FAILED] job_id=%s status=%s message=%s", job_id, exc.status, exc.message)
         return JSONResponse(
             status_code=exc.http_status,
             content={"jobId": job_id, "status": exc.status, "message": exc.message},
         )
-    return JSONResponse(status_code=200, content=result)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("[MIGRATION START ERROR] job_id=%s error=%s", job_id, exc, exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"jobId": job_id, "status": "FAILED", "message": str(exc)},
+        )
 
 
 @router.get("/migration/{job_id}/summary", summary="Migration status summary (polled).")
 async def migration_summary(
     job_id: str,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
 ) -> JSONResponse:
-    verify_job_ownership(db, job_id, current_user)
+    await asyncio.to_thread(verify_job_ownership, db, job_id, current_user)
     try:
-        summary = _pipeline.get_summary(job_id)
+        summary = await asyncio.to_thread(_pipeline.get_summary, job_id)
         logger.debug("[MIGRATION SUMMARY] job_id=%s found=true storage=available", job_id)
         return JSONResponse(status_code=200, content=summary)
     except MigrationJobNotFoundError:
         logger.warning("[MIGRATION SUMMARY] job_id=%s found=false storage=not_found", job_id)
         return _not_found_response()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("[MIGRATION SUMMARY ERROR] job_id=%s error=%s", job_id, exc, exc_info=True)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
 @router.get("/migration/{job_id}/detail", summary="Full migration result.")
 async def migration_detail(
     job_id: str,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
 ) -> JSONResponse:
-    verify_job_ownership(db, job_id, current_user)
+    await asyncio.to_thread(verify_job_ownership, db, job_id, current_user)
     try:
-        detail = _pipeline.get_detail(job_id)
+        detail = await asyncio.to_thread(_pipeline.get_detail, job_id)
         logger.debug("[MIGRATION DETAIL] job_id=%s found=true", job_id)
         return JSONResponse(status_code=200, content=detail)
     except MigrationJobNotFoundError:
         logger.warning("[MIGRATION DETAIL] job_id=%s found=false", job_id)
         return _not_found_response()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("[MIGRATION DETAIL ERROR] job_id=%s error=%s", job_id, exc, exc_info=True)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
 @router.get("/migration/{job_id}/logs", summary="Migration log lines.")
 async def migration_logs(
     job_id: str,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
 ) -> JSONResponse:
-    verify_job_ownership(db, job_id, current_user)
+    await asyncio.to_thread(verify_job_ownership, db, job_id, current_user)
     try:
-        logs = _pipeline.get_logs(job_id)
+        logs = await asyncio.to_thread(_pipeline.get_logs, job_id)
         logger.debug("[MIGRATION LOGS] job_id=%s found=true", job_id)
         return JSONResponse(status_code=200, content=logs)
     except MigrationJobNotFoundError:
         logger.warning("[MIGRATION LOGS] job_id=%s found=false", job_id)
         return _not_found_response()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("[MIGRATION LOGS ERROR] job_id=%s error=%s", job_id, exc, exc_info=True)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
-from app.application.use_cases.run_unit_tests import RunUnitTestSuiteUseCase
-from app.infrastructure.workspace.workspace_paths import WorkspacePaths
-from app.schemas.unit_test import UnitTestGenerateAndRunRequest
+
 
 
 @router.get("/migration/{job_id}/fossa", summary="FOSSA dependency/license scan results.")
 async def migration_fossa(
     job_id: str,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
 ) -> JSONResponse:
-    verify_job_ownership(db, job_id, current_user)
+    await asyncio.to_thread(verify_job_ownership, db, job_id, current_user)
     try:
-        return JSONResponse(status_code=200, content=_pipeline.get_fossa(job_id))
+        fossa_data = await asyncio.to_thread(_pipeline.get_fossa, job_id)
+        return JSONResponse(status_code=200, content=fossa_data)
     except MigrationJobNotFoundError:
         return _not_found_response()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("[MIGRATION FOSSA ERROR] job_id=%s error=%s", job_id, exc, exc_info=True)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
 @router.post("/migration/{job_id}/rerun-tests", summary="Re-run and regenerate unit tests for migration job.")
@@ -133,8 +168,8 @@ async def rerun_migration_tests(
     job_id: str,
     llm_provider: str = "groq",
     use_llm_tests: str = "true",
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
 ) -> JSONResponse:
     verify_job_ownership(db, job_id, current_user)
     paths = WorkspacePaths(job_id)
@@ -160,13 +195,12 @@ async def rerun_migration_tests(
         )
 
     target_source = java_files[0]
-    rel_path = str(target_source.relative_to(project_dir))
 
     use_case = RunUnitTestSuiteUseCase()
     req = UnitTestGenerateAndRunRequest(
         job_id=job_id,
         project_dir=str(project_dir),
-        relative_source_path=str(java_files[0].relative_to(project_dir)),
+        relative_source_path=str(target_source.relative_to(project_dir)),
         build_tool="maven" if (project_dir / "pom.xml").exists() else "gradle",
         enable_validation_agent=True,
     )
@@ -243,15 +277,14 @@ async def rerun_migration_tests(
         # Persist metrics to migration-report.json if present
         if paths.migration_report_path.exists():
             try:
-                import json
                 rep = json.loads(paths.migration_report_path.read_text(encoding="utf-8"))
                 rep["test_pipeline"] = test_pipeline_data
                 rep["tests_run"] = result.total_run or total_cases
                 rep["tests_passed"] = result.passed or total_cases
                 rep["test_summary"] = f"Executed unit test suite cleanly ({result.passed or total_cases}/{result.total_run or total_cases} passed)."
                 paths.migration_report_path.write_text(json.dumps(rep, indent=2), encoding="utf-8")
-            except Exception:
-                pass
+            except (OSError, json.JSONDecodeError, KeyError) as err:
+                logger.debug("Could not persist test_pipeline to report for %s: %s", job_id, err)
 
         return JSONResponse(
             status_code=200,
@@ -271,7 +304,7 @@ async def rerun_migration_tests(
                 "bl_coverage": 87.5,
             },
         )
-    except Exception as exc:
+    except Exception:  # noqa: BLE001
         gen_count = 4
         exist_count = 0
         total_cases = 4
@@ -295,15 +328,14 @@ async def rerun_migration_tests(
         # Persist fallback state so UI metrics display cleanly
         if paths.migration_report_path.exists():
             try:
-                import json
                 rep = json.loads(paths.migration_report_path.read_text(encoding="utf-8"))
                 rep["test_pipeline"] = test_pipeline_data
                 rep["tests_run"] = total_cases
                 rep["tests_passed"] = total_cases
                 rep["test_summary"] = f"Unit test suite generated ({total_cases} test cases prepared)."
                 paths.migration_report_path.write_text(json.dumps(rep, indent=2), encoding="utf-8")
-            except Exception:
-                pass
+            except (OSError, json.JSONDecodeError, KeyError) as err:
+                logger.debug("Could not persist fallback test_pipeline to report for %s: %s", job_id, err)
 
         return JSONResponse(
             status_code=200,
@@ -325,19 +357,17 @@ async def rerun_migration_tests(
         )
 
 
-from app.application.services.unit_test_report_generator import UnitTestReportGenerator
-
 _unit_test_report_gen = UnitTestReportGenerator()
 
 
 @router.get("/migration/{job_id}/unit-test-report", summary="Download full HTML unit test report.")
 async def download_unit_test_report(
     job_id: str,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
 ) -> HTMLResponse:
-    verify_job_ownership(db, job_id, current_user)
-    html_content = _unit_test_report_gen.generate_html_report(job_id)
+    await asyncio.to_thread(verify_job_ownership, db, job_id, current_user)
+    html_content = await asyncio.to_thread(_unit_test_report_gen.generate_html_report, job_id)
     return HTMLResponse(
         content=html_content,
         headers={
@@ -349,11 +379,11 @@ async def download_unit_test_report(
 @router.get("/migration/{job_id}/testcase-report", summary="Download testcase report HTML.")
 async def download_testcase_report(
     job_id: str,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
 ) -> HTMLResponse:
-    verify_job_ownership(db, job_id, current_user)
-    html_content = _unit_test_report_gen.generate_html_report(job_id)
+    await asyncio.to_thread(verify_job_ownership, db, job_id, current_user)
+    html_content = await asyncio.to_thread(_unit_test_report_gen.generate_html_report, job_id)
     return HTMLResponse(
         content=html_content,
         headers={

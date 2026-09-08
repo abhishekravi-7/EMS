@@ -17,6 +17,8 @@ class MigrationStartRequest(BaseModel):
     source_java_version: Optional[str] = None
     build_tool: Optional[str] = None
     conversion_types: Optional[list[str]] = None
+    proposed_test_sources: Optional[list[str]] = None
+    selected_test_sources: Optional[list[str]] = None
 
     # Accept (and ignore) any additional legacy fields the frontend sends.
     model_config = {"extra": "allow"}

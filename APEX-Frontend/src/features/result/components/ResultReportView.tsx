@@ -68,6 +68,10 @@ const MigrationUnitTestSection = React.lazy(async () => {
   const module = await import("./MigrationReportSections");
   return { default: module.MigrationUnitTestSection };
 });
+const MigrationProposedTestSection = React.lazy(async () => {
+  const module = await import("./MigrationReportSections");
+  return { default: module.MigrationProposedTestSection };
+});
 
 interface ResultReportViewProps {
   resultExec: ReturnType<typeof useMigrationExecution>;
@@ -115,6 +119,12 @@ export function ResultReportView({
     security_hotspots: SONAR_FINDINGS_PAGE_SIZE,
   });
 
+  // Derive stable primitive keys so the effect only fires when the job or
+  // sonar data genuinely changes, not on every render due to new object refs.
+  const sonarReportKey = migrationJob?.sonar_report
+    ? `${migrationJob.sonar_report.quality_gate ?? ""}_${migrationJob.sonar_report.bugs ?? 0}_${migrationJob.sonar_report.analysis_url ?? ""}`
+    : null;
+
   useEffect(() => {
     setSonarFindingFilter("all");
     setCodeSmellSeverityFilter("all");
@@ -124,7 +134,7 @@ export function ResultReportView({
       code_smells: SONAR_FINDINGS_PAGE_SIZE,
       security_hotspots: SONAR_FINDINGS_PAGE_SIZE,
     });
-  }, [migrationJob?.job_id, migrationJob?.sonar_report, migrationJob?.sonar_scan_mode]);
+  }, [migrationJob?.job_id, sonarReportKey, migrationJob?.sonar_scan_mode]);
 
   const toggleReportAccordion = (section: "sonar" | "fossa" | "issues") => {
     setReportAccordionState((prev) => ({
@@ -1024,7 +1034,7 @@ export function ResultReportView({
                   <>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                       <div>
-                        <h3 style={styles.reportTitle}>Code Transformations (Before & After Differentiator)</h3>
+                        <h3 style={styles.reportTitle}>Code Transformations (Before &amp; After Differentiator)</h3>
                         <p style={{ fontSize: 13, color: "#64748b", margin: "4px 0 0 0" }}>
                           Review exact source code modifications, package refactoring, and dependency upgrades.
                         </p>
@@ -1234,6 +1244,11 @@ export function ResultReportView({
               rerunTestsLoading={rerunTestsLoading}
               onRerunTests={handleRerunTests}
               onDownloadUnitTestReport={handleDownloadUnitTestReport}
+            />
+
+            <MigrationProposedTestSection
+              styles={styles}
+              migrationJob={migrationJob}
             />
 
             <MigrationJmeterSection

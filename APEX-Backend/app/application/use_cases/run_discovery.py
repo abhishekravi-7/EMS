@@ -29,6 +29,7 @@ from app.infrastructure.git.repository_cloner import RepositoryCloner
 from app.infrastructure.persistence.job_repository import JobRepository
 from app.infrastructure.workspace.workspace_manager import WorkspaceManager
 from app.infrastructure.workspace.workspace_paths import WorkspacePaths
+from app.shared import file_utils
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +56,12 @@ class RunDiscoveryUseCase:
         self._cloner = cloner or RepositoryCloner()
         self._analyzer = analyzer or ProjectAnalyzer()
 
-    def execute(self, job_id: str, request_token: str | None = None) -> DiscoveryOutcome:
+    def execute(
+        self,
+        job_id: str,
+        request_token: str | None = None,
+        force_refresh: bool = False,
+    ) -> DiscoveryOutcome:
         # 1. Connect report must exist.
         connect = self._job_repository.read_connect_report(job_id)
         if not connect:
@@ -66,6 +72,22 @@ class RunDiscoveryUseCase:
         repo_name = connect.get("repoName", "")
         visibility = connect.get("repoVisibility", "PUBLIC")
 
+        paths = WorkspacePaths(job_id)
+
+        # Check if discovery was already completed and the cloned workspace is intact (unless force_refresh is requested)
+        existing_report = self._job_repository.read_discovery_report(job_id)
+        if (
+            not force_refresh
+            and existing_report
+            and existing_report.get("status") == STATUS_COMPLETED
+            and paths.original_repo_dir.is_dir()
+        ):
+            logger.info("Reusing existing discovery report for job %s (%s)", job_id, repo_url)
+            response = self._reconstruct_response_from_report(
+                job_id, repo_url, owner, repo_name, visibility, existing_report
+            )
+            return DiscoveryOutcome(response=response, report=existing_report)
+
         # The PAT is never persisted with the connect report (secret at rest);
         # it comes from the client on this request, falling back to the env token.
         token = (
@@ -74,22 +96,27 @@ class RunDiscoveryUseCase:
             or None
         )
 
-        logger.info("Discovery started for job %s (%s)", job_id, repo_url)
+        logger.info("Discovery started for job %s (%s) [force_refresh=%s]", job_id, repo_url, force_refresh)
 
-        # 2. Prepare workspace + clone into original-repo.
-        paths = WorkspacePaths(job_id)
+        # 2. Prepare workspace + clone into original-repo if needed.
         workspace = WorkspaceManager(paths)
         workspace.ensure_job_dirs()
-        workspace.prepare_original_repo_target()
-
-        logger.info("Cloning repository into workspace for job %s ...", job_id)
-        self._cloner.clone(
-            repo_url,
-            paths.original_repo_dir,
-            token=token,
-            log_path=paths.discovery_log_path,
-        )
-        logger.info("Clone finished for job %s. Analyzing project ...", job_id)
+        if not paths.original_repo_dir.is_dir() or not any(paths.original_repo_dir.iterdir()):
+            workspace.prepare_original_repo_target()
+            logger.info("Cloning repository into workspace for job %s ...", job_id)
+            self._cloner.clone(
+                repo_url,
+                paths.original_repo_dir,
+                token=token,
+                log_path=paths.discovery_log_path,
+            )
+            logger.info("Clone finished for job %s. Analyzing project ...", job_id)
+        else:
+            logger.info(
+                "Workspace original-repo already present for job %s. Re-analyzing project (force_refresh=%s)...",
+                job_id,
+                force_refresh,
+            )
 
         # 3. Analyze the cloned project (read-only).
         analysis = self._analyzer.analyze(paths.original_repo_dir)
@@ -126,10 +153,11 @@ class RunDiscoveryUseCase:
         )
 
         created_at = datetime.now(timezone.utc).isoformat()
+        stages = self._build_stages(analysis, eligibility)
 
         # 4. Save discovery-report.json.
         report = self._build_report(
-            job_id, repo_url, owner, repo_name, analysis, eligibility, created_at
+            job_id, repo_url, owner, repo_name, analysis, eligibility, created_at, stages=stages
         )
         self._job_repository.save_discovery_report(job_id, report)
 
@@ -140,7 +168,7 @@ class RunDiscoveryUseCase:
 
         # 5. Build the clean summary response.
         response = self._build_response(
-            job_id, repo_url, owner, repo_name, visibility, analysis, eligibility
+            job_id, repo_url, owner, repo_name, visibility, analysis, eligibility, stages=stages
         )
         return DiscoveryOutcome(response=response, report=report)
 
@@ -164,8 +192,76 @@ class RunDiscoveryUseCase:
 
     # -- builders ------------------------------------------------------------ #
 
+    # -- builders ------------------------------------------------------------ #
+
     @staticmethod
+    def _build_stages(analysis: ProjectAnalysis, eligibility: SpringBootEligibility) -> dict[str, Any]:
+        module_text = (
+            f" across {len(analysis.modules)} modules."
+            if analysis.multi_module
+            else " in single-module layout."
+        )
+        fw_text = f", {', '.join(analysis.frameworks[:3])}" if analysis.frameworks else ""
+        test_text = "automated tests present" if analysis.has_tests else "no automated tests"
+
+        arch_type = (
+            "Microservices"
+            if (analysis.multi_module and len(analysis.modules) > 1)
+            else "Modular Monolith"
+        )
+        if eligibility.spring_boot_conversion_eligible:
+            fit_text = "Eligible for automated Spring Boot conversion & modern Java baseline."
+        elif eligibility.spring_boot_upgrade_eligible:
+            fit_text = f"Spring Boot {analysis.spring_boot_version or ''} eligible for Spring Boot 3 & Java 17+ upgrade."
+        else:
+            fit_text = "Ready for direct Java platform and dependency modernization."
+
+        return {
+            "repositoryMap": {
+                "status": "COMPLETE",
+                "totalFileCount": analysis.total_file_count,
+                "javaFileCount": len(analysis.java_files),
+                "configFileCount": len(analysis.config_files),
+                "otherFileCount": len(analysis.other_files),
+                "multiModule": analysis.multi_module,
+                "modules": analysis.modules,
+                "hasSrcMain": analysis.has_src_main,
+                "hasSrcTest": analysis.has_src_test,
+                "hasPomXml": analysis.has_pom_xml,
+                "hasBuildGradle": analysis.has_build_gradle or analysis.has_build_gradle_kts,
+                "summary": f"Mapped {analysis.total_file_count} files ({len(analysis.java_files)} Java, {len(analysis.config_files)} Config, {len(analysis.other_files)} Other){module_text}",
+            },
+            "dependencyGraph": {
+                "status": "COMPLETE",
+                "buildTool": analysis.build_tool,
+                "dependencyCount": analysis.dependency_count,
+                "buildPluginsCount": len(analysis.build_plugins),
+                "bomsCount": len(analysis.bom_versions),
+                "summary": f"Extracted {analysis.dependency_count} dependencies and {len(analysis.build_plugins)} build plugins from {analysis.build_tool.lower()} configuration.",
+            },
+            "previewSignals": {
+                "status": "COMPLETE",
+                "currentJavaVersion": analysis.current_java_version,
+                "buildTool": analysis.build_tool,
+                "frameworks": analysis.frameworks,
+                "springBootVersion": analysis.spring_boot_version,
+                "springFrameworkVersion": analysis.spring_framework_version,
+                "hasTests": analysis.has_tests,
+                "frontendDetected": analysis.frontend.detected,
+                "summary": f"Identified Java {analysis.current_java_version}, {analysis.build_tool}{fw_text}, and {test_text}.",
+            },
+            "serviceFit": {
+                "status": "COMPLETE",
+                "recommendedArchitecture": arch_type,
+                "springBootConversionEligible": eligibility.spring_boot_conversion_eligible,
+                "springBootUpgradeEligible": eligibility.spring_boot_upgrade_eligible,
+                "summary": f"{arch_type} architecture. {fit_text}",
+            },
+        }
+
+    @classmethod
     def _build_report(
+        cls,
         job_id: str,
         repo_url: str,
         owner: str,
@@ -173,6 +269,7 @@ class RunDiscoveryUseCase:
         analysis: ProjectAnalysis,
         eligibility: SpringBootEligibility,
         created_at: str,
+        stages: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         return {
             "jobId": job_id,
@@ -191,6 +288,22 @@ class RunDiscoveryUseCase:
             "bomVersions": [bom.to_dict() for bom in analysis.bom_versions],
             "frameworks": analysis.frameworks,
             "dependencyCount": analysis.dependency_count,
+            "hasTests": analysis.has_tests,
+            "javaFileCount": len(analysis.java_files),
+            "javaFiles": list(analysis.java_files)[:200],
+            "configFileCount": len(analysis.config_files),
+            "configFiles": list(analysis.config_files)[:100],
+            "otherFileCount": len(analysis.other_files),
+            "otherFiles": list(analysis.other_files)[:100],
+            "totalFileCount": analysis.total_file_count,
+            "defaultBranch": "main",
+            "buildWarning": analysis.build_warning,
+            "sourceLayout": {
+                "hasSrcMain": analysis.has_src_main,
+                "hasSrcTest": analysis.has_src_test,
+            },
+            "springFrameworkVersion": analysis.spring_framework_version,
+            "springEntryClass": analysis.spring_entry_class,
             "javaMigrationEligible": eligibility.java_migration_eligible,
             "javaMigrationReason": eligibility.java_migration_reason,
             "springDetected": eligibility.spring_detected,
@@ -202,14 +315,126 @@ class RunDiscoveryUseCase:
             "detectedFiles": {
                 "pomXml": analysis.has_pom_xml,
                 "buildGradle": analysis.has_build_gradle or analysis.has_build_gradle_kts,
+                "buildGradleKts": analysis.has_build_gradle_kts,
                 "packageJson": analysis.has_package_json,
             },
             "springBootConversion": eligibility.to_dict(),
+            "discoveryStages": stages or cls._build_stages(analysis, eligibility),
             "createdAt": created_at,
         }
 
-    @staticmethod
+    @classmethod
+    def _reconstruct_response_from_report(
+        cls,
+        job_id: str,
+        repo_url: str,
+        owner: str,
+        repo_name: str,
+        visibility: str,
+        report: dict[str, Any],
+    ) -> dict[str, Any]:
+        frontend_info = report.get("frontend") or {}
+        frontend_detected = bool(frontend_info.get("detected", False))
+        frontend_type = frontend_info.get("type") if frontend_detected else None
+
+        detected_files = report.get("detectedFiles") or {}
+        source_layout = report.get("sourceLayout") or {
+            "hasSrcMain": bool(detected_files.get("pomXml") or detected_files.get("buildGradle")),
+            "hasSrcTest": bool(report.get("hasTests", False)),
+        }
+
+        spring_boot_conv = report.get("springBootConversion") or {
+            "repositoryAnalyzed": True,
+            "javaMigrationEligible": report.get("javaMigrationEligible", True),
+            "javaMigrationReason": report.get("javaMigrationReason", ""),
+            "springDetected": bool(report.get("springDetected", False)),
+            "springBootDetected": bool(report.get("springBootDetected", False)),
+            "springVersion": report.get("springFrameworkVersion"),
+            "springBootVersion": report.get("springBootVersion"),
+            "buildTool": report.get("buildTool") or "MAVEN",
+            "springBootConversionEligible": bool(report.get("springBootConversionEligible", False)),
+            "springBootUpgradeEligible": bool(report.get("springBootUpgradeEligible", False)),
+            "eligibilityReason": report.get("eligibilityReason", ""),
+        }
+
+        paths = WorkspacePaths(job_id)
+        java_files = report.get("javaFiles") or []
+        config_files = report.get("configFiles")
+        other_files = report.get("otherFiles")
+
+        if (not java_files or config_files is None or other_files is None) and paths.original_repo_dir.is_dir():
+            all_files = file_utils.find_files(paths.original_repo_dir, "")
+            if not java_files:
+                java_files = [f for f in all_files if f.lower().endswith(".java")][:200]
+            if config_files is None:
+                config_exts = (".xml", ".yml", ".yaml", ".properties", ".gradle", ".gradle.kts", ".json", ".conf", ".config", ".toml")
+                config_files = [f for f in all_files if any(f.lower().endswith(ext) for ext in config_exts)][:100]
+            if other_files is None:
+                other_files = [f for f in all_files if f not in (java_files or []) and f not in (config_files or [])][:100]
+
+        config_files = config_files or []
+        other_files = other_files or []
+
+        return {
+            "jobId": job_id,
+            "status": STATUS_COMPLETED,
+            "message": "Repository discovery completed successfully.",
+            "repository": {
+                "repoUrl": repo_url,
+                "owner": owner,
+                "repoName": repo_name,
+                "visibility": visibility,
+            },
+            "project": {
+                "buildTool": report.get("buildTool"),
+                "currentJavaVersion": report.get("currentJavaVersion"),
+                "springBootVersion": report.get("springBootVersion"),
+                "projectType": report.get("projectType", "STANDARD_JAVA"),
+                "multiModule": bool(report.get("multiModule", False)),
+                "modules": report.get("modules", []),
+                "dependenciesCount": report.get("dependencyCount", len(report.get("dependencies", []))),
+                "frontendDetected": frontend_detected,
+                "frontendType": frontend_type,
+                "dependencies": report.get("dependencies", []),
+                "buildPlugins": report.get("buildPlugins", []),
+                "bomVersions": report.get("bomVersions", []),
+                "frameworks": report.get("frameworks", []),
+                "hasTests": bool(report.get("hasTests", False)),
+                "javaFileCount": report.get("javaFileCount") or len(java_files),
+                "javaFiles": java_files,
+                "configFileCount": report.get("configFileCount") or len(config_files),
+                "configFiles": config_files,
+                "otherFileCount": report.get("otherFileCount") or len(other_files),
+                "otherFiles": other_files,
+                "totalFileCount": report.get("totalFileCount") or (len(java_files) + len(config_files) + len(other_files)),
+                "defaultBranch": report.get("defaultBranch", "main"),
+                "buildWarning": report.get("buildWarning"),
+                "frontend": frontend_info,
+                "detectedFiles": {
+                    "pomXml": bool(detected_files.get("pomXml", False)),
+                    "buildGradle": bool(detected_files.get("buildGradle", False)),
+                    "buildGradleKts": bool(detected_files.get("buildGradleKts", False)),
+                    "packageJson": bool(detected_files.get("packageJson", False)),
+                },
+                "sourceLayout": source_layout,
+                "springFrameworkVersion": report.get("springFrameworkVersion"),
+                "springEntryClass": report.get("springEntryClass"),
+                "javaMigrationEligible": report.get("javaMigrationEligible", True),
+                "javaMigrationReason": report.get("javaMigrationReason", ""),
+                "springDetected": bool(report.get("springDetected", False)),
+                "springBootDetected": bool(report.get("springBootDetected", False)),
+                "springBootConversionEligible": bool(report.get("springBootConversionEligible", False)),
+                "springBootUpgradeEligible": bool(report.get("springBootUpgradeEligible", False)),
+                "eligibilityReason": report.get("eligibilityReason", ""),
+                "springBootConversion": spring_boot_conv,
+                "discoveryStages": report.get("discoveryStages"),
+            },
+            "nextStep": NEXT_STEP,
+        }
+
+    @classmethod
     def _build_response(
+        cls,
         job_id: str,
         repo_url: str,
         owner: str,
@@ -217,6 +442,7 @@ class RunDiscoveryUseCase:
         visibility: str,
         analysis: ProjectAnalysis,
         eligibility: SpringBootEligibility,
+        stages: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         return {
             "jobId": job_id,
@@ -245,6 +471,11 @@ class RunDiscoveryUseCase:
                 "frameworks": analysis.frameworks,
                 "hasTests": analysis.has_tests,
                 "javaFileCount": len(analysis.java_files),
+                "javaFiles": list(analysis.java_files)[:200],
+                "configFileCount": len(analysis.config_files),
+                "configFiles": list(analysis.config_files)[:100],
+                "otherFileCount": len(analysis.other_files),
+                "otherFiles": list(analysis.other_files)[:100],
                 "totalFileCount": analysis.total_file_count,
                 "defaultBranch": "main",
                 "buildWarning": analysis.build_warning,
@@ -269,6 +500,7 @@ class RunDiscoveryUseCase:
                 "springBootUpgradeEligible": eligibility.spring_boot_upgrade_eligible,
                 "eligibilityReason": eligibility.eligibility_reason,
                 "springBootConversion": eligibility.to_dict(),
+                "discoveryStages": stages or cls._build_stages(analysis, eligibility),
             },
             "nextStep": NEXT_STEP,
         }

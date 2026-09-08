@@ -11,13 +11,13 @@ from pathlib import Path
 
 from app.core.config import settings
 from app.domain.models.build_result import BuildResult
+from app.infrastructure.build.build_log_parser import parse_build_output
 from app.infrastructure.java_runtime import (
     build_tool_env,
     gradle_runtime_major,
     max_available_java_major,
     resolve_gradle_executable,
 )
-from app.infrastructure.build.build_log_parser import parse_build_output
 from app.shared.command_runner import resolve_executable, run_command
 
 logger = logging.getLogger(__name__)

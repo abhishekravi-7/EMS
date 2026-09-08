@@ -1,11 +1,9 @@
-import React, { useState } from "react";
+import React from "react";
 import { useNavigate } from "react-router-dom";
 import apexLogo from "../../../assets/logo.jpg";
 import {
   FaGithub,
-  FaCoffee,
   FaSearch,
-  FaCogs,
   FaRocket,
   FaCode,
   FaShieldAlt,
@@ -13,29 +11,14 @@ import {
   FaLink,
   FaBullseye,
   FaCheckCircle,
-  FaChevronRight,
-  FaChevronLeft,
   FaArrowRight,
-  FaPlay,
   FaTools,
   FaBoxes,
   FaLayerGroup,
-  FaTwitter,
-  FaLinkedin,
-  FaYoutube
+  FaCogs,
+  FaCoffee,
 } from "react-icons/fa";
-import { GITHUB_AUTH_LOGIN_URL } from "@/services/config/env";
 import "../../landing/pages/LandingPageDesign.css";
-
-const LOGO_CLOUD = [
-  { name: "Java", icon: <FaCoffee style={{ color: "#e76f51" }} /> },
-  { name: "Spring Boot", icon: <span style={{ color: "#6a994e", fontWeight: 900 }}>🍃</span> },
-  { name: "Maven", icon: <span style={{ color: "#c1121f", fontWeight: 900 }}>M</span> },
-  { name: "Gradle", icon: <span style={{ color: "#028090", fontWeight: 900 }}>🐘</span> },
-  { name: "JUnit 5", icon: <span style={{ color: "#2563eb", fontWeight: 900 }}>🧪</span> },
-  { name: "Docker", icon: <span style={{ color: "#0077b6", fontWeight: 900 }}>🐳</span> },
-  { name: "Kubernetes", icon: <span style={{ color: "#326ce5", fontWeight: 900 }}>☸️</span> },
-];
 
 const WORKFLOW_STEPS = [
   { num: 1, icon: <FaLink />, title: "Connect", desc: "Connect your GitHub repository securely" },
@@ -107,37 +90,8 @@ const AI_AGENTS = [
   },
 ];
 
-const TESTIMONIALS = [
-  {
-    quote: "Java APEX reduced our migration effort by nearly 60%. The AI-generated tests saved us hundreds of hours.",
-    name: "Anurag Kumar",
-    role: "Senior Architect, Ford",
-    avatar: "AK",
-    company: "Ford"
-  },
-  {
-    quote: "The insights and reports are excellent. It's like having a senior engineer review your entire codebase.",
-    name: "Priya Nair",
-    role: "Tech Lead, TCS",
-    avatar: "PN",
-    company: "tcs"
-  },
-  {
-    quote: "Seamless experience from analysis to deployment. Highly recommended for large enterprise apps.",
-    name: "Rahul Verma",
-    role: "Engineering Manager, Infosys",
-    avatar: "RV",
-    company: "Infosys"
-  }
-];
-
 const LandingPage: React.FC = () => {
   const navigate = useNavigate();
-  const [activeTestimonial, setActiveTestimonial] = useState(0);
-
-  const handleStartFree = () => {
-    navigate("/signup");
-  };
 
   const handleSignIn = () => {
     navigate("/signin");
@@ -147,10 +101,6 @@ const LandingPage: React.FC = () => {
     navigate("/signup");
   };
 
-  const handleGitHubClick = () => {
-    window.open(GITHUB_AUTH_LOGIN_URL || "https://github.com", "_blank");
-  };
-
   return (
     <div className="apex-landing-root">
       {/* ── Top Navbar ── */}
@@ -158,7 +108,7 @@ const LandingPage: React.FC = () => {
         <div className="apex-container">
           <nav className="apex-navbar">
             <div className="apex-logo" onClick={() => navigate("/")} style={{ cursor: "pointer" }}>
-              <img src={apexLogo} alt="Java APEX" style={{ height: 38, width: "auto", objectFit: "contain", display: "block" }} />
+              <img src={apexLogo} alt="Java APEX" style={{ height: 48, width: "auto", objectFit: "contain", display: "block" }} />
             </div>
 
             {/* <ul className="apex-nav-links">
@@ -288,7 +238,7 @@ const LandingPage: React.FC = () => {
                     <div className="apex-pipeline-icon"><FaShieldAlt /></div>
                     <div>
                       <div className="apex-pipeline-title">Validation</div>
-                      <div className="apex-pipeline-sub">Security & quality checks</div>
+                      <div className="apex-pipeline-sub">Security &amp; quality checks</div>
                     </div>
                   </div>
                 </div>

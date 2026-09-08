@@ -46,7 +46,7 @@ def save_report_to_db(job_id: str, report: dict[str, Any]) -> None:
                     )
                 )
             session.commit()
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         logger.debug("Non-fatal: could not persist migration report to db for %s: %s", job_id, exc)
 
 
@@ -62,6 +62,6 @@ def load_report_from_db(job_id: str) -> dict[str, Any] | None:
             raw = session.execute(stmt).scalar_one_or_none()
             if raw:
                 return json.loads(raw)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         logger.debug("Non-fatal: could not load report from db for %s: %s", job_id, exc)
     return None

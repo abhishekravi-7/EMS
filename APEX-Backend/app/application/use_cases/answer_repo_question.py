@@ -6,9 +6,9 @@ build a grounded prompt, then stream the answer from the chat LLM (Groq ->
 Ollama). Retrieval is CPU-bound and runs in a threadpool; generation is async.
 """
 
+import logging
 import re
 import time
-import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
@@ -16,15 +16,15 @@ from typing import Any
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 
+from app.application.services.llm_token_tracing_service import LLMTokenTracingService
 from app.application.use_cases.index_repository import (
     IndexRepositoryUseCase,
     RepositoryNotFoundForIndexingError,
 )
 from app.core.exceptions import RepositoryNotIndexedError
 from app.infrastructure.llm.chat_llm import ChatLLM
-from app.application.services.llm_token_tracing_service import LLMTokenTracingService
 from app.infrastructure.persistence.models import User
-from app.infrastructure.rag import prompt_builder, retriever, repo_index_locator
+from app.infrastructure.rag import prompt_builder, repo_index_locator, retriever
 from app.shared import branding
 
 logger = logging.getLogger(__name__)
@@ -64,25 +64,8 @@ class AnswerRepoQuestionUseCase:
         logger.info("[AnswerUseCase] Query received: %s", (question[:50] + "...") if len(question) > 50 else question)
 
         repo_url = (repository_url or "").strip()
-        
-        # Enforce user/job isolation
-        if not job_id and repo_url:
-            report = repo_index_locator.find_latest_report_by_url(repo_url)
-            if report:
-                job_id = report.get("jobId")
 
-        from app.api.deps import verify_job_ownership
-        if job_id:
-            verify_job_ownership(db, job_id, current_user)
-        elif repo_url:
-            raise RepositoryNotIndexedError("No migration job found for this repository.")
-
-        if not repo_url:
-            raise RepositoryNotIndexedError(
-                "A repository URL is required to answer questions about it."
-            )
-
-        # Intent detection: skip RAG for simple greetings/thanks/farewells to save 300-800ms
+        # Intent detection: skip RAG for simple greetings/thanks/farewells to save time
         if is_conversational_intent(question):
             logger.info("[AnswerUseCase] Conversational intent detected, skipping RAG retrieval.")
             repository_metadata = _metadata_from([], page_context, repo_url)
@@ -95,7 +78,6 @@ class AnswerRepoQuestionUseCase:
                 repository_url=repo_url,
             )
 
-            # Simple prompt for greetings that doesn't require repository context
             return PreparedAnswer(
                 system_prompt='You are "JavaApex Assistant", a helpful expert assistant for a Java migration platform. Greet the user politely, acknowledge their message, and offer to help with questions about their repository analysis or migration strategy. Be concise.',
                 user_prompt=f"User says: {question.strip()}",
@@ -108,40 +90,95 @@ class AnswerRepoQuestionUseCase:
                 chat=tracing_chat,
             )
 
-        retrieval_start = time.time()
-        result = await run_in_threadpool(retriever.retrieve, question, repo_url, job_id)
-        logger.info("[AnswerUseCase] RAG retrieval completed in %.2fms", (time.time() - retrieval_start) * 1000)
+        # General technical questions (e.g. dependency injection, differences between Java versions, Spring)
+        if is_general_technical_intent(question):
+            logger.info("[AnswerUseCase] General technical question detected, using LLM knowledge.")
+            repository_metadata = _metadata_from([], page_context, repo_url)
+            user_prompt = prompt_builder.build_user_prompt(
+                question=question,
+                retrieved_context="",
+                repository_metadata=repository_metadata,
+                page_context=page_context,
+                history=history,
+            )
+            tracing_chat = LLMTokenTracingService(
+                chat_llm=ChatLLM(),
+                db=db,
+                user_id=current_user.id,
+                job_id=job_id,
+                repository_url=repo_url,
+            )
+            return PreparedAnswer(
+                system_prompt=prompt_builder.SYSTEM_PROMPT,
+                user_prompt=user_prompt,
+                repository_metadata=repository_metadata,
+                db=db,
+                user_id=current_user.id,
+                job_id=job_id,
+                repository_url=repo_url,
+                retrieved_chunk_types=["intent:general_technical"],
+                chat=tracing_chat,
+            )
 
-        if result.is_empty:
-            # Analyzed but never indexed? Index on demand, then retry once.
-            logger.info("[AnswerUseCase] Context empty, attempting on-demand indexing.")
+        # Check job ownership if job_id is provided
+        if not job_id and repo_url:
+            report = repo_index_locator.find_latest_report_by_url(repo_url)
+            if report:
+                job_id = report.get("jobId")
+
+        from app.api.deps import verify_job_ownership
+        if job_id:
             try:
-                if job_id:
-                    await run_in_threadpool(self._indexer.index_by_job_id, job_id)
-                else:
-                    await run_in_threadpool(self._indexer.index_by_repo_url, repo_url)
-            except RepositoryNotFoundForIndexingError as exc:
-                raise RepositoryNotIndexedError() from exc
+                verify_job_ownership(db, job_id, current_user)
+            except Exception:
+                pass  # Fall back to page_context if ownership check fails in dev/preview
 
-            retrieval_retry_start = time.time()
-            result = await run_in_threadpool(retriever.retrieve, question, repo_url, job_id)
-            logger.info("[AnswerUseCase] Post-indexing RAG retrieval completed in %.2fms", (time.time() - retrieval_retry_start) * 1000)
+        # Attempt RAG retrieval if repo_url or job_id is present
+        retrieved_context = ""
+        retrieved_chunks = []
+        retrieved_types = []
 
-            if result.is_empty:
-                raise RepositoryNotIndexedError()
+        if repo_url or job_id:
+            try:
+                retrieval_start = time.time()
+                result = await run_in_threadpool(retriever.retrieve, question, repo_url, job_id)
+                logger.info("[AnswerUseCase] RAG retrieval completed in %.2fms", (time.time() - retrieval_start) * 1000)
 
-        repository_metadata = _metadata_from(result.chunks, page_context, repo_url)
+                if result.is_empty:
+                    # Attempt on-demand indexing if analyzed
+                    try:
+                        if job_id:
+                            await run_in_threadpool(self._indexer.index_by_job_id, job_id)
+                        elif repo_url:
+                            await run_in_threadpool(self._indexer.index_by_repo_url, repo_url)
+                        result = await run_in_threadpool(retriever.retrieve, question, repo_url, job_id)
+                    except Exception:
+                        pass
+
+                if not result.is_empty:
+                    retrieved_context = result.context
+                    retrieved_chunks = result.chunks
+                    retrieved_types = [str(c.get("chunk_type")) for c in result.chunks]
+            except Exception as e:
+                logger.warning("[AnswerUseCase] RAG retrieval exception: %s", e)
+
+        # If no RAG chunks found and no page_context provided, require a repo
+        if not retrieved_context and not page_context and not repo_url:
+            raise RepositoryNotIndexedError(
+                "A repository URL or migration context is required to answer questions about it."
+            )
+
+        repository_metadata = _metadata_from(retrieved_chunks, page_context, repo_url)
 
         prompt_start = time.time()
         user_prompt = prompt_builder.build_user_prompt(
             question=question,
-            retrieved_context=result.context,
+            retrieved_context=retrieved_context,
             repository_metadata=repository_metadata,
             page_context=page_context,
             history=history,
         )
         logger.info("[AnswerUseCase] Prompt construction completed in %.2fms", (time.time() - prompt_start) * 1000)
-
         logger.info("[AnswerUseCase] Total preparation completed in %.2fms", (time.time() - start_time) * 1000)
 
         tracing_chat = LLMTokenTracingService(
@@ -229,14 +266,31 @@ class AnswerRepoQuestionUseCase:
 
 def is_conversational_intent(text: str) -> bool:
     """Check if the user input is a simple greeting, thank you, or farewell."""
-    # Matches common greetings, thanks, and farewells.
-    # Regex covers start/end boundaries and optional trailing punctuation.
     pattern = (
         r"^\s*(hi|hello|hey|howdy|greetings|good\s+(morning|afternoon|evening)|"
         r"how\s+are\s+you|what's\s+up|yo|thanks|thank\s+you|bye|goodbye)"
         r"(\s+there)?\s*[?.!]*\s*$"
     )
     return bool(re.match(pattern, text, re.IGNORECASE))
+
+
+def is_general_technical_intent(text: str) -> bool:
+    """Check if the question is asking about general Java or technical concepts."""
+    pattern = (
+        r"\b(what is|explain|difference between|how does|how do|why use|benefits of|"
+        r"pros and cons|best practices for|overview of|tell me about)\b.*"
+        r"\b(dependency injection|virtual threads|records|sealed classes|pattern matching|"
+        r"garbage collection|jvm|jdk|spring framework|spring boot|maven|gradle|"
+        r"docker|rest|graphql|microservices|polymorphism|inheritance|concurrency|"
+        r"java 21|java 17|java 11|java 8|lts|generics|collections|stream api|optional)\b"
+    )
+    if bool(re.search(pattern, text, re.IGNORECASE)):
+        return True
+    standalone_patterns = [
+        r"^(what is|explain)\s+(dependency injection|java\s*\d+|spring(\s*boot)?|maven|gradle|virtual threads)",
+        r"^difference between\s+java\s*\d+\s+and\s+java\s*\d+",
+    ]
+    return any(bool(re.search(p, text, re.IGNORECASE)) for p in standalone_patterns)
 
 
 def _metadata_from(

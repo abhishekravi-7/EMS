@@ -13,25 +13,17 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.api.deps import get_db
-from app.api.utility_router import utility_router
+# LLM Token Tracing
+import token_tracing as tt
 from app.api.utility_llm_monitoring_router import router as llm_monitoring_router
+from app.api.utility_router import utility_router
 from app.api.v1.router import api_router
 from app.core import watch_exclusions as _watch_exclusions  # noqa: F401
 from app.core.config import settings
-from app.core.context import user_id_ctx, job_id_ctx, repository_url_ctx
+from app.core.context import job_id_ctx, repository_url_ctx, user_id_ctx
 from app.core.logging_config import configure_logging
-from app.infrastructure.java_runtime import log_java_runtime_diagnostics
-from app.infrastructure.persistence.database import (
-    Base,
-    engine,
-    ensure_database_exists,
-    verify_database_connection,
-)
 from app.infrastructure.auth.firebase_auth import init_firebase
-
-# LLM Token Tracing
-import token_tracing as tt
+from app.infrastructure.java_runtime import log_java_runtime_diagnostics
 
 # Import every ORM model module here so `Base.metadata` knows about all
 # tables before `create_all()` runs below — SQLAlchemy only creates tables
@@ -39,6 +31,12 @@ import token_tracing as tt
 # have executed at least once). `noqa: F401` because this import is only for
 # its import-time side effect, not for anything used by name in this file.
 from app.infrastructure.persistence import models as _persistence_models  # noqa: F401
+from app.infrastructure.persistence.database import (
+    Base,
+    engine,
+    ensure_database_exists,
+    verify_database_connection,
+)
 
 configure_logging()
 logger = logging.getLogger(__name__)
@@ -76,6 +74,25 @@ async def lifespan(_app: FastAPI):
         # startup. Alembic is intentionally not used yet (see requirements.txt).
         Base.metadata.create_all(bind=engine)  # type: ignore[arg-type]
         logger.info("Database tables verified/created.")
+
+        # Load dynamic settings overrides from database
+        try:
+            from sqlalchemy.orm import Session
+
+            from app.infrastructure.persistence.system_settings_repository import SystemSettingsRepository
+            with Session(engine) as db:
+                repo = SystemSettingsRepository(db)
+                overrides = repo.get_all()
+                for key, value in overrides.items():
+                    if hasattr(settings, key) and value is not None:
+                        if isinstance(getattr(settings, key), bool):
+                            bool_val = str(value).lower() in ("true", "1", "yes", "on")
+                            setattr(settings, key, bool_val)
+                        else:
+                            setattr(settings, key, value)
+                logger.info("Applied %d dynamic setting overrides from database", len(overrides))
+        except Exception as e:  # noqa: BLE001
+            logger.error("Failed to load dynamic settings from database: %s", str(e))
     else:
         logger.info("Database disabled by configuration — skipping DB startup tasks.")
 

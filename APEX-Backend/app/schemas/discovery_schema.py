@@ -5,7 +5,7 @@ with no body; ``githubToken`` is an optional override used for private repos whe
 it is not already stored in the connect report.
 """
 
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
@@ -17,6 +17,11 @@ class DiscoveryRequest(BaseModel):
         default=None,
         alias="githubToken",
         description="Optional GitHub token override for private repositories.",
+    )
+    force_refresh: Optional[bool] = Field(
+        default=False,
+        alias="forceRefresh",
+        description="Force a fresh analysis over the repository rather than reusing a cached report.",
     )
 
     model_config = {"populate_by_name": True}
@@ -35,6 +40,9 @@ class DiscoveryDependency(BaseModel):
     group_id: str = Field(..., alias="groupId")
     artifact_id: str = Field(..., alias="artifactId")
     version: Optional[str] = None
+    declared_version: Optional[str] = Field(None, alias="declaredVersion")
+    resolved_version: Optional[str] = Field(None, alias="resolvedVersion")
+    version_source: Optional[str] = Field(None, alias="versionSource")
 
     model_config = {"populate_by_name": True}
 
@@ -93,6 +101,7 @@ class DiscoveryProject(BaseModel):
     spring_boot_conversion: Optional[DiscoverySpringBootConversion] = Field(
         None, alias="springBootConversion"
     )
+    discovery_stages: Optional[dict[str, Any]] = Field(None, alias="discoveryStages")
 
     model_config = {"populate_by_name": True}
 

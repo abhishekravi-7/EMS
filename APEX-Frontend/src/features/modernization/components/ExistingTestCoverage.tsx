@@ -1,16 +1,17 @@
-import React from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   FaVial,
-  FaCheckCircle,
-  FaTimesCircle,
   FaFlask,
-  FaClock,
-  FaBolt,
-  FaStepForward,
-  FaBullseye,
-  FaPlay,
+  FaDesktop,
+  FaFileAlt,
+  FaSpinner,
+  FaLayerGroup,
+  FaCode,
+  FaCog,
+  FaPen,
 } from "react-icons/fa";
-import type { DiscoveredOrExecutedTest } from "./ExistingTestAnalytics";
+import { classifyTestType, type TestResult, type TestSelectionItem } from "../services/existingTestService";
+import { getBrdMetadata, getBrdDocumentBlob } from "@/features/discovery/services/discoveryService";
 
 interface MetricCardProps {
   label: string;
@@ -21,7 +22,7 @@ interface MetricCardProps {
 }
 
 function MetricCard({ label, value, color, bgColor, icon }: MetricCardProps) {
-  const displayValue = value !== undefined && value !== null && value !== "" ? value : "--";
+  const displayValue = value !== undefined && value !== null && value !== "" ? value : "0";
 
   return (
     <div
@@ -29,7 +30,7 @@ function MetricCard({ label, value, color, bgColor, icon }: MetricCardProps) {
         background: bgColor,
         border: `1px solid ${color}15`,
         borderRadius: 12,
-        padding: "16px 20px",
+        padding: "16px 18px",
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
@@ -41,7 +42,7 @@ function MetricCard({ label, value, color, bgColor, icon }: MetricCardProps) {
         <div
           style={{
             fontSize: 10,
-            fontWeight: 700,
+            fontWeight: 800,
             color: "#64748b",
             textTransform: "uppercase",
             letterSpacing: 0.5,
@@ -66,15 +67,15 @@ function MetricCard({ label, value, color, bgColor, icon }: MetricCardProps) {
       </div>
       <div
         style={{
-          width: 38,
-          height: 38,
+          width: 36,
+          height: 36,
           borderRadius: 8,
           background: "rgba(0, 0, 0, 0.02)",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
           color: color,
-          fontSize: 16,
+          fontSize: 15,
           flexShrink: 0,
         }}
       >
@@ -85,7 +86,8 @@ function MetricCard({ label, value, color, bgColor, icon }: MetricCardProps) {
 }
 
 interface ExistingTestCoverageProps {
-  metrics: {
+  jobId?: string;
+  metrics?: {
     total?: number;
     executed?: number;
     passed?: number;
@@ -99,49 +101,102 @@ interface ExistingTestCoverageProps {
     execution_status?: string;
     compilation_error?: string | null;
   };
-  discoveredTests?: DiscoveredOrExecutedTest[];
-  testResults?: DiscoveredOrExecutedTest[];
+  discoveredTests?: (TestResult | TestSelectionItem)[];
+  testResults?: TestResult[];
   isExecuted?: boolean;
   frameworkInfo?: {
     detected_framework?: string;
-    build_tool?: string;
+    build_tool?: string | null;
     test_source_dir?: string;
   };
-  onRunAll: () => void;
+  onRunAll?: () => void;
   onOpenReport?: () => void;
 }
 
 export function ExistingTestCoverage({
-  metrics,
+  jobId,
+  metrics = {},
   discoveredTests = [],
   testResults = [],
   frameworkInfo,
-  onRunAll,
+  onRunAll: _onRunAll,
   onOpenReport,
 }: ExistingTestCoverageProps) {
-  // Use canonical discovered dataset count (from testResults/discoveredTests/metrics)
-  const canonicalTotal = (testResults && testResults.length > 0)
-    ? testResults.length
-    : (discoveredTests && discoveredTests.length > 0)
-    ? discoveredTests.length
-    : (metrics.total ?? 0);
+  const [hasDocument, setHasDocument] = useState(false);
+  const [isViewingDocument, setIsViewingDocument] = useState(false);
+  const [docError, setDocError] = useState<string | null>(null);
 
-  const total = canonicalTotal;
-  const passed = metrics.passed ?? 0;
-  const failed = metrics.failed ?? 0;
-  const skipped = metrics.skipped ?? 0;
-  const executed = metrics.executed ?? (passed + failed + skipped);
-  const notExecuted = metrics.not_executed !== undefined && metrics.not_executed !== null && metrics.not_executed > 0
-    ? metrics.not_executed
-    : Math.max(0, total - executed);
+  useEffect(() => {
+    if (!jobId) {
+      setHasDocument(false);
+      return;
+    }
+    let isMounted = true;
+    async function checkDoc() {
+      try {
+        const meta = await getBrdMetadata(jobId!);
+        if (isMounted && meta && meta.filename) {
+          setHasDocument(true);
+        } else if (isMounted) {
+          setHasDocument(false);
+        }
+      } catch {
+        if (isMounted) setHasDocument(false);
+      }
+    }
+    void checkDoc();
+    return () => {
+      isMounted = false;
+    };
+  }, [jobId]);
 
-  const rawPassRate = executed > 0 ? Math.round((passed / executed) * 100) : 0;
-  const passRateStr = executed > 0 ? (metrics.pass_percentage || `${rawPassRate}%`) : "N/A";
-  const coverageStr = metrics.existing_coverage || "N/A";
-  const durationStr = metrics.duration || "0.0s";
-  
-  // Framework string handling
+  const handleViewDocument = async () => {
+    if (!jobId || isViewingDocument) return;
+    setIsViewingDocument(true);
+    setDocError(null);
+    try {
+      const { blob, contentType } = await getBrdDocumentBlob(jobId);
+      const typedBlob = new Blob([blob], { type: contentType });
+      const url = URL.createObjectURL(typedBlob);
+      window.open(url, "_blank", "noopener,noreferrer");
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch {
+      setDocError("Failed to open the Functional Testing Document.");
+      setTimeout(() => setDocError(null), 5000);
+    } finally {
+      setIsViewingDocument(false);
+    }
+  };
+
+  // Canonical tests pool
+  const allTests = useMemo(() => {
+    if (testResults && testResults.length > 0) return testResults;
+    if (discoveredTests && discoveredTests.length > 0) return discoveredTests;
+    return [];
+  }, [testResults, discoveredTests]);
+
+  const total = allTests.length || (metrics.total ?? 0);
   const frameworkName = frameworkInfo?.detected_framework || metrics.type || "JUnit";
+
+  // Dynamic test-type counts calculated directly from actual discovered existing test cases
+  const { apiCount, uiCount, unitCount } = useMemo(() => {
+    let api = 0;
+    let ui = 0;
+    let unit = 0;
+
+    allTests.forEach((t) => {
+      const type = classifyTestType(t);
+      if (type === "API") {
+        api++;
+      } else if (type === "UI") {
+        ui++;
+      } else {
+        unit++;
+      }
+    });
+
+    return { apiCount: api, uiCount: ui, unitCount: unit };
+  }, [allTests]);
 
   return (
     <div
@@ -161,26 +216,54 @@ export function ExistingTestCoverage({
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          marginBottom: 24,
+          marginBottom: 20,
           flexWrap: "wrap",
           gap: 16,
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <FaVial style={{ fontSize: 18, color: "#2563eb" }} />
+          <FaPen style={{ fontSize: 16, color: "#2563eb" }} />
           <span
             style={{
-              fontWeight: 800,
+              fontWeight: 900,
               fontSize: 16,
               color: "#0f172a",
-              textTransform: "uppercase",
-              letterSpacing: 0.5,
             }}
           >
-            Existing Test Coverage
+            Existing Tests
           </span>
         </div>
-      <div style={{ display: "flex", gap: 10 }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          {hasDocument && (
+            <button
+              type="button"
+              onClick={() => void handleViewDocument()}
+              disabled={isViewingDocument}
+              style={{
+                padding: "8px 16px",
+                background: "#ffffff",
+                color: "#7c3aed",
+                border: "1px solid #ddd6fe",
+                borderRadius: 8,
+                fontWeight: 700,
+                fontSize: 12,
+                cursor: isViewingDocument ? "wait" : "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                transition: "all 0.15s ease",
+              }}
+              title="View Functional Testing Document"
+              aria-label="View Functional Testing Document"
+            >
+              {isViewingDocument ? (
+                <FaSpinner className="animate-spin" size={12} />
+              ) : (
+                <FaFileAlt size={12} style={{ color: "#7c3aed" }} />
+              )}
+              <span>View Document</span>
+            </button>
+          )}
           {onOpenReport && (
             <button
               onClick={onOpenReport}
@@ -198,158 +281,69 @@ export function ExistingTestCoverage({
               Open Report
             </button>
           )}
-          <button
-            onClick={onRunAll}
-            style={{
-              padding: "8px 16px",
-              background: "#f8fafc",
-              color: "#334155",
-              border: "1px solid #e2e8f0",
-              borderRadius: 8,
-              fontWeight: 700,
-              fontSize: 12,
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              transition: "background 0.2s",
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.background = "#f1f5f9")}
-            onMouseLeave={(e) => (e.currentTarget.style.background = "#f8fafc")}
-          >
-            <FaPlay style={{ color: "#22c55e", fontSize: 10 }} /> Run All Again
-          </button>
         </div>
       </div>
 
-      {/* Grid containing the 8 Metric Cards */}
+      {docError && (
+        <div
+          style={{
+            marginBottom: 16,
+            padding: "8px 14px",
+            borderRadius: 8,
+            background: "#fef2f2",
+            border: "1px solid #fecaca",
+            color: "#dc2626",
+            fontSize: 12,
+          }}
+        >
+          ⚠ {docError}
+        </div>
+      )}
+
+      {/* Grid containing Total Tests, Testing Types, API Tests, UI Tests, and Unit Tests */}
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+          gridTemplateColumns: "repeat(5, 1fr)",
           gap: 16,
-          marginBottom: 24,
         }}
       >
         <MetricCard
-          label="Discovered Tests"
+          label="Total Tests"
           value={total}
           color="#2563eb"
           bgColor="rgba(37, 99, 235, 0.05)"
-          icon={<FaVial />}
-        />
-        <MetricCard
-          label="Passed"
-          value={passed}
-          color="#16a34a"
-          bgColor="rgba(22, 163, 74, 0.05)"
-          icon={<FaCheckCircle />}
-        />
-        <MetricCard
-          label="Failed"
-          value={failed}
-          color="#dc2626"
-          bgColor="rgba(220, 38, 38, 0.05)"
-          icon={<FaTimesCircle />}
+          icon={<FaLayerGroup />}
         />
         <MetricCard
           label="Testing Types"
           value={frameworkName}
           color="#d97706"
           bgColor="rgba(217, 119, 6, 0.05)"
+          icon={<FaCode />}
+        />
+        <MetricCard
+          label="API Tests"
+          value={apiCount}
+          color="#0284c7"
+          bgColor="rgba(2, 132, 199, 0.05)"
           icon={<FaFlask />}
         />
         <MetricCard
-          label="Duration"
-          value={durationStr}
-          color="#c026d3"
-          bgColor="rgba(192, 38, 211, 0.05)"
-          icon={<FaClock />}
-        />
-        <MetricCard
-          label="Pass Rate"
-          value={passRateStr}
-          color={executed === 0 ? "#64748b" : rawPassRate >= 70 ? "#16a34a" : "#dc2626"}
-          bgColor={executed === 0 ? "rgba(100, 116, 139, 0.05)" : rawPassRate >= 70 ? "rgba(22, 163, 74, 0.05)" : "rgba(220, 38, 38, 0.05)"}
-          icon={<FaBolt />}
-        />
-        <MetricCard
-          label="Skipped / Not Executed"
-          value={skipped + notExecuted}
+          label="UI Tests"
+          value={uiCount}
           color="#7c3aed"
           bgColor="rgba(124, 58, 237, 0.05)"
-          icon={<FaStepForward />}
+          icon={<FaDesktop />}
         />
         <MetricCard
-          label="Coverage"
-          value={coverageStr}
-          color="#0891b2"
-          bgColor="rgba(8, 145, 178, 0.05)"
-          icon={<FaBullseye />}
+          label="Unit Tests"
+          value={unitCount}
+          color="#059669"
+          bgColor="rgba(5, 150, 105, 0.05)"
+          icon={<FaCog />}
         />
       </div>
-
-      {/* Distribution visual progress bar */}
-      {total > 0 && (
-        <div style={{ marginTop: 8 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>
-              Pass Rate Distribution
-            </span>
-            <span style={{ fontSize: 11, fontWeight: 700, color: "#64748b" }}>
-              {executed > 0
-                ? `${passed} passed · ${skipped} skipped · ${failed} failed`
-                : `${total} discovered · 0 executed (${notExecuted > 0 ? "build/compilation error" : "not run"})`}
-            </span>
-          </div>
-          {executed > 0 ? (
-            <div
-              style={{
-                width: "100%",
-                height: 6,
-                background: "#f1f5f9",
-                borderRadius: 999,
-                overflow: "hidden",
-                display: "flex",
-              }}
-            >
-              <div
-                style={{
-                  height: "100%",
-                  background: "#16a34a",
-                  width: `${(passed / executed) * 100}%`,
-                  transition: "width 0.4s ease-out",
-                }}
-              />
-              <div
-                style={{
-                  height: "100%",
-                  background: "#dc2626",
-                  width: `${(failed / executed) * 100}%`,
-                  transition: "width 0.4s ease-out",
-                }}
-              />
-              <div
-                style={{
-                  height: "100%",
-                  background: "#7c3aed",
-                  width: `${(skipped / executed) * 100}%`,
-                  transition: "width 0.4s ease-out",
-                }}
-              />
-            </div>
-          ) : (
-            <div
-              style={{
-                width: "100%",
-                height: 6,
-                background: "#e2e8f0",
-                borderRadius: 999,
-              }}
-            />
-          )}
-        </div>
-      )}
     </div>
   );
 }

@@ -9,19 +9,20 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from datetime import datetime, timezone
 from typing import Any
 
 from app.infrastructure.persistence.report_repository import load_report_from_db, save_report_to_db
 from app.infrastructure.workspace.workspace_paths import WorkspacePaths
-from app.shared import json_utils
-from app.shared import migration_log_sanitizer
+from app.shared import json_utils, migration_log_sanitizer
 
 logger = logging.getLogger(__name__)
 
 # In-memory fallback cache across threads in the same process
 _REPORT_CACHE: dict[str, dict[str, Any]] = {}
-_CACHE_LOCK = threading.Lock()
+_CACHE_LOCK = threading.RLock()
+_LAST_DB_FLUSH: dict[str, float] = {}
 
 
 class MigrationReportStore:
@@ -51,35 +52,78 @@ class MigrationReportStore:
             try:
                 # Restore to disk
                 json_utils.write_json(self._paths.migration_report_path, db_report)
-            except Exception:
-                pass
+            except OSError as err:
+                logger.debug("Non-fatal: failed writing restored report to disk for %s: %s", self._job_id, err)
             return db_report
+
+        # 4. Fallback: synthesize initial report if connect or discovery report exists
+        try:
+            from app.infrastructure.persistence.job_repository import JobRepository
+            job_repo = JobRepository()
+            connect = job_repo.read_connect_report(self._job_id)
+            discovery = job_repo.read_discovery_report(self._job_id)
+            if connect or discovery:
+                initial_report = {
+                    "jobId": self._job_id,
+                    "status": "QUEUED",
+                    "currentStep": "QUEUED",
+                    "progressPercent": 0,
+                    "sourceRepoUrl": (connect or {}).get("repoUrl") or (discovery or {}).get("repoUrl") or "",
+                    "sourceJavaVersion": (discovery or {}).get("currentJavaVersion") or "",
+                    "targetJavaVersion": "",
+                    "buildTool": ((discovery or {}).get("buildTool") or "").upper(),
+                    "conversionTypes": [],
+                    "options": {},
+                    "runSonar": False,
+                    "runFossa": False,
+                    "runTests": False,
+                    "destination": {},
+                    "targetRepo": None,
+                    "startedAt": datetime.now(timezone.utc).isoformat(),
+                    "completedAt": None,
+                    "errorMessage": None,
+                    "filesModified": 0,
+                    "recipes": [],
+                    "usedFallback": False,
+                    "logLines": ["Job initialized. Waiting for migration start..."],
+                }
+                with _CACHE_LOCK:
+                    _REPORT_CACHE[self._job_id] = initial_report
+                return initial_report
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Non-fatal: failed synthesizing initial report for %s: %s", self._job_id, exc)
 
         return None
 
-    def write(self, report: dict[str, Any]) -> None:
+    def write(self, report: dict[str, Any], force_db: bool = False) -> None:
         with _CACHE_LOCK:
             _REPORT_CACHE[self._job_id] = report
-        json_utils.write_json(self._paths.migration_report_path, report)
-        save_report_to_db(self._job_id, report)
+        try:
+            json_utils.write_json(self._paths.migration_report_path, report)
+        except Exception as err:  # noqa: BLE001
+            logger.debug("Non-fatal: failed writing migration report to disk for %s: %s", self._job_id, err)
+
+        # Flush to database when terminal or force_db or throttled >= 1.5s
+        status = report.get("status")
+        is_terminal = status in ("COMPLETED", "FAILED", "ERROR")
+        now = time.time()
+        last_db = _LAST_DB_FLUSH.get(self._job_id, 0.0)
+        if force_db or is_terminal or (now - last_db) >= 1.5:
+            _LAST_DB_FLUSH[self._job_id] = now
+            try:
+                save_report_to_db(self._job_id, report)
+            except Exception as db_err:  # noqa: BLE001
+                logger.debug("Non-fatal: failed saving report to db for %s: %s", self._job_id, db_err)
 
     def update(self, **fields: Any) -> dict[str, Any]:
         report = self.read() or {}
         report.update(fields)
         report["updatedAt"] = datetime.now(timezone.utc).isoformat()
-        self.write(report)
+        self.write(report, force_db=("status" in fields or "currentStep" in fields))
         return report
 
     def append_logs(self, lines: list[str]) -> None:
-        """Persist ``lines`` for this job's log stream.
-
-        The *raw*, unmodified lines are mirrored to the human-readable
-        ``migration.log`` file on disk for developer/backend troubleshooting
-        (never served by any API). Only the sanitized, user-facing versions
-        (see ``migration_log_sanitizer``) are stored in ``logLines`` -- the
-        field every polling/API/report consumer reads from -- so raw
-        migration-engine/Maven/Gradle internals never reach the Migration Log UI.
-        """
+        """Persist ``lines`` for this job's log stream."""
         if not lines:
             return
 
@@ -88,8 +132,8 @@ class MigrationReportStore:
             with self._paths.migration_log_path.open("a", encoding="utf-8") as handle:
                 for line in lines:
                     handle.write(line + "\n")
-        except Exception:
-            pass
+        except OSError as exc:
+            logger.debug("Non-fatal: failed appending logs to file for %s: %s", self._job_id, exc)
 
         sanitized = migration_log_sanitizer.sanitize_lines(lines)
         if not sanitized:
@@ -97,4 +141,5 @@ class MigrationReportStore:
         report = self.read() or {}
         existing = report.get("logLines") or []
         report["logLines"] = existing + [line for line in sanitized if line not in existing]
-        self.write(report)
+        self.write(report, force_db=False)
+

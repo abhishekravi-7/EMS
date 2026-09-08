@@ -5,8 +5,8 @@ import { DocsPanel } from "@/features/docs";
 // import { SupportPanel } from "@/features/support";
 import { Button } from "@/shared/components/ui";
 import { useAuth } from "@/shared/context/AuthContext";
-import { TOKEN_TRACING_DASHBOARD_URL } from "@/services/config/env";
 import FloatingChatbot from "@/shared/components/chatbot/FloatingChatbot";
+import { FaCog } from "react-icons/fa";
 import "./AppShell.css";
 
 const shellStyles: { [key: string]: React.CSSProperties } = {
@@ -22,7 +22,7 @@ const shellStyles: { [key: string]: React.CSSProperties } = {
   header: {
     background: "rgba(255, 255, 255, 0.92)",
     borderBottom: "1px solid #e2e8f0",
-    padding: "14px 28px 14px 100px",
+    padding: "0 28px 0 24px",
     width: "100%",
     boxSizing: "border-box",
     display: "flex",
@@ -32,9 +32,10 @@ const shellStyles: { [key: string]: React.CSSProperties } = {
     rowGap: 10,
     position: "sticky",
     top: 0,
-    zIndex: 20,
+    zIndex: 1100,
     backdropFilter: "blur(12px)",
     boxShadow: "0 10px 30px rgba(15, 23, 42, 0.04)",
+    height: 67,
   },
   main: {
     flex: 1,
@@ -77,6 +78,37 @@ const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     location.pathname === "/signin" ||
     location.pathname === "/signup";
 
+  const isWizardPage =
+    !isStandalonePage &&
+    !["/admin", "/usage"].includes(location.pathname);
+
+  const rootStyle: React.CSSProperties = isWizardPage
+    ? {
+        ...shellStyles.root,
+        height: "100vh",
+        maxHeight: "100vh",
+        overflow: "hidden",
+      }
+    : shellStyles.root;
+
+  const mainStyle: React.CSSProperties = isWizardPage
+    ? {
+        ...shellStyles.main,
+        height: "calc(100vh - 67px)",
+        maxHeight: "calc(100vh - 67px)",
+        overflow: "hidden",
+      }
+    : shellStyles.main;
+
+  const contentStyle: React.CSSProperties = isWizardPage
+    ? {
+        ...shellStyles.content,
+        height: "100%",
+        maxHeight: "100%",
+        overflow: "hidden",
+      }
+    : shellStyles.content;
+
   // Auth guard: once the real /api/auth/me check completes (isAuthLoading
   // becomes false), redirect unauthenticated users away from protected pages.
   useEffect(() => {
@@ -110,17 +142,32 @@ const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   }
 
   return (
-    <div style={shellStyles.root}>
-      <header style={shellStyles.header}>
-        <div className="app-shell-brand" onClick={() => navigate("/")} style={{ cursor: "pointer" }}>
-          <img
-            src={apexLogo}
-            alt="Java APEX"
-            className="app-shell-logo"
-            style={{ height: 38, width: "auto", objectFit: "contain", display: "block" }}
-          />
+    <div style={rootStyle} className="app-shell-root">
+      <header style={shellStyles.header} className="app-shell-header">
+        <div style={{ display: "flex", alignItems: "center" }} className="app-shell-brand-group">
+          <div className="app-shell-brand-logo-wrap">
+            <img
+              src={apexLogo}
+              alt="Java APEX"
+              className="app-shell-logo-image"
+              style={{ height: 44, width: "auto", objectFit: "contain", borderRadius: 8, cursor: "pointer" }}
+              onClick={() => navigate("/")}
+            />
+          </div>
+
+          <div className="app-shell-brand-divider" />
+
+          <div style={{ display: "flex", flexDirection: "column" }} className="app-shell-brand-text-col">
+            <span style={{ fontSize: 16, fontWeight: 700, color: "#1e293b", letterSpacing: "-0.01em" }}>
+              Java Migration Accelerator
+            </span>
+            <span style={{ fontSize: 11, color: "#64748b", fontWeight: 500 }}>
+              Enterprise Application Modernization
+            </span>
+          </div>
         </div>
-        <nav className="app-shell-nav">
+
+        <nav className="app-shell-nav" style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <button
             type="button"
             className="ui-nav-button"
@@ -128,26 +175,30 @@ const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             aria-haspopup="dialog"
           >
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-              <polyline points="14 2 14 8 20 8"></polyline>
-              <line x1="16" y1="13" x2="8" y2="13"></line>
-              <line x1="16" y1="17" x2="8" y2="17"></line>
-              <polyline points="10 9 9 9 8 9"></polyline>
+              <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+              <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
             </svg>
             <span>Docs</span>
           </button>
 
           <button
-            type="button"
-            className="ui-nav-button"
-            onClick={() => window.open(TOKEN_TRACING_DASHBOARD_URL, "_blank")}
-          >
+  type="button"
+  className="ui-nav-button"
+  onClick={() => navigate("/usage")}
+>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="18" y1="20" x2="18" y2="10"></line>
-              <line x1="12" y1="20" x2="12" y2="4"></line>
-              <line x1="6" y1="20" x2="6" y2="14"></line>
+              <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
             </svg>
             <span>Usage</span>
+          </button>
+
+          <button
+            type="button"
+            className="ui-nav-button"
+            onClick={() => navigate("/admin")}
+          >
+            <FaCog size={14} />
+            <span>Settings</span>
           </button>
 
           {/* <button
@@ -243,6 +294,7 @@ const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                           color: "#1e293b",
                           fontSize: 14,
                           fontWeight: 500,
+                          cursor: "pointer",
                         }}
                         onClick={() => {
                           setShowProfileMenu(false);
@@ -279,20 +331,22 @@ const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         </nav>
       </header>
 
-      <main style={shellStyles.main}>
-        <div style={shellStyles.content}>
+      <main style={mainStyle}>
+        <div style={contentStyle}>
           {children}
         </div>
       </main>
 
-      <footer style={shellStyles.footer}>
-        <div style={shellStyles.footerContent} className="app-shell-footer-content">
-          <span className="app-shell-footer-meta" data-year={new Date().getFullYear()}>
-            © {new Date().getFullYear()} Powered by <a href="https://sorim.ai/" target="_blank" rel="noreferrer">Sorim.ai</a>
-          </span>
-          <span>© {new Date().getFullYear()} <a href="https://sorim.ai/">Sorim.ai</a></span>
-        </div>
-      </footer>
+      {!isWizardPage && (
+        <footer style={shellStyles.footer}>
+          <div style={shellStyles.footerContent} className="app-shell-footer-content">
+            <span className="app-shell-footer-meta" data-year={new Date().getFullYear()}>
+              © {new Date().getFullYear()} Powered by <a href="https://sorim.ai/" target="_blank" rel="noreferrer">Sorim.ai</a>
+            </span>
+            <span>© {new Date().getFullYear()} <a href="https://sorim.ai/">Sorim.ai</a></span>
+          </div>
+        </footer>
+      )}
 
       <DocsPanel
         open={activePanel === "docs"}

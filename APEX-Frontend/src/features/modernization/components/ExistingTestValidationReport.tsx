@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { FaFileAlt } from "react-icons/fa";
 import { ExistingTestTable, type TestResult } from "./ExistingTestTable";
+import type { TestSelectionItem } from "../services/existingTestService";
 import { ExistingTestLogs } from "./ExistingTestLogs";
 
 interface FileSummary {
@@ -33,13 +34,13 @@ interface ExistingTestValidationReportProps {
   };
   frameworkInfo?: {
     detected_framework?: string;
-    build_tool?: string;
+    build_tool?: string | null;
     test_source_dir?: string;
   };
   testResults: TestResult[];
   fileBreakdown?: FileSummary[];
   logs: LogEntry[];
-  onSelectTest: (test: TestResult) => void;
+  onSelectTest: (test: TestResult | TestSelectionItem) => void;
   onClose: () => void;
   onRunAgain?: () => void;
   isRunning?: boolean;
@@ -54,7 +55,7 @@ export function ExistingTestValidationReport({
   logs,
   onSelectTest,
   onClose,
-  onRunAgain,
+  onRunAgain: _onRunAgain,
   isRunning = false,
   hasRun = true,
 }: ExistingTestValidationReportProps) {
@@ -342,9 +343,10 @@ export function ExistingTestValidationReport({
               fileBreakdown={fileBreakdown}
               frameworkInfo={frameworkInfo}
               onSelectTest={onSelectTest}
-              onRunAgain={onRunAgain}
+              logs={logs}
               isRunning={isRunning}
               hasRun={hasRun}
+              hideHeader={true}
             />
           ) : (
             <ExistingTestLogs logs={logs} />

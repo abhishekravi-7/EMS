@@ -17,8 +17,14 @@ export interface TestResult {
   execution_id?: string;
   executionId?: string;
   test_name: string;
+  name?: string;
+  title?: string;
+  methodname?: string;
+  classname?: string;
+  spec?: string;
+  category?: string;
   suite: string;
-  status: "PASSED" | "FAILED" | "SKIPPED" | "ERROR" | "NOT_EXECUTED";
+  status: "PASSED" | "FAILED" | "SKIPPED" | "ERROR" | "NOT_EXECUTED" | string;
   duration: string;
   file: string;
   type?: string;
@@ -27,9 +33,12 @@ export interface TestResult {
   framework?: string;
   engine?: string;
   failure_message?: string | null;
+  error?: string | null;
   stack_trace?: string | null;
+  stackTrace?: string | null;
   stdout?: string | null;
   stderr?: string | null;
+  rawLogs?: string | null;
   error_category?: string | null;
   errorCategory?: string | null;
   error_code?: string | null;
@@ -48,6 +57,7 @@ export interface TestResult {
     errorCategory?: string | null;
     rootCause?: string | null;
     apexExecution?: string | null;
+    [key: string]: unknown;
   } | null;
   report_url?: string | null;
   screenshot_url?: string | null;
@@ -56,9 +66,17 @@ export interface TestResult {
   videoUrl?: string | null;
   trace_url?: string | null;
   traceUrl?: string | null;
-  api_evidence?: ApiEvidence | null;
-  apiEvidence?: ApiEvidence | null;
-  evidence?: any;
+  api_evidence?: ApiEvidence | Record<string, unknown> | null;
+  apiEvidence?: ApiEvidence | Record<string, unknown> | null;
+  evidence?: {
+    screenshotAvailable?: boolean;
+    screenshotUrl?: string | null;
+    videoAvailable?: boolean;
+    videoUrl?: string | null;
+    traceUrl?: string | null;
+    [key: string]: unknown;
+  } | Record<string, unknown> | null;
+  [key: string]: unknown;
 }
 
 // ── File breakdown ────────────────────────────────────────────────────────────
@@ -93,10 +111,10 @@ export interface ExistingTestScanResponse {
   testCasesFound?: number;
   status?: "READY" | "NO_TESTS_FOUND" | string;
   message?: string;
-  tests?: any[];
+  tests?: TestResult[];
   total: number;
   framework: string;
-  test_cases: any[];
+  test_cases?: TestResult[];
 }
 
 // ── Status response ───────────────────────────────────────────────────────────
@@ -110,7 +128,7 @@ export interface ExistingTestStatusResponse {
     executed: boolean;
     testCasesFound?: number;
     message?: string;
-    tests?: any[];
+    tests?: TestResult[];
     metrics?: {
       total: number;
       executed?: number;
@@ -138,6 +156,40 @@ export interface ExistingTestStatusResponse {
 
 // ── API functions ─────────────────────────────────────────────────────────────
 
+export type TestSelectionItem = TestResult;
+
+export interface ExistingTestRunResponse {
+  status?: string;
+  jobId?: string;
+  message?: string;
+  test_results?: TestResult[];
+  tests?: TestResult[];
+  metrics?: {
+    total: number;
+    executed?: number;
+    passed: number;
+    failed: number;
+    skipped: number;
+    not_executed?: number;
+    duration: string;
+    pass_percentage: string;
+    type: string;
+    existing_coverage: string;
+    execution_status?: string;
+    compilation_error?: string | null;
+    [key: string]: unknown;
+  };
+  framework_info?: {
+    detected_framework?: string;
+    build_tool?: string | null;
+    test_source_dir?: string;
+    [key: string]: unknown;
+  };
+  file_breakdown?: FileSummary[];
+  report_availability?: ReportAvailability;
+  [key: string]: unknown;
+}
+
 export async function scanExistingTests(jobId: string): Promise<ExistingTestScanResponse> {
   return requestJson<ExistingTestScanResponse>(
     `/v1/existing-tests/scan/${encodeURIComponent(jobId)}`,
@@ -145,7 +197,10 @@ export async function scanExistingTests(jobId: string): Promise<ExistingTestScan
   );
 }
 
-export async function runExistingTests(jobId: string, testSelection: any[] | null = null): Promise<any> {
+export async function runExistingTests(
+  jobId: string,
+  testSelection: TestSelectionItem[] | null = null
+): Promise<ExistingTestRunResponse> {
   const selectionArray = Array.isArray(testSelection)
     ? testSelection.map((t) => ({
         name: t.name || t.methodname || "",
@@ -153,7 +208,7 @@ export async function runExistingTests(jobId: string, testSelection: any[] | nul
       }))
     : [];
 
-  return requestJson<any>(
+  return requestJson<ExistingTestRunResponse>(
     `/v1/existing-tests/run/${encodeURIComponent(jobId)}`,
     "Failed to run existing tests",
     {
@@ -185,3 +240,59 @@ export async function stopExistingTests(jobId: string): Promise<{ stopped: boole
     { method: "POST" }
   );
 }
+
+export function classifyTestType(t: {
+  test_type?: string;
+  testType?: string;
+  type?: string;
+  category?: string;
+  framework?: string;
+  suite?: string;
+  classname?: string;
+  file?: string;
+  test_name?: string;
+  name?: string;
+  title?: string;
+}): "API" | "UI" | "Unit" {
+  const rawType = String(
+    t.test_type || t.testType || t.type || t.category || ""
+  ).toUpperCase();
+  const rawFw = String(t.framework || "").toUpperCase();
+  const suite = String(t.suite || t.classname || t.file || "").toUpperCase();
+
+  if (
+    rawType === "UI" ||
+    rawType.includes("UI") ||
+    rawType.includes("E2E") ||
+    rawType.includes("PLAYWRIGHT") ||
+    rawType.includes("CYPRESS") ||
+    rawType.includes("SELENIUM") ||
+    rawFw.includes("PLAYWRIGHT") ||
+    rawFw.includes("SELENIUM") ||
+    rawFw.includes("CYPRESS") ||
+    suite.includes("UITEST") ||
+    suite.includes("E2ETEST")
+  ) {
+    return "UI";
+  }
+
+  if (
+    rawType === "API" ||
+    rawType.includes("API") ||
+    rawType.includes("INTEGRATION") ||
+    rawType.includes("REST") ||
+    rawType.includes("HTTP") ||
+    rawType.includes("SPRING_BOOT_TEST") ||
+    rawFw.includes("REST_ASSURED") ||
+    rawFw.includes("RESTASSURED") ||
+    rawFw.includes("SUPERTEST") ||
+    suite.includes("APITEST") ||
+    suite.includes("CONTROLLERTEST") ||
+    suite.includes("INTEGRATIONTEST")
+  ) {
+    return "API";
+  }
+
+  return "Unit";
+}
+

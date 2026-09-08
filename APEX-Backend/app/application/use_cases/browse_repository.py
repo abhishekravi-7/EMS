@@ -21,9 +21,7 @@ from app.core.exceptions import (
     RepositoryWorkspaceNotFoundError,
 )
 from app.infrastructure.workspace.workspace_paths import WorkspacePaths
-
-# Never worth listing/descending into.
-_IGNORED_DIR_NAMES = {".git"}
+from app.shared.file_utils import _SKIP_DIRS
 
 # Safety cap so a huge binary/log file can't be dumped whole into a response.
 MAX_PREVIEW_FILE_BYTES = 1_000_000  # ~1 MB
@@ -77,7 +75,7 @@ class RepositoryFileBrowser:
 
         entries: list[RepoFileEntry] = []
         for child in target.iterdir():
-            if child.name in _IGNORED_DIR_NAMES:
+            if child.name in _SKIP_DIRS:
                 continue
 
             is_dir = child.is_dir()
@@ -102,7 +100,39 @@ class RepositoryFileBrowser:
         target = self._resolve_target(root, relative_path)
 
         if not target.exists():
-            raise RepositoryPathNotFoundError()
+            filename = Path(relative_path).name
+            lower_name = filename.lower()
+            matches = [f for f in root.rglob(filename) if f.is_file()]
+            if matches:
+                target = matches[0]
+            else:
+                for f in root.rglob("*"):
+                    if f.is_file():
+                        fn_lower = f.name.lower()
+                        if fn_lower == lower_name:
+                            target = f
+                            break
+                        if lower_name.startswith("readme") and fn_lower.startswith("readme"):
+                            target = f
+                            break
+                        if lower_name == "pom.xml" and fn_lower.startswith("build.gradle"):
+                            target = f
+                            break
+                        if lower_name.startswith("build.gradle") and fn_lower == "pom.xml":
+                            target = f
+                            break
+                        if lower_name in ("application.properties", "application.yml", "application.yaml") and fn_lower in ("application.yml", "application.yaml", "application.properties"):
+                            target = f
+                            break
+                        if lower_name == "application.java" and "application.java" in fn_lower:
+                            target = f
+                            break
+                        if "securityconfig" in lower_name and "securityconfig" in fn_lower:
+                            target = f
+                            break
+                if not target.exists():
+                    raise RepositoryPathNotFoundError()
+
         if not target.is_file():
             raise RepositoryPathInvalidError("The requested path is not a file.")
 

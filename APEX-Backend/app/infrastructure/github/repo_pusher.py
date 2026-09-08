@@ -16,7 +16,7 @@ from app.shared.command_runner import CommandResult, resolve_executable, run_com
 
 logger = logging.getLogger(__name__)
 
-_TOKEN_MASK = "***"
+_TOKEN_MASK = "***"  # nosec B105
 
 
 class RepoPusher:

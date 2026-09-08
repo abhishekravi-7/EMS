@@ -118,6 +118,6 @@ class ChangeAnalyzer:
         diff = difflib.unified_diff(original_lines, migrated_lines, lineterm="")
         return sum(
             1 for line in diff
-            if (line.startswith("+") or line.startswith("-"))
+            if line.startswith(("+", "-"))
             and not line.startswith(("+++", "---"))
         )

@@ -1,11 +1,11 @@
 import React from "react";
 import "./ConnectPage.css";
-
+ 
 export interface ConnectPageProps {
   /** Step content rendered by the wizard orchestrator */
   children: React.ReactNode;
 }
-
+ 
 /**
  * Connect Page – Step 1
  *
@@ -13,9 +13,9 @@ export interface ConnectPageProps {
  * or upload a local Java project to begin migration analysis.
  */
 const ConnectPage: React.FC<ConnectPageProps> = ({ children }) => (
-  <section className="page-connect" data-step="connect">
+  <div className="connect-page-wrapper">
     {children}
-  </section>
+  </div>
 );
-
+ 
 export default ConnectPage;

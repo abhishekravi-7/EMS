@@ -20,6 +20,8 @@ export interface PreviewFileDiff {
   file_path: string;
   diff: string;
   change_count: number;
+  old_content?: string;
+  new_content?: string;
 }
 
 export interface MigrationPreview {
@@ -76,6 +78,8 @@ export interface MigrationRequest {
   fix_business_logic: boolean;
   functional_test_method?: string[];
   functional_test_execution_mode?: string;
+  proposed_test_sources?: string[];
+  selected_test_sources?: string[];
 }
 
 export interface FunctionalTestScopePreview {

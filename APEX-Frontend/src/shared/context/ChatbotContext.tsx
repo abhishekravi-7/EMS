@@ -1,13 +1,16 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useState, useCallback, useMemo, type ReactNode } from "react";
 import type { StrategyPageContext } from "@/features/strategy/services/strategyService";
+import type { ProjectContext, CentralizedProjectContext } from "@/shared/types/chat";
 
-interface ChatbotState {
+export interface ChatbotState {
   repoUrl: string | null;
   strategyContext: StrategyPageContext | null;
+  projectContext: ProjectContext | null;
+  appContext: CentralizedProjectContext | null;
 }
 
-interface ChatbotContextType extends ChatbotState {
+export interface ChatbotContextType extends ChatbotState {
   setContext: (state: Partial<ChatbotState>) => void;
 }
 
@@ -17,6 +20,8 @@ export const ChatbotProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [state, setState] = useState<ChatbotState>({
     repoUrl: null,
     strategyContext: null,
+    projectContext: null,
+    appContext: null,
   });
 
   const setContext = useCallback((newState: Partial<ChatbotState>) => {

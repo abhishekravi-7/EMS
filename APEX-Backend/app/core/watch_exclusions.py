@@ -37,8 +37,8 @@ def is_path_excluded(path: Path | str) -> bool:
             return True
         if "/storage/" in p_str or p_str.startswith("storage/") or "/logs/" in p_str:
             return True
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Error checking path exclusion for %s: %s", path, exc)
     return False
 
 
@@ -61,8 +61,8 @@ def configure_watcher_exclusions() -> None:
                 return orig_default_call(self, change, raw_path)
 
             wf.DefaultFilter.__call__ = safe_default_call  # type: ignore[method-assign]
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Error configuring watchfiles exclusions: %s", exc)
 
     # 2. Patch Uvicorn's WatchFilesReload FileFilter
     try:
@@ -76,8 +76,8 @@ def configure_watcher_exclusions() -> None:
             return orig_file_filter_call(self, path)
 
         FileFilter.__call__ = safe_file_filter_call  # type: ignore[method-assign]
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Error configuring uvicorn file filter: %s", exc)
 
     # 3. Patch Uvicorn's StatReload iter_py_files fallback
     try:
@@ -91,8 +91,8 @@ def configure_watcher_exclusions() -> None:
                     yield p
 
         StatReload.iter_py_files = safe_iter_py  # type: ignore[method-assign]
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Error configuring uvicorn stat reload: %s", exc)
 
 
 # Automatically configure watcher exclusions upon import

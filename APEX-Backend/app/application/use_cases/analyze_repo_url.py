@@ -10,7 +10,6 @@ Used by ``GET /api/github/analyze-url`` for the wizard's no-jobId path.
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -94,10 +93,20 @@ def _to_repo_analysis(owner: str, repo: str, analysis: ProjectAnalysis) -> dict[
         "java_version": java_version,
         "java_version_from_build": java_version,
         "java_files": list(analysis.java_files),
+        "java_file_count": len(analysis.java_files),
+        "config_files": list(analysis.config_files),
+        "config_file_count": len(analysis.config_files),
+        "other_files": list(analysis.other_files),
+        "other_file_count": len(analysis.other_files),
+        "total_file_count": analysis.total_file_count,
         "has_tests": bool(analysis.has_tests),
         "dependencies": dependencies,
         "api_endpoints": [],
-        "detected_frameworks": [],
+        "detected_frameworks": [
+            {"name": f, "path": "pom.xml" if analysis.has_pom_xml else "build.gradle", "type": "FRAMEWORK"}
+            for f in analysis.frameworks
+        ],
+        "frameworks": analysis.frameworks,
         "structure": {
             "has_pom_xml": bool(analysis.has_pom_xml),
             "has_build_gradle": bool(analysis.has_build_gradle),

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+
 from app.schemas.unit_test import TestScenario, UnitTestAnalysisResponse
 
 
@@ -139,7 +140,6 @@ class JavaASTAnalyzer:
         for m in public_methods:
             name = m["name"]
             params = m["params"]
-            ret = m["return_type"]
 
             # Happy Path Scenario
             scenarios.append(

@@ -118,7 +118,7 @@ const AuthLayout: React.FC<AuthLayoutProps> = ({ mode, children }) => {
               <img
                 src={apexLogo}
                 alt="Java APEX"
-                style={{ height: 42, width: "auto", objectFit: "contain", display: "block" }}
+                style={{ height: 48, width: "auto", objectFit: "contain", display: "block" }}
               />
             </div>
             <div className="new-signin-tagline" style={{ fontSize: '18px', fontWeight: 600, color: '#0f172a' }}>AI-Powered Accelerator</div>

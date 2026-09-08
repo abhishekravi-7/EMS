@@ -1,12 +1,8 @@
 import React, { useRef } from "react";
 import {
   FaCheckCircle,
-  FaCode,
-  FaCoffee,
   FaExclamationTriangle,
   FaFileAlt,
-  FaFileCode,
-  FaFlask,
   FaFolderOpen,
   FaGithub,
   FaInfoCircle,
@@ -40,7 +36,6 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
     accessTokenValidationState,
     accessTokenValidationMessage,
     localProjectCapabilities,
-    localProjectCapabilitiesLoading,
     localProjectUploadFiles,
     localProjectUploadLoading,
     localProjectUploadCompressing,
@@ -48,8 +43,9 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
     localProjectUploadWarning,
     urlValidation,
     showEnterpriseToken,
-    activeAccessToken,
-    repositoryNeedsAuthentication,
+    repoVisibility,
+    isPatModeOpen,
+    setIsPatModeOpen,
     shouldShowPatInput,
     resetAccessTokenValidationState,
     handleAccessTokenValidate,
@@ -60,28 +56,23 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
 
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const zipInputRef = useRef<HTMLInputElement | null>(null);
+  const tokenCardTitle = showEnterpriseToken ? "Enterprise Access Token" : "Personal Access Token";
 
-  const authenticationBannerText = showEnterpriseToken
-    ? "GitHub Enterprise repository detected - authentication required"
-    : "Private repository detected - authentication required";
-  const tokenCardTitle = showEnterpriseToken
-    ? "Enterprise Repository - Enter Personal Access Token"
-    : "Private Repository - Enter Personal Access Token";
-  const tokenDescription = showEnterpriseToken
-    ? "This repository requires authentication. Provide a GitHub Personal Access Token before analysis."
-    : "This repository requires authentication. Provide a GitHub Personal Access Token with repo scope.";
   const tokenStatusColor =
     accessTokenValidationState === "valid"
       ? "#166534"
       : accessTokenValidationState === "invalid"
         ? "#b45309"
-        : "#9a3412";
+        : accessTokenValidationState === "validating"
+          ? "#2563eb"
+          : "#9a3412";
   const tokenStatusIcon =
     accessTokenValidationState === "valid"
       ? <FaCheckCircle />
       : accessTokenValidationState === "invalid"
         ? <FaExclamationTriangle />
         : <FaInfoCircle />;
+
 
   return (
     <div className="page-connect" data-step="connect">
@@ -142,7 +133,9 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
       <div className="connect-content-wrapper">
         {/* Hero Title & Subtitle */}
         <div className="connect-hero">
-          <h1 className="connect-hero-title">Start Your Migration Journey</h1>
+          <h1 className="connect-hero-title">
+            Start Your <span className="connect-hero-emphasized">Migration</span> Journey
+          </h1>
           <p className="connect-hero-subtitle">
             Analyze your Java project with <span className="connect-hero-highlight">APEX intelligence</span> and modernize with confidence.
           </p>
@@ -171,6 +164,7 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
                   setSelectedRepo(null);
                   onClearRepoAnalysis();
                   setIsPrivateRepo(false);
+                  setIsPatModeOpen(false);
                   setPatToken("");
                   resetAccessTokenValidationState();
                   onError("");
@@ -186,29 +180,14 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
                 }}
               />
 
-              {/* URL Validation Message */}
-              {repoUrl && (
-                <div style={{
-                  fontSize: 11,
-                  color: urlValidation.valid ? "#16a34a" : "#dc2626",
-                  marginTop: 6,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 4
-                }}>
-                  {urlValidation.valid ? <FaCheckCircle size={12} /> : <FaExclamationTriangle size={12} />}
-                  <span>{urlValidation.valid ? "Valid repository URL" : "Invalid URL format"}</span>
-                </div>
-              )}
-
-              {!shouldShowPatInput && (
-                <div style={{ fontSize: 11, color: "#64748b", marginTop: 8, display: "flex", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
-                  <span>Public repository or</span>
+              {/* Pre-input PAT helper when URL is empty */}
+              {!repoUrl && !shouldShowPatInput && (
+                <div style={{ marginTop: 6, display: "flex", justifyContent: "center", alignItems: "center", minHeight: 20, fontSize: 11, color: "#64748b", gap: 6 }}>
+                  
                   <button
                     type="button"
                     onClick={() => {
-                      setIsPrivateRepo(true);
+                      setIsPatModeOpen(true);
                       resetAccessTokenValidationState();
                       onError("");
                     }}
@@ -223,17 +202,121 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
                       textDecoration: "underline",
                     }}
                   >
-                    Need a PAT?
+                   
                   </button>
                 </div>
               )}
 
-              {repoAccessCheckLoading && !shouldShowPatInput && (
-                <div style={{ fontSize: 11, color: "#2563eb", marginTop: 6 }}>
-                  Checking repository access...
+              {/* URL Validation & Visibility Message in One Line */}
+              {repoUrl && (
+                <div style={{ marginTop: 6, display: "flex", justifyContent: "center", alignItems: "center", minHeight: 20 }}>
+                  {!urlValidation.valid ? (
+                    <div style={{
+                      fontSize: 11,
+                      color: "#dc2626",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      fontWeight: 600,
+                    }}>
+                      <FaExclamationTriangle size={12} />
+                      <span>{urlValidation.message || "Invalid repository URL"}</span>
+                    </div>
+                  ) : repoAccessCheckLoading ? (
+                    <div style={{
+                      fontSize: 11,
+                      color: "#2563eb",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      fontWeight: 600,
+                    }}>
+                      <FaInfoCircle size={11} />
+                      <span>Checking repository visibility...</span>
+                    </div>
+                  ) : repoVisibility === "private" ? (
+                    <div style={{
+                      fontSize: 11,
+                      color: "#b45309",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                      fontWeight: 600,
+                      flexWrap: "wrap",
+                      justifyContent: "center",
+                    }}>
+                      <span style={{ color: "#16a34a", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                        <FaCheckCircle size={12} />
+                        <span>Valid repository URL</span>
+                      </span>
+                      <span style={{ color: "#94a3b8" }}>•</span>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                        <FaLock size={10} />
+                        <span>Private repository — PAT required</span>
+                      </span>
+                      {!shouldShowPatInput && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsPatModeOpen(true);
+                            resetAccessTokenValidationState();
+                            onError("");
+                          }}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            color: "#2563eb",
+                            cursor: "pointer",
+                            fontSize: 11,
+                            fontWeight: 600,
+                            padding: 0,
+                            textDecoration: "underline",
+                            marginLeft: 4,
+                          }}
+                        >
+                          Need a PAT?
+                        </button>
+                      )}
+                    </div>
+                  ) : repoVisibility === "public" ? (
+                    <div style={{
+                      fontSize: 11,
+                      color: "#16a34a",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                      fontWeight: 600,
+                      flexWrap: "wrap",
+                      justifyContent: "center",
+                    }}>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                        <FaCheckCircle size={12} />
+                        <span>Valid repository URL</span>
+                      </span>
+                      <span style={{ color: "#94a3b8" }}>•</span>
+                      <span>Public repository — no PAT required</span>
+                    </div>
+                  ) : (
+                    <div style={{
+                      fontSize: 11,
+                      color: "#16a34a",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                      fontWeight: 600,
+                      flexWrap: "wrap",
+                      justifyContent: "center",
+                    }}>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                        <FaCheckCircle size={12} />
+                        <span>Valid repository URL</span>
+                      </span>
+                    </div>
+                  )}
                 </div>
               )}
 
+              {/* PAT Input Section */}
               {shouldShowPatInput && (
                 <div style={{ marginTop: 12, textAlign: "left", width: "100%" }}>
                   <div
@@ -244,15 +327,49 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
                       background: "#fffbeb",
                     }}
                   >
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, fontSize: 12, fontWeight: 700, color: "#9a3412" }}>
-                      <FaLock size={12} />
-                      <span>{tokenCardTitle}</span>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: "#9a3412" }}>
+                        <FaLock size={12} />
+                        <span>{tokenCardTitle}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsPatModeOpen(false);
+                          resetAccessTokenValidationState();
+                          onError("");
+                        }}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          color: "#92400e",
+                          cursor: "pointer",
+                          fontSize: 11,
+                          fontWeight: 600,
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 4,
+                          padding: "2px 6px",
+                          borderRadius: 4,
+                        }}
+                        title="Return to normal repository view"
+                      >
+                        <span>← Back</span>
+                      </button>
                     </div>
-                    <div style={{ display: "flex", gap: 6 }}>
+
+                    <p style={{ fontSize: 11, color: "#78350f", margin: "0 0 8px 0", lineHeight: 1.4 }}>
+                      {showEnterpriseToken
+                        ? "A GitHub Enterprise token is required to analyze this repository."
+                        : "A Personal Access Token (PAT) with repo scope is required to access a private repository."}
+                    </p>
+
+                    <div style={{ display: "flex", width: "100%" }}>
                       <input
                         type="password"
                         style={{
-                          flex: 1,
+                          width: "100%",
+                          boxSizing: "border-box",
                           padding: "6px 10px",
                           borderRadius: 6,
                           border: "1px solid #cbd5e1",
@@ -268,30 +385,67 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
                             setPatToken(e.target.value);
                           }
                         }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            void handleAccessTokenValidate();
+                          }
+                        }}
+                        onBlur={() => {
+                          if ((showEnterpriseToken ? githubToken : patToken).trim() && accessTokenValidationState === "idle") {
+                            void handleAccessTokenValidate();
+                          }
+                        }}
                         placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
                         autoComplete="off"
                       />
-                      <button
-                        type="button"
-                        style={{
-                          padding: "6px 12px",
-                          borderRadius: 6,
-                          background: "#2563eb",
-                          color: "#ffffff",
-                          border: "none",
-                          fontSize: 12,
-                          fontWeight: 600,
-                          cursor: "pointer",
-                        }}
-                        disabled={accessTokenValidationState === "validating"}
-                        onClick={() => void handleAccessTokenValidate()}
-                      >
-                        {accessTokenValidationState === "validating" ? "..." : "Validate"}
-                      </button>
                     </div>
                     <div style={{ fontSize: 11, color: tokenStatusColor, marginTop: 6, display: "flex", alignItems: "center", gap: 4 }}>
                       {tokenStatusIcon}
                       <span>{accessTokenValidationMessage || "Provide a PAT with repo scope."}</span>
+                    </div>
+
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8, paddingTop: 6, borderTop: "1px solid #fde68a" }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsPatModeOpen(false);
+                          resetAccessTokenValidationState();
+                          onError("");
+                        }}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          color: "#475569",
+                          cursor: "pointer",
+                          fontSize: 11,
+                          fontWeight: 600,
+                          padding: 0,
+                        }}
+                      >
+                        Use repository without PAT
+                      </button>
+                      {(showEnterpriseToken ? githubToken : patToken) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (showEnterpriseToken) setGithubToken("");
+                            else setPatToken("");
+                            resetAccessTokenValidationState();
+                          }}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            color: "#dc2626",
+                            cursor: "pointer",
+                            fontSize: 11,
+                            fontWeight: 500,
+                            padding: 0,
+                          }}
+                        >
+                          Clear PAT
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>

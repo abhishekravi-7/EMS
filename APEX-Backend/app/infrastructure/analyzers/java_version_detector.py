@@ -9,7 +9,7 @@ normalized major version string (e.g. ``"8"``, ``"11"``, ``"17"``) or
 from __future__ import annotations
 
 import re
-from xml.etree.ElementTree import Element
+from xml.etree.ElementTree import Element  # nosec B405 - type annotation only; callers parse via defusedxml
 
 UNKNOWN = "UNKNOWN"
 

@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-import pytest
 
 from app.infrastructure.analyzers.junit_analyzer import JavaASTAnalyzer
 from app.infrastructure.quality_gates.unit_test_runner import UnitTestRunner
-from app.schemas.unit_test import TestExecutionDetail, UnitTestSuiteResult
 
 SAMPLE_JAVA_SOURCE = """
 package com.example.service;

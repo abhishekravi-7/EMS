@@ -35,8 +35,8 @@ class SignupRequest(BaseModel):
             "example": {
                 "fullName": "Pavithra B",
                 "email": "pavithra@example.com",
-                "password": "StrongPassword@123",
-                "confirmPassword": "StrongPassword@123",
+                        "password": "StrongPassword@123",  # nosec B105
+                "confirmPassword": "StrongPassword@123",  # nosec B105
             }
         },
     }
@@ -90,7 +90,7 @@ class LoginRequest(BaseModel):
     model_config = {
         "populate_by_name": True,
         "json_schema_extra": {
-            "example": {"email": "pavithra@example.com", "password": "StrongPassword@123"}
+            "example": {"email": "pavithra@example.com", "password": "StrongPassword@123"}  # nosec B105
         },
     }
 

@@ -30,20 +30,27 @@ import {
   generateGithubDocument,
   generateLocalProjectDocument,
   runDiscovery,
+  uploadBrd,
+  getBrdMetadata,
   type GithubDocumentResponse,
 } from "@/features/discovery/services/discoveryService";
 import {
   getJavaVersions,
   getJavaVersionRecommendation,
+  getRiskExplanation,
+  getDefaultRiskExplanation,
+  analyzeDependencies,
   type JavaVersionRecommendationResponse,
+  type DependencyAnalysisResponse,
+  type AnalyzedDependencyItem,
   type StrategyPageContext,
 } from "@/features/strategy/services/strategyService";
 import { ApiError } from "@/services/http/client";
 import {
-    getMigrationDetail,
-    getMigrationStatusSummary,
-    getMigrationLogs,
-    startMigration,
+  getMigrationDetail,
+  getMigrationStatusSummary,
+  getMigrationLogs,
+  startMigration,
   getMigrationFossa,
   type MigrationJobSummary,
   type MigrationResult,
@@ -182,7 +189,7 @@ const mergeMigrationSummaryIntoJob = (
   sonar_real_scan: summary.sonar_real_scan,
   sonar_analysis_url: summary.sonar_analysis_url ?? null,
   sonar_error_message: summary.sonar_error_message ?? null,
-  sonar_report: (summary as any).sonar_report ?? previous?.sonar_report ?? null,
+  sonar_report: summary.sonar_report ?? previous?.sonar_report ?? null,
   fossa_policy_status: summary.fossa_policy_status ?? null,
   fossa_total_dependencies: summary.fossa_total_dependencies,
   fossa_license_issues: summary.fossa_license_issues,
@@ -260,9 +267,10 @@ type DependencyRiskFilter = DependencyRiskLevel | "all";
 
 interface CategorizedDependency extends DependencyInfo {
   displayName: string;
-  category: DependencyCategory;
+  category: DependencyCategory | string;
   risk: DependencyRiskLevel;
   reason: string;
+  recommendation?: string;
 }
 
 type MicroserviceAccordionKey =
@@ -448,7 +456,7 @@ const MIGRATION_STEPS = [
   },
 ];
 
-const DEFAULT_TARGET_GITHUB_OWNER = "Javaapex";
+const DEFAULT_TARGET_GITHUB_OWNER = import.meta.env?.VITE_GITHUB_TARGET_OWNER || "Ganga-balaguru16";
 const DEFAULT_TARGET_GITHUB_HOST = "github.com";
 
 const getIndicatorStep = (step: number) => Math.min(step, MIGRATION_STEPS.length);
@@ -470,6 +478,483 @@ const loadZipSync = async () => {
   }
 
   return zipSyncModulePromise;
+};
+
+const parseJavaVersion = (version: string) => {
+  const parsed = parseInt(version, 10);
+  return Number.isNaN(parsed) ? null : parsed;
+};
+
+const shouldHideGeneratedDiffPath = (filePath: string) => {
+  const normalized = (filePath || "").replace(/\\/g, "/").toLowerCase();
+  return [
+    "/.javaapex-cache/",
+    "/.scannerwork/",
+    "/node_modules/",
+    "/target/",
+    "/build/",
+    "/out/",
+    "/dist/",
+    "/.gradle/",
+  ].some((segment) => normalized.includes(segment)) || normalized.startsWith(".javaapex-cache/") || normalized.startsWith(".scannerwork/");
+};
+
+const buildCodeChangesFromPreviewDiffs = (fileDiffs: PreviewFileDiff[]): CodeChangeEntry[] => {
+  return fileDiffs.flatMap((fileDiff) => {
+    const diffLinesRaw = fileDiff.diff.split(/\r?\n/);
+    const parsedDiffLines: CodeChangeEntry["diffLines"] = [];
+    let oldLineNumber = 0;
+    let newLineNumber = 0;
+    const fromLine = diffLinesRaw.find((line) => line.startsWith("--- "));
+    const toLine = diffLinesRaw.find((line) => line.startsWith("+++ "));
+
+    const changeType: CodeChangeEntry["changeType"] =
+      diffLinesRaw.some((line) => line.startsWith("new file mode")) || fromLine?.includes("/dev/null")
+        ? "added"
+        : diffLinesRaw.some((line) => line.startsWith("deleted file mode")) || toLine?.includes("/dev/null")
+          ? "deleted"
+          : "modified";
+
+    diffLinesRaw.forEach((line) => {
+      if (
+        !line ||
+        line.startsWith("diff --git") ||
+        line.startsWith("index ") ||
+        line.startsWith("new file mode") ||
+        line.startsWith("deleted file mode") ||
+        line.startsWith("rename from ") ||
+        line.startsWith("rename to ") ||
+        line.startsWith("similarity index ") ||
+        line.startsWith("---") ||
+        line.startsWith("+++")
+      ) {
+        return;
+      }
+
+      if (line.startsWith("@@")) {
+        const match = line.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+        parsedDiffLines.push({
+          type: "hunk",
+          oldLineNumber: null,
+          newLineNumber: null,
+          content: line,
+        });
+        if (match) {
+          oldLineNumber = Number(match[1]);
+          newLineNumber = Number(match[2]);
+        }
+        return;
+      }
+
+      if (line.startsWith("+")) {
+        parsedDiffLines.push({
+          type: "add",
+          oldLineNumber: null,
+          newLineNumber,
+          content: line.slice(1),
+        });
+        newLineNumber += 1;
+        return;
+      }
+
+      if (line.startsWith("-")) {
+        parsedDiffLines.push({
+          type: "remove",
+          oldLineNumber,
+          newLineNumber: null,
+          content: line.slice(1),
+        });
+        oldLineNumber += 1;
+        return;
+      }
+
+      const content = line.startsWith(" ") ? line.slice(1) : line;
+      parsedDiffLines.push({
+        type: "context",
+        oldLineNumber,
+        newLineNumber,
+        content,
+      });
+      oldLineNumber += 1;
+      newLineNumber += 1;
+    });
+
+    const additions = diffLinesRaw.filter((line) => line.startsWith("+") && !line.startsWith("+++")).length;
+    const deletions = diffLinesRaw.filter((line) => line.startsWith("-") && !line.startsWith("---")).length;
+    const normalizedPath =
+      fileDiff.file_path ||
+      (toLine && !toLine.includes("/dev/null")
+        ? toLine.replace(/^\+\+\+\s+b\//, "")
+        : fromLine?.replace(/^---\s+a\//, "")) ||
+      "unknown-file";
+
+    if (shouldHideGeneratedDiffPath(normalizedPath)) {
+      return [];
+    }
+
+    return [{
+      fileName: normalizedPath.split("/").pop() || normalizedPath,
+      filePath: normalizedPath,
+      changeType,
+      additions,
+      deletions,
+      oldContent: fileDiff.old_content || "",
+      newContent: fileDiff.new_content || "",
+      diffLines: parsedDiffLines,
+    }];
+  });
+};
+
+const isDetectedDependencyStatus = (status: string) => {
+  const normalizedStatus = status.trim().toLowerCase();
+  return normalizedStatus === "upgraded" || normalizedStatus.startsWith("analyzing");
+};
+
+const getDependencyStatusLabel = (status: string) => {
+  return isDetectedDependencyStatus(status)
+    ? "ANALYZED"
+    : status.replace(/_/g, " ").toUpperCase();
+};
+
+const parseVersionParts = (version: string | null | undefined) => {
+  const normalized = (version || "").trim();
+  const match = normalized.match(/(\d+)(?:\.(\d+))?(?:\.(\d+))?/);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    major: Number.parseInt(match[1], 10),
+    minor: Number.parseInt(match[2] || "0", 10),
+    patch: Number.parseInt(match[3] || "0", 10),
+    raw: normalized,
+  };
+};
+
+const classifyDependencyCategory = (dep: DependencyInfo): DependencyCategory => {
+  const artifactId = (dep.artifact_id || "").toLowerCase();
+  const groupId = (dep.group_id || "").toLowerCase();
+  const coordinate = `${groupId}:${artifactId}`;
+
+  if (
+    artifactId.includes("junit") ||
+    artifactId.includes("mockito") ||
+    artifactId.includes("assertj") ||
+    artifactId.includes("testng") ||
+    artifactId.includes("surefire")
+  ) {
+    return "Testing";
+  }
+  if (
+    artifactId.includes("log4j") ||
+    artifactId.includes("slf4j") ||
+    artifactId.includes("logback") ||
+    artifactId.includes("commons-logging")
+  ) {
+    return "Logging";
+  }
+  if (
+    artifactId.includes("hibernate") ||
+    artifactId.includes("jpa") ||
+    artifactId.includes("jdbc") ||
+    artifactId.includes("mybatis") ||
+    artifactId.includes("dynamodb") ||
+    artifactId.includes("persistence")
+  ) {
+    return "Persistence";
+  }
+  if (
+    artifactId.includes("security") ||
+    coordinate.includes("spring-security") ||
+    artifactId.includes("oauth") ||
+    artifactId.includes("jwt") ||
+    artifactId.includes("auth")
+  ) {
+    return "Security";
+  }
+  if (
+    artifactId.includes("maven") ||
+    artifactId.includes("gradle") ||
+    artifactId.includes("plugin") ||
+    artifactId.includes("wrapper")
+  ) {
+    return "Build";
+  }
+  if (
+    groupId.startsWith("javax.") ||
+    artifactId.startsWith("javax.") ||
+    groupId.startsWith("jakarta.") ||
+    artifactId.startsWith("jakarta.") ||
+    artifactId.includes("servlet") ||
+    artifactId.includes("jaxb")
+  ) {
+    return "Jakarta / Java EE";
+  }
+  if (
+    artifactId.includes("jackson") ||
+    artifactId.includes("gson") ||
+    artifactId.includes("json") ||
+    artifactId.includes("xml") ||
+    artifactId.includes("yaml")
+  ) {
+    return "Data / JSON";
+  }
+  if (
+    artifactId.includes("commons") ||
+    artifactId.includes("guava") ||
+    artifactId.includes("lombok") ||
+    artifactId.includes("lang3") ||
+    artifactId.includes("collections")
+  ) {
+    return "Utilities";
+  }
+  if (
+    coordinate.includes("spring") ||
+    coordinate.includes("apache") ||
+    coordinate.includes("struts") ||
+    coordinate.includes("quarkus") ||
+    coordinate.includes("micronaut")
+  ) {
+    return "Framework";
+  }
+  return "Other";
+};
+
+const classifyDependencyRisk = (dep: DependencyInfo): { risk: DependencyRiskLevel; reason: string } => {
+  const artifactId = (dep.artifact_id || "").toLowerCase();
+  const groupId = (dep.group_id || "").toLowerCase();
+  const status = (dep.status || "").toLowerCase();
+  const version = dep.current_version || "";
+  const parsedVersion = parseVersionParts(version);
+  const coordinate = `${groupId}:${artifactId}`;
+  const unknownVersion = !version || version.toLowerCase() === "unknown";
+  const snapshotVersion = /snapshot|alpha|beta|rc|milestone|release/i.test(version);
+  const isLegacyJavax = groupId.startsWith("javax.") || artifactId.startsWith("javax.");
+  const isLegacyLog4j = artifactId.includes("log4j") && parsedVersion && parsedVersion.major < 2;
+  const isLegacyStruts = coordinate.includes("struts");
+  const isCommonsLogging = coordinate.includes("commons-logging");
+  const dependencyLabel = coordinate !== ":" ? coordinate : dep.artifact_id || dep.group_id || "This dependency";
+  const versionContext = unknownVersion
+    ? "Version information could not be resolved from the repository metadata."
+    : version
+      ? `Current version: ${version}.`
+      : "";
+
+  if (isLegacyJavax) {
+    return {
+      risk: "critical",
+      reason: `${dependencyLabel} is marked critical because it still relies on the legacy javax namespace, which usually needs explicit Jakarta migration work. ${versionContext}`.trim(),
+    };
+  }
+
+  if (isLegacyLog4j) {
+    return {
+      risk: "critical",
+      reason: `${dependencyLabel} is marked critical because it appears to be on Log4j 1.x, a legacy logging stack that usually needs urgent replacement before migration. ${versionContext}`.trim(),
+    };
+  }
+
+  if (isLegacyStruts) {
+    return {
+      risk: "critical",
+      reason: `${dependencyLabel} is marked critical because Struts-era dependencies are highly migration-sensitive and often require code changes, not just a version bump. ${versionContext}`.trim(),
+    };
+  }
+
+  if (isCommonsLogging) {
+    return {
+      risk: "critical",
+      reason: `${dependencyLabel} is marked critical because commons-logging is a legacy logging abstraction that frequently needs replacement or bridge cleanup during modernization. ${versionContext}`.trim(),
+    };
+  }
+
+  if (artifactId.includes("junit") && parsedVersion && parsedVersion.major < 5) {
+    return {
+      risk: "high",
+      reason: `${dependencyLabel} is marked high because it appears to be on a pre-JUnit 5 generation, which commonly needs test migration updates and runner changes. ${versionContext}`.trim(),
+    };
+  }
+
+  if (status === "outdated") {
+    return {
+      risk: "high",
+      reason: `${dependencyLabel} is marked high because the repository analysis already flagged it as outdated, so it deserves manual review before migration. ${versionContext}`.trim(),
+    };
+  }
+
+  if (unknownVersion) {
+    return {
+      risk: "medium",
+      reason: `${dependencyLabel} is marked medium because its version could not be identified from repository metadata, so compatibility needs to be validated during migration.`,
+    };
+  }
+
+  if (snapshotVersion) {
+    return {
+      risk: "medium",
+      reason: `${dependencyLabel} is marked medium because it uses a pre-release version tag such as snapshot, alpha, beta, or release candidate, which can introduce migration instability. ${versionContext}`.trim(),
+    };
+  }
+
+  if (artifactId.includes("spring")) {
+    return {
+      risk: "medium",
+      reason: `${dependencyLabel} is marked medium because Spring dependencies usually need coordinated version alignment with the broader application stack during migration. ${versionContext}`.trim(),
+    };
+  }
+
+  if (artifactId.includes("hibernate")) {
+    return {
+      risk: "medium",
+      reason: `${dependencyLabel} is marked medium because Hibernate upgrades often require ORM compatibility checks, dialect validation, and configuration review. ${versionContext}`.trim(),
+    };
+  }
+
+  if (artifactId.includes("jpa")) {
+    return {
+      risk: "medium",
+      reason: `${dependencyLabel} is marked medium because JPA-related dependencies can be affected by persistence API and Jakarta namespace changes during migration. ${versionContext}`.trim(),
+    };
+  }
+
+  if (artifactId.includes("servlet")) {
+    return {
+      risk: "medium",
+      reason: `${dependencyLabel} is marked medium because servlet APIs are often impacted by container compatibility and javax-to-jakarta migration changes. ${versionContext}`.trim(),
+    };
+  }
+
+  if (artifactId.includes("jackson")) {
+    return {
+      risk: "medium",
+      reason: `${dependencyLabel} is marked medium because Jackson libraries sit on the serialization path and should be compatibility-checked for runtime behavior changes. ${versionContext}`.trim(),
+    };
+  }
+
+  if (artifactId.includes("security")) {
+    return {
+      risk: "medium",
+      reason: `${dependencyLabel} is marked medium because security libraries are configuration-sensitive and should be reviewed carefully for authentication or authorization changes. ${versionContext}`.trim(),
+    };
+  }
+
+  if (artifactId.includes("dynamodb")) {
+    return {
+      risk: "medium",
+      reason: `${dependencyLabel} is marked medium because AWS DynamoDB client libraries are runtime-facing and may need API or SDK compatibility validation during migration. ${versionContext}`.trim(),
+    };
+  }
+
+  if (artifactId.includes("jdbc")) {
+    return {
+      risk: "medium",
+      reason: `${dependencyLabel} is marked medium because JDBC drivers are tightly coupled to database connectivity and should be validated for driver and runtime compatibility. ${versionContext}`.trim(),
+    };
+  }
+
+  return {
+    risk: "low",
+    reason: `${dependencyLabel} is marked low because no strong migration-risk indicators were detected from the repository metadata. ${versionContext}`.trim(),
+  };
+};
+
+const categorizeDependencies = (
+  dependencies: DependencyInfo[],
+  analysis?: DependencyAnalysisResponse | null
+): CategorizedDependency[] => {
+  const analyzedMap = new Map<string, AnalyzedDependencyItem>();
+  if (analysis?.dependencies) {
+    for (const item of analysis.dependencies) {
+      if (item.id) analyzedMap.set(item.id.toLowerCase(), item);
+      if (item.group && item.artifact) {
+        analyzedMap.set(`${item.group}:${item.artifact}`.toLowerCase(), item);
+      }
+      if (item.artifact) analyzedMap.set(item.artifact.toLowerCase(), item);
+    }
+  }
+
+  const result = dependencies.map((dep) => {
+    const coord = `${dep.group_id}:${dep.artifact_id}`.toLowerCase();
+    const found =
+      analyzedMap.get(coord) ||
+      analyzedMap.get(dep.artifact_id?.toLowerCase() || "") ||
+      analyzedMap.get(dep.group_id?.toLowerCase() || "");
+
+    if (found) {
+      const riskNormalized = (found.risk || "LOW").toLowerCase() as DependencyRiskLevel;
+      const validRisk: DependencyRiskLevel = ["critical", "high", "medium", "low"].includes(riskNormalized)
+        ? riskNormalized
+        : "low";
+      return {
+        ...dep,
+        displayName: `${dep.group_id}:${dep.artifact_id}`,
+        category: (found.category || classifyDependencyCategory(dep)) as DependencyCategory,
+        risk: validRisk,
+        reason: found.explanation || `${dep.artifact_id} analyzed for Java migration compatibility.`,
+        recommendation: found.recommendation || "",
+      };
+    }
+
+    const { risk, reason } = classifyDependencyRisk(dep);
+    return {
+      ...dep,
+      displayName: `${dep.group_id}:${dep.artifact_id}`,
+      category: classifyDependencyCategory(dep),
+      risk,
+      reason,
+    };
+  });
+
+  const SEVERITY_ORDER: Record<string, number> = {
+    critical: 0,
+    high: 1,
+    medium: 2,
+    low: 3,
+  };
+
+  return result.sort((a, b) => {
+    const aOrder = SEVERITY_ORDER[a.risk] ?? 4;
+    const bOrder = SEVERITY_ORDER[b.risk] ?? 4;
+    if (aOrder !== bOrder) return aOrder - bOrder;
+    return a.displayName.localeCompare(b.displayName);
+  });
+};
+
+const getDependencyRiskColors = (risk: DependencyRiskLevel) => {
+  if (risk === "critical") {
+    return {
+      background: "linear-gradient(180deg, #fef2f2 0%, #fee2e2 100%)",
+      border: "#fca5a5",
+      badgeBackground: "#dc2626",
+      badgeColor: "#fff",
+      textColor: "#991b1b",
+    };
+  }
+  if (risk === "high") {
+    return {
+      background: "linear-gradient(180deg, #fff7ed 0%, #ffedd5 100%)",
+      border: "#fdba74",
+      badgeBackground: "#ea580c",
+      badgeColor: "#fff",
+      textColor: "#9a3412",
+    };
+  }
+  if (risk === "medium") {
+    return {
+      background: "linear-gradient(180deg, #fefce8 0%, #fef9c3 100%)",
+      border: "#fde047",
+      badgeBackground: "#ca8a04",
+      badgeColor: "#fff",
+      textColor: "#854d0e",
+    };
+  }
+  return {
+    background: "linear-gradient(180deg, #f0fdf4 0%, #dcfce7 100%)",
+    border: "#86efac",
+    badgeBackground: "#16a34a",
+    badgeColor: "#fff",
+    textColor: "#166534",
+  };
 };
 
 export function useWizardController() {
@@ -541,7 +1026,32 @@ export function useWizardController() {
     }
   };
 
-  const [step, setStep] = useState(() => initialStep);
+  const [step, setStepState] = useState(() => initialStep);
+  const [isMigrationFinishedState, setIsMigrationFinishedState] = useState<boolean>(false);
+
+  const setStep = useCallback((target: number | ((prev: number) => number)) => {
+    if (typeof target === "number") {
+      const targetRoute = STEP_ROUTES[target] || "/connect";
+      const currentRoute = location.pathname.replace(/\/+$/, "") || "/";
+      setStepState(target);
+      if (currentRoute !== targetRoute) {
+        navigate(targetRoute, { replace: target === 7 });
+      }
+    } else {
+      setStepState((prev) => {
+        const nextStep = target(prev);
+        const targetRoute = STEP_ROUTES[nextStep] || "/connect";
+        const currentRoute = location.pathname.replace(/\/+$/, "") || "/";
+        if (currentRoute !== targetRoute) {
+          setTimeout(() => {
+            navigate(targetRoute, { replace: nextStep === 7 });
+          }, 0);
+        }
+        return nextStep;
+      });
+    }
+  }, [location.pathname, navigate]);
+
   const [maxVisitedIndicatorStep, setMaxVisitedIndicatorStep] = useState(
     Math.max(persistedFormState?.maxVisitedIndicatorStep ?? 1, getIndicatorStep(initialStep))
   );
@@ -550,6 +1060,9 @@ export function useWizardController() {
   const {
     repoAnalysis,
     setRepoAnalysis,
+    discoveryStages,
+    setDiscoveryStages,
+    repoFiles,
     setRepoFiles,
     setRepoFilesLoading,
     setRepoFilesError,
@@ -605,6 +1118,52 @@ export function useWizardController() {
   } = discoveryState;
   const [conversionDecision, setConversionDecision] = useState<"yes" | "no" | null>(null);
   const [showFolderStructure, setShowFolderStructure] = useState(false);
+
+  // BRD Upload State
+  const [brdFile, setBrdFile] = useState<File | null>(null);
+  const [brdUploadStatus, setBrdUploadStatus] = useState<"IDLE" | "FILE_SELECTED" | "UPLOADING" | "UPLOAD_SUCCESS" | "UPLOAD_FAILED" | "EXISTING_ATTACHMENT">("IDLE");
+  const [brdMetadata, setBrdMetadata] = useState<{ filename: string; size: number; uploadedAt: string } | null>(null);
+  const [brdUploadError, setBrdUploadError] = useState<string | null>(null);
+
+  const handleBrdFileSelect = (file: File | null) => {
+    setBrdFile(file);
+    if (file) {
+      setBrdUploadStatus("FILE_SELECTED");
+      setBrdUploadError(null);
+    } else {
+      setBrdUploadStatus(brdMetadata ? "EXISTING_ATTACHMENT" : "IDLE");
+    }
+  };
+
+  const handleBrdUpload = async () => {
+    if (!brdFile || !connectState.jobId) return;
+
+    setBrdUploadStatus("UPLOADING");
+    setBrdUploadError(null);
+
+    try {
+      const metadata = await uploadBrd(connectState.jobId, brdFile);
+      setBrdMetadata(metadata);
+      setBrdUploadStatus("UPLOAD_SUCCESS");
+      setBrdFile(null);
+    } catch (err) {
+      setBrdUploadStatus("UPLOAD_FAILED");
+      setBrdUploadError(err instanceof Error ? err.message : "Failed to upload BRD");
+    }
+  };
+
+  const fetchBrdMetadata = useCallback(async (jobId: string) => {
+    try {
+      const metadata = await getBrdMetadata(jobId);
+      if (metadata) {
+        setBrdMetadata(metadata);
+        setBrdUploadStatus("EXISTING_ATTACHMENT");
+      }
+    } catch (err) {
+      console.error("Failed to fetch BRD metadata", err);
+    }
+  }, []);
+
   const strategyState = useStrategyState(persistedFormState, generateRepoTimestamp);
   const {
     targetRepoNamesByApproach,
@@ -631,9 +1190,19 @@ export function useWizardController() {
     sourceVersionStatus,
     setSourceVersionStatus,
     updateSourceVersion,
+    riskExplanation,
+    setRiskExplanation,
+    riskExplanationLoading,
+    setRiskExplanationLoading,
+    dependencyAnalysis,
+    setDependencyAnalysis,
+    dependencyAnalysisLoading,
+    setDependencyAnalysisLoading,
     resetTargetRepoNaming,
     applyDetectedSourceVersion,
   } = strategyState;
+  const fetchedRiskExplanationKeyRef = useRef<string>("");
+  const fetchedDependencyAnalysisKeyRef = useRef<string>("");
   const modernizationState = useModernizationState(persistedFormState);
   const {
     runTests,
@@ -712,11 +1281,19 @@ export function useWizardController() {
     jobId,
   } = connectState;
   const currentMigrationApproach =
-    migrationApproach === "branch"
-      ? "branch"
-      : migrationApproach === "local"
-        ? "local"
-        : "fork";
+    !isPrivateRepo && migrationApproach === "branch"
+      ? "fork"
+      : migrationApproach === "branch"
+        ? "branch"
+        : migrationApproach === "local"
+          ? "local"
+          : "fork";
+
+  useEffect(() => {
+    if (!isPrivateRepo && migrationApproach === "branch") {
+      setMigrationApproach("fork");
+    }
+  }, [isPrivateRepo, migrationApproach, setMigrationApproach]);
   const targetRepoName = targetRepoNamesByApproach[currentMigrationApproach] ?? "";
   const sourceRepositoryContext = parseRepositoryContext(selectedRepo?.url || repoUrl);
   const targetRepositoryHost =
@@ -725,10 +1302,10 @@ export function useWizardController() {
       : sourceRepositoryContext?.host || DEFAULT_TARGET_GITHUB_HOST;
   const targetRepositoryOwner =
     currentMigrationApproach === "fork"
-      ? DEFAULT_TARGET_GITHUB_OWNER
+      ? (import.meta.env?.VITE_GITHUB_TARGET_OWNER || githubUserLogin || DEFAULT_TARGET_GITHUB_OWNER)
       : sourceRepositoryContext?.platform === "github" && githubUserLogin
         ? githubUserLogin
-        : sourceRepositoryContext?.owner || githubUserLogin || "owner";
+        : sourceRepositoryContext?.owner || githubUserLogin || DEFAULT_TARGET_GITHUB_OWNER;
   const sourceRepositoryName =
     selectedRepo?.name || sourceRepositoryContext?.repo || repoUrl.split("/").pop()?.replace(".git", "") || "repo";
 
@@ -790,7 +1367,7 @@ export function useWizardController() {
     const hasThymeleaf = depArtifacts.some(a => a.includes("thymeleaf"));
     const hasJsp = depArtifacts.some(a => a.includes("jsp") || a.includes("jstl") || a.includes("servlet"));
 
-    const allFiles: string[] = ((repoAnalysis as any)?.all_files ?? []).map((f: any) =>
+    const allFiles: string[] = (repoAnalysis?.all_files ?? []).map((f) =>
       (typeof f === "string" ? f : (f?.path || "")).toLowerCase()
     );
 
@@ -923,10 +1500,10 @@ export function useWizardController() {
     }
     schemathesisConf = Math.min(schemathesisConf, 97);
 
-    const schemathesisTag = schemathesisConf >= 70 ? "Highly Recommended"
+    const _schemathesisTag = schemathesisConf >= 70 ? "Highly Recommended"
       : schemathesisConf >= 40 ? "Spec Available"
       : hasRest ? "Spec Not Found" : "Not Applicable";
-    const schemathesisReason = schemathesisConf >= 70
+    const _schemathesisReason = schemathesisConf >= 70
       ? "Highly Recommended: OpenAPI/Swagger specification found in the repository."
       : schemathesisConf >= 40
         ? "Spec Available: Springdoc/Springfox dependency detected — API spec likely auto-generated at runtime."
@@ -1004,7 +1581,7 @@ export function useWizardController() {
 
 
   const hasUI = useMemo(() => {
-    const allFiles: string[] = ((repoAnalysis as any)?.all_files ?? []).map((f: any) =>
+    const allFiles: string[] = (repoAnalysis?.all_files ?? []).map((f) =>
       (typeof f === "string" ? f : (f?.path || "")).toLowerCase()
     );
     const deps = repoAnalysis?.dependencies ?? [];
@@ -1024,8 +1601,8 @@ export function useWizardController() {
   }, [repoAnalysis]);
 
   const localApiTestCases = useMemo(() => {
-    const eps = (repoAnalysis as any)?.api_endpoints || [];
-    return eps.slice(0, 50).map((ep: any, idx: number) => {
+    const eps = repoAnalysis?.api_endpoints || [];
+    return eps.slice(0, 50).map((ep, idx: number) => {
       const method = (ep.method || "GET").toUpperCase();
       const path = ep.path || "/";
       const parts = path.split("/").filter((p: string) => p && !p.startsWith("{") && !p.startsWith(":"));
@@ -1066,7 +1643,7 @@ export function useWizardController() {
     return bestTool?.id || "REST_ASSURED";
   }, [functionalTestingTools]);
 
-  const renderConfidenceCircle = (percentage: number, color: string) => {
+  const _renderConfidenceCircle = (percentage: number, color: string) => {
     const radius = 36;
     const circumference = 2 * Math.PI * radius;
     const offset = circumference - (percentage / 100) * circumference;
@@ -1123,35 +1700,51 @@ export function useWizardController() {
     tooltip: string;
     icon: React.ReactNode;
     color: string;
-  }>>(() => [
-    {
-      value: "fork",
-      label: "Create New Repository",
-      desc: "Push migrated code to a new repository under the Javaapex GitHub owner",
-      tooltip: "Creates an entirely new repository with the migrated code under the Javaapex GitHub owner by default.",
-      icon: <FaRocket />,
-      color: "#f59e0b",
-    },
-    {
-      value: "branch",
-      label: "Existing Repository (New Branch)",
-      desc: "Push migrated code to a new branch in the source repository",
-      tooltip: "Keeps the existing repository and publishes the migrated code on a separate branch for review and merge.",
-      icon: <FaProjectDiagram />,
-      color: "#22c55e",
-    },
-    {
+  }>>(() => {
+    const options: Array<{
+      value: MigrationApproachValue;
+      label: string;
+      desc: string;
+      tooltip: string;
+      icon: React.ReactNode;
+      color: string;
+    }> = [
+      {
+        value: "fork",
+        label: "Create New Repository",
+        desc: "Push migrated code to a new repository under the Javaapex GitHub owner",
+        tooltip: "Creates an entirely new repository with the migrated code under the Javaapex GitHub owner by default.",
+        icon: <FaRocket />,
+        color: "#f59e0b",
+      },
+    ];
+
+    if (isPrivateRepo) {
+      options.push({
+        value: "branch",
+        label: "Existing Repository (New Branch)",
+        desc: "Push migrated code to a new branch in the source repository",
+        tooltip: "Keeps the existing repository and publishes the migrated code on a separate branch for review and merge.",
+        icon: <FaProjectDiagram />,
+        color: "#22c55e",
+      });
+    }
+
+    options.push({
       value: "local",
       label: "Store In Local Folder",
       desc: "Save migrated code into a local folder on this machine",
       tooltip: "Creates a local folder such as {repo-name}-Migrated under the backend migration workspace instead of pushing to GitHub.",
       icon: <FaFolderOpen />,
       color: "#2563eb",
-    },
-  ], []);
+    });
+
+    return options;
+  }, [isPrivateRepo]);
 
   const documentPrefetchKeyRef = useRef<string>("");
   const documentPrefetchPromiseRef = useRef<Promise<PrefetchedBrdDocument | null> | null>(null);
+  const discoveryInFlightKeyRef = useRef<string>("");
   const migrationPollingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const migrationPollingInFlightRef = useRef(false);
   const migrationPollingErrorCountRef = useRef(0);
@@ -1254,7 +1847,7 @@ export function useWizardController() {
     }
   };
 
-  const renderMicroserviceAccordion = ({
+  const _renderMicroserviceAccordion = ({
     section,
     title,
     subtitle,
@@ -1432,9 +2025,17 @@ export function useWizardController() {
     };
 
     const lookupProperty = (propertyName: string) => {
-      const escapedProperty = propertyName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const match = pomContent.match(new RegExp(`<${escapedProperty}>\\s*(\\d+(?:\\.\\d+)?)\\s*</${escapedProperty}>`));
-      return match ? normalize(match[1]) : null;
+      const startTag = `<${propertyName}>`;
+      const endTag = `</${propertyName}>`;
+      const startIndex = pomContent.indexOf(startTag);
+      if (startIndex === -1) return null;
+      const contentStart = startIndex + startTag.length;
+      const endIndex = pomContent.indexOf(endTag, contentStart);
+      if (endIndex === -1) return null;
+      const value = pomContent.substring(contentStart, endIndex).trim();
+      // Match numeric version strings like 1.8, 11, 17, 21.0.1
+      const versionMatch = value.match(/^(\d+(?:\.\d+)*)$/);
+      return versionMatch ? normalize(versionMatch[1]) : null;
     };
 
     const directPatterns = [
@@ -1512,7 +2113,7 @@ export function useWizardController() {
     setShowAllMicroserviceServices,
   ]);
 
-  const handleDownloadMicroserviceReport = async () => {
+  const _handleDownloadMicroserviceReport = async () => {
     if (!microserviceResult) return;
     const JsPdf = await loadJsPdf();
     const pdf = new JsPdf({
@@ -1689,131 +2290,6 @@ export function useWizardController() {
       void handleCheckMicroserviceEligibility();
     }
   }, [repoAnalysis, selectedRepo?.url, microserviceAssessmentResolved, microserviceLoading, handleCheckMicroserviceEligibility]);
-
-  const parseJavaVersion = (version: string) => {
-    const parsed = parseInt(version, 10);
-    return Number.isNaN(parsed) ? null : parsed;
-  };
-
-  const shouldHideGeneratedDiffPath = (filePath: string) => {
-    const normalized = (filePath || "").replace(/\\/g, "/").toLowerCase();
-    return [
-      "/.javaapex-cache/",
-      "/.scannerwork/",
-      "/node_modules/",
-      "/target/",
-      "/build/",
-      "/out/",
-      "/dist/",
-      "/.gradle/",
-    ].some((segment) => normalized.includes(segment)) || normalized.startsWith(".javaapex-cache/") || normalized.startsWith(".scannerwork/");
-  };
-
-  const buildCodeChangesFromPreviewDiffs = (fileDiffs: PreviewFileDiff[]): CodeChangeEntry[] => {
-    return fileDiffs.flatMap((fileDiff) => {
-      const diffLinesRaw = fileDiff.diff.split(/\r?\n/);
-      const parsedDiffLines: CodeChangeEntry["diffLines"] = [];
-      let oldLineNumber = 0;
-      let newLineNumber = 0;
-      const fromLine = diffLinesRaw.find((line) => line.startsWith("--- "));
-      const toLine = diffLinesRaw.find((line) => line.startsWith("+++ "));
-
-      const changeType: CodeChangeEntry["changeType"] =
-        diffLinesRaw.some((line) => line.startsWith("new file mode")) || fromLine?.includes("/dev/null")
-          ? "added"
-          : diffLinesRaw.some((line) => line.startsWith("deleted file mode")) || toLine?.includes("/dev/null")
-            ? "deleted"
-            : "modified";
-
-      diffLinesRaw.forEach((line) => {
-        if (
-          !line ||
-          line.startsWith("diff --git") ||
-          line.startsWith("index ") ||
-          line.startsWith("new file mode") ||
-          line.startsWith("deleted file mode") ||
-          line.startsWith("rename from ") ||
-          line.startsWith("rename to ") ||
-          line.startsWith("similarity index ") ||
-          line.startsWith("---") ||
-          line.startsWith("+++")
-        ) {
-          return;
-        }
-
-        if (line.startsWith("@@")) {
-          const match = line.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
-          parsedDiffLines.push({
-            type: "hunk",
-            oldLineNumber: null,
-            newLineNumber: null,
-            content: line,
-          });
-          if (match) {
-            oldLineNumber = Number(match[1]);
-            newLineNumber = Number(match[2]);
-          }
-          return;
-        }
-
-        if (line.startsWith("+")) {
-          parsedDiffLines.push({
-            type: "add",
-            oldLineNumber: null,
-            newLineNumber,
-            content: line.slice(1),
-          });
-          newLineNumber += 1;
-          return;
-        }
-
-        if (line.startsWith("-")) {
-          parsedDiffLines.push({
-            type: "remove",
-            oldLineNumber,
-            newLineNumber: null,
-            content: line.slice(1),
-          });
-          oldLineNumber += 1;
-          return;
-        }
-
-        const content = line.startsWith(" ") ? line.slice(1) : line;
-        parsedDiffLines.push({
-          type: "context",
-          oldLineNumber,
-          newLineNumber,
-          content,
-        });
-        oldLineNumber += 1;
-        newLineNumber += 1;
-      });
-
-      const additions = diffLinesRaw.filter((line) => line.startsWith("+") && !line.startsWith("+++")).length;
-      const deletions = diffLinesRaw.filter((line) => line.startsWith("-") && !line.startsWith("---")).length;
-      const normalizedPath =
-        fileDiff.file_path ||
-        (toLine && !toLine.includes("/dev/null")
-          ? toLine.replace(/^\+\+\+\s+b\//, "")
-          : fromLine?.replace(/^---\s+a\//, "")) ||
-        "unknown-file";
-
-      if (shouldHideGeneratedDiffPath(normalizedPath)) {
-        return [];
-      }
-
-      return [{
-        fileName: normalizedPath.split("/").pop() || normalizedPath,
-        filePath: normalizedPath,
-        changeType,
-        additions,
-        deletions,
-        oldContent: "",
-        newContent: "",
-        diffLines: parsedDiffLines,
-      }];
-    });
-  };
 
   /*
   const renderCodeChangesViewer = ({
@@ -2170,311 +2646,7 @@ export function useWizardController() {
           ))}
       </div>
     );
-  };
   */
-
-  const isDetectedDependencyStatus = (status: string) => {
-    const normalizedStatus = status.trim().toLowerCase();
-    return normalizedStatus === "upgraded" || normalizedStatus.startsWith("analyzing");
-  };
-
-  const getDependencyStatusLabel = (status: string) => {
-    return isDetectedDependencyStatus(status)
-      ? "ANALYZED"
-      : status.replace(/_/g, " ").toUpperCase();
-  };
-
-  const parseVersionParts = (version: string | null | undefined) => {
-    const normalized = (version || "").trim();
-    const match = normalized.match(/(\d+)(?:\.(\d+))?(?:\.(\d+))?/);
-    if (!match) {
-      return null;
-    }
-
-    return {
-      major: Number.parseInt(match[1], 10),
-      minor: Number.parseInt(match[2] || "0", 10),
-      patch: Number.parseInt(match[3] || "0", 10),
-      raw: normalized,
-    };
-  };
-
-  const classifyDependencyCategory = (dep: DependencyInfo): DependencyCategory => {
-    const artifactId = (dep.artifact_id || "").toLowerCase();
-    const groupId = (dep.group_id || "").toLowerCase();
-    const coordinate = `${groupId}:${artifactId}`;
-
-    if (
-      artifactId.includes("junit") ||
-      artifactId.includes("mockito") ||
-      artifactId.includes("assertj") ||
-      artifactId.includes("testng") ||
-      artifactId.includes("surefire")
-    ) {
-      return "Testing";
-    }
-    if (
-      artifactId.includes("log4j") ||
-      artifactId.includes("slf4j") ||
-      artifactId.includes("logback") ||
-      artifactId.includes("commons-logging")
-    ) {
-      return "Logging";
-    }
-    if (
-      artifactId.includes("hibernate") ||
-      artifactId.includes("jpa") ||
-      artifactId.includes("jdbc") ||
-      artifactId.includes("mybatis") ||
-      artifactId.includes("dynamodb") ||
-      artifactId.includes("persistence")
-    ) {
-      return "Persistence";
-    }
-    if (
-      artifactId.includes("security") ||
-      coordinate.includes("spring-security") ||
-      artifactId.includes("oauth") ||
-      artifactId.includes("jwt") ||
-      artifactId.includes("auth")
-    ) {
-      return "Security";
-    }
-    if (
-      artifactId.includes("maven") ||
-      artifactId.includes("gradle") ||
-      artifactId.includes("plugin") ||
-      artifactId.includes("wrapper")
-    ) {
-      return "Build";
-    }
-    if (
-      groupId.startsWith("javax.") ||
-      artifactId.startsWith("javax.") ||
-      groupId.startsWith("jakarta.") ||
-      artifactId.startsWith("jakarta.") ||
-      artifactId.includes("servlet") ||
-      artifactId.includes("jaxb")
-    ) {
-      return "Jakarta / Java EE";
-    }
-    if (
-      artifactId.includes("jackson") ||
-      artifactId.includes("gson") ||
-      artifactId.includes("json") ||
-      artifactId.includes("xml") ||
-      artifactId.includes("yaml")
-    ) {
-      return "Data / JSON";
-    }
-    if (
-      artifactId.includes("commons") ||
-      artifactId.includes("guava") ||
-      artifactId.includes("lombok") ||
-      artifactId.includes("lang3") ||
-      artifactId.includes("collections")
-    ) {
-      return "Utilities";
-    }
-    if (
-      coordinate.includes("spring") ||
-      coordinate.includes("apache") ||
-      coordinate.includes("struts") ||
-      coordinate.includes("quarkus") ||
-      coordinate.includes("micronaut")
-    ) {
-      return "Framework";
-    }
-    return "Other";
-  };
-
-  const classifyDependencyRisk = (dep: DependencyInfo): { risk: DependencyRiskLevel; reason: string } => {
-    const artifactId = (dep.artifact_id || "").toLowerCase();
-    const groupId = (dep.group_id || "").toLowerCase();
-    const status = (dep.status || "").toLowerCase();
-    const version = dep.current_version || "";
-    const parsedVersion = parseVersionParts(version);
-    const coordinate = `${groupId}:${artifactId}`;
-    const unknownVersion = !version || version.toLowerCase() === "unknown";
-    const snapshotVersion = /snapshot|alpha|beta|rc|milestone|release/i.test(version);
-    const isLegacyJavax = groupId.startsWith("javax.") || artifactId.startsWith("javax.");
-    const isLegacyLog4j = artifactId.includes("log4j") && parsedVersion && parsedVersion.major < 2;
-    const isLegacyStruts = coordinate.includes("struts");
-    const isCommonsLogging = coordinate.includes("commons-logging");
-    const dependencyLabel = coordinate !== ":" ? coordinate : dep.artifact_id || dep.group_id || "This dependency";
-    const versionContext = unknownVersion
-      ? "Version information could not be resolved from the repository metadata."
-      : version
-        ? `Current version: ${version}.`
-        : "";
-
-    if (isLegacyJavax) {
-      return {
-        risk: "critical",
-        reason: `${dependencyLabel} is marked critical because it still relies on the legacy javax namespace, which usually needs explicit Jakarta migration work. ${versionContext}`.trim(),
-      };
-    }
-
-    if (isLegacyLog4j) {
-      return {
-        risk: "critical",
-        reason: `${dependencyLabel} is marked critical because it appears to be on Log4j 1.x, a legacy logging stack that usually needs urgent replacement before migration. ${versionContext}`.trim(),
-      };
-    }
-
-    if (isLegacyStruts) {
-      return {
-        risk: "critical",
-        reason: `${dependencyLabel} is marked critical because Struts-era dependencies are highly migration-sensitive and often require code changes, not just a version bump. ${versionContext}`.trim(),
-      };
-    }
-
-    if (isCommonsLogging) {
-      return {
-        risk: "critical",
-        reason: `${dependencyLabel} is marked critical because commons-logging is a legacy logging abstraction that frequently needs replacement or bridge cleanup during modernization. ${versionContext}`.trim(),
-      };
-    }
-
-    if (artifactId.includes("junit") && parsedVersion && parsedVersion.major < 5) {
-      return {
-        risk: "high",
-        reason: `${dependencyLabel} is marked high because it appears to be on a pre-JUnit 5 generation, which commonly needs test migration updates and runner changes. ${versionContext}`.trim(),
-      };
-    }
-
-    if (status === "outdated") {
-      return {
-        risk: "high",
-        reason: `${dependencyLabel} is marked high because the repository analysis already flagged it as outdated, so it deserves manual review before migration. ${versionContext}`.trim(),
-      };
-    }
-
-    if (unknownVersion) {
-      return {
-        risk: "medium",
-        reason: `${dependencyLabel} is marked medium because its version could not be identified from repository metadata, so compatibility needs to be validated during migration.`,
-      };
-    }
-
-    if (snapshotVersion) {
-      return {
-        risk: "medium",
-        reason: `${dependencyLabel} is marked medium because it uses a pre-release version tag such as snapshot, alpha, beta, or release candidate, which can introduce migration instability. ${versionContext}`.trim(),
-      };
-    }
-
-    if (artifactId.includes("spring")) {
-      return {
-        risk: "medium",
-        reason: `${dependencyLabel} is marked medium because Spring dependencies usually need coordinated version alignment with the broader application stack during migration. ${versionContext}`.trim(),
-      };
-    }
-
-    if (artifactId.includes("hibernate")) {
-      return {
-        risk: "medium",
-        reason: `${dependencyLabel} is marked medium because Hibernate upgrades often require ORM compatibility checks, dialect validation, and configuration review. ${versionContext}`.trim(),
-      };
-    }
-
-    if (artifactId.includes("jpa")) {
-      return {
-        risk: "medium",
-        reason: `${dependencyLabel} is marked medium because JPA-related dependencies can be affected by persistence API and Jakarta namespace changes during migration. ${versionContext}`.trim(),
-      };
-    }
-
-    if (artifactId.includes("servlet")) {
-      return {
-        risk: "medium",
-        reason: `${dependencyLabel} is marked medium because servlet APIs are often impacted by container compatibility and javax-to-jakarta migration changes. ${versionContext}`.trim(),
-      };
-    }
-
-    if (artifactId.includes("jackson")) {
-      return {
-        risk: "medium",
-        reason: `${dependencyLabel} is marked medium because Jackson libraries sit on the serialization path and should be compatibility-checked for runtime behavior changes. ${versionContext}`.trim(),
-      };
-    }
-
-    if (artifactId.includes("security")) {
-      return {
-        risk: "medium",
-        reason: `${dependencyLabel} is marked medium because security libraries are configuration-sensitive and should be reviewed carefully for authentication or authorization changes. ${versionContext}`.trim(),
-      };
-    }
-
-    if (artifactId.includes("dynamodb")) {
-      return {
-        risk: "medium",
-        reason: `${dependencyLabel} is marked medium because AWS DynamoDB client libraries are runtime-facing and may need API or SDK compatibility validation during migration. ${versionContext}`.trim(),
-      };
-    }
-
-    if (artifactId.includes("jdbc")) {
-      return {
-        risk: "medium",
-        reason: `${dependencyLabel} is marked medium because JDBC drivers are tightly coupled to database connectivity and should be validated for driver and runtime compatibility. ${versionContext}`.trim(),
-      };
-    }
-
-    return {
-      risk: "low",
-      reason: `${dependencyLabel} is marked low because no strong migration-risk indicators were detected from the repository metadata. ${versionContext}`.trim(),
-    };
-  };
-
-  const categorizeDependencies = (dependencies: DependencyInfo[]): CategorizedDependency[] => {
-    return dependencies.map((dep) => {
-      const { risk, reason } = classifyDependencyRisk(dep);
-      return {
-        ...dep,
-        displayName: `${dep.group_id}:${dep.artifact_id}`,
-        category: classifyDependencyCategory(dep),
-        risk,
-        reason,
-      };
-    });
-  };
-
-  const getDependencyRiskColors = (risk: DependencyRiskLevel) => {
-    if (risk === "critical") {
-      return {
-        background: "linear-gradient(180deg, #fef2f2 0%, #fee2e2 100%)",
-        border: "#fca5a5",
-        badgeBackground: "#dc2626",
-        badgeColor: "#fff",
-        textColor: "#991b1b",
-      };
-    }
-    if (risk === "high") {
-      return {
-        background: "linear-gradient(180deg, #fff7ed 0%, #ffedd5 100%)",
-        border: "#fdba74",
-        badgeBackground: "#f97316",
-        badgeColor: "#fff",
-        textColor: "#9a3412",
-      };
-    }
-    if (risk === "medium") {
-      return {
-        background: "linear-gradient(180deg, #fffbeb 0%, #fef3c7 100%)",
-        border: "#fcd34d",
-        badgeBackground: "#f59e0b",
-        badgeColor: "#fff",
-        textColor: "#92400e",
-      };
-    }
-    return {
-      background: "linear-gradient(180deg, #ecfdf5 0%, #dcfce7 100%)",
-      border: "#86efac",
-      badgeBackground: "#22c55e",
-      badgeColor: "#fff",
-      textColor: "#166534",
-    };
-  };
 
   const handleTargetVersionChange = (value: string) => {
     setSelectedTargetVersion(value);
@@ -2660,11 +2832,12 @@ export function useWizardController() {
       });
     }
 
+    setStrategyCompleted(true);
     setStep(nextStep);
   };
 
   const renderCategorizedDependencies = (dependencies: DependencyInfo[]) => {
-    const categorizedDependencies = categorizeDependencies(dependencies);
+    const categorizedDependencies = categorizeDependencies(dependencies, dependencyAnalysis);
     const riskCounts = categorizedDependencies.reduce(
       (acc, dep) => {
         acc[dep.risk] += 1;
@@ -2679,7 +2852,8 @@ export function useWizardController() {
     const attentionDependencies = visibleDependencies.filter((dep) => dep.risk !== "low");
     const otherDependencies = visibleDependencies.filter((dep) => dep.risk === "low");
     const dominantRisk: DependencyRiskLevel =
-      riskCounts.critical > 0 ? "critical" : riskCounts.high > 0 ? "high" : riskCounts.medium > 0 ? "medium" : "low";
+      (dependencyAnalysis?.overall_risk?.toLowerCase() as DependencyRiskLevel) ||
+      (riskCounts.critical > 0 ? "critical" : riskCounts.high > 0 ? "high" : riskCounts.medium > 0 ? "medium" : "low");
     const topAttentionNames = attentionDependencies.slice(0, 5).map((dep) => dep.artifact_id).join(", ");
     const activeFilterLabel = dependencyRiskFilter === "all" ? "All Dependencies" : `${dependencyRiskFilter.toUpperCase()} Only`;
 
@@ -2729,7 +2903,17 @@ export function useWizardController() {
               {dep.risk.toUpperCase()}
             </span>
           </div>
-          <div style={styles.categorizedDependencyVersion}>{dep.current_version || "Unknown version"}</div>
+          <div style={styles.categorizedDependencyVersion}>
+            {(dep.resolvedVersion && dep.resolvedVersion !== "Unknown version") ||
+            (dep.current_version && dep.current_version !== "Unknown version")
+              ? dep.resolvedVersion || dep.current_version
+              : "Version unavailable"}
+            {dep.versionSource && (
+              <span style={{ fontSize: 11, color: "#64748b", marginLeft: 6, fontWeight: 500 }}>
+                · {dep.versionSource}
+              </span>
+            )}
+          </div>
           <div style={styles.dependencyMetaRow}>
             <span style={styles.dependencyCategoryBadge}>{dep.category}</span>
             {dep.status && (
@@ -2739,6 +2923,23 @@ export function useWizardController() {
             )}
           </div>
           <div style={{ ...styles.dependencyReasonText, color: colors.textColor }}>{dep.reason}</div>
+          {dep.recommendation && (
+            <div
+              style={{
+                marginTop: 8,
+                padding: "6px 10px",
+                borderRadius: 6,
+                background: "rgba(255, 255, 255, 0.7)",
+                border: `1px solid ${colors.border}`,
+                fontSize: 12,
+                lineHeight: 1.4,
+                color: colors.textColor,
+              }}
+            >
+              <strong style={{ fontWeight: 700 }}>Recommendation: </strong>
+              {dep.recommendation}
+            </div>
+          )}
         </div>
       );
     };
@@ -2748,7 +2949,13 @@ export function useWizardController() {
         <div style={styles.dependencyInsightsHeader}>
           <div style={styles.dependencyInsightsTitle}>Total Dependencies ({categorizedDependencies.length})</div>
           <div style={styles.dependencyInsightsSubtitle}>
-            Categorized from repository analysis. Risk levels are heuristic migration signals, not live CVE results.
+            {dependencyAnalysisLoading ? (
+              <span style={{ color: "#2563eb", fontWeight: 600 }}>Analyzing dependencies with AI...</span>
+            ) : dependencyAnalysis?.overall_explanation ? (
+              dependencyAnalysis.overall_explanation
+            ) : (
+              "Categorized from repository analysis. Risk levels are migration compatibility signals, not live CVE results."
+            )}
           </div>
         </div>
 
@@ -2953,6 +3160,7 @@ export function useWizardController() {
     setDocumentPrefetchStatus("idle");
     documentPrefetchKeyRef.current = "";
     documentPrefetchPromiseRef.current = null;
+    discoveryInFlightKeyRef.current = "";
     resetTargetRepoNaming();
   }
 
@@ -3013,10 +3221,100 @@ export function useWizardController() {
     };
   }, [setTargetVersions]);
 
+  // Step 1: Connect completed
+  const isConnectCompleted = Boolean(
+    (selectedRepo && (selectedRepo.url || selectedRepo.name)) ||
+    (connectState?.jobId && repoUrl) ||
+    Boolean(connectState?.jobId) ||
+    Boolean(selectedRepo)
+  );
+
+  // Track milestone completion across steps and backward navigation
+  const [discoveryCompleted, setDiscoveryCompleted] = useState<boolean>(false);
+  const [strategyCompleted, setStrategyCompleted] = useState<boolean>(false);
+
+  const continueToStrategy = useCallback(() => {
+    setDiscoveryCompleted(true);
+    setStep(3);
+  }, [setStep]);
+
+  useEffect(() => {
+    if (!isConnectCompleted) {
+      setDiscoveryCompleted(false);
+      setStrategyCompleted(false);
+    }
+  }, [isConnectCompleted]);
+
+  // Step 2: Discovery completed (strictly when repoAnalysis is ready AND user explicitly clicked Continue to Strategy)
+  const isDiscoveryCompleted =
+    isConnectCompleted &&
+    Boolean(repoAnalysis && !analysisLoading) &&
+    discoveryCompleted;
+
+  // Step 3: Strategy completed (strictly when Discovery completed AND user explicitly clicked Continue to Migration)
+  const isStrategyCompleted = isDiscoveryCompleted && strategyCompleted;
+
+  // Step 4: Migration completed (only after migration process has actually completed or loader finishes)
+  const isMigrationCompleted =
+    isStrategyCompleted &&
+    Boolean(
+      migrationJob?.status === "completed" ||
+      isMigrationFinishedState ||
+      step === 7 ||
+      step === 6
+    );
+
+  // Step 5: Results completed (only when viewed/completed at results phase)
+  const isResultsCompleted =
+    isMigrationCompleted &&
+    Boolean(step === 7 || (migrationJob?.status === "completed" && step === 7));
+
+  // Highest completed step number (0 to 5)
+  const highestCompletedStep = isResultsCompleted
+    ? 5
+    : isMigrationCompleted
+      ? 4
+      : isStrategyCompleted
+        ? 3
+        : isDiscoveryCompleted
+          ? 2
+          : isConnectCompleted
+            ? 1
+            : 0;
+
+  const isStepCompleted = (stepId: number): boolean => {
+    return stepId <= highestCompletedStep;
+  };
+
+  const isStepAccessible = (stepId: number): boolean => {
+    if (stepId === 1) return true;
+    if (stepId === 5) {
+      return isMigrationCompleted || isMigrationFinishedState || (isStrategyCompleted && step >= 4);
+    }
+    return (stepId - 1) <= highestCompletedStep;
+  };
+
+  const getMaxAllowedRouteStep = (highestCompleted: number): number => {
+    if (highestCompleted <= 0) return 1;
+    if (highestCompleted === 1) return 2;
+    if (highestCompleted === 2) return 3;
+    return 7;
+  };
+
   useEffect(() => {
     const routeStep = getStepFromPath(location.pathname);
-    setStep((currentStep) => (routeStep !== currentStep ? routeStep : currentStep));
-  }, [location.pathname]);
+    // Route guard: prevent manually navigating or skipping forward to locked steps
+    const maxAllowedStep = getMaxAllowedRouteStep(highestCompletedStep);
+
+    if (routeStep > maxAllowedStep) {
+      const fallbackRoute = STEP_ROUTES[maxAllowedStep] || "/connect";
+      navigate(fallbackRoute, { replace: true });
+      setStepState(maxAllowedStep);
+      return;
+    }
+
+    setStepState((current) => (current !== routeStep ? routeStep : current));
+  }, [location.pathname, highestCompletedStep, navigate]);
 
   useEffect(() => {
     setMaxVisitedIndicatorStep((currentMax) =>
@@ -3032,19 +3330,6 @@ export function useWizardController() {
       mainEl.scrollTop = 0;
     }
   }, [step]);
-
-  useEffect(() => {
-    const targetRoute = STEP_ROUTES[step] || "/";
-    const currentRoute = location.pathname.replace(/\/+$/, "") || "/";
-
-    // if (currentRoute !== targetRoute) {
-    //   navigate(targetRoute);
-    // }
-    if (currentRoute !== targetRoute) {
-  navigate(targetRoute, { replace: step === 7 });
-}
-
-  }, [step, location.pathname, navigate]);
 
   const persistedWizardFormState = useMemo(
     () =>
@@ -3095,6 +3380,7 @@ export function useWizardController() {
     runSonar,
     runFossa,
     fixBusinessLogic,
+    functionalTestToolMethod,
     migrationApproach,
     riskLevel,
     selectedFrameworks,
@@ -3220,7 +3506,7 @@ export function useWizardController() {
     () => reportCodeChanges.slice(0, visibleReportDiffCount),
     [reportCodeChanges, visibleReportDiffCount]
   );
-  const hasMoreReportCodeChanges = visibleReportDiffCount < reportCodeChanges.length;
+  const _hasMoreReportCodeChanges = visibleReportDiffCount < reportCodeChanges.length;
 
   useEffect(() => {
     setVisibleReportDiffCount(REPORT_DIFFS_PAGE_SIZE);
@@ -3313,11 +3599,7 @@ export function useWizardController() {
   
   const buildToolDisplayLabel = detectedSourceBuildTool || "Not Detected";
   const strategyRiskExplanation =
-    riskLevel === "low"
-      ? "The project is already on a modern migration path with build tooling and tests detected."
-      : riskLevel === "medium"
-        ? "The project has build tooling, but tests are missing or limited."
-        : "The project needs extra review because build tooling or Java metadata was not detected.";
+    riskExplanation || getDefaultRiskExplanation(riskLevel);
   const detectedSourceVersionForTargets = detectedJavaVersion || selectedSourceVersion;
   const detectedSourceVersionNumber = parseJavaVersion(detectedSourceVersionForTargets);
   const highestSupportedTargetVersion = useMemo(() => {
@@ -3432,7 +3714,10 @@ export function useWizardController() {
     ];
   }, [availableTargetVersions, detectedSourceVersionForTargets, versionRecommendation]);
 
-  const categorizedStrategyDependencies = useMemo(() => categorizeDependencies(repoAnalysis?.dependencies || []), [repoAnalysis?.dependencies]);
+  const categorizedStrategyDependencies = useMemo(
+    () => categorizeDependencies(repoAnalysis?.dependencies || [], dependencyAnalysis),
+    [repoAnalysis?.dependencies, dependencyAnalysis]
+  );
   const dependencyRiskSummary = useMemo(() => {
     return categorizedStrategyDependencies.reduce(
       (acc, dependency) => {
@@ -3559,6 +3844,7 @@ export function useWizardController() {
     effectiveTargetVersion,
     repoAnalysis?.dependencies,
     repoAnalysis?.full_name,
+    repoAnalysis?.has_tests,
     repoAnalysis?.java_version,
     repoAnalysis?.java_version_from_build,
     repoAnalysis?.language,
@@ -3584,7 +3870,7 @@ export function useWizardController() {
     getAutoGeneratedTargetName,
   ]);
 
-  const plannedCodeRefactoringTooltip = useMemo(() => {
+  const _plannedCodeRefactoringTooltip = useMemo(() => {
     const previewDescriptions = migrationPreview
       ? Array.from(
           new Map(
@@ -3647,7 +3933,7 @@ export function useWizardController() {
     selectedSourceVersion,
   ]);
 
-  const plannedDependenciesTooltip = useMemo(() => {
+  const _plannedDependenciesTooltip = useMemo(() => {
     const dependencyUpdateCount = migrationPreview?.changes.dependencies_to_update?.length ?? 0;
     const discoveredDependencyCount = repoAnalysis?.dependencies?.length ?? 0;
     const dependencyHighlights = dependencyUpdateCount > 0
@@ -3676,7 +3962,7 @@ export function useWizardController() {
     );
   }, [migrationPreview, repoAnalysis?.dependencies]);
 
-  const plannedBusinessLogicTooltip = useMemo(() => {
+  const _plannedBusinessLogicTooltip = useMemo(() => {
     const endpointCount = repoAnalysis?.api_endpoints?.length ?? 0;
     const businessLogicSteps = [
       "Protect runtime behavior while upgrading null handling, error handling, and resource usage",
@@ -3713,16 +3999,10 @@ export function useWizardController() {
   const formattedAnalysisCompleted = `${Math.floor(analysisCompletedSeconds / 60)
   .toString()
   .padStart(2, "0")}:${(analysisCompletedSeconds % 60).toString().padStart(2, "0")}`;
-  const isTechnicalDocumentWarmPending =
-    Boolean(repoAnalysis) &&
-    documentPrefetchStatus !== "ready" &&
-    documentPrefetchStatus !== "error";
   const isDiscoveryPending =
-    analysisLoading ||
-    Boolean(
-      repoAnalysis &&
-      (!repoPreviewInitialized || !microserviceAssessmentResolved || isTechnicalDocumentWarmPending)
-    );
+    !error &&
+    isJavaProject !== false &&
+    (analysisLoading || (step === 2 && selectedRepo && !repoAnalysis));
  
   useEffect(() => {
     if (!isDiscoveryPending) {
@@ -3788,60 +4068,253 @@ export function useWizardController() {
   }, [migrationJob, migrationJob?.progress_percent, migrationJob?.status, setAnimationProgress, step]);
 
   useEffect(() => {
-    if (step === 2 && selectedRepo && !repoAnalysis) {
-      const isLocalProject = isLocalRepoRef(selectedRepo.url);
+    if (step === 2 && jobId) {
+      void fetchBrdMetadata(jobId);
+    }
+  }, [step, jobId, fetchBrdMetadata]);
 
+  const executeAnalysis = useCallback(
+    async (isRerun = false) => {
+      if (!selectedRepo) return;
+      const isLocalProject = isLocalRepoRef(selectedRepo.url);
+      const discoveryKey = `${selectedRepo.url}::${jobId || ""}::${currentToken || ""}`;
+
+      if (discoveryInFlightKeyRef.current === discoveryKey && analysisLoading) {
+        return;
+      }
+
+      discoveryInFlightKeyRef.current = discoveryKey;
       setAnalysisLoading(true);
+      setAnalysisStartedAtMs(Date.now());
+      setAnalysisElapsedSeconds(0);
       setError("");
 
-      const analyzePromise = isLocalProject
-        ? analyzeLocalProject(extractLocalRepoPath(selectedRepo.url))
-            .then(async (result) => enrichAnalysisWithPomVersion(result.analysis, selectedRepo.url, ""))
-        : jobId
-          ? runDiscovery(jobId, currentToken)
-              .then(async (result) => enrichAnalysisWithPomVersion(result.analysis, selectedRepo.url, currentToken))
-          : analyzeRepoUrl(selectedRepo.url, currentToken, true)
-              .then(async (result) => enrichAnalysisWithPomVersion(result.analysis, selectedRepo.url, currentToken));
+      setDiscoveryStages([
+        {
+          id: "repository_map",
+          label: "Repository Map",
+          detail: "Scanning folders, modules, packages, and source file structure",
+          status: "in_progress",
+        },
+        {
+          id: "dependency_graph",
+          label: "Dependency Graph",
+          detail: "Reading declared libraries, Maven/Gradle dependencies, and build plugins",
+          status: "queued",
+        },
+        {
+          id: "preview_signals",
+          label: "Preview Signals",
+          detail: "Detecting Java version, frameworks, test suites, and project signals",
+          status: "queued",
+        },
+        {
+          id: "service_fit",
+          label: "Service Fit",
+          detail: "Evaluating architecture boundaries, Spring Boot fit, and service readiness",
+          status: "queued",
+        },
+      ]);
 
-      analyzePromise
-        .then((analysis) => applyRepositoryAnalysis(analysis))
-        .catch((err) => {
-          const message = err?.message || "Failed to analyze repository.";
-          if (isPrivateRepoAccessError(message)) {
-            setIsPrivateRepo(true);
-            setStep(1);
-            setError("");
-            if (currentToken.trim()) {
-              // Token was provided but still failed — may be insufficient scope or expired
-              setAccessTokenValidationState("invalid");
-              setAccessTokenValidationMessage(
-                "The provided PAT could not access this repository. Verify that your token has 'repo' scope and has not expired."
-              );
-            } else {
-              setAccessTokenValidationState("invalid");
-              setAccessTokenValidationMessage(
-                "Add a GitHub Personal Access Token with repo scope to continue analyzing this private repository."
-              );
+      const stageTimer1 = window.setTimeout(() => {
+        setDiscoveryStages((prev) =>
+          prev.map((s) => {
+            if (s.id === "repository_map") return { ...s, status: "complete", detail: "Repository structure mapped" };
+            if (s.id === "preview_signals") return { ...s, status: "in_progress", detail: "Detecting Java version & compiler settings..." };
+            return s;
+          })
+        );
+      }, 700);
+
+      const stageTimer2 = window.setTimeout(() => {
+        setDiscoveryStages((prev) =>
+          prev.map((s) => {
+            if (s.id === "preview_signals") return { ...s, status: "complete", detail: "Java version identified" };
+            if (s.id === "dependency_graph") return { ...s, status: "in_progress", detail: "Resolving dependencies and build plugins..." };
+            return s;
+          })
+        );
+      }, 1400);
+
+      const stageTimer3 = window.setTimeout(() => {
+        setDiscoveryStages((prev) =>
+          prev.map((s) => {
+            if (s.id === "dependency_graph") return { ...s, status: "complete", detail: "Dependency graph constructed" };
+            if (s.id === "service_fit") return { ...s, status: "in_progress", detail: "Detecting frameworks & service fit..." };
+            return s;
+          })
+        );
+      }, 2100);
+
+      if (isRerun) {
+        setRepoAnalysis(null);
+        setRepoPreviewInitialized(false);
+        setMicroserviceAssessmentResolved(false);
+        setDocumentPrefetchStatus("idle");
+        documentPrefetchKeyRef.current = "";
+        if (documentPrefetchPromiseRef.current) {
+          documentPrefetchPromiseRef.current = null;
+        }
+        fetchedRiskExplanationKeyRef.current = "";
+        fetchedDependencyAnalysisKeyRef.current = "";
+      }
+
+      try {
+        const analyzePromise = isLocalProject
+          ? analyzeLocalProject(extractLocalRepoPath(selectedRepo.url))
+              .then(async (result) => enrichAnalysisWithPomVersion(result.analysis, selectedRepo.url, ""))
+          : jobId
+            ? runDiscovery(jobId, currentToken, isRerun)
+                .then(async (result) => enrichAnalysisWithPomVersion(result.analysis, selectedRepo.url, currentToken))
+            : analyzeRepoUrl(selectedRepo.url, currentToken, true)
+                .then(async (result) => enrichAnalysisWithPomVersion(result.analysis, selectedRepo.url, currentToken));
+
+        const analysis = await analyzePromise;
+        window.clearTimeout(stageTimer1);
+        window.clearTimeout(stageTimer2);
+        window.clearTimeout(stageTimer3);
+
+        const stagesData = (analysis as any).discovery_stages;
+        const repoMapSummary = stagesData?.repositoryMap?.summary ||
+          `Mapped ${analysis.total_file_count ?? 0} files (${analysis.java_file_count ?? 0} Java, ${analysis.config_file_count ?? 0} Config, ${analysis.other_file_count ?? 0} Other).`;
+        const depGraphSummary = stagesData?.dependencyGraph?.summary ||
+          `Extracted ${analysis.dependencies?.length ?? 0} dependencies from ${analysis.build_tool || "build configuration"}.`;
+        const previewSignalsSummary = stagesData?.previewSignals?.summary ||
+          `Identified Java ${analysis.java_version || "unknown"}, ${analysis.build_tool || "tooling"}, and ${analysis.frameworks?.length ?? 0} framework(s).`;
+        const serviceFitSummary = stagesData?.serviceFit?.summary ||
+          `Architecture: ${analysis.structure?.has_pom_xml ? "Modular Monolith" : "Standard Project"}. ${analysis.spring_boot_eligibility?.springBootConversionEligible ? "Eligible for Spring Boot conversion." : "Ready for Java modernization."}`;
+
+        setDiscoveryStages([
+          {
+            id: "repository_map",
+            label: "Repository Map",
+            detail: "Repository structure mapped",
+            summary: repoMapSummary,
+            status: "complete",
+          },
+          {
+            id: "dependency_graph",
+            label: "Dependency Graph",
+            detail: "Dependencies analyzed",
+            summary: depGraphSummary,
+            status: "complete",
+          },
+          {
+            id: "preview_signals",
+            label: "Preview Signals",
+            detail: "Project signals identified",
+            summary: previewSignalsSummary,
+            status: "complete",
+          },
+          {
+            id: "service_fit",
+            label: "Service Fit",
+            detail: "Architecture assessed",
+            summary: serviceFitSummary,
+            status: "complete",
+          },
+        ]);
+
+        setIsJavaProject(true);
+        applyRepositoryAnalysis(analysis);
+      } catch (err: any) {
+        window.clearTimeout(stageTimer1);
+        window.clearTimeout(stageTimer2);
+        window.clearTimeout(stageTimer3);
+
+        const message = err?.message || "Failed to analyze repository.";
+        setDiscoveryStages((prev) =>
+          prev.map((s) => {
+            if (s.status === "in_progress") {
+              return {
+                ...s,
+                status: "failed",
+                error: message,
+                detail: `Analysis failed: ${message}`,
+              };
             }
-            return;
+            return s;
+          })
+        );
+
+        if (isPrivateRepoAccessError(message) && !isRerun) {
+          discoveryInFlightKeyRef.current = "";
+          setIsPrivateRepo(true);
+          setStep(1);
+          setError("");
+          if (currentToken.trim()) {
+            setAccessTokenValidationState("invalid");
+            setAccessTokenValidationMessage(
+              "The provided PAT could not access this repository. Verify that your token has 'repo' scope and has not expired."
+            );
+          } else {
+            setAccessTokenValidationState("invalid");
+            setAccessTokenValidationMessage(
+              "Add a GitHub Personal Access Token with repo scope to continue analyzing this private repository."
+            );
           }
-          setError(message);
-        })
-        .finally(() => setAnalysisLoading(false));
+          return;
+        }
+
+        if (
+          message.toLowerCase().includes("unsupported") ||
+          message.toLowerCase().includes("no maven or gradle") ||
+          err?.status === "UNSUPPORTED_PROJECT"
+        ) {
+          setIsJavaProject(false);
+        }
+
+        setError(message);
+      } finally {
+        setAnalysisLoading(false);
+        discoveryInFlightKeyRef.current = "";
+      }
+    },
+    [
+      analysisLoading,
+      applyRepositoryAnalysis,
+      currentToken,
+      enrichAnalysisWithPomVersion,
+      extractLocalRepoPath,
+      isLocalRepoRef,
+      jobId,
+      selectedRepo,
+      setAccessTokenValidationMessage,
+      setAccessTokenValidationState,
+      setAnalysisElapsedSeconds,
+      setAnalysisLoading,
+      setAnalysisStartedAtMs,
+      setDiscoveryStages,
+      setDocumentPrefetchStatus,
+      setError,
+      setIsJavaProject,
+      setIsPrivateRepo,
+      setMicroserviceAssessmentResolved,
+      setRepoAnalysis,
+      setRepoPreviewInitialized,
+      setStep,
+    ]
+  );
+
+  const handleRerunAnalysis = useCallback(async () => {
+    if (analysisLoading || isDiscoveryPending) {
+      return;
+    }
+    await executeAnalysis(true);
+  }, [analysisLoading, isDiscoveryPending, executeAnalysis]);
+
+  useEffect(() => {
+    if (step === 2 && selectedRepo && !repoAnalysis && !analysisLoading && !error && isJavaProject !== false) {
+      void executeAnalysis(false);
     }
   }, [
-    applyRepositoryAnalysis,
-    currentToken,
-    enrichAnalysisWithPomVersion,
-    jobId,
-    repoAnalysis,
-    selectedRepo,
-    setAccessTokenValidationMessage,
-    setAccessTokenValidationState,
-    setAnalysisLoading,
-    setIsPrivateRepo,
-    showEnterpriseToken,
     step,
+    selectedRepo,
+    repoAnalysis,
+    analysisLoading,
+    error,
+    isJavaProject,
+    executeAnalysis,
   ]);
 
   // Never let a "Spring -> Spring Boot" selection survive into a newly
@@ -3888,6 +4361,9 @@ export function useWizardController() {
       .then((recommendation) => {
         if (cancelled) return;
         setVersionRecommendation(recommendation);
+        if (recommendation?.risk_explanation && !riskExplanation) {
+          setRiskExplanation(recommendation.risk_explanation);
+        }
       })
       .catch(() => {
         if (cancelled) return;
@@ -3910,71 +4386,110 @@ export function useWizardController() {
   }, [step, repoAnalysis, detectedSourceVersionForTargets, detectedJavaVersion, riskLevel, availableTargetVersions.length]);
 
   useEffect(() => {
-    if (step !== 1 || !urlValidation.valid || showEnterpriseToken || patToken.trim()) {
-      setRepoAccessCheckLoading(false);
+    if (step !== 3 || !repoAnalysis) {
       return;
     }
 
-    const normalizedUrl = urlValidation.normalizedUrl;
+    const explanationKey = `${repoAnalysis.java_version || repoAnalysis.java_version_from_build || ""}_${repoAnalysis.build_tool || ""}_${repoAnalysis.has_tests}_${riskLevel || "unknown"}`;
+    if (fetchedRiskExplanationKeyRef.current === explanationKey && riskExplanation) {
+      return;
+    }
+
     let cancelled = false;
+    fetchedRiskExplanationKeyRef.current = explanationKey;
+    setRiskExplanationLoading(true);
 
-    // Show loading immediately so the "Have a PAT?" hyperlink doesn't flash
-    // before the debounced visibility check starts.
-    setRepoAccessCheckLoading(true);
-
-    const timer = setTimeout(() => {
-
-        getRepoVisibility(normalizedUrl, currentToken)
-        .then((visibility) => {
-          if (cancelled) return;
-          if (visibility.requires_token || visibility.visibility === "private") {
-            setIsPrivateRepo(true);
-            setError("");
-            resetAccessTokenValidationState();
-            return;
-          }
-
-          setIsPrivateRepo(false);
-          setError("");
-        })
-        .catch((err) => {
-          if (cancelled) return;
-          // If the backend returned 400 (invalid URL parse), don't show PAT card.
-          // For all other errors (network failures, 500, timeouts, etc.),
-          // conservatively treat as private — the backend's anonymous fallback
-          // succeeds for public repos, so reaching here means the repo is
-          // genuinely private/inaccessible or the server couldn't be reached.
-          const isUrlError = err?.status === 400;
-          const message = err instanceof Error ? err.message : "";
-          const shouldShowPrivateRepoState = !isUrlError && isPrivateRepoAccessError(message);
-          setIsPrivateRepo(shouldShowPrivateRepoState);
-          setError(shouldShowPrivateRepoState ? "" : message || "");
-          if (shouldShowPrivateRepoState) {
-            resetAccessTokenValidationState();
-          }
-        })
-        .finally(() => {
-          if (!cancelled) {
-            setRepoAccessCheckLoading(false);
-          }
-        });
-    }, 700);
+    getRiskExplanation({
+      risk_level: riskLevel || "unknown",
+      source_java_version: detectedSourceVersionForTargets,
+      detected_java_version: detectedJavaVersion || repoAnalysis.java_version,
+      build_tool: repoAnalysis.build_tool,
+      dependencies: repoAnalysis.dependencies || [],
+      has_tests: repoAnalysis.has_tests,
+      test_frameworks: repoAnalysis.testing_frameworks || [],
+      frameworks: repoAnalysis.frameworks || [],
+      api_endpoint_count: repoAnalysis.api_endpoints?.length ?? 0,
+      llm_provider: "huggingface",
+    })
+      .then((res) => {
+        if (cancelled) return;
+        if (res?.risk_explanation) {
+          setRiskExplanation(res.risk_explanation);
+        } else {
+          setRiskExplanation(getDefaultRiskExplanation(riskLevel));
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setRiskExplanation(getDefaultRiskExplanation(riskLevel));
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setRiskExplanationLoading(false);
+        }
+      });
 
     return () => {
       cancelled = true;
-      clearTimeout(timer);
+    };
+  }, [step, repoAnalysis, detectedSourceVersionForTargets, detectedJavaVersion, riskLevel]);
+
+  useEffect(() => {
+    if (step !== 3 || !repoAnalysis || !repoAnalysis.dependencies || repoAnalysis.dependencies.length === 0) {
+      return;
+    }
+
+    const depsKey = `${repoAnalysis.java_version || repoAnalysis.java_version_from_build || ""}_${repoAnalysis.build_tool || ""}_${effectiveTargetVersion || ""}_${repoAnalysis.dependencies.map((d) => `${d.group_id}:${d.artifact_id}:${d.current_version}`).join(";")}`;
+    if (fetchedDependencyAnalysisKeyRef.current === depsKey && dependencyAnalysis) {
+      return;
+    }
+
+    let cancelled = false;
+    fetchedDependencyAnalysisKeyRef.current = depsKey;
+    setDependencyAnalysisLoading(true);
+
+    analyzeDependencies({
+      dependencies: repoAnalysis.dependencies,
+      source_java_version: detectedSourceVersionForTargets,
+      target_java_version: effectiveTargetVersion,
+      build_tool: repoAnalysis.build_tool,
+      frameworks: repoAnalysis.frameworks || [],
+      testing_frameworks: repoAnalysis.testing_frameworks || [],
+      api_endpoint_count: repoAnalysis.api_endpoints?.length ?? 0,
+      job_id: jobId || undefined,
+    })
+      .then((res) => {
+        if (cancelled) return;
+        if (res && res.dependencies && res.dependencies.length > 0) {
+          setDependencyAnalysis(res);
+        }
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.warn("Dependency analysis fetch error, using client fallback:", err);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setDependencyAnalysisLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
     };
   }, [
-    currentToken,
-    patToken,
-    resetAccessTokenValidationState,
-    setIsPrivateRepo,
-    setRepoAccessCheckLoading,
-    showEnterpriseToken,
     step,
-    urlValidation.normalizedUrl,
-    urlValidation.valid,
+    repoAnalysis,
+    detectedSourceVersionForTargets,
+    effectiveTargetVersion,
+    jobId,
+    dependencyAnalysis,
+    setDependencyAnalysis,
+    setDependencyAnalysisLoading,
   ]);
+
+
+
 
   useEffect(() => {
     if (step === 2 && selectedRepo && repoAnalysis && !analysisLoading) {
@@ -4122,6 +4637,7 @@ export function useWizardController() {
   }, [
     currentToken,
     effectiveTargetVersion,
+    jobId,
     migrationJob?.job_id,
     migrationJob?.source_repo,
     migrationJob?.target_repo,
@@ -4257,7 +4773,10 @@ export function useWizardController() {
         const isTerminal = isTerminalMigrationStatus(summary.status);
         if (summary.status === "completed") {
           setMigrationDetailLoadedJobId(null);
-          setStep(7);
+          // Keep user on step 5 so they can experience the full 6-step dynamic migration loader
+          if (step !== 5) {
+            setStep(7);
+          }
         }
 
         if (isTerminal) {
@@ -4304,7 +4823,7 @@ export function useWizardController() {
       clearScheduledPoll();
       migrationPollingInFlightRef.current = false;
     };
-  }, [migrationJob?.job_id, migrationJob?.status, setMigrationJob, setMigrationLogs, step]);
+  }, [migrationJob?.job_id, migrationJob?.status, setMigrationDetailLoadedJobId, setMigrationJob, setMigrationLogs, step]);
 
   /* useEffect(() => {
       
@@ -4323,11 +4842,10 @@ export function useWizardController() {
     };
     }, [step, migrationJob?.job_id, migrationJob?.status]);
   */
-  useEffect(() => {
-      if ((step === 5 || step === 6) && migrationJob?.status === "completed") {
-        setStep(7);
-      }
-    }, [step, migrationJob?.status]);
+  // NOTE: Intentionally removed the duplicate setStep(7) useEffect that was
+  // previously here. The migration polling loop (above) already calls setStep(7)
+  // when status === "completed". Having two effects doing the same thing caused
+  // a step flicker loop.
 
   const buildMigrationRequest = useCallback(() => {
     const repoName = sourceRepositoryName;
@@ -4338,6 +4856,11 @@ export function useWizardController() {
       if (url.includes("github.com")) return "github";
       return "github";
     };
+
+    const selectedSourcesList: string[] = [];
+    if (modernizationState.selectedTestSources.llm) selectedSourcesList.push("LLM");
+    if (modernizationState.selectedTestSources.functionalDoc) selectedSourcesList.push("FUNCTIONAL_DOC");
+    if (modernizationState.selectedTestSources.existing) selectedSourcesList.push("EXISTING");
 
     return {
       source_repo_url: selectedRepo?.url || repoUrl,
@@ -4357,6 +4880,8 @@ export function useWizardController() {
       run_fossa: runFossa,
       fix_business_logic: fixBusinessLogic,
       functional_test_method: functionalTestToolMethod.length > 0 ? functionalTestToolMethod : undefined,
+      proposed_test_sources: selectedSourcesList,
+      selected_test_sources: selectedSourcesList,
     };
   }, [
     sourceRepositoryName,
@@ -4379,6 +4904,7 @@ export function useWizardController() {
     runFossa,
     fixBusinessLogic,
     functionalTestToolMethod,
+    modernizationState.selectedTestSources,
   ]);
 
   useEffect(() => {
@@ -4468,8 +4994,8 @@ export function useWizardController() {
         setMigrationDetailLoadedJobId(null);
 
         if (job.status === "completed") {
-          setStep(7);
-          getMigrationLogs(job.job_id).then((logs) => setMigrationLogs(logs.logs || []));
+          setStep(5);
+          getMigrationLogs(job.job_id).then((logs) => setMigrationLogs(logs.logs || [])).catch(() => {});
           return;
         }
 
@@ -4488,6 +5014,8 @@ export function useWizardController() {
   const resetWizard = () => {
     setStep(1);
     setMaxVisitedIndicatorStep(1);
+    setDiscoveryCompleted(false);
+    setStrategyCompleted(false);
     setRepoUrl("");
     setSelectedRepo(null);
     setRepoAnalysis(null);
@@ -4631,6 +5159,12 @@ export function useWizardController() {
     applyDetectedSourceVersion,
     setUserSelectedVersion,
     documentGenerationLoading,
+    brdFile,
+    brdUploadStatus,
+    brdMetadata,
+    brdUploadError,
+    handleBrdFileSelect,
+    handleBrdUpload,
     conversionDecision,
     setConversionDecision,
     showFolderStructure,
@@ -4638,6 +5172,7 @@ export function useWizardController() {
     handleCheckMicroserviceEligibility,
     handleGenerateBrdDocument,
     handleOpenFrameworkFile,
+    handleRerunAnalysis,
     isDiscoveryPending,
     formattedAnalysisElapsed,
     formattedAnalysisCompleted,
@@ -4647,6 +5182,10 @@ export function useWizardController() {
     strategyState,
     repoAnalysis,
     riskLevel,
+    riskExplanation,
+    riskExplanationLoading,
+    dependencyAnalysis,
+    dependencyAnalysisLoading,
     buildToolDisplayLabel,
     renderCategorizedDependencies,
     sourceAlreadyAtLatestSupportedVersion,
@@ -4664,7 +5203,10 @@ export function useWizardController() {
     getAutoGeneratedTargetName,
     targetRepositoryHost,
     targetRepositoryOwner,
+    continueToStrategy,
     continueWithTargetVersion,
+    setDiscoveryCompleted,
+    setStrategyCompleted,
     modernizationState,
     functionalTestToolMethod,
     setFunctionalTestToolMethod,
@@ -4686,5 +5228,15 @@ export function useWizardController() {
     useLLMTests,
     renderStepIndicator,
     maxVisitedIndicatorStep,
+    highestCompletedStep,
+    isStepCompleted,
+    isStepAccessible,
+    isConnectCompleted,
+    isDiscoveryCompleted,
+    isStrategyCompleted,
+    isMigrationCompleted,
+    isResultsCompleted,
+    isMigrationFinishedState,
+    setIsMigrationFinishedState,
   };
 }

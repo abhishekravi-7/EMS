@@ -15,17 +15,16 @@ failures so users see a single, actionable error instead of only the last one.
 
 from __future__ import annotations
 
-import logging
 import asyncio
+import logging
 import time
 from collections.abc import AsyncIterator
 
+import token_tracing as tt
 from app.core.config import settings
 from app.core.exceptions import ChatLLMNotConfiguredError, ChatLLMServiceError
 from app.infrastructure.llm.groq_client import GroqClient, GroqPermanentError
 from app.infrastructure.llm.ollama_client import OllamaClient
-
-import token_tracing as tt
 
 logger = logging.getLogger(__name__)
 
@@ -55,12 +54,12 @@ class ChatLLM:
         user_prompt: str,
         endpoint: str | None = None,
     ) -> AsyncIterator[str]:
-        # Use Ollama as primary; Groq as fallback.
+        # Use Groq as primary when configured; Ollama as fallback.
         providers = []
-        if self._ollama.is_configured:
-            providers.append(self._ollama)
         if self._groq.is_configured:
             providers.append(self._groq)
+        if self._ollama.is_configured:
+            providers.append(self._ollama)
 
         if not providers:
             raise ChatLLMNotConfiguredError("No LLM providers are configured; both Groq and Ollama are unavailable.")
@@ -163,6 +162,6 @@ class ChatLLM:
                 provider=provider.provider,
                 error=error,
             )
-        except Exception as trace_exc:
-            logger.warning("[ChatLLM] Token tracing failed: %s", trace_exc)
+        except Exception as trace_exc:  # noqa: BLE001
+            logger.warning("[ChatLLM] Token tracing failed: %s", type(trace_exc).__name__)
 
