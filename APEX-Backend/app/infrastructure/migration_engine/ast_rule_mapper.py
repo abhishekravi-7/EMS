@@ -56,8 +56,8 @@ class AstRuleMapper:
         source_major = _parse_major(source_java) or 8
         target_major = _parse_major(target_java) or 17
 
-        # 1. Java Version Packs (Implicitly always considered if java_version is in conversion_types)
-        if conversion_types and "java_version" in conversion_types:
+        # 1. Java Version Packs (Implicitly always considered if conversion_types is None or contains "java_version")
+        if conversion_types is None or "java_version" in conversion_types:
             if source_major < 11 and target_major >= 11:
                 selected_packs.append("java8-to-11")
             if source_major < 17 and target_major >= 17:
@@ -65,9 +65,10 @@ class AstRuleMapper:
             if source_major < 21 and target_major >= 21:
                 selected_packs.append("java17-to-21")
             
-            # Always include dependency and plugin upgrade if Java is being upgraded
-            selected_packs.append("dependency-upgrade")
-            selected_packs.append("plugin-upgrade")
+            if source_major < target_major:
+                # Always include dependency and plugin upgrade if Java is being upgraded
+                selected_packs.append("dependency-upgrade")
+                selected_packs.append("plugin-upgrade")
 
         # 2. Framework Packs
         target_boot = None
