@@ -1,0 +1,254 @@
+/* ========================================================
+   MigrationStepper - Vertical Stepper Styles
+   Matches reference design with circular nodes, centered
+   connector lines, and dynamic state colors.
+   ======================================================== */
+
+.migration-steps-vertical-list {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 20px;
+}
+
+.migration-step-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 18px;
+  position: relative;
+  padding: 10px 16px;
+  margin: 3px -16px;
+  border-radius: 16px;
+  border: 1.5px solid transparent;
+  cursor: pointer;
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  outline: none;
+  user-select: none;
+}
+
+.migration-step-row:hover {
+  background: rgba(241, 245, 249, 0.85);
+}
+
+.migration-step-row:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 1px;
+}
+
+/* Highlighted Row: Selected Step or Current In-Progress Step */
+.migration-step-row.is-selected-step,
+.migration-step-row.is-current-row {
+  background: #eef2ff;
+  border-color: #c7d2fe;
+}
+
+.migration-step-row.is-selected-step {
+  box-shadow: 0 1px 4px rgba(99, 102, 241, 0.08);
+}
+
+/* ========================================================
+   STEP INDICATOR COLUMN (Circle + Centered Connector Line)
+   ======================================================== */
+.step-indicator-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 44px;
+  flex-shrink: 0;
+  position: relative;
+  align-self: stretch;
+}
+
+.step-circle {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  z-index: 2;
+  transition: all 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+  box-sizing: border-box;
+}
+
+/* PENDING STATE */
+.circle-pending {
+  background: #f0f4f9;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  box-shadow: 0 1.5px 4px rgba(15, 23, 42, 0.05);
+}
+
+.circle-pending .step-icon-svg {
+  color: #334155;
+}
+
+/* CURRENT / IN PROGRESS STATE */
+.circle-in_progress {
+  background: radial-gradient(circle at 50% 35%, #ffffff 0%, #eff6ff 100%);
+  border: 2px solid #3b82f6;
+  box-shadow: 0 0 0 3.5px rgba(59, 130, 246, 0.28), 0 0 16px rgba(59, 130, 246, 0.42);
+}
+
+.circle-in_progress .step-icon-svg {
+  color: #2563eb;
+}
+
+.circle-in_progress .pulse-outer-ring {
+  position: absolute;
+  top: -6px;
+  left: -6px;
+  right: -6px;
+  bottom: -6px;
+  border-radius: 50%;
+  border: 2px solid rgba(59, 130, 246, 0.5);
+  animation: pulseOuter 2s cubic-bezier(0.24, 0, 0.38, 1) infinite;
+  pointer-events: none;
+}
+
+.pulse-icon {
+  animation: iconGentlePulse 2s ease-in-out infinite alternate;
+}
+
+@keyframes iconGentlePulse {
+  0% {
+    transform: scale(1);
+    opacity: 0.95;
+  }
+  100% {
+    transform: scale(1.12);
+    opacity: 1;
+  }
+}
+
+@keyframes pulseOuter {
+  0% {
+    transform: scale(0.92);
+    opacity: 0.9;
+  }
+  70% {
+    transform: scale(1.28);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.32);
+    opacity: 0;
+  }
+}
+
+/* COMPLETED STATE */
+.circle-completed {
+  background: #16a34a;
+  border: 2px solid #16a34a;
+  box-shadow: 0 2px 8px rgba(22, 163, 74, 0.28);
+  animation: checkPopIn 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
+}
+
+@keyframes checkPopIn {
+  0% {
+    transform: scale(0.7);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* FAILED STATE */
+.circle-failed {
+  background: #dc2626;
+  border: 2px solid #dc2626;
+  box-shadow: 0 2px 8px rgba(220, 38, 38, 0.25);
+}
+
+/* VERTICAL CONNECTOR LINE */
+.step-vertical-connector {
+  position: absolute;
+  top: 22px;
+  bottom: -38px;
+  width: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  transition: background-color 0.35s ease;
+  z-index: 1;
+}
+
+.connector-pending {
+  background: #cbd5e1;
+}
+
+.connector-completed {
+  background: #16a34a;
+}
+
+/* ========================================================
+   STEP CONTENT COLUMN
+   ======================================================== */
+.step-content-col {
+  flex: 1;
+  min-width: 0;
+  padding-top: 2px;
+}
+
+.step-title-text {
+  font-size: 14.5px;
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 3px;
+  line-height: 1.35;
+}
+
+.state-in_progress .step-title-text {
+  color: #1d4ed8;
+}
+
+.state-pending .step-title-text {
+  color: #334155;
+}
+
+.step-desc-text {
+  font-size: 12.5px;
+  color: #64748b;
+  line-height: 1.45;
+}
+
+/* ========================================================
+   STEP BADGE COLUMN ON RIGHT
+   ======================================================== */
+.step-badge-col {
+  margin-left: auto;
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+
+.badge-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 14px;
+  border-radius: 9999px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.badge-completed {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.badge-in-progress {
+  background: #2563eb;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.32);
+}
+
+.badge-pending {
+  background: #f1f5f9;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.badge-failed {
+  background: #fee2e2;
+  color: #dc2626;
+}

@@ -127,6 +127,7 @@ export default function MigrationWizardPage() {
     highestCompletedStep,
     isStepCompleted,
     isStepAccessible,
+    setIsMigrationFinishedState,
   } = useWizardController();
 
   const { setContext } = useChatbot();
@@ -401,7 +402,8 @@ export default function MigrationWizardPage() {
                   onClick={() => {
                     if (canClick) {
                       if (s.id === 5) {
-                        setStep(migrationJob?.status === "completed" ? 7 : 6);
+                        setIsMigrationFinishedState(true);
+                        setStep(7);
                       } else {
                         setStep(s.id);
                       }
@@ -607,6 +609,16 @@ export default function MigrationWizardPage() {
               repoUrl={repoUrl}
               selectedSourceVersion={selectedSourceVersion}
               effectiveTargetVersion={effectiveTargetVersion}
+              repoAnalysis={repoAnalysis}
+              codeChanges={resultExecState.codeChanges}
+              fossaResult={resultExecState.fossaResult}
+              backendLogs={resultExecState.migrationLogs || migrationJob?.migration_log}
+              onMigrationComplete={() => setIsMigrationFinishedState(true)}
+              onViewReport={() => {
+                setIsMigrationFinishedState(true);
+                setStep(7);
+              }}
+              onRetry={handleStartMigration}
             />
           </ResultPage>
         )}
