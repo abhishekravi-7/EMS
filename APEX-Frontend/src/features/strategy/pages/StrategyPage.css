@@ -270,15 +270,32 @@
 
 
 /* ================================================================
-   Page-level entry
+   Page-level entry & Navigation
    ================================================================ */
 .page-strategy {
   animation: stratPageReveal 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
+  padding-bottom: 96px;
+}
+
+.strategy-nav-btn-row {
+  margin-top: 32px !important;
+  padding-bottom: 16px;
+  padding-right: 92px !important;
+}
+
+@media (max-width: 768px) {
+  .page-strategy {
+    padding-bottom: 120px;
+  }
+  .strategy-nav-btn-row {
+    padding-right: 0 !important;
+    margin-bottom: 72px;
+  }
 }
 
 @keyframes stratPageReveal {
   from { opacity: 0; transform: translateY(22px) scale(0.988); }
-  to   { opacity: 1; transform: translateY(0)    scale(1); }
+  to   { opacity: 1; transform: none; }
 }
 
 /* ── Step header ──────────────────────────────────────────────── */

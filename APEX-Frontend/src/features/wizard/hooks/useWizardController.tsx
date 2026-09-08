@@ -1059,6 +1059,9 @@ export function useWizardController() {
   const {
     repoAnalysis,
     setRepoAnalysis,
+    discoveryStages,
+    setDiscoveryStages,
+    repoFiles,
     setRepoFiles,
     setRepoFilesLoading,
     setRepoFilesError,
@@ -3991,19 +3994,10 @@ export function useWizardController() {
   const formattedAnalysisCompleted = `${Math.floor(analysisCompletedSeconds / 60)
   .toString()
   .padStart(2, "0")}:${(analysisCompletedSeconds % 60).toString().padStart(2, "0")}`;
-  const isTechnicalDocumentWarmPending =
-    Boolean(repoAnalysis) &&
-    documentPrefetchStatus !== "ready" &&
-    documentPrefetchStatus !== "error";
   const isDiscoveryPending =
     !error &&
     isJavaProject !== false &&
-    (analysisLoading ||
-      (step === 2 && selectedRepo && !repoAnalysis) ||
-      Boolean(
-        repoAnalysis &&
-          (!repoPreviewInitialized || !microserviceAssessmentResolved || isTechnicalDocumentWarmPending)
-      ));
+    (analysisLoading || (step === 2 && selectedRepo && !repoAnalysis));
  
   useEffect(() => {
     if (!isDiscoveryPending) {
@@ -4090,11 +4084,74 @@ export function useWizardController() {
       setAnalysisElapsedSeconds(0);
       setError("");
 
+      setDiscoveryStages([
+        {
+          id: "repository_map",
+          label: "Repository Map",
+          detail: "Scanning folders, modules, packages, and source file structure",
+          status: "in_progress",
+        },
+        {
+          id: "dependency_graph",
+          label: "Dependency Graph",
+          detail: "Reading declared libraries, Maven/Gradle dependencies, and build plugins",
+          status: "queued",
+        },
+        {
+          id: "preview_signals",
+          label: "Preview Signals",
+          detail: "Detecting Java version, frameworks, test suites, and project signals",
+          status: "queued",
+        },
+        {
+          id: "service_fit",
+          label: "Service Fit",
+          detail: "Evaluating architecture boundaries, Spring Boot fit, and service readiness",
+          status: "queued",
+        },
+      ]);
+
+      const stageTimer1 = window.setTimeout(() => {
+        setDiscoveryStages((prev) =>
+          prev.map((s) => {
+            if (s.id === "repository_map") return { ...s, status: "complete", detail: "Repository structure mapped" };
+            if (s.id === "preview_signals") return { ...s, status: "in_progress", detail: "Detecting Java version & compiler settings..." };
+            return s;
+          })
+        );
+      }, 700);
+
+      const stageTimer2 = window.setTimeout(() => {
+        setDiscoveryStages((prev) =>
+          prev.map((s) => {
+            if (s.id === "preview_signals") return { ...s, status: "complete", detail: "Java version identified" };
+            if (s.id === "dependency_graph") return { ...s, status: "in_progress", detail: "Resolving dependencies and build plugins..." };
+            return s;
+          })
+        );
+      }, 1400);
+
+      const stageTimer3 = window.setTimeout(() => {
+        setDiscoveryStages((prev) =>
+          prev.map((s) => {
+            if (s.id === "dependency_graph") return { ...s, status: "complete", detail: "Dependency graph constructed" };
+            if (s.id === "service_fit") return { ...s, status: "in_progress", detail: "Detecting frameworks & service fit..." };
+            return s;
+          })
+        );
+      }, 2100);
+
       if (isRerun) {
         setRepoAnalysis(null);
         setRepoPreviewInitialized(false);
         setMicroserviceAssessmentResolved(false);
         setDocumentPrefetchStatus("idle");
+        documentPrefetchKeyRef.current = "";
+        if (documentPrefetchPromiseRef.current) {
+          documentPrefetchPromiseRef.current = null;
+        }
+        fetchedRiskExplanationKeyRef.current = "";
+        fetchedDependencyAnalysisKeyRef.current = "";
       }
 
       try {
@@ -4102,17 +4159,80 @@ export function useWizardController() {
           ? analyzeLocalProject(extractLocalRepoPath(selectedRepo.url))
               .then(async (result) => enrichAnalysisWithPomVersion(result.analysis, selectedRepo.url, ""))
           : jobId
-            ? runDiscovery(jobId, currentToken)
+            ? runDiscovery(jobId, currentToken, isRerun)
                 .then(async (result) => enrichAnalysisWithPomVersion(result.analysis, selectedRepo.url, currentToken))
             : analyzeRepoUrl(selectedRepo.url, currentToken, true)
                 .then(async (result) => enrichAnalysisWithPomVersion(result.analysis, selectedRepo.url, currentToken));
 
         const analysis = await analyzePromise;
+        window.clearTimeout(stageTimer1);
+        window.clearTimeout(stageTimer2);
+        window.clearTimeout(stageTimer3);
+
+        const stagesData = (analysis as any).discovery_stages;
+        const repoMapSummary = stagesData?.repositoryMap?.summary ||
+          `Mapped ${analysis.total_file_count ?? 0} files (${analysis.java_file_count ?? 0} Java, ${analysis.config_file_count ?? 0} Config, ${analysis.other_file_count ?? 0} Other).`;
+        const depGraphSummary = stagesData?.dependencyGraph?.summary ||
+          `Extracted ${analysis.dependencies?.length ?? 0} dependencies from ${analysis.build_tool || "build configuration"}.`;
+        const previewSignalsSummary = stagesData?.previewSignals?.summary ||
+          `Identified Java ${analysis.java_version || "unknown"}, ${analysis.build_tool || "tooling"}, and ${analysis.frameworks?.length ?? 0} framework(s).`;
+        const serviceFitSummary = stagesData?.serviceFit?.summary ||
+          `Architecture: ${analysis.structure?.has_pom_xml ? "Modular Monolith" : "Standard Project"}. ${analysis.spring_boot_eligibility?.springBootConversionEligible ? "Eligible for Spring Boot conversion." : "Ready for Java modernization."}`;
+
+        setDiscoveryStages([
+          {
+            id: "repository_map",
+            label: "Repository Map",
+            detail: "Repository structure mapped",
+            summary: repoMapSummary,
+            status: "complete",
+          },
+          {
+            id: "dependency_graph",
+            label: "Dependency Graph",
+            detail: "Dependencies analyzed",
+            summary: depGraphSummary,
+            status: "complete",
+          },
+          {
+            id: "preview_signals",
+            label: "Preview Signals",
+            detail: "Project signals identified",
+            summary: previewSignalsSummary,
+            status: "complete",
+          },
+          {
+            id: "service_fit",
+            label: "Service Fit",
+            detail: "Architecture assessed",
+            summary: serviceFitSummary,
+            status: "complete",
+          },
+        ]);
+
         setIsJavaProject(true);
         applyRepositoryAnalysis(analysis);
       } catch (err: any) {
+        window.clearTimeout(stageTimer1);
+        window.clearTimeout(stageTimer2);
+        window.clearTimeout(stageTimer3);
+
         const message = err?.message || "Failed to analyze repository.";
-        if (isPrivateRepoAccessError(message)) {
+        setDiscoveryStages((prev) =>
+          prev.map((s) => {
+            if (s.status === "in_progress") {
+              return {
+                ...s,
+                status: "failed",
+                error: message,
+                detail: `Analysis failed: ${message}`,
+              };
+            }
+            return s;
+          })
+        );
+
+        if (isPrivateRepoAccessError(message) && !isRerun) {
           discoveryInFlightKeyRef.current = "";
           setIsPrivateRepo(true);
           setStep(1);
@@ -4159,6 +4279,7 @@ export function useWizardController() {
       setAnalysisElapsedSeconds,
       setAnalysisLoading,
       setAnalysisStartedAtMs,
+      setDiscoveryStages,
       setDocumentPrefetchStatus,
       setError,
       setIsJavaProject,

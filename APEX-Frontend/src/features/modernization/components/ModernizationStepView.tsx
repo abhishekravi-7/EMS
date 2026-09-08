@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef, useMemo, type Dispatch, type SetStateAction } from "react";
+import { createPortal } from "react-dom";
 import { FaRocket, FaInfoCircle, FaSearch, FaShieldAlt, FaVial, FaPen, FaFileAlt } from "react-icons/fa";
 import {
   scanExistingTests,
@@ -779,12 +780,12 @@ export function ModernizationStepView({
         />
       )}
 
-      {viewingTestFile && (
+      {viewingTestFile && typeof document !== "undefined" && createPortal(
         <div style={{
-          position: "fixed", inset: 0, zIndex: 10001,
-          background: "rgba(15,23,42,0.7)", backdropFilter: "blur(4px)",
+          position: "fixed", top: 0, left: 0, right: 0, bottom: 0, width: "100vw", height: "100vh",
+          zIndex: 99999, background: "rgba(15,23,42,0.7)", backdropFilter: "blur(4px)",
           display: "flex", alignItems: "center", justifyContent: "center",
-          padding: 20,
+          padding: 20, boxSizing: "border-box",
         }} onClick={() => setViewingTestFile(null)}>
           <div style={{
             background: "#fff", borderRadius: 14, maxWidth: 900, width: "100%",
@@ -837,7 +838,8 @@ export function ModernizationStepView({
               }}>Close</button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       <TestReportsModal
@@ -847,19 +849,23 @@ export function ModernizationStepView({
       />
 
       {/* ── Quality Gates Reminder Modal (Confirmation Popup) ── */}
-      {showQualityGateReminder && (
+      {showQualityGateReminder && typeof document !== "undefined" && createPortal(
         <div
           style={{
             position: "fixed",
-            inset: 0,
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
             width: "100vw",
             height: "100vh",
-            background: "rgba(15, 23, 42, 0.6)",
+            background: "rgba(15, 23, 42, 0.65)",
             backdropFilter: "blur(4px)",
+            WebkitBackdropFilter: "blur(4px)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            zIndex: 10000,
+            zIndex: 99999,
             padding: "16px",
             boxSizing: "border-box",
           }}
@@ -871,10 +877,10 @@ export function ModernizationStepView({
               borderRadius: 16,
               width: "100%",
               maxWidth: 480,
-              maxHeight: "calc(100vh - 32px)",
+              maxHeight: "min(90vh, 540px)",
               display: "flex",
               flexDirection: "column",
-              boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.2), 0 10px 10px -5px rgba(0, 0, 0, 0.08)",
+              boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25), 0 10px 20px -5px rgba(0, 0, 0, 0.1)",
               border: "1px solid #e2e8f0",
               overflow: "hidden",
               animation: "modFadeUp 0.25s cubic-bezier(0.16, 1, 0.3, 1) both",
@@ -989,10 +995,11 @@ export function ModernizationStepView({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
-      <div style={styles.btnRow}>
+      <div style={styles.btnRow} className="modernization-nav-btn-row">
         <button style={styles.secondaryBtn} onClick={onBack}>{renderBackButtonLabel()}</button>
         <button
           style={{ ...styles.primaryBtn, opacity: loading ? 0.5 : 1 }}

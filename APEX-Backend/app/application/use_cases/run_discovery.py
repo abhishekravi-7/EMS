@@ -56,7 +56,12 @@ class RunDiscoveryUseCase:
         self._cloner = cloner or RepositoryCloner()
         self._analyzer = analyzer or ProjectAnalyzer()
 
-    def execute(self, job_id: str, request_token: str | None = None) -> DiscoveryOutcome:
+    def execute(
+        self,
+        job_id: str,
+        request_token: str | None = None,
+        force_refresh: bool = False,
+    ) -> DiscoveryOutcome:
         # 1. Connect report must exist.
         connect = self._job_repository.read_connect_report(job_id)
         if not connect:
@@ -69,10 +74,11 @@ class RunDiscoveryUseCase:
 
         paths = WorkspacePaths(job_id)
 
-        # Check if discovery was already completed and the cloned workspace is intact
+        # Check if discovery was already completed and the cloned workspace is intact (unless force_refresh is requested)
         existing_report = self._job_repository.read_discovery_report(job_id)
         if (
-            existing_report
+            not force_refresh
+            and existing_report
             and existing_report.get("status") == STATUS_COMPLETED
             and paths.original_repo_dir.is_dir()
         ):
@@ -90,21 +96,27 @@ class RunDiscoveryUseCase:
             or None
         )
 
-        logger.info("Discovery started for job %s (%s)", job_id, repo_url)
+        logger.info("Discovery started for job %s (%s) [force_refresh=%s]", job_id, repo_url, force_refresh)
 
-        # 2. Prepare workspace + clone into original-repo.
+        # 2. Prepare workspace + clone into original-repo if needed.
         workspace = WorkspaceManager(paths)
         workspace.ensure_job_dirs()
-        workspace.prepare_original_repo_target()
-
-        logger.info("Cloning repository into workspace for job %s ...", job_id)
-        self._cloner.clone(
-            repo_url,
-            paths.original_repo_dir,
-            token=token,
-            log_path=paths.discovery_log_path,
-        )
-        logger.info("Clone finished for job %s. Analyzing project ...", job_id)
+        if not paths.original_repo_dir.is_dir() or not any(paths.original_repo_dir.iterdir()):
+            workspace.prepare_original_repo_target()
+            logger.info("Cloning repository into workspace for job %s ...", job_id)
+            self._cloner.clone(
+                repo_url,
+                paths.original_repo_dir,
+                token=token,
+                log_path=paths.discovery_log_path,
+            )
+            logger.info("Clone finished for job %s. Analyzing project ...", job_id)
+        else:
+            logger.info(
+                "Workspace original-repo already present for job %s. Re-analyzing project (force_refresh=%s)...",
+                job_id,
+                force_refresh,
+            )
 
         # 3. Analyze the cloned project (read-only).
         analysis = self._analyzer.analyze(paths.original_repo_dir)
@@ -141,10 +153,11 @@ class RunDiscoveryUseCase:
         )
 
         created_at = datetime.now(timezone.utc).isoformat()
+        stages = self._build_stages(analysis, eligibility)
 
         # 4. Save discovery-report.json.
         report = self._build_report(
-            job_id, repo_url, owner, repo_name, analysis, eligibility, created_at
+            job_id, repo_url, owner, repo_name, analysis, eligibility, created_at, stages=stages
         )
         self._job_repository.save_discovery_report(job_id, report)
 
@@ -155,7 +168,7 @@ class RunDiscoveryUseCase:
 
         # 5. Build the clean summary response.
         response = self._build_response(
-            job_id, repo_url, owner, repo_name, visibility, analysis, eligibility
+            job_id, repo_url, owner, repo_name, visibility, analysis, eligibility, stages=stages
         )
         return DiscoveryOutcome(response=response, report=report)
 
@@ -179,8 +192,76 @@ class RunDiscoveryUseCase:
 
     # -- builders ------------------------------------------------------------ #
 
+    # -- builders ------------------------------------------------------------ #
+
     @staticmethod
+    def _build_stages(analysis: ProjectAnalysis, eligibility: SpringBootEligibility) -> dict[str, Any]:
+        module_text = (
+            f" across {len(analysis.modules)} modules."
+            if analysis.multi_module
+            else " in single-module layout."
+        )
+        fw_text = f", {', '.join(analysis.frameworks[:3])}" if analysis.frameworks else ""
+        test_text = "automated tests present" if analysis.has_tests else "no automated tests"
+
+        arch_type = (
+            "Microservices"
+            if (analysis.multi_module and len(analysis.modules) > 1)
+            else "Modular Monolith"
+        )
+        if eligibility.spring_boot_conversion_eligible:
+            fit_text = "Eligible for automated Spring Boot conversion & modern Java baseline."
+        elif eligibility.spring_boot_upgrade_eligible:
+            fit_text = f"Spring Boot {analysis.spring_boot_version or ''} eligible for Spring Boot 3 & Java 17+ upgrade."
+        else:
+            fit_text = "Ready for direct Java platform and dependency modernization."
+
+        return {
+            "repositoryMap": {
+                "status": "COMPLETE",
+                "totalFileCount": analysis.total_file_count,
+                "javaFileCount": len(analysis.java_files),
+                "configFileCount": len(analysis.config_files),
+                "otherFileCount": len(analysis.other_files),
+                "multiModule": analysis.multi_module,
+                "modules": analysis.modules,
+                "hasSrcMain": analysis.has_src_main,
+                "hasSrcTest": analysis.has_src_test,
+                "hasPomXml": analysis.has_pom_xml,
+                "hasBuildGradle": analysis.has_build_gradle or analysis.has_build_gradle_kts,
+                "summary": f"Mapped {analysis.total_file_count} files ({len(analysis.java_files)} Java, {len(analysis.config_files)} Config, {len(analysis.other_files)} Other){module_text}",
+            },
+            "dependencyGraph": {
+                "status": "COMPLETE",
+                "buildTool": analysis.build_tool,
+                "dependencyCount": analysis.dependency_count,
+                "buildPluginsCount": len(analysis.build_plugins),
+                "bomsCount": len(analysis.bom_versions),
+                "summary": f"Extracted {analysis.dependency_count} dependencies and {len(analysis.build_plugins)} build plugins from {analysis.build_tool.lower()} configuration.",
+            },
+            "previewSignals": {
+                "status": "COMPLETE",
+                "currentJavaVersion": analysis.current_java_version,
+                "buildTool": analysis.build_tool,
+                "frameworks": analysis.frameworks,
+                "springBootVersion": analysis.spring_boot_version,
+                "springFrameworkVersion": analysis.spring_framework_version,
+                "hasTests": analysis.has_tests,
+                "frontendDetected": analysis.frontend.detected,
+                "summary": f"Identified Java {analysis.current_java_version}, {analysis.build_tool}{fw_text}, and {test_text}.",
+            },
+            "serviceFit": {
+                "status": "COMPLETE",
+                "recommendedArchitecture": arch_type,
+                "springBootConversionEligible": eligibility.spring_boot_conversion_eligible,
+                "springBootUpgradeEligible": eligibility.spring_boot_upgrade_eligible,
+                "summary": f"{arch_type} architecture. {fit_text}",
+            },
+        }
+
+    @classmethod
     def _build_report(
+        cls,
         job_id: str,
         repo_url: str,
         owner: str,
@@ -188,6 +269,7 @@ class RunDiscoveryUseCase:
         analysis: ProjectAnalysis,
         eligibility: SpringBootEligibility,
         created_at: str,
+        stages: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         return {
             "jobId": job_id,
@@ -237,6 +319,7 @@ class RunDiscoveryUseCase:
                 "packageJson": analysis.has_package_json,
             },
             "springBootConversion": eligibility.to_dict(),
+            "discoveryStages": stages or cls._build_stages(analysis, eligibility),
             "createdAt": created_at,
         }
 
@@ -258,6 +341,20 @@ class RunDiscoveryUseCase:
         source_layout = report.get("sourceLayout") or {
             "hasSrcMain": bool(detected_files.get("pomXml") or detected_files.get("buildGradle")),
             "hasSrcTest": bool(report.get("hasTests", False)),
+        }
+
+        spring_boot_conv = report.get("springBootConversion") or {
+            "repositoryAnalyzed": True,
+            "javaMigrationEligible": report.get("javaMigrationEligible", True),
+            "javaMigrationReason": report.get("javaMigrationReason", ""),
+            "springDetected": bool(report.get("springDetected", False)),
+            "springBootDetected": bool(report.get("springBootDetected", False)),
+            "springVersion": report.get("springFrameworkVersion"),
+            "springBootVersion": report.get("springBootVersion"),
+            "buildTool": report.get("buildTool") or "MAVEN",
+            "springBootConversionEligible": bool(report.get("springBootConversionEligible", False)),
+            "springBootUpgradeEligible": bool(report.get("springBootUpgradeEligible", False)),
+            "eligibilityReason": report.get("eligibilityReason", ""),
         }
 
         paths = WorkspacePaths(job_id)
@@ -330,12 +427,14 @@ class RunDiscoveryUseCase:
                 "springBootUpgradeEligible": bool(report.get("springBootUpgradeEligible", False)),
                 "eligibilityReason": report.get("eligibilityReason", ""),
                 "springBootConversion": spring_boot_conv,
+                "discoveryStages": report.get("discoveryStages"),
             },
             "nextStep": NEXT_STEP,
         }
 
-    @staticmethod
+    @classmethod
     def _build_response(
+        cls,
         job_id: str,
         repo_url: str,
         owner: str,
@@ -343,6 +442,7 @@ class RunDiscoveryUseCase:
         visibility: str,
         analysis: ProjectAnalysis,
         eligibility: SpringBootEligibility,
+        stages: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         return {
             "jobId": job_id,
@@ -400,6 +500,7 @@ class RunDiscoveryUseCase:
                 "springBootUpgradeEligible": eligibility.spring_boot_upgrade_eligible,
                 "eligibilityReason": eligibility.eligibility_reason,
                 "springBootConversion": eligibility.to_dict(),
+                "discoveryStages": stages or cls._build_stages(analysis, eligibility),
             },
             "nextStep": NEXT_STEP,
         }

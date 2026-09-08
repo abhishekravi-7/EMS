@@ -62,6 +62,46 @@ export interface DiscoveryProject {
   eligibilityReason?: string;
   springBootConversion?: SpringBootConversionEligibility;
   frameworks?: string[];
+  discoveryStages?: {
+    repositoryMap?: {
+      status: string;
+      totalFileCount?: number;
+      javaFileCount?: number;
+      configFileCount?: number;
+      otherFileCount?: number;
+      multiModule?: boolean;
+      modules?: string[];
+      hasSrcMain?: boolean;
+      hasSrcTest?: boolean;
+      hasPomXml?: boolean;
+      hasBuildGradle?: boolean;
+      summary?: string;
+    };
+    dependencyGraph?: {
+      status: string;
+      buildTool?: string;
+      dependencyCount?: number;
+      buildPluginsCount?: number;
+      bomsCount?: number;
+      summary?: string;
+    };
+    previewSignals?: {
+      status: string;
+      currentJavaVersion?: string;
+      buildTool?: string;
+      frameworks?: string[];
+      hasTests?: boolean;
+      frontendDetected?: boolean;
+      summary?: string;
+    };
+    serviceFit?: {
+      status: string;
+      recommendedArchitecture?: string;
+      springBootConversionEligible?: boolean;
+      springBootUpgradeEligible?: boolean;
+      summary?: string;
+    };
+  };
 }
 
 export interface DiscoveryResponse {
@@ -178,6 +218,7 @@ export function mapDiscoveryToRepoAnalysis(response: DiscoveryResponse): RepoAna
       has_src_test: Boolean(project.sourceLayout?.hasSrcTest),
     },
     spring_boot_eligibility: springBootEligibility,
+    discovery_stages: project.discoveryStages,
   };
 }
 
@@ -186,10 +227,17 @@ export function mapDiscoveryToRepoAnalysis(response: DiscoveryResponse): RepoAna
  * the backend's clean status/message are always surfaced. Returns the mapped
  * RepoAnalysis (plus the raw discovery summary) for the Discovery UI.
  */
-export async function runDiscovery(jobId: string, githubToken?: string): Promise<DiscoveryAnalysisResult> {
+export async function runDiscovery(
+  jobId: string,
+  githubToken?: string,
+  forceRefresh?: boolean
+): Promise<DiscoveryAnalysisResult> {
   const response = await performRequest(`/v1/discovery/${encodeURIComponent(jobId)}`, {
     method: "POST",
-    body: { githubToken: githubToken?.trim() ? githubToken.trim() : undefined },
+    body: {
+      githubToken: githubToken?.trim() ? githubToken.trim() : undefined,
+      forceRefresh: Boolean(forceRefresh),
+    },
   });
 
   const data = (await response.json().catch(() => null)) as

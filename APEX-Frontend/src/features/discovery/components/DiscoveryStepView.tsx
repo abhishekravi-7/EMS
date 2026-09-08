@@ -911,18 +911,6 @@ export function DiscoveryStepView({
             <span className="discovery-timer-pill">
               <FaRegClock size={12} /> {formattedAnalysisElapsed || "00:03"}
             </span>
-            {!isDiscoveryPending && Boolean(repoAnalysis) && (
-              <button
-                className="discovery-action-btn-outline"
-                onClick={() => {
-                  void handleRerunAnalysis();
-                }}
-                disabled={isDiscoveryPending}
-                title="Re-run Analysis"
-              >
-                <FaRedoAlt size={11} /> Re-run Analysis
-              </button>
-            )}
           </div>
         </div>
       </div>
@@ -933,6 +921,7 @@ export function DiscoveryStepView({
           subtitle="Mapping structure, reading dependencies, and categorizing frameworks."
           elapsedLabel={formattedAnalysisElapsed}
           elapsedSeconds={analysisElapsedSeconds}
+          stages={discovery.discoveryStages}
         />
       ) : (
         <>
@@ -1722,27 +1711,29 @@ export function DiscoveryStepView({
         </>
       )}
 
-      {/* Bottom Bar: Pro Tip & Navigation Buttons */}
-      <div className="discovery-bottom-bar">
-        <div className="discovery-protip">
-          {/* <FaLightbulb color="#eab308" size={16} /> */}
-          {/* <span className="discovery-protip-tag">Pro Tip</span> */}
-          {/* <span>Use JavaApex Assistant to ask questions about your repository, dependencies, or migration readiness.</span> */}
-        </div>
+      {/* Bottom Bar: Pro Tip & Navigation Buttons (hidden while analysis is in progress) */}
+      {!isDiscoveryPending && (
+        <div className="discovery-bottom-bar">
+          <div className="discovery-protip">
+            {/* <FaLightbulb color="#eab308" size={16} /> */}
+            {/* <span className="discovery-protip-tag">Pro Tip</span> */}
+            {/* <span>Use JavaApex Assistant to ask questions about your repository, dependencies, or migration readiness.</span> */}
+          </div>
 
-        <div className="discovery-nav-btns">
-          <button className="discovery-btn-back" onClick={onBack}>
-            <FaArrowLeft size={11} style={{ marginRight: 6 }} /> Back
-          </button>
-          <button
-            className="discovery-btn-continue"
-            onClick={onContinueToStrategy}
-            disabled={isDiscoveryPending}
-          >
-            Continue to Strategy <FaArrowRight size={11} style={{ marginLeft: 6 }} />
-          </button>
+          <div className="discovery-nav-btns">
+            <button className="discovery-btn-back" onClick={onBack}>
+              <FaArrowLeft size={11} style={{ marginRight: 6 }} /> Back
+            </button>
+            <button
+              className="discovery-btn-continue"
+              onClick={onContinueToStrategy}
+              disabled={isDiscoveryPending}
+            >
+              Continue to Strategy <FaArrowRight size={11} style={{ marginLeft: 6 }} />
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* All Detected Frameworks & Libraries Modal */}
       {showFrameworksModal && (

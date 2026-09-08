@@ -795,7 +795,7 @@ export function StrategyStepView({
       </div>
 
 
-      <div style={styles.btnRow}>
+      <div style={styles.btnRow} className="strategy-nav-btn-row">
         <button style={styles.secondaryBtn} onClick={onBack}>{renderBackButtonLabel()}</button>
         <button style={styles.primaryBtn} onClick={onContinue}>{renderForwardButtonLabel("Continue to Migration")}</button>
       </div>
