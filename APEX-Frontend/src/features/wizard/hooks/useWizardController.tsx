@@ -1027,6 +1027,7 @@ export function useWizardController() {
   };
 
   const [step, setStepState] = useState(() => initialStep);
+  const [isMigrationFinishedState, setIsMigrationFinishedState] = useState<boolean>(false);
 
   const setStep = useCallback((target: number | ((prev: number) => number)) => {
     if (typeof target === "number") {
@@ -3253,12 +3254,14 @@ export function useWizardController() {
   // Step 3: Strategy completed (strictly when Discovery completed AND user explicitly clicked Continue to Migration)
   const isStrategyCompleted = isDiscoveryCompleted && strategyCompleted;
 
-  // Step 4: Migration completed (only after migration process has actually completed)
+  // Step 4: Migration completed (only after migration process has actually completed or loader finishes)
   const isMigrationCompleted =
     isStrategyCompleted &&
     Boolean(
       migrationJob?.status === "completed" ||
-      step === 7
+      isMigrationFinishedState ||
+      step === 7 ||
+      step === 6
     );
 
   // Step 5: Results completed (only when viewed/completed at results phase)
@@ -3285,6 +3288,9 @@ export function useWizardController() {
 
   const isStepAccessible = (stepId: number): boolean => {
     if (stepId === 1) return true;
+    if (stepId === 5) {
+      return isMigrationCompleted || isMigrationFinishedState || (isStrategyCompleted && step >= 4);
+    }
     return (stepId - 1) <= highestCompletedStep;
   };
 
@@ -3292,7 +3298,6 @@ export function useWizardController() {
     if (highestCompleted <= 0) return 1;
     if (highestCompleted === 1) return 2;
     if (highestCompleted === 2) return 3;
-    if (highestCompleted === 3) return 6;
     return 7;
   };
 
@@ -4768,7 +4773,10 @@ export function useWizardController() {
         const isTerminal = isTerminalMigrationStatus(summary.status);
         if (summary.status === "completed") {
           setMigrationDetailLoadedJobId(null);
-          setStep(7);
+          // Keep user on step 5 so they can experience the full 6-step dynamic migration loader
+          if (step !== 5) {
+            setStep(7);
+          }
         }
 
         if (isTerminal) {
@@ -4986,8 +4994,8 @@ export function useWizardController() {
         setMigrationDetailLoadedJobId(null);
 
         if (job.status === "completed") {
-          setStep(7);
-          getMigrationLogs(job.job_id).then((logs) => setMigrationLogs(logs.logs || []));
+          setStep(5);
+          getMigrationLogs(job.job_id).then((logs) => setMigrationLogs(logs.logs || [])).catch(() => {});
           return;
         }
 
@@ -5228,5 +5236,7 @@ export function useWizardController() {
     isStrategyCompleted,
     isMigrationCompleted,
     isResultsCompleted,
+    isMigrationFinishedState,
+    setIsMigrationFinishedState,
   };
 }

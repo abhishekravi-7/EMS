@@ -42,7 +42,7 @@ export function MigrationProposedTestSection({
   const [allureReportAvailable, setAllureReportAvailable] = useState(false);
   const [allureReportUrl, setAllureReportUrl] = useState<string | null>(null);
 
-  const pollRef = useRef<NodeJS.Timeout | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const logBoxRef = useRef<HTMLDivElement | null>(null);
 
   // Auto-scroll execution logs
