@@ -19,7 +19,7 @@
 
 /* Card – HORIZONTAL layout: icon LEFT, info RIGHT */
 .strat-assessment-card {
-  background: #fff;
+  background: #ffffff;
   border: 1px solid #e2e8f0;
   border-radius: 16px;
   padding: 16px 18px;
@@ -27,11 +27,12 @@
   flex-direction: row;
   align-items: center;
   gap: 14px;
-  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06);
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.04);
   cursor: default;
   animation: stratCardBounceIn 0.48s cubic-bezier(0.34, 1.56, 0.64, 1) both;
   transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
-              box-shadow 0.3s ease;
+              box-shadow 0.3s ease,
+              border-color 0.3s ease;
   position: relative;
   overflow: hidden;
   transform-style: preserve-3d;
@@ -45,7 +46,7 @@
   background: linear-gradient(
     115deg,
     transparent 30%,
-    rgba(255,255,255,0.42) 50%,
+    rgba(255,255,255,0.5) 50%,
     transparent 70%
   );
   transform: translateX(-100%);
@@ -76,9 +77,9 @@
 
 /* 3-D lift on hover */
 .strat-assessment-card:hover {
-  transform: translateY(-6px) rotateX(5deg) scale(1.02);
-  box-shadow: 0 20px 48px rgba(15, 23, 42, 0.14),
-              0 4px 12px rgba(15, 23, 42, 0.06);
+  transform: translateY(-4px) scale(1.015);
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.09),
+              0 4px 12px rgba(15, 23, 42, 0.04);
 }
 
 @keyframes stratCardBounceIn {
@@ -88,13 +89,13 @@
 
 /* Icon circle – always on the LEFT */
 .strat-assessment-icon-wrap {
-  width: 46px;
-  height: 46px;
-  border-radius: 50%;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 20px;
+  font-size: 19px;
   flex-shrink: 0;
   animation: iconSpinIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
   transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
@@ -104,12 +105,12 @@
 }
 
 .strat-assessment-card:hover .strat-assessment-icon-wrap {
-  transform: rotate(15deg) scale(1.18);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+  transform: scale(1.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
 @keyframes iconSpinIn {
-  from { transform: rotate(-25deg) scale(0.4); opacity: 0; }
+  from { transform: rotate(-20deg) scale(0.6); opacity: 0; }
   to   { transform: rotate(0deg)   scale(1);   opacity: 1; }
 }
 
@@ -125,19 +126,19 @@
 
 /* Label */
 .strat-assessment-label {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.7px;
-  color: #94a3b8;
+  letter-spacing: 0.6px;
+  color: #64748b;
 }
 
 /* Main value */
 .strat-assessment-value {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 800;
-  line-height: 1.2;
-  color: #1e293b;
+  line-height: 1.25;
+  color: #0f172a;
   transition: transform 0.2s ease;
   white-space: nowrap;
   overflow: hidden;
@@ -145,44 +146,156 @@
 }
 
 .strat-assessment-card:hover .strat-assessment-value {
-  transform: scale(1.04);
+  transform: scale(1.02);
 }
 
-/* Tests pass – green ring pulse */
-.strat-tests-pass {
+/* ── 1. Build Tool Card (Soft Purple/Lavender) ─────────────────── */
+.strat-card-build-tool {
+  background: #faf5ff;
+  border-color: #e9d5ff;
+}
+.strat-card-build-tool::after {
+  background: linear-gradient(90deg, transparent, rgba(124, 58, 237, 0.4), transparent);
+}
+.strat-card-build-tool .strat-assessment-icon-wrap {
+  background: #ede9fe;
+  color: #7c3aed;
+}
+.strat-card-build-tool .strat-assessment-value {
+  color: #6d28d9;
+}
+.strat-card-build-tool:hover {
+  border-color: #d8b4fe;
+  box-shadow: 0 16px 36px rgba(124, 58, 237, 0.12),
+              0 4px 12px rgba(15, 23, 42, 0.04);
+}
+
+/* ── 2. Java Version Card (Soft Blue) ───────────────────────────── */
+.strat-card-java-version {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+.strat-card-java-version::after {
+  background: linear-gradient(90deg, transparent, rgba(37, 99, 235, 0.4), transparent);
+}
+.strat-card-java-version .strat-assessment-icon-wrap {
+  background: #dbeafe;
+  color: #2563eb;
+}
+.strat-card-java-version .strat-assessment-value {
+  color: #1d4ed8;
+}
+.strat-card-java-version:hover {
+  border-color: #93c5fd;
+  box-shadow: 0 16px 36px rgba(37, 99, 235, 0.12),
+              0 4px 12px rgba(15, 23, 42, 0.04);
+}
+
+/* ── 3. Has Tests Card (Soft Green) ────────────────────────────── */
+.strat-card-has-tests {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+.strat-card-has-tests::after {
+  background: linear-gradient(90deg, transparent, rgba(22, 163, 74, 0.4), transparent);
+}
+.strat-card-has-tests .strat-assessment-icon-wrap {
+  background: #dcfce7;
+  color: #16a34a;
+}
+.strat-card-has-tests .strat-assessment-value {
+  color: #15803d;
+}
+.strat-card-has-tests:hover {
+  border-color: #86efac;
+  box-shadow: 0 16px 36px rgba(22, 163, 74, 0.12),
+              0 4px 12px rgba(15, 23, 42, 0.04);
+}
+
+/* Tests pass – subtle pulse ring */
+.strat-card-has-tests.strat-tests-pass {
   border-color: #bbf7d0;
   animation: stratCardBounceIn 0.48s cubic-bezier(0.34, 1.56, 0.64, 1) both,
              testsPassRing 2.6s 0.6s ease-in-out infinite;
 }
 
 @keyframes testsPassRing {
-  0%, 100% { box-shadow: 0 4px 14px rgba(15,23,42,0.06), 0 0 0 0 rgba(34,197,94,0.28); }
-  50%       { box-shadow: 0 4px 14px rgba(15,23,42,0.06), 0 0 0 8px rgba(34,197,94,0); }
+  0%, 100% { box-shadow: 0 4px 14px rgba(15,23,42,0.04), 0 0 0 0 rgba(34,197,94,0.25); }
+  50%       { box-shadow: 0 4px 14px rgba(15,23,42,0.04), 0 0 0 6px rgba(34,197,94,0); }
 }
 
-/* Tests fail – red ring pulse */
-.strat-tests-fail {
+/* Tests fail – soft red */
+.strat-card-has-tests.strat-tests-fail {
+  background: #fef2f2;
   border-color: #fecaca;
   animation: stratCardBounceIn 0.48s cubic-bezier(0.34, 1.56, 0.64, 1) both,
              testsFailRing 2.6s 0.6s ease-in-out infinite;
 }
+.strat-card-has-tests.strat-tests-fail::after {
+  background: linear-gradient(90deg, transparent, rgba(220, 38, 38, 0.4), transparent);
+}
+.strat-card-has-tests.strat-tests-fail .strat-assessment-icon-wrap {
+  background: #fee2e2;
+  color: #dc2626;
+}
+.strat-card-has-tests.strat-tests-fail .strat-assessment-value {
+  color: #b91c1c;
+}
 
 @keyframes testsFailRing {
-  0%, 100% { box-shadow: 0 4px 14px rgba(15,23,42,0.06), 0 0 0 0 rgba(239,68,68,0.22); }
-  50%       { box-shadow: 0 4px 14px rgba(15,23,42,0.06), 0 0 0 8px rgba(239,68,68,0); }
+  0%, 100% { box-shadow: 0 4px 14px rgba(15,23,42,0.04), 0 0 0 0 rgba(239,68,68,0.22); }
+  50%       { box-shadow: 0 4px 14px rgba(15,23,42,0.04), 0 0 0 6px rgba(239,68,68,0); }
+}
+
+/* ── 4. Dependencies Card (Soft Cyan/Light Blue) ───────────────── */
+.strat-card-dependencies {
+  background: #ecfeff;
+  border-color: #bae6fd;
+}
+.strat-card-dependencies::after {
+  background: linear-gradient(90deg, transparent, rgba(2, 132, 199, 0.4), transparent);
+}
+.strat-card-dependencies .strat-assessment-icon-wrap {
+  background: #e0f2fe;
+  color: #0284c7;
+}
+.strat-card-dependencies .strat-assessment-value {
+  color: #0369a1;
+}
+.strat-card-dependencies:hover {
+  border-color: #7dd3fc;
+  box-shadow: 0 16px 36px rgba(2, 132, 199, 0.12),
+              0 4px 12px rgba(15, 23, 42, 0.04);
 }
 
 
 /* ================================================================
-   Page-level entry
+   Page-level entry & Navigation
    ================================================================ */
 .page-strategy {
   animation: stratPageReveal 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
+  padding-bottom: 96px;
+}
+
+.strategy-nav-btn-row {
+  margin-top: 32px !important;
+  padding-bottom: 16px;
+  padding-right: 92px !important;
+}
+
+@media (max-width: 768px) {
+  .page-strategy {
+    padding-bottom: 120px;
+  }
+  .strategy-nav-btn-row {
+    padding-right: 0 !important;
+    margin-bottom: 72px;
+  }
 }
 
 @keyframes stratPageReveal {
   from { opacity: 0; transform: translateY(22px) scale(0.988); }
-  to   { opacity: 1; transform: translateY(0)    scale(1); }
+  to   { opacity: 1; transform: none; }
 }
 
 /* ── Step header ──────────────────────────────────────────────── */

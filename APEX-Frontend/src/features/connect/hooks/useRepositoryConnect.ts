@@ -167,9 +167,13 @@ export function useRepositoryConnect({
   }, [githubToken, patToken, showEnterpriseToken, isPrivateRepo]);
   const shouldShowPatInput = Boolean(showEnterpriseToken || isPatModeOpen);
 
+  const lastValidatedTokenRef = useRef<{ url: string; token: string; state: AccessTokenValidationState } | null>(null);
+  const activeValidationTokenRef = useRef<string>("");
+
   const resetAccessTokenValidationState = useCallback(() => {
     setAccessTokenValidationState("idle");
     setAccessTokenValidationMessage("");
+    lastValidatedTokenRef.current = null;
   }, []);
 
   // Debounced repository visibility detection (only runs when the repository URL changes)
@@ -255,10 +259,12 @@ export function useRepositoryConnect({
     lastConnectRef.current = { url: connectUrl, token, result };
   };
 
-  const handleAccessTokenValidate = async () => {
+  const executeAccessTokenValidate = useCallback(async (tokenToValidate?: string) => {
     if (!urlValidation.valid) return;
 
-    if (!activeAccessToken) {
+    const token = (tokenToValidate !== undefined ? tokenToValidate : activeAccessToken).trim();
+
+    if (!token) {
       setAccessTokenValidationState("invalid");
       setAccessTokenValidationMessage(
         showEnterpriseToken
@@ -268,18 +274,29 @@ export function useRepositoryConnect({
       return;
     }
 
-    setAccessTokenValidationState("validating");
-    setAccessTokenValidationMessage("");
+    const normalizedUrl = urlValidation.normalizedUrl;
+    if (
+      lastValidatedTokenRef.current?.url === normalizedUrl &&
+      lastValidatedTokenRef.current?.token === token &&
+      lastValidatedTokenRef.current?.state === "valid"
+    ) {
+      return;
+    }
 
-    const connectUrl = buildConnectUrl(urlValidation.normalizedUrl);
+    activeValidationTokenRef.current = token;
+    setAccessTokenValidationState("validating");
+    setAccessTokenValidationMessage("Validating PAT...");
+
+    const connectUrl = buildConnectUrl(normalizedUrl);
 
     // github.com repositories are validated through the Connect backend, which
     // also creates the migration job (reused on Continue). Other refs keep the
     // existing visibility check.
     if (connectUrl) {
       try {
-        const result = await connectRepository(connectUrl, activeAccessToken);
-        persistConnectResult(result, connectUrl, activeAccessToken);
+        const result = await connectRepository(connectUrl, token);
+        if (activeValidationTokenRef.current !== token) return;
+        persistConnectResult(result, connectUrl, token);
         const detectedPrivateRepo = result.repoVisibility === "PRIVATE";
         setIsPrivateRepo(detectedPrivateRepo);
         setError("");
@@ -289,16 +306,20 @@ export function useRepositoryConnect({
             ? "Token validated. Private repository access looks ready."
             : "Token validated. Repository access looks ready."
         );
+        lastValidatedTokenRef.current = { url: normalizedUrl, token, state: "valid" };
       } catch (err) {
+        if (activeValidationTokenRef.current !== token) return;
         const message = err instanceof Error ? err.message : "We couldn't validate this token yet.";
         setAccessTokenValidationState("invalid");
         setAccessTokenValidationMessage(message);
+        lastValidatedTokenRef.current = { url: normalizedUrl, token, state: "invalid" };
       }
       return;
     }
 
     try {
-      const visibility = await getRepoVisibility(urlValidation.normalizedUrl, activeAccessToken);
+      const visibility = await getRepoVisibility(normalizedUrl, token);
+      if (activeValidationTokenRef.current !== token) return;
       const detectedPrivateRepo =
         visibility.requires_token ||
         visibility.visibility === "private" ||
@@ -314,7 +335,9 @@ export function useRepositoryConnect({
             ? "Token validated. Private repository access looks ready."
             : "Token validated. Repository access looks ready."
       );
+      lastValidatedTokenRef.current = { url: normalizedUrl, token, state: "valid" };
     } catch (err) {
+      if (activeValidationTokenRef.current !== token) return;
       const message = err instanceof Error ? err.message : "We couldn't validate this token yet.";
       setAccessTokenValidationState("invalid");
       setAccessTokenValidationMessage(
@@ -322,8 +345,56 @@ export function useRepositoryConnect({
           ? "We couldn't verify private repository access. Check that the PAT is correct and includes repo scope."
           : message
       );
+      lastValidatedTokenRef.current = { url: normalizedUrl, token, state: "invalid" };
     }
-  };
+  }, [
+    activeAccessToken,
+    urlValidation.valid,
+    urlValidation.normalizedUrl,
+    showEnterpriseToken,
+    setError,
+  ]);
+
+  const handleAccessTokenValidate = useCallback(async () => {
+    await executeAccessTokenValidate(activeAccessToken);
+  }, [executeAccessTokenValidate, activeAccessToken]);
+
+  // Debounced automatic PAT validation when user enters or edits a PAT
+  useEffect(() => {
+    if (!urlValidation.valid || !shouldShowPatInput || !activeAccessToken) {
+      if (!activeAccessToken) {
+        lastValidatedTokenRef.current = null;
+        activeValidationTokenRef.current = "";
+      }
+      return;
+    }
+
+    const currentTokenVal = activeAccessToken;
+    const currentUrl = urlValidation.normalizedUrl;
+
+    if (
+      lastValidatedTokenRef.current?.url === currentUrl &&
+      lastValidatedTokenRef.current?.token === currentTokenVal &&
+      lastValidatedTokenRef.current?.state === "valid"
+    ) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      void executeAccessTokenValidate(currentTokenVal);
+    }, 600);
+
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [
+    activeAccessToken,
+    urlValidation.valid,
+    urlValidation.normalizedUrl,
+    shouldShowPatInput,
+    executeAccessTokenValidate,
+  ]);
+
 
   const handleRepositoryContinue = async () => {
     if (!urlValidation.valid) return;

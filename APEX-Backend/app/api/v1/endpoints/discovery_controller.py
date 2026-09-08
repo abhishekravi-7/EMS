@@ -100,8 +100,9 @@ async def run_discovery(
     """
     verify_job_ownership(db, job_id, current_user)
     token = payload.github_token if payload else None
+    force_refresh = bool(payload.force_refresh) if payload else False
     try:
-        outcome = await run_in_threadpool(_pipeline.run, job_id, token)
+        outcome = await run_in_threadpool(_pipeline.run, job_id, token, force_refresh)
     except DiscoveryError as exc:
         return JSONResponse(
             status_code=exc.http_status,

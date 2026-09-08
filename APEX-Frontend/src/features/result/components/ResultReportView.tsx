@@ -161,12 +161,12 @@ export function ResultReportView({
     security_hotspots: SONAR_FINDINGS_PAGE_SIZE,
   });
 
-  // Reset filters and findings counts when migration job changes
+  // Reset filters and findings counts when migration job or sonar data changes
   useEffect(() => {
     const jobId = migrationJob?.job_id;
     if (!jobId) return;
 
-    // Use a stable check to avoid infinite re-render loops
+    // Use stable checks to avoid unnecessary re-renders
     setSonarFindingFilter((prev) => (prev === "all" ? prev : "all"));
     setCodeSmellSeverityFilter((prev) => (prev === "all" ? prev : "all"));
     setVisibleSonarFindingCounts((prev) => {
@@ -185,7 +185,7 @@ export function ResultReportView({
         security_hotspots: SONAR_FINDINGS_PAGE_SIZE,
       };
     });
-  }, [migrationJob?.job_id, migrationJob?.sonar_scan_mode]);
+  }, [migrationJob?.job_id, migrationJob?.sonar_scan_mode, migrationJob?.sonar_report]);
 
   const toggleReportAccordion = useCallback((section: "sonar" | "fossa" | "issues") => {
     setReportAccordionState((prev) => {

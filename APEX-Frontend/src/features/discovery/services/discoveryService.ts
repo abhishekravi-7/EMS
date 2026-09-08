@@ -40,6 +40,11 @@ export interface DiscoveryProject {
   dependencies?: DiscoveryDependency[];
   hasTests?: boolean;
   javaFileCount?: number;
+  javaFiles?: string[];
+  configFileCount?: number;
+  configFiles?: string[];
+  otherFileCount?: number;
+  otherFiles?: string[];
   totalFileCount?: number;
   defaultBranch?: string;
   buildWarning?: string | null;
@@ -56,6 +61,47 @@ export interface DiscoveryProject {
   springBootUpgradeEligible?: boolean;
   eligibilityReason?: string;
   springBootConversion?: SpringBootConversionEligibility;
+  frameworks?: string[];
+  discoveryStages?: {
+    repositoryMap?: {
+      status: string;
+      totalFileCount?: number;
+      javaFileCount?: number;
+      configFileCount?: number;
+      otherFileCount?: number;
+      multiModule?: boolean;
+      modules?: string[];
+      hasSrcMain?: boolean;
+      hasSrcTest?: boolean;
+      hasPomXml?: boolean;
+      hasBuildGradle?: boolean;
+      summary?: string;
+    };
+    dependencyGraph?: {
+      status: string;
+      buildTool?: string;
+      dependencyCount?: number;
+      buildPluginsCount?: number;
+      bomsCount?: number;
+      summary?: string;
+    };
+    previewSignals?: {
+      status: string;
+      currentJavaVersion?: string;
+      buildTool?: string;
+      frameworks?: string[];
+      hasTests?: boolean;
+      frontendDetected?: boolean;
+      summary?: string;
+    };
+    serviceFit?: {
+      status: string;
+      recommendedArchitecture?: string;
+      springBootConversionEligible?: boolean;
+      springBootUpgradeEligible?: boolean;
+      summary?: string;
+    };
+  };
 }
 
 export interface DiscoveryResponse {
@@ -147,13 +193,23 @@ export function mapDiscoveryToRepoAnalysis(response: DiscoveryResponse): RepoAna
     build_tool: normalizeBuildTool(project.buildTool),
     java_version: javaVersion,
     java_version_from_build: javaVersion,
-    java_files: [],
-    java_file_count: project.javaFileCount,
+    spring_boot_version: project.springBootVersion ?? null,
+    java_files: project.javaFiles ?? (project as any).java_files ?? [],
+    java_file_count: project.javaFileCount ?? (project.javaFiles?.length || 0),
+    config_files: project.configFiles ?? (project as any).config_files ?? [],
+    config_file_count: project.configFileCount ?? (project.configFiles?.length || 0),
+    other_files: project.otherFiles ?? (project as any).other_files ?? [],
+    other_file_count: project.otherFileCount ?? (project.otherFiles?.length || 0),
     total_file_count: project.totalFileCount,
     has_tests: Boolean(project.hasTests),
     dependencies,
     api_endpoints: [],
-    detected_frameworks: [],
+    detected_frameworks: (project.frameworks ?? []).map((f) => ({
+      name: f,
+      path: project.detectedFiles?.pomXml ? "pom.xml" : "build.gradle",
+      type: "FRAMEWORK",
+    })),
+    frameworks: project.frameworks ?? [],
     structure: {
       has_pom_xml: Boolean(project.detectedFiles?.pomXml),
       has_build_gradle: Boolean(project.detectedFiles?.buildGradle),
@@ -162,6 +218,7 @@ export function mapDiscoveryToRepoAnalysis(response: DiscoveryResponse): RepoAna
       has_src_test: Boolean(project.sourceLayout?.hasSrcTest),
     },
     spring_boot_eligibility: springBootEligibility,
+    discovery_stages: project.discoveryStages,
   };
 }
 
@@ -170,10 +227,17 @@ export function mapDiscoveryToRepoAnalysis(response: DiscoveryResponse): RepoAna
  * the backend's clean status/message are always surfaced. Returns the mapped
  * RepoAnalysis (plus the raw discovery summary) for the Discovery UI.
  */
-export async function runDiscovery(jobId: string, githubToken?: string): Promise<DiscoveryAnalysisResult> {
+export async function runDiscovery(
+  jobId: string,
+  githubToken?: string,
+  forceRefresh?: boolean
+): Promise<DiscoveryAnalysisResult> {
   const response = await performRequest(`/v1/discovery/${encodeURIComponent(jobId)}`, {
     method: "POST",
-    body: { githubToken: githubToken?.trim() ? githubToken.trim() : undefined },
+    body: {
+      githubToken: githubToken?.trim() ? githubToken.trim() : undefined,
+      forceRefresh: Boolean(forceRefresh),
+    },
   });
 
   const data = (await response.json().catch(() => null)) as

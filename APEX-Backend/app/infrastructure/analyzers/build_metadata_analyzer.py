@@ -75,14 +75,30 @@ class BuildMetadataAnalyzer:
             frameworks.add("spring-security")
         if any(item.startswith("org.springframework.cloud:") for item in coordinates):
             frameworks.add("spring-cloud")
-        if any(item.startswith("org.hibernate") for item in groups):
+        if any("spring-data" in item for item in coordinates):
+            frameworks.add("spring-data")
+        if any(item.startswith("org.hibernate") for item in groups) or any("hibernate" in item for item in coordinates):
             frameworks.add("hibernate")
         if any(item.startswith("jakarta.") for item in groups):
             frameworks.add("jakarta-ee")
         if any(item.startswith("javax.") for item in groups):
             frameworks.add("javax-ee")
-        if "org.junit.jupiter:junit-jupiter" in coordinates or "junit:junit" in coordinates:
+        if any("junit" in item for item in coordinates):
             frameworks.add("junit")
+        if any("mockito" in item for item in coordinates):
+            frameworks.add("mockito")
+        if any("lombok" in item for item in coordinates):
+            frameworks.add("lombok")
+        if any("liquibase" in item for item in coordinates):
+            frameworks.add("liquibase")
+        if any("flyway" in item for item in coordinates):
+            frameworks.add("flyway")
+        if any("springdoc" in item or "swagger" in item for item in coordinates):
+            frameworks.add("springdoc-openapi")
+        if any(item.startswith("org.apache.struts") for item in groups):
+            frameworks.add("struts")
+        if any("mybatis" in item for item in coordinates):
+            frameworks.add("mybatis")
         if "org.springframework.boot" in build_gradle_text:
             frameworks.add("spring-boot")
 

@@ -130,6 +130,8 @@ class RecommendJavaVersionUseCase:
             for version in alternative_versions
         ]
 
+        risk_explanation = str(raw.get("risk_explanation") or "").strip() or None
+
         return {
             "recommended_target_version": recommended,
             "recommended_versions": [recommended, *alternative_versions],
@@ -139,7 +141,9 @@ class RecommendJavaVersionUseCase:
             "compatibility_considerations": compatibility_considerations,
             "alternatives": alternative_versions,
             "alternative_options": alternative_options,
+            "risk_explanation": risk_explanation,
             "provider_used": "huggingface",
             "already_at_latest_supported_version": already_at_latest,
             "raw_recommendation": raw,
         }
+

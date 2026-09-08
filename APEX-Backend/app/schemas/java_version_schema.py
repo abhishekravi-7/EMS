@@ -41,6 +41,28 @@ class JavaVersionRecommendationResponse(BaseModel):
     compatibility_considerations: list[str] = Field(default_factory=list)
     alternatives: list[str] = Field(default_factory=list)
     alternative_options: list[AlternativeOption] = Field(default_factory=list)
+    risk_explanation: Optional[str] = None
     provider_used: str = "huggingface"
     already_at_latest_supported_version: bool = False
     raw_recommendation: Optional[dict[str, Any]] = None
+
+
+class RiskExplanationRequest(BaseModel):
+    """Body for ``POST /api/risk-explanation``."""
+
+    risk_level: str
+    source_java_version: Optional[str] = None
+    build_tool: Optional[str] = None
+    has_tests: bool = False
+    dependencies: list[dict[str, Any]] = Field(default_factory=list)
+    frameworks: list[Any] = Field(default_factory=list)
+    api_endpoint_count: int = 0
+
+
+class RiskExplanationResponse(BaseModel):
+    """Success body for ``POST /api/risk-explanation``."""
+
+    risk_level: str
+    risk_explanation: str
+    provider_used: str = "huggingface"
+
