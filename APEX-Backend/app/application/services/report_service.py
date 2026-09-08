@@ -9,6 +9,9 @@ with safe zero/null defaults so the UI renders without crashing.
 from __future__ import annotations
 
 from typing import Any
+from app.application.services.file_diff_service import FileDiffService
+
+_diff_service = FileDiffService()
 
 
 def _core(report: dict[str, Any]) -> dict[str, Any]:
@@ -134,15 +137,14 @@ def build_result(report: dict[str, Any]) -> dict[str, Any]:
         **_analysis(report),
         "migration_log": log_lines,
         "issues": [],
-        "file_diffs": [],
         "test_insights": report.get("test_insights") or [],
         "test_summary": report.get("test_summary"),
         "test_llm_model": report.get("test_llm_model"),
         "sonar_report": report.get("sonar_report"),
-        "fossa_report": report.get("fossa_report"),
         "test_pipeline": report.get("test_pipeline"),
         # --- full migration report detail ---
         "modified_files": report.get("modifiedFiles") or [],
+        "file_diffs": _diff_service.get_changed_files_summary(report.get("jobId", ""), report),
         "import_changes": report.get("importChanges") or [],
         "source_changes": report.get("sourceChanges") or [],
     }

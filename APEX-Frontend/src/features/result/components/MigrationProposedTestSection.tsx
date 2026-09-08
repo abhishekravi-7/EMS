@@ -57,13 +57,14 @@ export function MigrationProposedTestSection({
     pollRef.current = setInterval(async () => {
       try {
         const statusData = await getProposedTestsStatus(jobId);
-        if (statusData.proposals) setProposals(statusData.proposals);
-        if (statusData.metrics) setMetrics(statusData.metrics);
-        if (statusData.logs) setLogs(statusData.logs);
-        if (statusData.selected_sources) setSelectedSources(statusData.selected_sources);
+        if (statusData.proposals) setProposals((prev) => (JSON.stringify(prev) === JSON.stringify(statusData.proposals) ? prev : statusData.proposals));
+        if (statusData.metrics) setMetrics((prev) => (JSON.stringify(prev) === JSON.stringify(statusData.metrics) ? prev : statusData.metrics));
+        if (statusData.logs) setLogs((prev) => (JSON.stringify(prev) === JSON.stringify(statusData.logs) ? prev : statusData.logs));
+        if (statusData.selected_sources) setSelectedSources((prev) => (JSON.stringify(prev) === JSON.stringify(statusData.selected_sources) ? prev : statusData.selected_sources));
+
         if (statusData.allure_report_available !== undefined) {
-          setAllureReportAvailable(statusData.allure_report_available);
-          if (statusData.allure_report_url) setAllureReportUrl(statusData.allure_report_url);
+          setAllureReportAvailable((prev) => (prev !== statusData.allure_report_available ? statusData.allure_report_available : prev));
+          if (statusData.allure_report_url) setAllureReportUrl((prev) => (prev !== statusData.allure_report_url ? statusData.allure_report_url : prev));
         }
 
         if (statusData.status === "COMPLETED" || statusData.status === "FAILED") {
@@ -72,18 +73,18 @@ export function MigrationProposedTestSection({
 
           // Fetch final results payload
           const finalResults = await getProposedTestsResults(jobId).catch(() => null);
-          if (finalResults?.test_cases) setProposals(finalResults.test_cases);
-          if (finalResults?.metrics) setMetrics(finalResults.metrics);
-          if (finalResults?.selected_sources) setSelectedSources(finalResults.selected_sources);
+          if (finalResults?.test_cases) setProposals((prev) => (JSON.stringify(prev) === JSON.stringify(finalResults.test_cases) ? prev : (finalResults.test_cases || [])));
+          if (finalResults?.metrics) setMetrics((prev) => (JSON.stringify(prev) === JSON.stringify(finalResults.metrics) ? prev : (finalResults.metrics || null)));
+          if (finalResults?.selected_sources) setSelectedSources((prev) => (JSON.stringify(prev) === JSON.stringify(finalResults.selected_sources) ? prev : (finalResults.selected_sources || null)));
           if (finalResults?.allure_report_available !== undefined) {
-            setAllureReportAvailable(finalResults.allure_report_available);
-            if (finalResults.allure_report_url) setAllureReportUrl(finalResults.allure_report_url);
+            setAllureReportAvailable((prev) => (prev !== finalResults.allure_report_available ? finalResults.allure_report_available : prev));
+            if (finalResults.allure_report_url) setAllureReportUrl((prev) => (prev !== finalResults.allure_report_url ? finalResults.allure_report_url : prev));
           }
         }
       } catch (err) {
         console.error("Polling proposed tests error:", err);
       }
-    }, 1000);
+    }, 10000); // Increased from 1s to 10s to reduce load
   }, [jobId]);
 
   // Load initial status and results
@@ -91,7 +92,6 @@ export function MigrationProposedTestSection({
     if (!jobId) return;
 
     let isMounted = true;
-    setIsLoading(true);
 
     const loadData = async () => {
       try {
@@ -99,17 +99,16 @@ export function MigrationProposedTestSection({
         if (!isMounted) return;
 
         if (res) {
-          if (res.proposals) setProposals(res.proposals);
-          if (res.metrics) setMetrics(res.metrics);
-          if (res.logs) setLogs(res.logs);
-          if (res.selected_sources) setSelectedSources(res.selected_sources);
-          if (res.allure_report_available !== undefined) {
-            setAllureReportAvailable(res.allure_report_available);
-            if (res.allure_report_url) setAllureReportUrl(res.allure_report_url);
-          }
+          if (res.proposals) setProposals((prev) => (JSON.stringify(prev) === JSON.stringify(res.proposals) ? prev : res.proposals));
+          if (res.metrics) setMetrics((prev) => (JSON.stringify(prev) === JSON.stringify(res.metrics) ? prev : res.metrics));
+          if (res.logs) setLogs((prev) => (JSON.stringify(prev) === JSON.stringify(res.logs) ? prev : res.logs));
+          if (res.selected_sources) setSelectedSources((prev) => (JSON.stringify(prev) === JSON.stringify(res.selected_sources) ? prev : res.selected_sources));
+
+          setAllureReportAvailable((prev) => (res.allure_report_available !== undefined && prev !== res.allure_report_available ? res.allure_report_available : prev));
+          if (res.allure_report_url) setAllureReportUrl((prev) => (prev !== res.allure_report_url ? res.allure_report_url : prev));
 
           if (res.status === "RUNNING") {
-            setIsRunning(true);
+            setIsRunning((prev) => (prev ? prev : true));
             startPolling();
           }
         }

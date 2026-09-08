@@ -431,6 +431,7 @@ interface DiscoveryStepViewProps {
   onChooseDifferentRepository: () => void;
   onContinueToStrategy: () => void;
   onError: (message: string) => void;
+  onHandleJobError?: (err: any) => boolean;
 }
 
 interface FileTreeItem {
@@ -478,6 +479,7 @@ export function DiscoveryStepView({
   onChooseDifferentRepository,
   onContinueToStrategy,
   onError,
+  onHandleJobError,
 }: DiscoveryStepViewProps) {
   const {
     repoAnalysis,
@@ -497,7 +499,6 @@ export function DiscoveryStepView({
 
   const { isLocalRepoRef, extractLocalRepoPath } = repoUtils;
 
-  // Search & folder collapse state for the Repository Files tree
   // Search & folder collapse state for the Repository Files tree
   const [searchQuery, setSearchQuery] = useState("");
   const [collapsedFolders, setCollapsedFolders] = useState<Record<string, boolean>>({});
@@ -619,6 +620,7 @@ export function DiscoveryStepView({
     });
     if (pathSet.size === 0) {
       [...javaFileList, ...configFileList, ...otherFileList].forEach((f) => pathSet.add(f));
+
     }
     return Array.from(pathSet)
       .map((p) => p.replace(/\\/g, "/").replace(/^\/+/, ""))

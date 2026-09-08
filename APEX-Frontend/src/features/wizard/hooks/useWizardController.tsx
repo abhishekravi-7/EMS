@@ -500,8 +500,9 @@ const shouldHideGeneratedDiffPath = (filePath: string) => {
   ].some((segment) => normalized.includes(segment)) || normalized.startsWith(".javaapex-cache/") || normalized.startsWith(".scannerwork/");
 };
 
-const buildCodeChangesFromPreviewDiffs = (fileDiffs: PreviewFileDiff[]): CodeChangeEntry[] => {
+const buildCodeChangesFromPreviewDiffs = (fileDiffs: any[]): CodeChangeEntry[] => {
   return fileDiffs.flatMap((fileDiff) => {
+    if (!fileDiff.diff) return [];
     const diffLinesRaw = fileDiff.diff.split(/\r?\n/);
     const parsedDiffLines: CodeChangeEntry["diffLines"] = [];
     let oldLineNumber = 0;
@@ -2092,6 +2093,7 @@ export function useWizardController() {
           : await getMicroserviceEligibility(selectedRepo.url, currentToken, repoAnalysis);
       setMicroserviceResult(result);
     } catch (err) {
+      if (handleJobIdError(err)) return;
       const message = err instanceof Error ? err.message : String(err);
       console.error("Failed to fetch microservice eligibility", message);
       setError("Unable to determine microservice eligibility from backend. Please try again.");
@@ -3246,6 +3248,14 @@ export function useWizardController() {
     }
   }, [isConnectCompleted]);
 
+  useEffect(() => {
+    if (
+      migrationJob?.status === "completed" ||
+      step === 7
+    ) {
+      setIsMigrationFinishedState(true);
+    }
+  }, [migrationJob?.status, step]);
   // Step 2: Discovery completed (strictly when repoAnalysis is ready AND user explicitly clicked Continue to Strategy)
   const isDiscoveryCompleted =
     isConnectCompleted &&
@@ -4852,6 +4862,12 @@ export function useWizardController() {
     };
     }, [step, migrationJob?.job_id, migrationJob?.status]);
   */
+  useEffect(() => {
+    if (migrationJob?.status === "completed" || resultExecState?.migrationJob?.status === "completed" || step === 7) {
+      setIsMigrationFinishedState(true);
+    }
+  }, [migrationJob?.status, resultExecState?.migrationJob?.status, step]);
+
   // NOTE: Intentionally removed the duplicate setStep(7) useEffect that was
   // previously here. The migration polling loop (above) already calls setStep(7)
   // when status === "completed". Having two effects doing the same thing caused
@@ -5075,6 +5091,34 @@ export function useWizardController() {
 
     clearWizardStorage();
   };
+
+  const handleJobIdError = useCallback(
+    (err: any) => {
+      const status = err?.status || err?.httpStatus;
+      const detail = err?.detail;
+      const code = typeof detail === "object" ? detail?.code : err?.code;
+      const message = err?.message || (typeof detail === "string" ? detail : String(err));
+
+      // 403 Forbidden (Unauthorized access to job) or 404 with JOB_NOT_FOUND code
+      if (
+        status === 403 ||
+        (status === 404 && (code === "JOB_NOT_FOUND" || message.includes("No migration job found")))
+      ) {
+        console.warn("Detected stale or unauthorized migration job ID. Resetting wizard state.", {
+          status,
+          code,
+          message,
+        });
+        resetWizard();
+        setError(
+          "Your session has expired or the migration job is no longer available. Please connect your repository again."
+        );
+        return true;
+      }
+      return false;
+    },
+    [setError]
+  );
 
   const renderStepIndicator = () => (
     <div style={styles.stepIndicator}>

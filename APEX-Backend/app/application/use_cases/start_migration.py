@@ -432,7 +432,7 @@ class StartMigrationUseCase:
     ) -> tuple[MigrationRunResult, BuildResult | None, list[dict[str, Any]]]:
         """Run the deterministic AST-based migration engine."""
         include_jakarta = self._should_include_jakarta(report)
-        
+
         result = self._runner.run(
             paths.migrated_repo_dir,
             build_tool,
@@ -534,12 +534,41 @@ class StartMigrationUseCase:
                 f"output ({causes})."
             )
 
-        if result.already_compatible:
+        # Handle Spring Boot specific results first to be more descriptive
+        boot_before = result.spring_boot_version_before
+        boot_after = result.spring_boot_version_after
+
+        if result.spring_conversion_requested:
+            if result.status == "MANUAL_REVIEW" and result.spring_conversion_note:
+                parts.append(f"Spring Boot Upgrade: {result.spring_conversion_note}")
+            elif boot_before and boot_after:
+                if boot_before == boot_after:
+                     parts.append(
+                        "Spring Boot Upgrade: UNCHANGED. "
+                        "The project already uses the configured target Spring Boot version."
+                    )
+                else:
+                    parts.append(
+                        f"Spring Boot Upgrade: UPGRADED from {boot_before} to {boot_after}."
+                    )
+            elif result.spring_conversion_note:
+                parts.append(f"Spring Boot Upgrade: {result.spring_conversion_note}")
+
+        # Java version upgrade specific summary
+        java_before = report.get("sourceJavaVersion") or "unknown"
+        java_after = result.effective_target_java_version or "unknown"
+        if java_before != "unknown" and java_after != "unknown":
+            if java_before == java_after:
+                parts.append(f"Java Version: UNCHANGED ({java_before}).")
+            else:
+                parts.append(f"Java Version: UPGRADED from {java_before} to {java_after}.")
+
+        if result.already_compatible and not result.spring_conversion_requested:
             parts.append(
                 "Project was already compatible with the selected target Java "
                 "version; no import or source code changes were required."
             )
-        elif result.recipes:
+        elif result.recipes and not result.already_compatible:
             # Do not expose internal transformation identifiers to end users.
             parts.append(
                 f"Applied {len(result.recipes)} automated modernization transformation(s) "
@@ -550,25 +579,27 @@ class StartMigrationUseCase:
                 "Applied deterministic build-configuration fallback."
             )
 
-        if result.spring_conversion_requested:
-            if result.spring_conversion_supported:
-                before = result.spring_boot_version_before or "unknown"
-                after = result.spring_boot_version_after or before
-                parts.append(
-                    f"Spring -> Spring Boot conversion: upgraded Spring Boot "
-                    f"from {before} to {after} for target Java {target}."
-                )
-            elif result.spring_conversion_note:
-                parts.append(f"Spring -> Spring Boot conversion: {result.spring_conversion_note}")
-
         if result.dependency_upgrades:
-            upgrades = ", ".join(
-                f"{upgrade['coordinate']} {upgrade.get('oldVersion') or '?'} -> {upgrade['newVersion']}"
-                for upgrade in result.dependency_upgrades
+            upgraded = [u for u in result.dependency_upgrades if u["status"] == "UPGRADED"]
+            if upgraded:
+                upgrades_text = ", ".join(
+                    f"{u['groupId']}:{u['artifactId']} {u.get('sourceVersion') or '?'} -> {u['resolvedTargetVersion']}"
+                    for u in upgraded
+                )
+                parts.append(
+                    f"Upgraded {len(upgraded)} dependency/dependencies: {upgrades_text}."
+                )
+            else:
+                parts.append("All dependencies remained unchanged or were already compatible.")
+        elif result.dependency_migration_status == "NOT_APPLICABLE":
+            parts.append("Dependency migration was not selected for this migration.")
+
+        if result.plugin_upgrades:
+            p_upgrades = ", ".join(
+                f"{u['coordinate']} {u['oldVersion'] or '?'} -> {u['newVersion']}"
+                for u in result.plugin_upgrades
             )
-            parts.append(
-                f"Upgraded {len(result.dependency_upgrades)} dependency/dependencies: {upgrades}."
-            )
+            parts.append(f"Upgraded {len(result.plugin_upgrades)} build plugin(s): {p_upgrades}.")
 
         if result.skipped_recipes:
             skipped = "; ".join(

@@ -124,6 +124,7 @@ export default function MigrationWizardPage() {
     setDiscoveryCompleted,
     setStrategyCompleted,
     maxVisitedIndicatorStep,
+    handleJobIdError,
     highestCompletedStep,
     isStepCompleted,
     isStepAccessible,
@@ -537,6 +538,7 @@ export default function MigrationWizardPage() {
               }}
               onContinueToStrategy={continueToStrategy}
               onError={setError}
+              onHandleJobError={handleJobIdError}
             />
           </DiscoveryPage>
         )}
