@@ -78,6 +78,22 @@ class AutomatedMigrationRunner:
             current_boot_version=analysis.spring_boot_version,
             conversion_types=conversion_types
         )
+        
+        # Filter mappings to prevent downgrades before execution
+        safe_dependency_mappings = []
+        for mapping in plan.dependencyMappings:
+             gid, aid, target = mapping["groupId"], mapping["artifactId"], mapping["targetVersion"]
+             # find current version
+             current = next((d.resolved_version or d.version for d in analysis.dependencies if d.group_id == gid and d.artifact_id == aid), None)
+             if not current or self._is_newer(target, current):
+                  safe_dependency_mappings.append(mapping)
+        
+        safe_plugin_mappings = []
+        for mapping in plan.pluginMappings:
+             gid, aid, target = mapping["groupId"], mapping["artifactId"], mapping["targetVersion"]
+             current = next((p.version for p in analysis.build_plugins if (p.group_id == gid or not p.group_id) and p.artifact_id == aid), None)
+             if not current or self._is_newer(target, current):
+                  safe_plugin_mappings.append(mapping)
 
         # 3. Execution (Java Engine CLI)
         result = self._ast_runner.run(analysis.project_root, {
@@ -90,7 +106,8 @@ class AutomatedMigrationRunner:
             "activeRules": plan.activeRules,
             "activeVisitors": plan.activeVisitors,
             "targetSpringBootVersion": plan.targetSpringBootVersion,
-            "dependencyMappings": plan.dependencyMappings
+            "dependencyMappings": safe_dependency_mappings,
+            "pluginMappings": safe_plugin_mappings
         })
 
         # 4. Post-migration discovery to find the new version
@@ -174,21 +191,17 @@ class AutomatedMigrationRunner:
         upgrades = []
         
         def get_plugin_key(p: Any) -> tuple[str, str]:
-            # Handle both old and new BuildPlugin structures safely
             gid = getattr(p, "group_id", None)
             aid = getattr(p, "artifact_id", None)
-            
             if gid is None or aid is None:
-                # Fallback to parsing 'id' field if it exists (old structure)
                 pid = getattr(p, "id", "")
-                if ":" in pid:
+                if pid and ":" in pid:
                     parts = pid.split(":")
                     gid = parts[0]
                     aid = parts[1]
                 else:
                     gid = "org.apache.maven.plugins"
                     aid = pid
-            
             return (gid or "org.apache.maven.plugins", aid or "")
 
         after_map = {get_plugin_key(p): p for p in after}
@@ -200,8 +213,8 @@ class AutomatedMigrationRunner:
             p_after = after_map.get(key)
             
             if p_after:
-                v_before = p_before.version
-                v_after = p_after.version
+                v_before = getattr(p_before, "version", None)
+                v_after = getattr(p_after, "version", None)
                 
                 if v_before and v_after and v_before != v_after:
                     upgrades.append({
@@ -215,35 +228,101 @@ class AutomatedMigrationRunner:
         return upgrades
 
     def _compare_dependencies(self, before: list[Any], after: list[Any], mappings: list[dict[str, str]]) -> list[dict]:
-        """Compare dependencies before and after and report changes."""
-        upgrades = []
-        after_map = {(d.group_id, d.artifact_id): d for d in after}
+        """Compare every dependency before and after and report changes or status."""
+        results = []
+        
+        # Keys for comparison: (module, groupId, artifactId, scope, classifier)
+        def get_key(d: Any) -> tuple[str, str, str, str, str]:
+             return (
+                 str(getattr(d, "module", "root")),
+                 str(getattr(d, "group_id", "")),
+                 str(getattr(d, "artifact_id", "")),
+                 str(getattr(d, "scope", "compile")),
+                 str(getattr(d, "classifier", "") or "")
+             )
 
+        before_map = {get_key(d): d for d in before}
+        after_map = {get_key(d): d for d in after}
+        
+        # approved mapping dict for rule/target lookups
         mapping_dict = {(m["groupId"], m["artifactId"]): m["targetVersion"] for m in mappings}
-
-        for dep_before in before:
-            key = (dep_before.group_id, dep_before.artifact_id)
+        
+        all_keys_set = set(before_map.keys())
+        all_keys_set.update(after_map.keys())
+        
+        all_keys = list(all_keys_set)
+        all_keys.sort()
+        
+        for key in all_keys:
+            mod, gid, aid, scope, classifier = key
+            dep_before = before_map.get(key)
             dep_after = after_map.get(key)
+            
+            v_before = getattr(dep_before, "resolved_version", None) or getattr(dep_before, "version", None) if dep_before else None
+            v_after = getattr(dep_after, "resolved_version", None) or getattr(dep_after, "version", None) if dep_after else None
+            
+            status = "UNCHANGED"
+            reason = "No resolved-version difference"
+            
+            target = mapping_dict.get((gid, aid))
+            
+            if not dep_before and dep_after:
+                status = "ADDED"
+                reason = "New dependency found in migrated tree"
+            elif dep_before and not dep_after:
+                status = "REMOVED"
+                reason = "Dependency no longer present in migrated tree"
+            elif dep_before and dep_after:
+                if v_before != v_after and v_before and v_after:
+                    if self._is_newer(v_after, v_before):
+                        status = "UPGRADED"
+                        if getattr(dep_after, "version_source", "") == "SPRING_BOOT_PARENT":
+                            reason = "Resolved version changed through the upgraded Spring Boot parent"
+                        else:
+                            reason = f"Upgraded from {v_before} to {v_after}"
+                    else:
+                        # Downgrade detected!
+                        status = "MANUAL_REVIEW"
+                        reason = f"Configured target {v_after} is older than source {v_before}; downgrade prevented"
+                        # Note: This implies the POM might have been modified, but we are reporting reality.
+                        # If the POM was modified to a lower version, we report it.
+                else:
+                    if target:
+                         if v_before == target:
+                              reason = "Already at approved target"
+                         elif self._is_newer(v_before, target):
+                              status = "MANUAL_REVIEW"
+                              reason = f"Source version {v_before} is newer than configured target {target}; downgrade prevented"
+                         else:
+                              status = "FAILED"
+                              reason = f"Maven could not resolve the configured target version {target}"
+                    else:
+                         reason = "No approved target mapping exists"
+                         if getattr(dep_after, "version_source", "") == "SPRING_BOOT_PARENT":
+                              reason = "Managed by unchanged Spring Boot parent"
 
-            if dep_after:
-                v_before = dep_before.resolved_version or dep_before.version
-                v_after = dep_after.resolved_version or dep_after.version
-
-                if v_before != v_after and v_before != "Unknown version" and v_after != "Unknown version":
-                    upgrades.append({
-                        "coordinate": f"{dep_before.group_id}:{dep_before.artifact_id}",
-                        "groupId": dep_before.group_id,
-                        "artifactId": dep_before.artifact_id,
-                        "oldVersion": v_before,
-                        "newVersion": v_after,
-                        "resolvedVersion": v_after,
-                        "status": "UPGRADED",
-                        "versionSource": dep_after.version_source
-                    })
-                elif key in mapping_dict:
-                    # If it was supposed to be upgraded but isn't
-                    pass
-        return upgrades
+            # Build result dict
+            res = {
+                "module": mod,
+                "groupId": gid,
+                "artifactId": aid,
+                "scope": scope,
+                "type": getattr(dep_after or dep_before, "type", "jar"),
+                "classifier": classifier or None,
+                "optional": getattr(dep_after or dep_before, "optional", False),
+                "direct": getattr(dep_after or dep_before, "direct", True),
+                "transitive": getattr(dep_after or dep_before, "transitive", False),
+                "versionSource": getattr(dep_after or dep_before, "version_source", "UNKNOWN"),
+                "sourceVersion": v_before,
+                "resolvedSourceVersion": v_before,
+                "configuredTargetVersion": target,
+                "resolvedTargetVersion": v_after,
+                "status": status,
+                "reason": reason
+            }
+            results.append(res)
+            
+        return results
 
     def _get_effective_java_version(self, project_dir: Path) -> str | None:
         """Use Maven to resolve the effective Java version."""
@@ -293,27 +372,38 @@ class AutomatedMigrationRunner:
         """Simple Maven-like version comparison.
         Returns True if v1 is strictly newer than v2.
         """
-        def _parse(v: str) -> list[int]:
+        if not v1 or not v2:
+            return False
+            
+        def _parse(v: str) -> list:
             # Normalize: 3.2.5.RELEASE -> 3.2.5, 3.2.0-RC1 -> 3.2.0
-            # Just take the numeric parts
             parts = []
             for p in re.split(r"[.\-]", v):
                 if p.isdigit():
                     parts.append(int(p))
                 else:
-                    # Non-numeric parts like RELEASE or RC1 are ignored or treated as 0
-                    break
+                    # Treat non-numeric as a string for comparison if needed, 
+                    # but usually these are qualifiers like RELEASE or RC1.
+                    # For simplicity, we just stop at the first non-numeric part 
+                    # or treat it as -1 if we wanted to handle RC < Final.
+                    parts.append(p)
             return parts
 
         p1 = _parse(v1)
         p2 = _parse(v2)
 
-        # Compare element by element
         for i in range(max(len(p1), len(p2))):
             val1 = p1[i] if i < len(p1) else 0
             val2 = p2[i] if i < len(p2) else 0
-            if val1 > val2:
+            
+            if isinstance(val1, int) and isinstance(val2, int):
+                if val1 > val2: return True
+                if val1 < val2: return False
+            elif isinstance(val1, str) and isinstance(val2, str):
+                if val1 > val2: return True
+                if val1 < val2: return False
+            elif isinstance(val1, int): # 1.0 > 1.0-RC
                 return True
-            if val1 < val2:
+            else:
                 return False
         return False

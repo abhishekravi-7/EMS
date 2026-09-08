@@ -251,8 +251,26 @@ export interface MigrationResult {
   recipes_executed?: string[];
   recipe_selection_reasons?: string[];
   build_modernization?: string[];
-  dependency_upgrades?: Array<{ coordinate: string; oldVersion: string | null; newVersion: string }>;
-  dependencyUpgrades?: Array<{ coordinate: string; oldVersion: string | null; newVersion: string }>;
+  dependency_upgrades?: Array<{
+    groupId: string;
+    artifactId: string;
+    scope: string;
+    sourceVersion: string | null;
+    resolvedTargetVersion: string | null;
+    status: string;
+    reason: string;
+    [key: string]: any;
+  }>;
+  dependencyUpgrades?: Array<{
+    groupId: string;
+    artifactId: string;
+    scope: string;
+    sourceVersion: string | null;
+    resolvedTargetVersion: string | null;
+    status: string;
+    reason: string;
+    [key: string]: any;
+  }>;
   used_fallback?: boolean;
   already_compatible?: boolean;
   build_status?: string | null;
@@ -377,6 +395,14 @@ export async function getMigrationLogs(jobId: string): Promise<{ job_id: string;
   return requestJson<{ job_id: string; logs: string[] }>(
     `/v1/migration/${jobId}/logs`,
     "Failed to get migration logs"
+  );
+}
+
+export async function getMigrationFileDiff(jobId: string, path: string): Promise<any> {
+  return requestJson<any>(
+    `/v1/migration/${jobId}/diff`,
+    "Failed to get file diff",
+    { query: { path } }
   );
 }
 

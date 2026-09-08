@@ -566,13 +566,17 @@ class StartMigrationUseCase:
             )
 
         if result.dependency_upgrades:
-            upgrades = ", ".join(
-                f"{upgrade['coordinate']} {upgrade.get('oldVersion') or '?'} -> {upgrade['newVersion']}"
-                for upgrade in result.dependency_upgrades
-            )
-            parts.append(
-                f"Upgraded {len(result.dependency_upgrades)} dependency/dependencies: {upgrades}."
-            )
+            upgraded = [u for u in result.dependency_upgrades if u["status"] == "UPGRADED"]
+            if upgraded:
+                upgrades_text = ", ".join(
+                    f"{u['groupId']}:{u['artifactId']} {u.get('sourceVersion') or '?'} -> {u['resolvedTargetVersion']}"
+                    for u in upgraded
+                )
+                parts.append(
+                    f"Upgraded {len(upgraded)} dependency/dependencies: {upgrades_text}."
+                )
+            else:
+                parts.append("All dependencies remained unchanged or were already compatible.")
         elif result.dependency_migration_status == "NOT_APPLICABLE":
             parts.append("Dependency migration was not selected for this migration.")
 

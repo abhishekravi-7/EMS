@@ -12,21 +12,23 @@ class TestDependencyUpgradeDynamic(unittest.TestCase):
         self.runner = AutomatedMigrationRunner()
 
     def test_detect_dependencies_from_pom(self):
-        pom_xml = """<project>
-            <dependencies>
-                <dependency>
-                    <groupId>org.json</groupId>
-                    <artifactId>json</artifactId>
-                    <version>20230227</version>
-                </dependency>
-            </dependencies>
-        </project>"""
-        root = ElementTree.fromstring(pom_xml)
-        deps = self.detector.analyze(root, "")
-        self.assertEqual(len(deps), 1)
-        self.assertEqual(deps[0].group_id, "org.json")
-        self.assertEqual(deps[0].artifact_id, "json")
-        self.assertEqual(deps[0].version, "20230227")
+        # We need to mock the filesystem and command runner because analyze now runs mvn
+        import unittest.mock as mock
+        from app.shared.command_runner import CommandResult
+        
+        with mock.patch("app.infrastructure.analyzers.dependency_analyzer.run_command") as mock_run:
+            with mock.patch("pathlib.Path.exists", return_value=True):
+                 with mock.patch("pathlib.Path.read_text", side_effect=[
+                     "[INFO] com.example:parent:pom:1.0.0\n[INFO] +- org.json:json:jar:20230227:compile", # tree
+                     "<project/>" # effective-pom
+                 ]):
+                     mock_run.return_value = CommandResult([], 0, "success", "")
+                     
+                     deps = self.detector.analyze(ElementTree.Element("project"), "", Path("."))
+                     self.assertEqual(len(deps), 1)
+                     self.assertEqual(deps[0].group_id, "org.json")
+                     self.assertEqual(deps[0].artifact_id, "json")
+                     self.assertEqual(deps[0].version, "20230227")
 
     def test_mapper_includes_dependency_upgrade_pack(self):
         plan = self.mapper.build_plan(
@@ -43,31 +45,63 @@ class TestDependencyUpgradeDynamic(unittest.TestCase):
 
     def test_compare_dependencies_detects_upgrade(self):
         before = [
-            Dependency(group_id="org.json", artifact_id="json", version="20230227", resolved_version="20230227")
+            Dependency(group_id="org.json", artifact_id="json", version="20230227", resolved_version="20230227", module="root", scope="compile")
         ]
         after = [
-            Dependency(group_id="org.json", artifact_id="json", version="20231013", resolved_version="20231013", version_source="Declared in POM")
+            Dependency(group_id="org.json", artifact_id="json", version="20231013", resolved_version="20231013", version_source="Declared in POM", module="root", scope="compile")
         ]
         mappings = [{"groupId": "org.json", "artifactId": "json", "targetVersion": "20231013"}]
         
         upgrades = self.runner._compare_dependencies(before, after, mappings)
-        self.assertEqual(len(upgrades), 1)
-        self.assertEqual(upgrades[0]["groupId"], "org.json")
-        self.assertEqual(upgrades[0]["oldVersion"], "20230227")
-        self.assertEqual(upgrades[0]["newVersion"], "20231013")
-        self.assertEqual(upgrades[0]["status"], "UPGRADED")
+        upgrade_found = next((u for u in upgrades if u["status"] == "UPGRADED"), None)
+        self.assertIsNotNone(upgrade_found)
+        self.assertEqual(upgrade_found["groupId"], "org.json")
+        self.assertEqual(upgrade_found["sourceVersion"], "20230227")
+        self.assertEqual(upgrade_found["resolvedTargetVersion"], "20231013")
 
-    def test_compare_dependencies_unchanged(self):
+    def test_compare_dependencies_reports_every_dependency(self):
         before = [
-            Dependency(group_id="org.json", artifact_id="json", version="20231013", resolved_version="20231013")
+            Dependency(group_id="org.json", artifact_id="json", version="20231013", resolved_version="20231013", module="root", scope="compile"),
+            Dependency(group_id="com.google.guava", artifact_id="guava", version="32.0.0-jre", resolved_version="32.0.0-jre", module="root", scope="compile")
         ]
         after = [
-            Dependency(group_id="org.json", artifact_id="json", version="20231013", resolved_version="20231013")
+            Dependency(group_id="org.json", artifact_id="json", version="20231013", resolved_version="20231013", module="root", scope="compile"),
+            Dependency(group_id="com.google.guava", artifact_id="guava", version="32.0.0-jre", resolved_version="32.0.0-jre", module="root", scope="compile")
         ]
-        mappings = [{"groupId": "org.json", "artifactId": "json", "targetVersion": "20231013"}]
-        
-        upgrades = self.runner._compare_dependencies(before, after, mappings)
-        self.assertEqual(len(upgrades), 0)
+        # Mappings don't matter for "reporting every dependency"
+        results = self.runner._compare_dependencies(before, after, [])
+        self.assertEqual(len(results), 2)
+        # Verify both are UNCHANGED
+        for res in results:
+             self.assertEqual(res["status"], "UNCHANGED")
+             self.assertIn("reason", res)
+             self.assertNotEqual(res["reason"], "Same")
 
-if __name__ == "__main__":
-    unittest.main()
+    def test_compare_dependencies_detects_added_removed(self):
+        before = [
+            Dependency(group_id="org.json", artifact_id="json", version="20231013", resolved_version="20231013", module="root", scope="compile")
+        ]
+        after = [
+            Dependency(group_id="com.google.guava", artifact_id="guava", version="32.0.0-jre", resolved_version="32.0.0-jre", module="root", scope="compile")
+        ]
+        results = self.runner._compare_dependencies(before, after, [])
+        self.assertEqual(len(results), 2)
+        
+        status_map = {r["groupId"]: r["status"] for r in results}
+        self.assertEqual(status_map["org.json"], "REMOVED")
+        self.assertEqual(status_map["com.google.guava"], "ADDED")
+
+    def test_compare_dependencies_prevents_downgrade_strict(self):
+        before = [
+            Dependency(group_id="org.apache.commons", artifact_id="commons-lang3", version="3.20.0", resolved_version="3.20.0", module="root", scope="compile")
+        ]
+        # Even if 'after' somehow has 3.14.0 (e.g. from a previous failed run or incorrect engine)
+        after = [
+            Dependency(group_id="org.apache.commons", artifact_id="commons-lang3", version="3.14.0", resolved_version="3.14.0", module="root", scope="compile")
+        ]
+        mappings = [{"groupId": "org.apache.commons", "artifactId": "commons-lang3", "targetVersion": "3.14.0"}]
+        
+        results = self.runner._compare_dependencies(before, after, mappings)
+        res = next((r for r in results if r["artifactId"] == "commons-lang3"), None)
+        self.assertEqual(res["status"], "MANUAL_REVIEW")
+        self.assertIn("downgrade prevented", res["reason"])

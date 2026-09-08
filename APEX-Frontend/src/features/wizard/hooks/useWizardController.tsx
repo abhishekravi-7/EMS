@@ -493,8 +493,9 @@ const shouldHideGeneratedDiffPath = (filePath: string) => {
   ].some((segment) => normalized.includes(segment)) || normalized.startsWith(".javaapex-cache/") || normalized.startsWith(".scannerwork/");
 };
 
-const buildCodeChangesFromPreviewDiffs = (fileDiffs: PreviewFileDiff[]): CodeChangeEntry[] => {
+const buildCodeChangesFromPreviewDiffs = (fileDiffs: any[]): CodeChangeEntry[] => {
   return fileDiffs.flatMap((fileDiff) => {
+    if (!fileDiff.diff) return [];
     const diffLinesRaw = fileDiff.diff.split(/\r?\n/);
     const parsedDiffLines: CodeChangeEntry["diffLines"] = [];
     let oldLineNumber = 0;
