@@ -18,6 +18,11 @@ class DiscoveryRequest(BaseModel):
         alias="githubToken",
         description="Optional GitHub token override for private repositories.",
     )
+    force_refresh: bool = Field(
+        default=False,
+        alias="forceRefresh",
+        description="Whether to bypass cached discovery report and rerun analysis.",
+    )
 
     model_config = {"populate_by_name": True}
 
@@ -35,6 +40,9 @@ class DiscoveryDependency(BaseModel):
     group_id: str = Field(..., alias="groupId")
     artifact_id: str = Field(..., alias="artifactId")
     version: Optional[str] = None
+    declared_version: Optional[str] = Field(None, alias="declaredVersion")
+    resolved_version: Optional[str] = Field(None, alias="resolvedVersion")
+    version_source: Optional[str] = Field(None, alias="versionSource")
 
     model_config = {"populate_by_name": True}
 

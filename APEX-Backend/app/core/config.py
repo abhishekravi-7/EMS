@@ -102,27 +102,14 @@ class Settings(BaseSettings):
     git_clone_depth: int = 1
 
     # --- Migration engine ---------------------------------------------------
-    # Pinned migration-engine plugin + recipe versions (reproducible migrations).
-    migration_maven_plugin_version: str = Field(
-        default="6.43.0",
-        alias="MIGRATION_MAVEN_PLUGIN_VERSION",
-    )
-    migration_gradle_plugin_version: str = Field(
-        default="7.36.0",
-        alias="MIGRATION_GRADLE_PLUGIN_VERSION",
-    )
-    rewrite_migrate_java_version: str = "3.39.0"
-    rewrite_spring_version: str = "6.34.0"
-    rewrite_java_dependencies_version: str = "1.57.0"
-    rewrite_testing_frameworks_version: str = "3.41.0"
-    migration_recipe_catalog_path: Path = BACKEND_ROOT / "app" / "config" / "migration_recipe_catalog.json"
-    # Timeout (seconds) for a single migration-engine run (Maven/Gradle).
+    java_migration_engine_jar: Path = WORKSPACE_ROOT / "migration-engine" / "target" / "migration-engine-1.0.0-SNAPSHOT.jar"
+    migration_recipe_catalog_path: Path = BACKEND_ROOT / "app" / "config" / "migration_pack_catalog.json"
+    # Timeout (seconds) for a single migration-engine run.
     migration_timeout_seconds: float = 1800.0
     # Identity used for the migrated-repo commit.
     migration_commit_author_name: str = "Java APEX Migration Bot"
     migration_commit_author_email: str = "migration-bot@javaapex.local"
-    # Bounded diagnose-and-retry loop when the post-migration build fails
-    # (see build_failure_diagnostician.py). 0 disables retries.
+    # Bounded retry loop when the post-migration build fails. 0 disables retries.
     migration_max_retry_attempts: int = 2
 
     # --- Build validation (post-migration "does it build?" check) -----------

@@ -183,7 +183,7 @@ def _crawl_repo_files(repo_path: Path, version: str) -> list[chunker.KnowledgeCh
         if file_name.endswith(".java"):
             file_chunks = chunker.chunk_java_file(content, file_path_rel, version)
             chunks.extend(file_chunks)
-        elif file_name in ("pom.xml", "build.gradle") or file_name.endswith(".properties") or file_name.endswith(".yml") or file_name.endswith(".yaml"):
+        elif file_name in ("pom.xml", "build.gradle") or file_name.endswith((".properties", ".yml", ".yaml")):
             file_chunks = chunker.chunk_text_file(content, file_path_rel, version, chunk_type="configuration")
             chunks.extend(file_chunks)
         elif file_name.lower().startswith("readme") or file_name.endswith(".md"):

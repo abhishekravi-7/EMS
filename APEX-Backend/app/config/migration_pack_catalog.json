@@ -1,0 +1,62 @@
+{
+  "packs": [
+    {
+      "id": "java8-to-11",
+      "version": "1.0.0",
+      "conditions": {
+        "sourceJavaVersion": 8,
+        "targetJavaVersion": 11,
+        "buildSystem": "MAVEN"
+      },
+      "phases": [
+        {
+          "id": "BUILD_CONFIGURATION",
+          "rules": ["MAVEN-JAVA-RELEASE-11"]
+        }
+      ]
+    },
+    {
+      "id": "java11-to-17",
+      "version": "1.0.0",
+      "conditions": {
+        "sourceJavaVersion": 11,
+        "targetJavaVersion": 17,
+        "buildSystem": "MAVEN"
+      },
+      "phases": [
+        {
+          "id": "BUILD_CONFIGURATION",
+          "rules": ["MAVEN-JAVA-RELEASE-17"]
+        }
+      ]
+    },
+    {
+      "id": "java17-to-21",
+      "version": "1.0.0",
+      "conditions": {
+        "sourceJavaVersion": 17,
+        "targetJavaVersion": 21,
+        "buildSystem": "MAVEN"
+      },
+      "phases": [
+        {
+          "id": "BUILD_CONFIGURATION",
+          "rules": ["MAVEN-JAVA-RELEASE-21"]
+        }
+      ]
+    },
+    {
+      "id": "javax-to-jakarta",
+      "version": "1.0.0",
+      "conditions": {
+        "frameworks": ["jakarta-ee", "javax-ee"]
+      },
+      "phases": [
+        {
+          "id": "JAVA_API_MIGRATION",
+          "visitors": ["JAVAX-TO-JAKARTA"]
+        }
+      ]
+    }
+  ]
+}

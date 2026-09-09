@@ -106,9 +106,9 @@ class SaveMigrationConfigUseCase:
         destination["mode"] = mode
 
         if mode == MODE_CREATE_NEW_REPO:
-            # Migrated repos are published under the configured owner (JavaAPEX).
-            if not destination.get("targetOwner"):
-                destination["targetOwner"] = DEFAULT_TARGET_OWNER
+            # Migrated repos are published under the configured owner from settings.
+            if not destination.get("targetOwner") or destination.get("targetOwner") in ("JavaAPEX", "Javaapex"):
+                destination["targetOwner"] = settings.github_target_owner or DEFAULT_TARGET_OWNER
             if not destination.get("targetHost"):
                 destination["targetHost"] = DEFAULT_TARGET_HOST
             if not (destination.get("targetRepoName") or destination.get("targetRepoUrl")):

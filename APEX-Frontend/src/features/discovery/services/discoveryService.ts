@@ -21,6 +21,9 @@ export interface DiscoveryDependency {
   groupId: string;
   artifactId: string;
   version: string | null;
+  declaredVersion?: string | null;
+  resolvedVersion?: string | null;
+  versionSource?: string | null;
 }
 
 export interface DiscoveryProject {
@@ -37,6 +40,11 @@ export interface DiscoveryProject {
   dependencies?: DiscoveryDependency[];
   hasTests?: boolean;
   javaFileCount?: number;
+  javaFiles?: string[];
+  configFileCount?: number;
+  configFiles?: string[];
+  otherFileCount?: number;
+  otherFiles?: string[];
   totalFileCount?: number;
   defaultBranch?: string;
   buildWarning?: string | null;
@@ -53,6 +61,47 @@ export interface DiscoveryProject {
   springBootUpgradeEligible?: boolean;
   eligibilityReason?: string;
   springBootConversion?: SpringBootConversionEligibility;
+  frameworks?: string[];
+  discoveryStages?: {
+    repositoryMap?: {
+      status: string;
+      totalFileCount?: number;
+      javaFileCount?: number;
+      configFileCount?: number;
+      otherFileCount?: number;
+      multiModule?: boolean;
+      modules?: string[];
+      hasSrcMain?: boolean;
+      hasSrcTest?: boolean;
+      hasPomXml?: boolean;
+      hasBuildGradle?: boolean;
+      summary?: string;
+    };
+    dependencyGraph?: {
+      status: string;
+      buildTool?: string;
+      dependencyCount?: number;
+      buildPluginsCount?: number;
+      bomsCount?: number;
+      summary?: string;
+    };
+    previewSignals?: {
+      status: string;
+      currentJavaVersion?: string;
+      buildTool?: string;
+      frameworks?: string[];
+      hasTests?: boolean;
+      frontendDetected?: boolean;
+      summary?: string;
+    };
+    serviceFit?: {
+      status: string;
+      recommendedArchitecture?: string;
+      springBootConversionEligible?: boolean;
+      springBootUpgradeEligible?: boolean;
+      summary?: string;
+    };
+  };
 }
 
 export interface DiscoveryResponse {
@@ -131,6 +180,9 @@ export function mapDiscoveryToRepoAnalysis(response: DiscoveryResponse): RepoAna
     current_version: dep.version ?? "",
     new_version: null,
     status: "detected",
+    declaredVersion: dep.declaredVersion,
+    resolvedVersion: dep.resolvedVersion,
+    versionSource: dep.versionSource,
   }));
 
   return {
@@ -141,13 +193,23 @@ export function mapDiscoveryToRepoAnalysis(response: DiscoveryResponse): RepoAna
     build_tool: normalizeBuildTool(project.buildTool),
     java_version: javaVersion,
     java_version_from_build: javaVersion,
-    java_files: [],
-    java_file_count: project.javaFileCount,
+    spring_boot_version: project.springBootVersion ?? null,
+    java_files: project.javaFiles ?? (project as any).java_files ?? [],
+    java_file_count: project.javaFileCount ?? (project.javaFiles?.length || 0),
+    config_files: project.configFiles ?? (project as any).config_files ?? [],
+    config_file_count: project.configFileCount ?? (project.configFiles?.length || 0),
+    other_files: project.otherFiles ?? (project as any).other_files ?? [],
+    other_file_count: project.otherFileCount ?? (project.otherFiles?.length || 0),
     total_file_count: project.totalFileCount,
     has_tests: Boolean(project.hasTests),
     dependencies,
     api_endpoints: [],
-    detected_frameworks: [],
+    detected_frameworks: (project.frameworks ?? []).map((f) => ({
+      name: f,
+      path: project.detectedFiles?.pomXml ? "pom.xml" : "build.gradle",
+      type: "FRAMEWORK",
+    })),
+    frameworks: project.frameworks ?? [],
     structure: {
       has_pom_xml: Boolean(project.detectedFiles?.pomXml),
       has_build_gradle: Boolean(project.detectedFiles?.buildGradle),
@@ -156,6 +218,7 @@ export function mapDiscoveryToRepoAnalysis(response: DiscoveryResponse): RepoAna
       has_src_test: Boolean(project.sourceLayout?.hasSrcTest),
     },
     spring_boot_eligibility: springBootEligibility,
+    discovery_stages: project.discoveryStages,
   };
 }
 
@@ -164,10 +227,17 @@ export function mapDiscoveryToRepoAnalysis(response: DiscoveryResponse): RepoAna
  * the backend's clean status/message are always surfaced. Returns the mapped
  * RepoAnalysis (plus the raw discovery summary) for the Discovery UI.
  */
-export async function runDiscovery(jobId: string, githubToken?: string): Promise<DiscoveryAnalysisResult> {
+export async function runDiscovery(
+  jobId: string,
+  githubToken?: string,
+  forceRefresh?: boolean
+): Promise<DiscoveryAnalysisResult> {
   const response = await performRequest(`/v1/discovery/${encodeURIComponent(jobId)}`, {
     method: "POST",
-    body: { githubToken: githubToken?.trim() ? githubToken.trim() : undefined },
+    body: {
+      githubToken: githubToken?.trim() ? githubToken.trim() : undefined,
+      forceRefresh: Boolean(forceRefresh),
+    },
   });
 
   const data = (await response.json().catch(() => null)) as
@@ -482,3 +552,104 @@ export async function generateLocalProjectDocument(
     url: resolveDocumentUrl(response.url),
   };
 }
+
+export interface BrdMetadata {
+  job_id?: string;
+  filename: string;
+  file_type?: string;
+  size_bytes?: number;
+  size?: number;
+  uploaded_at?: string;
+  uploadedAt?: string;
+  status?: string;
+}
+
+export async function uploadBrdDocument(jobId: string, file: File): Promise<BrdMetadata> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  return requestJson<BrdMetadata>(
+    `/v1/discovery/${encodeURIComponent(jobId)}/brd`,
+    "Failed to upload BRD document",
+    {
+      method: "POST",
+      body: formData,
+    }
+  );
+}
+
+export const uploadBrd = uploadBrdDocument;
+
+export async function getBrdMetadata(jobId: string): Promise<BrdMetadata | null> {
+  try {
+    const res = await requestJson<BrdMetadata & { status?: string }>(
+      `/v1/discovery/${encodeURIComponent(jobId)}/brd`,
+      "Failed to fetch BRD metadata"
+    );
+    if (!res || res.status === "NONE") return null;
+    return res;
+  } catch {
+    return null;
+  }
+}
+
+export async function deleteBrdDocument(jobId: string): Promise<{ status: string; job_id: string }> {
+  return requestJson<{ status: string; job_id: string }>(
+    `/v1/discovery/${encodeURIComponent(jobId)}/brd`,
+    "Failed to remove BRD document",
+    {
+      method: "DELETE",
+    }
+  );
+}
+
+export async function getBrdDocumentBlob(jobId: string): Promise<{ blob: Blob; contentType: string }> {
+  const response = await performRequest(`/v1/discovery/${encodeURIComponent(jobId)}/brd/file`);
+  if (!response.ok) {
+    throw new Error("Failed to load BRD document for viewing.");
+  }
+  const contentType = response.headers.get("content-type") || "application/octet-stream";
+  const blob = await response.blob();
+  return { blob, contentType };
+}
+
+export interface DashboardStatsResponse {
+  repositoryId: string;
+  jobId: string;
+  repositoryName: string;
+  repositoryComposition: {
+    totalFiles: number;
+    javaFiles: number;
+    xmlConfigFiles: number;
+    otherFiles: number;
+  };
+  modernizationAnalysis: {
+    sourceJavaVersion: string;
+    javaVersionFeatureCount: number;
+    deprecatedApiCount?: number;
+    javaxMigrationCount?: number;
+    oldSpringUsageCount?: number;
+    securityVulnerabilityCount?: number;
+    codeSmellCount?: number;
+    legacyApiCount?: number;
+    migrationBlockerCount?: number;
+  };
+  migrationSummary: {
+    status: string;
+    totalItems: number;
+    autoMigratable: number;
+    manualChanges: number;
+    needsReview: number;
+    compilationErrors: number;
+    completed: number;
+  };
+  generatedAt: string;
+}
+
+export async function getDashboardStats(jobId: string): Promise<DashboardStatsResponse> {
+  return requestJson<DashboardStatsResponse>(
+    `/v1/discovery/${encodeURIComponent(jobId)}/dashboard-stats`,
+    "Failed to fetch dashboard statistics"
+  );
+}
+

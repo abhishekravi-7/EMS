@@ -294,7 +294,7 @@ class ExistingTestDetector:
     def _analyze_file(self, filepath: Path, rel_path: str):
         import re
         name = filepath.name.lower()
-        if not (name.endswith('.ts') or name.endswith('.js') or name.endswith('.java') or name.endswith('.py')):
+        if not name.endswith(('.ts', '.js', '.java', '.py')):
             return
             
         try:
@@ -312,7 +312,7 @@ class ExistingTestDetector:
         c_lower = content.lower()
 
         # JS/TS Test Detection (Jest, Playwright, Cypress, Vitest)
-        if name.endswith('.spec.ts') or name.endswith('.test.ts') or name.endswith('.spec.js') or name.endswith('.test.js'):
+        if name.endswith(('.spec.ts', '.test.ts', '.spec.js', '.test.js')):
             is_test = True
             language = "TypeScript" if name.endswith('.ts') else "JavaScript"
 
@@ -346,7 +346,7 @@ class ExistingTestDetector:
             
         # Java Test Detection (JUnit, TestNG)
         elif name.endswith('.java') and (
-            'test' in name or 'tests' in name or name.endswith('test.java') or name.endswith('it.java')
+            'test' in name or 'tests' in name or name.endswith(('test.java', 'it.java'))
             or any(ann in c_lower for ann in ["@test", "@parameterizedtest", "@repeatedtest", "@testfactory", "@testtemplate"])
         ):
             is_test = True
@@ -598,7 +598,7 @@ class ExistingTestRunnerService:
             if in_error_block:
                 if line.startswith("[INFO]") and ("-------------------" in line or "BUILD FAILURE" in line or "Total time" in line):
                     in_error_block = False
-                elif line.startswith("[ERROR]") or line.startswith("symbol:") or line.startswith("location:") or "cannot find symbol" in line or "package " in line or "syntax error" in line:
+                elif line.startswith(("[ERROR]", "symbol:", "location:")) or "cannot find symbol" in line or "package " in line or "syntax error" in line:
                     extracted.append(stripped)
                 elif stripped and not line.startswith("[INFO]"):
                     extracted.append(stripped)
@@ -1109,7 +1109,6 @@ class ExistingTestRunnerService:
 
         # Process matches in reverse order so character offsets remain valid
         for match in reversed(matches):
-            header_start = match.start(1)
             header_end = match.end(1)
             method_name = match.group(2)
             page_var = match.group(3)
@@ -1278,7 +1277,6 @@ class ExistingTestRunnerService:
                 break
             current = current.parent
 
-        wrapper_valid = False
         if wrapper_candidate and wrapper_dir:
             wrapper_jar = wrapper_dir / ".mvn" / "wrapper" / "maven-wrapper.jar"
             wrapper_props = wrapper_dir / ".mvn" / "wrapper" / "maven-wrapper.properties"
@@ -1307,7 +1305,6 @@ class ExistingTestRunnerService:
                 script_malformed = True
 
             if has_jar and has_props and not script_malformed:
-                wrapper_valid = True
                 self._log(job_id, "[MAVEN] Wrapper valid: true")
                 return "WRAPPER", wrapper_candidate, wrapper_dir
             else:
@@ -2197,10 +2194,8 @@ class ExistingTestRunnerService:
             self._log(job_id, f"Targeted execution: {len(test_selection)} tests selected.")
             # Map selection to internal names for filtering
             selected_names = {t["name"] for t in test_selection}
-            selected_classes = {t["suite"] for t in test_selection}
         else:
             selected_names = None
-            selected_classes = None
 
         self._log(job_id, f"Detected {total_tests} test cases across {len(test_cases)} test files")
         self._log(job_id, f"Framework(s): {framework_type}")

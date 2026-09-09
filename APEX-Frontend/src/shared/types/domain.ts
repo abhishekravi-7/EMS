@@ -25,6 +25,9 @@ export interface DependencyInfo {
   current_version: string;
   new_version: string | null;
   status: string;
+  declaredVersion?: string | null;
+  resolvedVersion?: string | null;
+  versionSource?: string | null;
 }
 
 export interface DetectedFramework {
@@ -64,12 +67,18 @@ export interface RepoAnalysis {
   // List of discovered Java source file paths
   java_files?: string[];
   java_file_count?: number;
+  config_files?: string[];
+  config_file_count?: number;
+  other_files?: string[];
+  other_file_count?: number;
   total_file_count?: number;
   jsp_files?: string[];
   jsf_files?: string[];
   jsp_count?: number;
   jsf_count?: number;
   detected_frameworks?: DetectedFramework[];
+  frameworks?: string[];
+  spring_boot_version?: string | null;
   has_tests: boolean;
   test_file_count?: number;
   unit_test_file_count?: number;
@@ -106,6 +115,7 @@ export interface RepoAnalysis {
   microservice_eligibility?: MicroserviceEligibilityResult;
   // backend-provided Spring -> Spring Boot conversion eligibility (Discovery stage)
   spring_boot_eligibility?: SpringBootConversionEligibility;
+  discovery_stages?: Record<string, any>;
   services?: Array<Record<string, unknown>>;
   classes?: Array<Record<string, unknown>>;
   ui_workflows?: Array<Record<string, unknown>>;

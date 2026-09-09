@@ -535,8 +535,6 @@ async def serve_existing_test_report_file(
         paths.original_repo_dir,
     ]
 
-    last_403: HTTPException | None = None
-
     for base_dir in candidate_bases:
         if not base_dir.exists():
             continue

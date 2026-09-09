@@ -158,6 +158,14 @@ class RunUnitTestSuiteUseCase:
                         error_log=error_logs,
                         target_class_name=analysis.target_class,
                     )
+                    if corrected_code:
+                        generated_code = corrected_code
+                        self._generator.write_generated_test_file(
+                            project_dir=project_dir,
+                            package_name=analysis.package_name,
+                            target_class_name=analysis.target_class,
+                            generated_code=generated_code,
+                        )
 
             return last_result or UnitTestSuiteResult()
         finally:
@@ -248,7 +256,7 @@ class RunUnitTestSuiteUseCase:
     def _generate_ast_fallback_test(self, analysis: UnitTestAnalysisResponse) -> str:
         package_name = analysis.package_name or "com.example"
         class_name = analysis.target_class
-        test_class_name = class_name if (class_name.endswith("Test") or class_name.endswith("Tests")) else f"{class_name}Test"
+        test_class_name = class_name if class_name.endswith(("Test", "Tests")) else f"{class_name}Test"
         var_name = class_name[0].lower() + class_name[1:] if class_name else "targetInstance"
 
         methods = analysis.covered_methods + analysis.uncovered_methods

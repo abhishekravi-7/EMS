@@ -140,7 +140,6 @@ class JavaASTAnalyzer:
         for m in public_methods:
             name = m["name"]
             params = m["params"]
-            ret = m["return_type"]
 
             # Happy Path Scenario
             scenarios.append(

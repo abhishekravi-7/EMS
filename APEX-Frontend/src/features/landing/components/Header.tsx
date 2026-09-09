@@ -77,7 +77,7 @@ export default function Header({ showBackButton = false, onBackToHome }: HeaderP
     <nav style={styles.navbar}>
       {/* Logo */}
       <div style={styles.logoContainer} onClick={onBackToHome}>
-        <img src={apexLogo} alt="Java APEX" style={{ height: 36, width: "auto", objectFit: "contain" }} />
+        <img src={apexLogo} alt="Java APEX" style={{ height: 48, width: "auto", objectFit: "contain" }} />
       </div>
 
       {/* Navigation Links */}

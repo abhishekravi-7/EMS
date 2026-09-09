@@ -195,13 +195,12 @@ async def rerun_migration_tests(
         )
 
     target_source = java_files[0]
-    rel_path = str(target_source.relative_to(project_dir))
 
     use_case = RunUnitTestSuiteUseCase()
     req = UnitTestGenerateAndRunRequest(
         job_id=job_id,
         project_dir=str(project_dir),
-        relative_source_path=str(java_files[0].relative_to(project_dir)),
+        relative_source_path=str(target_source.relative_to(project_dir)),
         build_tool="maven" if (project_dir / "pom.xml").exists() else "gradle",
         enable_validation_agent=True,
     )

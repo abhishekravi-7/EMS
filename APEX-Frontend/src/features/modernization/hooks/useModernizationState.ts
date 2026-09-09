@@ -10,6 +10,17 @@ export function useModernizationState(persistedFormState: PersistedWizardFormSta
   const [fixBusinessLogic, setFixBusinessLogic] = useState(
     persistedFormState?.fixBusinessLogic ?? true
   );
+  const [selectedTestSources, setSelectedTestSources] = useState<{
+    llm: boolean;
+    functionalDoc: boolean;
+    existing: boolean;
+  }>(
+    persistedFormState?.selectedTestSources ?? {
+      llm: true,
+      functionalDoc: false,
+      existing: true,
+    }
+  );
 
   return {
     runTests,
@@ -24,5 +35,7 @@ export function useModernizationState(persistedFormState: PersistedWizardFormSta
     setRunFossa,
     fixBusinessLogic,
     setFixBusinessLogic,
+    selectedTestSources,
+    setSelectedTestSources,
   };
 }

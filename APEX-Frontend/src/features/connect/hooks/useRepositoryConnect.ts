@@ -131,6 +131,8 @@ export function useRepositoryConnect({
   const [githubUserLogin] = useState("");
   const [isPrivateRepo, setIsPrivateRepo] = useState(persistedIsPrivateRepo ?? false);
   const [patToken, setPatToken] = useState(persistedPatToken ?? "");
+  const [repoVisibility, setRepoVisibility] = useState<"unknown" | "checking" | "public" | "private">("unknown");
+  const [isPatModeOpen, setIsPatModeOpen] = useState(false);
   const [jobId, setJobId] = useState<string>(() => {
     if (typeof window === "undefined") return "";
     return readPersistedValue(WIZARD_JOB_ID_KEY) || "";
@@ -139,6 +141,7 @@ export function useRepositoryConnect({
   // Caches the last successful connect (keyed by url+token) so validating and
   // then continuing does not create a duplicate migration job.
   const lastConnectRef = useRef<{ url: string; token: string; result: ConnectRepositoryResult } | null>(null);
+  const lastCheckedUrlRef = useRef<string>("");
   const [repoAccessCheckLoading, setRepoAccessCheckLoading] = useState(false);
   const [accessTokenValidationState, setAccessTokenValidationState] =
     useState<AccessTokenValidationState>("idle");
@@ -162,12 +165,90 @@ export function useRepositoryConnect({
     if (patToken.trim()) return patToken.trim();
     return "";
   }, [githubToken, patToken, showEnterpriseToken, isPrivateRepo]);
-  const shouldShowPatInput = showEnterpriseToken || isPrivateRepo;
+  const shouldShowPatInput = Boolean(showEnterpriseToken || isPatModeOpen);
+
+  const lastValidatedTokenRef = useRef<{ url: string; token: string; state: AccessTokenValidationState } | null>(null);
+  const activeValidationTokenRef = useRef<string>("");
 
   const resetAccessTokenValidationState = useCallback(() => {
     setAccessTokenValidationState("idle");
     setAccessTokenValidationMessage("");
+    lastValidatedTokenRef.current = null;
   }, []);
+
+  // Debounced repository visibility detection (only runs when the repository URL changes)
+  useEffect(() => {
+    if (!urlValidation.valid) {
+      lastCheckedUrlRef.current = "";
+      setRepoVisibility("unknown");
+      setRepoAccessCheckLoading(false);
+      return;
+    }
+
+    const normalizedUrl = urlValidation.normalizedUrl;
+
+    // Avoid re-running visibility check if this URL was already checked
+    if (lastCheckedUrlRef.current === normalizedUrl) {
+      return;
+    }
+
+    if (showEnterpriseToken) {
+      lastCheckedUrlRef.current = normalizedUrl;
+      setRepoVisibility("private");
+      setIsPrivateRepo(true);
+      setIsPatModeOpen(true);
+      setRepoAccessCheckLoading(false);
+      return;
+    }
+
+    lastCheckedUrlRef.current = normalizedUrl;
+    let cancelled = false;
+    setRepoAccessCheckLoading(true);
+    setRepoVisibility("checking");
+
+    const timer = setTimeout(() => {
+      getRepoVisibility(normalizedUrl)
+        .then((visibility) => {
+          if (cancelled) return;
+          if (visibility.requires_token || visibility.visibility === "private" || visibility.visibility === "private_or_inaccessible") {
+            setRepoVisibility("private");
+            setIsPrivateRepo(true);
+            setIsPatModeOpen(true);
+            setError("");
+            resetAccessTokenValidationState();
+          } else {
+            setRepoVisibility("public");
+            setIsPrivateRepo(false);
+            setIsPatModeOpen(false);
+            setError("");
+          }
+        })
+        .catch((err) => {
+          if (cancelled) return;
+          const isUrlError = err?.status === 400;
+          const message = err instanceof Error ? err.message : "";
+          const isPrivate = !isUrlError && isPrivateRepoAccessError(message);
+          if (isPrivate) {
+            setRepoVisibility("private");
+            setIsPrivateRepo(true);
+            setIsPatModeOpen(true);
+            resetAccessTokenValidationState();
+          } else {
+            setRepoVisibility("unknown");
+          }
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setRepoAccessCheckLoading(false);
+          }
+        });
+    }, 500);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [urlValidation.valid, urlValidation.normalizedUrl, showEnterpriseToken, setError, resetAccessTokenValidationState]);
 
   const persistConnectResult = (result: ConnectRepositoryResult, connectUrl: string, token: string) => {
     setJobId(result.jobId);
@@ -178,10 +259,12 @@ export function useRepositoryConnect({
     lastConnectRef.current = { url: connectUrl, token, result };
   };
 
-  const handleAccessTokenValidate = async () => {
+  const executeAccessTokenValidate = useCallback(async (tokenToValidate?: string) => {
     if (!urlValidation.valid) return;
 
-    if (!activeAccessToken) {
+    const token = (tokenToValidate !== undefined ? tokenToValidate : activeAccessToken).trim();
+
+    if (!token) {
       setAccessTokenValidationState("invalid");
       setAccessTokenValidationMessage(
         showEnterpriseToken
@@ -191,18 +274,29 @@ export function useRepositoryConnect({
       return;
     }
 
-    setAccessTokenValidationState("validating");
-    setAccessTokenValidationMessage("");
+    const normalizedUrl = urlValidation.normalizedUrl;
+    if (
+      lastValidatedTokenRef.current?.url === normalizedUrl &&
+      lastValidatedTokenRef.current?.token === token &&
+      lastValidatedTokenRef.current?.state === "valid"
+    ) {
+      return;
+    }
 
-    const connectUrl = buildConnectUrl(urlValidation.normalizedUrl);
+    activeValidationTokenRef.current = token;
+    setAccessTokenValidationState("validating");
+    setAccessTokenValidationMessage("Validating PAT...");
+
+    const connectUrl = buildConnectUrl(normalizedUrl);
 
     // github.com repositories are validated through the Connect backend, which
     // also creates the migration job (reused on Continue). Other refs keep the
     // existing visibility check.
     if (connectUrl) {
       try {
-        const result = await connectRepository(connectUrl, activeAccessToken);
-        persistConnectResult(result, connectUrl, activeAccessToken);
+        const result = await connectRepository(connectUrl, token);
+        if (activeValidationTokenRef.current !== token) return;
+        persistConnectResult(result, connectUrl, token);
         const detectedPrivateRepo = result.repoVisibility === "PRIVATE";
         setIsPrivateRepo(detectedPrivateRepo);
         setError("");
@@ -212,16 +306,20 @@ export function useRepositoryConnect({
             ? "Token validated. Private repository access looks ready."
             : "Token validated. Repository access looks ready."
         );
+        lastValidatedTokenRef.current = { url: normalizedUrl, token, state: "valid" };
       } catch (err) {
+        if (activeValidationTokenRef.current !== token) return;
         const message = err instanceof Error ? err.message : "We couldn't validate this token yet.";
         setAccessTokenValidationState("invalid");
         setAccessTokenValidationMessage(message);
+        lastValidatedTokenRef.current = { url: normalizedUrl, token, state: "invalid" };
       }
       return;
     }
 
     try {
-      const visibility = await getRepoVisibility(urlValidation.normalizedUrl, activeAccessToken);
+      const visibility = await getRepoVisibility(normalizedUrl, token);
+      if (activeValidationTokenRef.current !== token) return;
       const detectedPrivateRepo =
         visibility.requires_token ||
         visibility.visibility === "private" ||
@@ -237,7 +335,9 @@ export function useRepositoryConnect({
             ? "Token validated. Private repository access looks ready."
             : "Token validated. Repository access looks ready."
       );
+      lastValidatedTokenRef.current = { url: normalizedUrl, token, state: "valid" };
     } catch (err) {
+      if (activeValidationTokenRef.current !== token) return;
       const message = err instanceof Error ? err.message : "We couldn't validate this token yet.";
       setAccessTokenValidationState("invalid");
       setAccessTokenValidationMessage(
@@ -245,8 +345,56 @@ export function useRepositoryConnect({
           ? "We couldn't verify private repository access. Check that the PAT is correct and includes repo scope."
           : message
       );
+      lastValidatedTokenRef.current = { url: normalizedUrl, token, state: "invalid" };
     }
-  };
+  }, [
+    activeAccessToken,
+    urlValidation.valid,
+    urlValidation.normalizedUrl,
+    showEnterpriseToken,
+    setError,
+  ]);
+
+  const handleAccessTokenValidate = useCallback(async () => {
+    await executeAccessTokenValidate(activeAccessToken);
+  }, [executeAccessTokenValidate, activeAccessToken]);
+
+  // Debounced automatic PAT validation when user enters or edits a PAT
+  useEffect(() => {
+    if (!urlValidation.valid || !shouldShowPatInput || !activeAccessToken) {
+      if (!activeAccessToken) {
+        lastValidatedTokenRef.current = null;
+        activeValidationTokenRef.current = "";
+      }
+      return;
+    }
+
+    const currentTokenVal = activeAccessToken;
+    const currentUrl = urlValidation.normalizedUrl;
+
+    if (
+      lastValidatedTokenRef.current?.url === currentUrl &&
+      lastValidatedTokenRef.current?.token === currentTokenVal &&
+      lastValidatedTokenRef.current?.state === "valid"
+    ) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      void executeAccessTokenValidate(currentTokenVal);
+    }, 600);
+
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [
+    activeAccessToken,
+    urlValidation.valid,
+    urlValidation.normalizedUrl,
+    shouldShowPatInput,
+    executeAccessTokenValidate,
+  ]);
+
 
   const handleRepositoryContinue = async () => {
     if (!urlValidation.valid) return;
@@ -261,10 +409,11 @@ export function useRepositoryConnect({
       return;
     }
 
-    if (isPrivateRepo && !token) {
+    if ((isPrivateRepo || repoVisibility === "private") && !token) {
       setError("");
+      setIsPatModeOpen(true);
       setAccessTokenValidationState("invalid");
-      setAccessTokenValidationMessage("Enter a GitHub Personal Access Token with repo scope to analyze this private repository.");
+      setAccessTokenValidationMessage("This is a private repository. Please provide a GitHub PAT to continue.");
       return;
     }
 
@@ -272,17 +421,19 @@ export function useRepositoryConnect({
     // via the Connect backend before advancing. Navigation only happens on
     // success. Reuse a previously validated connect to avoid duplicate jobs.
     const connectUrl = buildConnectUrl(normalizedUrl);
-    if (connectUrl) {
-      const cached = lastConnectRef.current;
-      const alreadyConnected = cached?.url === connectUrl && cached?.token === (token || "");
+    const cached = lastConnectRef.current;
+    const alreadyConnected = Boolean(connectUrl && cached?.url === connectUrl && cached?.token === (token || ""));
 
+    if (connectUrl) {
       if (!alreadyConnected) {
         setConnecting(true);
         setError("");
         try {
           const result = await connectRepository(connectUrl, token || undefined);
           persistConnectResult(result, connectUrl, token || "");
-          setIsPrivateRepo(result.repoVisibility === "PRIVATE");
+          const isPriv = result.repoVisibility === "PRIVATE";
+          setIsPrivateRepo(isPriv);
+          setRepoVisibility(isPriv ? "private" : "public");
         } catch (err) {
           setConnecting(false);
           const accessStatus =
@@ -293,10 +444,12 @@ export function useRepositoryConnect({
           // Private/denied/not-found: reveal the PAT field so the user can retry
           // with a token and surface the clean backend message.
           if (accessStatus === "ACCESS_DENIED" || accessStatus === "NOT_FOUND") {
+            setRepoVisibility("private");
             setIsPrivateRepo(true);
+            setIsPatModeOpen(true);
             resetAccessTokenValidationState();
             setAccessTokenValidationState("invalid");
-            setAccessTokenValidationMessage(message);
+            setAccessTokenValidationMessage(message || "This is a private repository. Please provide a GitHub PAT to continue.");
           } else {
             setError(message);
           }
@@ -306,7 +459,9 @@ export function useRepositoryConnect({
       }
     }
 
-    resetRepositorySelectionState();
+    if (!alreadyConnected) {
+      resetRepositorySelectionState();
+    }
     setSelectedRepo({
       name: normalizedUrl.split("/").pop() || "",
       full_name: normalizedUrl
@@ -530,6 +685,10 @@ export function useRepositoryConnect({
     githubUserLogin,
     isPrivateRepo,
     setIsPrivateRepo,
+    repoVisibility,
+    setRepoVisibility,
+    isPatModeOpen,
+    setIsPatModeOpen,
     patToken,
     setPatToken,
     jobId,

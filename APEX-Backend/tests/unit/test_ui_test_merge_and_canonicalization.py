@@ -147,7 +147,6 @@ def test_ui_test_type_detection_for_playwright_page_parameters():
     """Verify that tests with Playwright Page parameter or Playwright keywords are classified as UI."""
     # NavigateTest tests with Page parameter
     for m in ["navigateToPage(Page)", "navigateToPage2(Page)", "navigateToPage3(Page)"]:
-        tc = {"test_name": m, "name": m}
         raw_name_lower = m.lower()
         if any(k in raw_name_lower for k in ["(page", "(webdriver", "(browser", "playwright", "selenium"]):
             assigned_type = "UI"
