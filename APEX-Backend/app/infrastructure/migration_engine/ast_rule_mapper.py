@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 from app.core.config import settings
+from app.shared import file_utils
 
 @dataclass(frozen=True)
 class AstMigrationPlan:
@@ -115,7 +116,7 @@ class AstRuleMapper:
 
         return AstMigrationPlan(
             planId="PLAN-" + project_root.name,
-            projectRoot=str(project_root),
+            projectRoot=file_utils.to_plain_path_str(project_root),
             sourceJavaVersion=source_major,
             targetJavaVersion=target_major,
             buildSystem=build_tool,

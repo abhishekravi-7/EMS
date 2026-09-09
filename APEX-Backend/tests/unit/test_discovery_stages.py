@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import MagicMock
 from app.application.use_cases.run_discovery import RunDiscoveryUseCase, STATUS_COMPLETED
 from app.infrastructure.analyzers.project_analyzer import ProjectAnalysis
@@ -38,7 +39,7 @@ def test_build_stages_grounds_in_real_project_data():
         has_package_json=False,
         has_src_main=True,
         has_src_test=True,
-        has_tests=True,
+        has_tests=True, project_root=Path("."), api_endpoints=[],
         java_files=["src/main/java/com/example/DemoApplication.java"],
         config_files=["pom.xml", "src/main/resources/application.properties"],
         other_files=["README.md"],
@@ -132,7 +133,7 @@ def test_force_refresh_reruns_fresh_analysis(tmp_path):
         has_package_json=False,
         has_src_main=True,
         has_src_test=True,
-        has_tests=True,
+        has_tests=True, project_root=Path("."), api_endpoints=[],
         java_files=["src/main/java/com/example/App.java"],
         config_files=["pom.xml"],
         other_files=[],

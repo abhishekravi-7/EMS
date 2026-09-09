@@ -113,12 +113,18 @@
 }
 
 
-/* 4 KPI Cards Grid */
+/* 5 KPI Cards Grid */
 .discovery-kpi-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 14px;
   margin-bottom: 20px;
+}
+
+@media (max-width: 1200px) {
+  .discovery-kpi-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
 }
 
 @media (max-width: 1024px) {
@@ -999,6 +1005,15 @@
   box-sizing: border-box;
   width: 100%;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+/* API Endpoints Table Styles */
+.discovery-endpoints-table th {
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.discovery-endpoint-row:hover {
+  background-color: #f8fafc;
 }
 
 /* Bottom Row (3 Cards: Frameworks, Structure Summary, Technical Spec) */

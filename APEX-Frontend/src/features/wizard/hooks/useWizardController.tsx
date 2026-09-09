@@ -1202,6 +1202,7 @@ export function useWizardController() {
     resetTargetRepoNaming,
     applyDetectedSourceVersion,
   } = strategyState;
+  const fetchedVersionRecommendationKeyRef = useRef<string>("");
   const fetchedRiskExplanationKeyRef = useRef<string>("");
   const fetchedDependencyAnalysisKeyRef = useRef<string>("");
   const modernizationState = useModernizationState(persistedFormState);
@@ -4354,7 +4355,13 @@ export function useWizardController() {
       return;
     }
 
+    const recommendationKey = `${repoAnalysis.java_version || repoAnalysis.java_version_from_build || ""}_${repoAnalysis.build_tool || ""}_${detectedSourceVersionForTargets}_${repoAnalysis.dependencies?.length || 0}_${repoAnalysis.has_tests}_${riskLevel || "unknown"}`;
+    if (fetchedVersionRecommendationKeyRef.current === recommendationKey && versionRecommendation) {
+      return;
+    }
+
     let cancelled = false;
+    fetchedVersionRecommendationKeyRef.current = recommendationKey;
     setVersionRecommendationLoading(true);
     setVersionRecommendationError("");
 

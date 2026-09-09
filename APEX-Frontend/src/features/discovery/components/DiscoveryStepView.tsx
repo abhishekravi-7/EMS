@@ -25,6 +25,7 @@ import {
   FaShieldAlt,
   FaWrench,
   FaVial,
+  FaLink,
 } from "react-icons/fa";
 import { Button } from "@/shared/components/ui";
 import type { RepoAnalysis, RepoFile, RepoInfo } from "@/shared/types/domain";
@@ -562,6 +563,8 @@ export function DiscoveryStepView({
   const xmlFiles = repoAnalysis?.config_file_count ?? repoAnalysis?.config_files?.length ?? configFileList.length;
   const othersFiles = repoAnalysis?.other_file_count ?? repoAnalysis?.other_files?.length ?? otherFileList.length;
   const totalFiles = repoAnalysis?.total_file_count ?? (javaFiles + xmlFiles + othersFiles);
+  const apiEndpoints = repoAnalysis?.api_endpoints || [];
+  const apiEndpointCount = apiEndpoints.length;
 
   const extractFileName = (filepath: string) => {
     const parts = filepath.replace(/\\/g, "/").split("/");
@@ -609,23 +612,25 @@ export function DiscoveryStepView({
   // Aggregate all discovered repository file paths
   const allDiscoveredPaths: string[] = useMemo(() => {
     const pathSet = new Set<string>();
-    (repoAnalysis?.java_files || []).forEach((f) => pathSet.add(f));
-    (repoAnalysis?.config_files || []).forEach((f) => pathSet.add(f));
-    (repoAnalysis?.other_files || []).forEach((f) => pathSet.add(f));
-    (repoAnalysis?.all_files || []).forEach((f) => {
-      if (typeof f === "string") pathSet.add(f);
-      else if (f?.path) pathSet.add(f.path);
-    });
-    (repoFiles || []).forEach((f) => {
-      if (f.path) pathSet.add(f.path);
-    });
-    if (pathSet.size === 0) {
-      [...javaFileList, ...configFileList, ...otherFileList].forEach((f) => pathSet.add(f));
+    const addPath = (p: string | { path?: string } | undefined) => {
+      if (!p) return;
+      const raw = typeof p === "string" ? p : p.path;
+      if (raw) {
+        const normalized = raw.replace(/\\/g, "/").replace(/^\/+/, "");
+        if (normalized) pathSet.add(normalized);
+      }
+    };
 
+    (repoAnalysis?.java_files || []).forEach(addPath);
+    (repoAnalysis?.config_files || []).forEach(addPath);
+    (repoAnalysis?.other_files || []).forEach(addPath);
+    (repoAnalysis?.all_files || []).forEach(addPath);
+    (repoFiles || []).forEach(addPath);
+
+    if (pathSet.size === 0) {
+      [...javaFileList, ...configFileList, ...otherFileList].forEach(addPath);
     }
-    return Array.from(pathSet)
-      .map((p) => p.replace(/\\/g, "/").replace(/^\/+/, ""))
-      .filter(Boolean);
+    return Array.from(pathSet);
   }, [repoAnalysis, repoFiles, javaFileList, configFileList, otherFileList]);
 
   interface DynamicTreeNode {
@@ -642,18 +647,25 @@ export function DiscoveryStepView({
     const rootNodes: DynamicTreeNode[] = [];
 
     const findOrCreateDir = (list: DynamicTreeNode[], name: string, currentPath: string): DynamicTreeNode => {
-      let dir = list.find((item) => item.isDir && item.name === name);
-      if (!dir) {
-        dir = {
-          id: currentPath,
-          name,
-          path: currentPath,
-          isDir: true,
-          children: [],
-          itemCount: 0,
-        };
-        list.push(dir);
+      const node = list.find((item) => item.name === name);
+      if (node) {
+        if (!node.isDir) {
+          // Collision: file exists where we need a directory.
+          // In a valid repo this shouldn't happen, but we handle it by promoting to dir.
+          node.isDir = true;
+          node.children = node.children || [];
+        }
+        return node;
       }
+      const dir: DynamicTreeNode = {
+        id: currentPath,
+        name,
+        path: currentPath,
+        isDir: true,
+        children: [],
+        itemCount: 0,
+      };
+      list.push(dir);
       return dir;
     };
 
@@ -670,14 +682,17 @@ export function DiscoveryStepView({
         const isLast = i === parts.length - 1;
 
         if (isLast) {
-          currentList.push({
-            id: accumulatedPath,
-            name: part,
-            path: accumulatedPath,
-            isDir: false,
-            children: [],
-            itemCount: 1,
-          });
+          // Check if this node already exists (as either file or dir)
+          if (!currentList.some((item) => item.name === part)) {
+            currentList.push({
+              id: accumulatedPath,
+              name: part,
+              path: accumulatedPath,
+              isDir: false,
+              children: [],
+              itemCount: 1,
+            });
+          }
         } else {
           const dirNode = findOrCreateDir(currentList, part, accumulatedPath);
           currentList = dirNode.children;
@@ -1364,6 +1379,109 @@ export function DiscoveryStepView({
                 </div>
               )}
             </div>
+
+            {/* Card 5: API Endpoints */}
+            <div
+              className={`discovery-kpi-card ${activeKpi === "endpoints" ? "has-popover-open" : ""}`}
+              onMouseEnter={() => setHoveredKpi("endpoints")}
+              onMouseLeave={() => setHoveredKpi(null)}
+              onClick={(e) => {
+                e.stopPropagation();
+                setPinnedKpi((prev) => (prev === "endpoints" ? null : "endpoints"));
+              }}
+            >
+              <div className="discovery-kpi-top">
+                <div className="discovery-kpi-icon" style={{ background: "#ecfdf5", color: "#059669" }}>
+                  <FaLink />
+                </div>
+                <div className="discovery-kpi-number-wrap">
+                  <span className="discovery-kpi-number">{apiEndpointCount}</span>
+                </div>
+              </div>
+              <div className="discovery-kpi-bottom">
+                <span className="discovery-kpi-label">API Endpoints</span>
+                <span className="discovery-kpi-sub">Detected repository endpoints</span>
+              </div>
+
+              {/* Popover */}
+              {activeKpi === "endpoints" && (
+                <div
+                  className="discovery-kpi-popover align-right"
+                  onClick={(e) => e.stopPropagation()}
+                  onMouseEnter={() => setHoveredKpi("endpoints")}
+                  onMouseLeave={() => setHoveredKpi(null)}
+                >
+                  <div className="discovery-kpi-popover-header">
+                    <div className="discovery-kpi-popover-title-wrap">
+                      <FaLink color="#059669" size={14} />
+                      <span className="discovery-kpi-popover-title">REST API Endpoints</span>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span className="discovery-kpi-popover-badge" style={{ background: "#ecfdf5", color: "#059669" }}>
+                        {apiEndpointCount} endpoints
+                      </span>
+                      {pinnedKpi === "endpoints" && (
+                        <button
+                          className="discovery-kpi-popover-close"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPinnedKpi(null);
+                            setHoveredKpi(null);
+                          }}
+                          title="Close"
+                        >
+                          <FaTimes size={10} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="discovery-kpi-file-list">
+                    {apiEndpoints.length > 0 ? (
+                      apiEndpoints.slice(0, 5).map((ep, idx) => (
+                        <div
+                          key={ep.id || idx}
+                          className="discovery-kpi-file-item"
+                          onClick={(e) => ep.sourceFile && handleSelectPopoverFile(ep.sourceFile, e)}
+                          title={ep.sourceFile ? `Click to view ${extractFileName(ep.sourceFile)}` : undefined}
+                        >
+                          <div className="discovery-kpi-file-left">
+                            <span className="discovery-kpi-file-icon">
+                              <span style={{
+                                fontSize: '10px',
+                                fontWeight: 800,
+                                color: ep.httpMethod === 'GET' ? '#0ea5e9' : ep.httpMethod === 'POST' ? '#10b981' : '#6366f1'
+                              }}>
+                                {ep.httpMethod}
+                              </span>
+                            </span>
+                            <div className="discovery-kpi-file-info">
+                              <span className="discovery-kpi-file-name" style={{ fontFamily: 'monospace' }}>{ep.path}</span>
+                              <span className="discovery-kpi-file-path">{ep.controller || ep.handlerMethod}</span>
+                            </div>
+                          </div>
+                          <span
+                            className="discovery-kpi-file-tag"
+                            style={{ color: "#059669", background: "#ecfdf5" }}
+                          >
+                            {ep.framework === 'SPRING_MVC' ? 'SPRING' : ep.framework || 'API'}
+                          </span>
+                        </div>
+                      ))
+                    ) : (
+                      <div style={{ padding: '20px 0', textAlign: 'center', color: '#94a3b8', fontSize: '12px' }}>
+                        No endpoints detected.
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="discovery-kpi-popover-footer">
+                    <span>{apiEndpointCount > 5 ? `+ ${apiEndpointCount - 5} more endpoints` : 'Detected REST routes'}</span>
+                    <span style={{ color: "#94a3b8" }}>{pinnedKpi === "endpoints" ? "Pinned" : "Click to pin"}</span>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Row 2: Repository Files (Full Width) */}
@@ -1525,6 +1643,87 @@ export function DiscoveryStepView({
                         </pre>
                       )}
                     </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* API Endpoints Section (Full Width) */}
+          <div className="discovery-files-row" style={{ marginTop: '24px' }}>
+            <div className="discovery-files-card">
+              <div className="discovery-panel-header">
+                <div className="discovery-panel-title-wrap">
+                  <div className="discovery-panel-icon" style={{ background: "#ecfdf5", color: "#059669" }}>
+                    <FaLink />
+                  </div>
+                  <div className="discovery-panel-titles">
+                    <h3>API Endpoints</h3>
+                    <p>Detected REST API routes and handlers</p>
+                  </div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span className="discovery-tree-badge-items">
+                    {repoAnalysis?.api_endpoints?.length || 0} {repoAnalysis?.api_endpoints?.length === 1 ? "endpoint" : "endpoints"}
+                  </span>
+                </div>
+              </div>
+
+              <div className="discovery-endpoints-container" style={{ padding: '0 20px 20px', overflowX: 'auto' }}>
+                {repoAnalysis?.api_endpoints && repoAnalysis.api_endpoints.length > 0 ? (
+                  <table className="discovery-endpoints-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid #e2e8f0', textAlign: 'left' }}>
+                        <th style={{ padding: '12px 8px', color: '#64748b', fontWeight: 600 }}>Method</th>
+                        <th style={{ padding: '12px 8px', color: '#64748b', fontWeight: 600 }}>Path</th>
+                        <th style={{ padding: '12px 8px', color: '#64748b', fontWeight: 600 }}>Controller / Resource</th>
+                        <th style={{ padding: '12px 8px', color: '#64748b', fontWeight: 600 }}>Handler Method</th>
+                        <th style={{ padding: '12px 8px', color: '#64748b', fontWeight: 600 }}>Module</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {repoAnalysis.api_endpoints.map((ep) => {
+                        const methodColor = ep.httpMethod === 'GET' ? '#0ea5e9' : ep.httpMethod === 'POST' ? '#10b981' : ep.httpMethod === 'PUT' ? '#f59e0b' : ep.httpMethod === 'DELETE' ? '#ef4444' : '#6366f1';
+                        const methodBg = ep.httpMethod === 'GET' ? '#f0f9ff' : ep.httpMethod === 'POST' ? '#ecfdf5' : ep.httpMethod === 'PUT' ? '#fffbeb' : ep.httpMethod === 'DELETE' ? '#fef2f2' : '#f5f3ff';
+
+                        return (
+                          <tr key={ep.id} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }} className="discovery-endpoint-row" onClick={() => ep.sourceFile && void handleSelectFile({ name: extractFileName(ep.sourceFile), path: ep.sourceFile })}>
+                            <td style={{ padding: '12px 8px' }}>
+                              <span style={{
+                                display: 'inline-block',
+                                padding: '2px 8px',
+                                borderRadius: '4px',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                backgroundColor: methodBg,
+                                color: methodColor,
+                                border: `1px solid ${methodColor}20`
+                              }}>
+                                {ep.httpMethod}
+                              </span>
+                            </td>
+                            <td style={{ padding: '12px 8px', fontWeight: 600, color: '#0f172a', fontFamily: 'monospace' }}>{ep.path}</td>
+                            <td style={{ padding: '12px 8px', color: '#475569' }}>
+                               <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                 <span style={{ fontWeight: 500 }}>{ep.controller || 'Unknown'}</span>
+                                 <span style={{ fontSize: '11px', color: '#94a3b8' }}>{ep.sourceFile || ''}</span>
+                               </div>
+                            </td>
+                            <td style={{ padding: '12px 8px', color: '#475569', fontFamily: 'monospace' }}>{ep.handlerMethod || ''}</td>
+                            <td style={{ padding: '12px 8px' }}>
+                               {ep.module ? (
+                                 <span style={{ padding: '2px 6px', background: '#f1f5f9', borderRadius: '4px', fontSize: '11px', color: '#475569' }}>{ep.module}</span>
+                               ) : '-'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                ) : (
+                  <div style={{ padding: '40px 0', textAlign: 'center', color: '#64748b' }}>
+                    <FaLink size={24} style={{ opacity: 0.2, marginBottom: '12px' }} />
+                    <p>No API endpoints were detected in this repository.</p>
                   </div>
                 )}
               </div>

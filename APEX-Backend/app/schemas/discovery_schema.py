@@ -98,6 +98,7 @@ class DiscoveryProject(BaseModel):
     spring_boot_conversion_eligible: bool = Field(..., alias="springBootConversionEligible")
     spring_boot_upgrade_eligible: bool = Field(..., alias="springBootUpgradeEligible")
     eligibility_reason: str = Field(..., alias="eligibilityReason")
+    api_endpoints: list[dict[str, Any]] = Field(default_factory=list, alias="apiEndpoints")
     spring_boot_conversion: Optional[DiscoverySpringBootConversion] = Field(
         None, alias="springBootConversion"
     )

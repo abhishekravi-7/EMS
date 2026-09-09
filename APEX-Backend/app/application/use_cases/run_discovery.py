@@ -203,6 +203,7 @@ class RunDiscoveryUseCase:
         )
         fw_text = f", {', '.join(analysis.frameworks[:3])}" if analysis.frameworks else ""
         test_text = "automated tests present" if analysis.has_tests else "no automated tests"
+        api_text = f", {len(analysis.api_endpoints)} endpoints" if analysis.api_endpoints else ""
 
         arch_type = (
             "Microservices"
@@ -247,8 +248,9 @@ class RunDiscoveryUseCase:
                 "springBootVersion": analysis.spring_boot_version,
                 "springFrameworkVersion": analysis.spring_framework_version,
                 "hasTests": analysis.has_tests,
+                "apiEndpointCount": len(analysis.api_endpoints),
                 "frontendDetected": analysis.frontend.detected,
-                "summary": f"Identified Java {analysis.current_java_version}, {analysis.build_tool}{fw_text}, and {test_text}.",
+                "summary": f"Identified Java {analysis.current_java_version}, {analysis.build_tool}{fw_text}, {test_text}{api_text}.",
             },
             "serviceFit": {
                 "status": "COMPLETE",
@@ -291,6 +293,7 @@ class RunDiscoveryUseCase:
             "hasTests": analysis.has_tests,
             "javaFileCount": len(analysis.java_files),
             "javaFiles": list(analysis.java_files)[:200],
+            "apiEndpoints": analysis.api_endpoints,
             "configFileCount": len(analysis.config_files),
             "configFiles": list(analysis.config_files)[:100],
             "otherFileCount": len(analysis.other_files),
@@ -399,6 +402,7 @@ class RunDiscoveryUseCase:
                 "buildPlugins": report.get("buildPlugins", []),
                 "bomVersions": report.get("bomVersions", []),
                 "frameworks": report.get("frameworks", []),
+                "apiEndpoints": report.get("apiEndpoints", []),
                 "hasTests": bool(report.get("hasTests", False)),
                 "javaFileCount": report.get("javaFileCount") or len(java_files),
                 "javaFiles": java_files,
@@ -469,6 +473,7 @@ class RunDiscoveryUseCase:
                 "buildPlugins": [plugin.to_dict() for plugin in analysis.build_plugins],
                 "bomVersions": [bom.to_dict() for bom in analysis.bom_versions],
                 "frameworks": analysis.frameworks,
+                "apiEndpoints": analysis.api_endpoints,
                 "hasTests": analysis.has_tests,
                 "javaFileCount": len(analysis.java_files),
                 "javaFiles": list(analysis.java_files)[:200],
