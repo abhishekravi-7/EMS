@@ -1044,12 +1044,12 @@ export function DiscoveryStepView({
                       .slice(0, 2)
                       .concat(javaFileList.slice(0, 2))
                       .concat(otherFileList.slice(0, 2))
-                      .map((file) => {
+                      .map((file, idx) => {
                         const name = extractFileName(file);
                         const badge = getFileBadge(name);
                         return (
                           <div
-                            key={file}
+                            key={`kpi-total-${file}-${idx}`}
                             className="discovery-kpi-file-item"
                             onClick={(e) => handleSelectPopoverFile(file, e)}
                             title={`Click to preview ${name}`}
@@ -1139,11 +1139,11 @@ export function DiscoveryStepView({
                   </div>
 
                   <div className="discovery-kpi-file-list">
-                    {javaFileList.map((file) => {
+                    {javaFileList.map((file, idx) => {
                       const name = extractFileName(file);
                       return (
                         <div
-                          key={file}
+                          key={`kpi-java-${file}-${idx}`}
                           className="discovery-kpi-file-item"
                           onClick={(e) => handleSelectPopoverFile(file, e)}
                           title={`Click to preview ${name}`}
