@@ -11,19 +11,25 @@ on:
   pull_request:
     branches:
       - dev
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+  # Optional manual execution
+  workflow_dispatch:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: integration-ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+
 jobs:
 
-  # ============================================================
-  # FRONTEND CI
-  # ============================================================
   frontend:
     name: Frontend quality gates
     runs-on: ubuntu-latest
@@ -36,8 +42,10 @@ jobs:
         working-directory: ./APEX-Frontend
 
     steps:
+
       - name: Checkout repository
         uses: actions/checkout@v4
+
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -53,39 +61,62 @@ jobs:
         id: npm_audit
         continue-on-error: true
         run: |
-          npm audit --audit-level=moderate --json > npm-audit-report.json
+          npm audit \
+            --audit-level=moderate \
+            --json \
+            > npm-audit-report.json
+
 
       - name: ESLint
         id: eslint
         continue-on-error: true
         run: |
           set -o pipefail
-          npm run lint 2>&1 | tee eslint.log
+
+          npm run lint \
+            2>&1 | tee eslint.log
 
       - name: TypeScript check
         id: typecheck
         continue-on-error: true
         run: |
           set -o pipefail
-          npm run typecheck 2>&1 | tee typecheck.log
+
+          npm run typecheck \
+            2>&1 | tee typecheck.log
 
       - name: Frontend unit tests
         id: unit_tests
         continue-on-error: true
         run: |
-          if find . -type f \( -name "*.test.*" -o -name "*.spec.*" \) | grep -q .; then
+          if find . \
+            -type f \
+            \( -name "*.test.*" -o -name "*.spec.*" \) \
+            | grep -q .
+          then
+
             set -o pipefail
-            npm test -- --run 2>&1 | tee unit-tests.log
+
+            npm test -- --run \
+              2>&1 | tee unit-tests.log
+
           else
-            echo "No frontend unit tests detected; skipping." | tee unit-tests.log
+
+            echo "No frontend unit tests detected; skipping." \
+              | tee unit-tests.log
+
           fi
+
 
       - name: Vite production build
         id: vite_build
         continue-on-error: true
         run: |
           set -o pipefail
-          npm run build 2>&1 | tee vite-build.log
+
+          npm run build \
+            2>&1 | tee vite-build.log
+
 
       - name: Upload frontend reports
         if: always()
@@ -131,7 +162,18 @@ jobs:
 
           echo "checks=$checks" >> "$GITHUB_OUTPUT"
 
-          echo "Frontend failed checks: $checks"
+          echo "=========================================="
+          echo "FRONTEND CHECK RESULTS"
+          echo "=========================================="
+
+          echo "npm audit       : ${{ steps.npm_audit.outcome }}"
+          echo "ESLint          : ${{ steps.eslint.outcome }}"
+          echo "TypeScript      : ${{ steps.typecheck.outcome }}"
+          echo "Unit Tests      : ${{ steps.unit_tests.outcome }}"
+          echo "Vite Build      : ${{ steps.vite_build.outcome }}"
+
+          echo ""
+          echo "Failed checks: ${checks:-None}"
 
       - name: Fail frontend job if any check failed
         if: always()
@@ -140,17 +182,17 @@ jobs:
           failed="${{ steps.collect_failures.outputs.checks }}"
 
           if [[ -n "$failed" ]]; then
+
             echo "Frontend quality gates failed:"
             echo "$failed"
+
             exit 1
+
           fi
 
           echo "Frontend quality gates passed."
 
 
-  # ============================================================
-  # BACKEND CI
-  # ============================================================
   backend:
     name: Backend quality gates
     runs-on: ubuntu-latest
@@ -163,8 +205,10 @@ jobs:
         working-directory: ./APEX-Backend
 
     steps:
+
       - name: Checkout repository
         uses: actions/checkout@v4
+
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -173,11 +217,22 @@ jobs:
           cache: pip
           cache-dependency-path: APEX-Backend/requirements.txt
 
+
+  
       - name: Install backend dependencies
         run: |
           python -m pip install --upgrade pip
+
           pip install -r requirements.txt
-          pip install pytest pytest-asyncio respx ruff bandit pip-audit
+
+          pip install \
+            pytest \
+            pytest-asyncio \
+            respx \
+            ruff \
+            bandit \
+            pip-audit
+
 
       - name: pip dependency audit
         id: pip_audit
@@ -188,26 +243,37 @@ jobs:
             -f json \
             -o pip-audit-report.json
 
+
       - name: Ruff lint
         id: ruff
         continue-on-error: true
         run: |
           set -o pipefail
-          ruff check . 2>&1 | tee ruff.log
+
+          ruff check . \
+            2>&1 | tee ruff.log
+
 
       - name: Pytest
         id: pytest
         continue-on-error: true
         run: |
           set -o pipefail
-          pytest -q 2>&1 | tee pytest.log
+
+          pytest -q \
+            2>&1 | tee pytest.log
 
       - name: Bandit security scan
         id: bandit
         continue-on-error: true
         run: |
           set -o pipefail
-          bandit -r app -f txt -o bandit.log
+
+          bandit \
+            -r app \
+            -f txt \
+            -o bandit.log
+
 
       - name: Upload backend reports
         if: always()
@@ -220,6 +286,7 @@ jobs:
             APEX-Backend/pytest.log
             APEX-Backend/bandit.log
           if-no-files-found: ignore
+
 
       - name: Collect backend failed checks
         id: collect_failures
@@ -248,7 +315,17 @@ jobs:
 
           echo "checks=$checks" >> "$GITHUB_OUTPUT"
 
-          echo "Backend failed checks: $checks"
+          echo "=========================================="
+          echo "BACKEND CHECK RESULTS"
+          echo "=========================================="
+
+          echo "pip-audit : ${{ steps.pip_audit.outcome }}"
+          echo "Ruff      : ${{ steps.ruff.outcome }}"
+          echo "Pytest    : ${{ steps.pytest.outcome }}"
+          echo "Bandit    : ${{ steps.bandit.outcome }}"
+
+          echo ""
+          echo "Failed checks: ${checks:-None}"
 
       - name: Fail backend job if any check failed
         if: always()
@@ -257,17 +334,17 @@ jobs:
           failed="${{ steps.collect_failures.outputs.checks }}"
 
           if [[ -n "$failed" ]]; then
+
             echo "Backend quality gates failed:"
             echo "$failed"
+
             exit 1
+
           fi
 
           echo "Backend quality gates passed."
 
 
-  # ============================================================
-  # SECURITY CI
-  # ============================================================
   security:
     name: Security scans
     runs-on: ubuntu-latest
@@ -276,26 +353,21 @@ jobs:
       failed_checks: ${{ steps.collect_failures.outputs.checks }}
 
     steps:
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+
+   
       - name: Gitleaks secret scan
         id: gitleaks
         continue-on-error: true
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          args: >
-            detect
-            --source .
-            --no-banner
-            --redact
-            --report-format json
-            --report-path .gitleaks-report.json
-            --exit-code 1
+
 
       - name: Trivy filesystem scan
         id: trivy
@@ -312,13 +384,13 @@ jobs:
           version: v0.70.0
           cache: true
 
+
       - name: Upload security scan reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: security-scan-reports
           path: |
-            .gitleaks-report.json
             trivy-results.txt
           if-no-files-found: ignore
 
@@ -341,7 +413,16 @@ jobs:
 
           echo "checks=$checks" >> "$GITHUB_OUTPUT"
 
-          echo "Security failed checks: $checks"
+          echo "=========================================="
+          echo "SECURITY CHECK RESULTS"
+          echo "=========================================="
+
+          echo "Gitleaks : ${{ steps.gitleaks.outcome }}"
+          echo "Trivy    : ${{ steps.trivy.outcome }}"
+
+          echo ""
+          echo "Failed checks: ${checks:-None}"
+
 
       - name: Fail security job if any check failed
         if: always()
@@ -349,18 +430,26 @@ jobs:
         run: |
           failed="${{ steps.collect_failures.outputs.checks }}"
 
+          echo "=========================================="
+          echo "FINAL SECURITY STATUS"
+          echo "=========================================="
+
           if [[ -n "$failed" ]]; then
-            echo "Security scans failed:"
+
+            echo ""
+            echo "Security scans FAILED."
+            echo ""
+            echo "Failed checks:"
             echo "$failed"
+
             exit 1
+
           fi
 
-          echo "Security scans passed."
+          echo ""
+          echo "Security scans PASSED."
 
 
-  # ============================================================
-  # FINAL CI STATUS
-  # ============================================================
   ci-status:
     name: Integration CI status
     runs-on: ubuntu-latest
@@ -378,42 +467,65 @@ jobs:
       security_failed: ${{ steps.status.outputs.security_failed }}
 
     steps:
+
       - name: Calculate CI status
         id: status
         shell: bash
         run: |
-          echo "Frontend result: ${{ needs.frontend.result }}"
-          echo "Backend result: ${{ needs.backend.result }}"
-          echo "Security result: ${{ needs.security.result }}"
+          echo "=========================================="
+          echo "        INTEGRATION CI RESULTS"
+          echo "=========================================="
 
+          echo ""
+          echo "Frontend : ${{ needs.frontend.result }}"
+          echo "Backend  : ${{ needs.backend.result }}"
+          echo "Security : ${{ needs.security.result }}"
+
+          echo ""
           echo "Frontend failed checks:"
           echo "${{ needs.frontend.outputs.failed_checks }}"
 
+          echo ""
           echo "Backend failed checks:"
           echo "${{ needs.backend.outputs.failed_checks }}"
 
+          echo ""
           echo "Security failed checks:"
           echo "${{ needs.security.outputs.failed_checks }}"
 
-          echo "frontend_failed=${{ needs.frontend.outputs.failed_checks }}" >> "$GITHUB_OUTPUT"
-          echo "backend_failed=${{ needs.backend.outputs.failed_checks }}" >> "$GITHUB_OUTPUT"
-          echo "security_failed=${{ needs.security.outputs.failed_checks }}" >> "$GITHUB_OUTPUT"
+          echo \
+            "frontend_failed=${{ needs.frontend.outputs.failed_checks }}" \
+            >> "$GITHUB_OUTPUT"
+
+          echo \
+            "backend_failed=${{ needs.backend.outputs.failed_checks }}" \
+            >> "$GITHUB_OUTPUT"
+
+          echo \
+            "security_failed=${{ needs.security.outputs.failed_checks }}" \
+            >> "$GITHUB_OUTPUT"
+
 
           if [[ \
             "${{ needs.frontend.result }}" != "success" ||
             "${{ needs.backend.result }}" != "success" ||
             "${{ needs.security.result }}" != "success"
           ]]; then
-            echo "Integration CI failed."
+
+            echo ""
+            echo "=========================================="
+            echo "INTEGRATION CI FAILED"
+            echo "=========================================="
+
             exit 1
+
           fi
 
-          echo "Integration CI passed."
+          echo ""
+          echo "=========================================="
+          echo "INTEGRATION CI PASSED"
+          echo "=========================================="
 
-
-  # ============================================================
-  # TEAMS NOTIFICATION
-  # ============================================================
   notify:
     name: Teams notification
     runs-on: ubuntu-latest
@@ -431,9 +543,6 @@ jobs:
 
     steps:
 
-      # --------------------------------------------------------
-      # Download reports when CI fails
-      # --------------------------------------------------------
       - name: Download CI report artifacts
         if: >-
           ${{
@@ -446,6 +555,7 @@ jobs:
           path: ci-error-logs
           pattern: "*-*-reports"
           merge-multiple: true
+
 
       - name: Upload consolidated CI error logs
         if: >-
@@ -461,9 +571,6 @@ jobs:
           if-no-files-found: ignore
 
 
-      # ========================================================
-      # TEAMS SUCCESS
-      # ========================================================
       - name: Send Microsoft Teams notification on success
         if: >-
           ${{
@@ -472,16 +579,18 @@ jobs:
             needs.backend.result == 'success' &&
             needs.security.result == 'success'
           }}
+
         shell: bash
+
         run: |
-          payload=$(cat <<'JSON'
+          payload=$(cat <<JSON
           {
             "type": "message",
             "attachments": [
               {
                 "contentType": "application/vnd.microsoft.card.adaptive",
                 "content": {
-                  "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                  "\$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
                   "type": "AdaptiveCard",
                   "version": "1.5",
                   "body": [
@@ -554,16 +663,16 @@ jobs:
           )"
 
           if [[ "$http_code" != 2* ]]; then
+
             echo "Teams webhook failed with HTTP status: $http_code"
+
             echo "Response:"
             cat "$response_file"
+
             exit 1
+
           fi
 
-
-      # ========================================================
-      # TEAMS FAILURE
-      # ========================================================
       - name: Send Microsoft Teams notification on failure
         if: >-
           ${{
@@ -574,11 +683,14 @@ jobs:
               needs.security.result == 'failure'
             )
           }}
+
         shell: bash
+
         env:
           FRONTEND_FAILED: ${{ needs.frontend.outputs.failed_checks }}
           BACKEND_FAILED: ${{ needs.backend.outputs.failed_checks }}
           SECURITY_FAILED: ${{ needs.security.outputs.failed_checks }}
+
         run: |
           failed_jobs=()
 
@@ -600,17 +712,24 @@ jobs:
           backend_failed="${BACKEND_FAILED:-None}"
           security_failed="${SECURITY_FAILED:-None}"
 
-          echo "Failed Jobs:"
+          echo "=========================================="
+          echo "FAILED JOBS"
+          echo "=========================================="
+
           echo "$failed_jobs_text"
 
+          echo ""
           echo "Frontend Failed Checks:"
           echo "$frontend_failed"
 
+          echo ""
           echo "Backend Failed Checks:"
           echo "$backend_failed"
 
+          echo ""
           echo "Security Failed Checks:"
           echo "$security_failed"
+
 
           payload=$(cat <<JSON
           {
@@ -696,8 +815,12 @@ jobs:
           )"
 
           if [[ "$http_code" != 2* ]]; then
+
             echo "Teams webhook failed with HTTP status: $http_code"
+
             echo "Response:"
             cat "$response_file"
+
             exit 1
+
           fi

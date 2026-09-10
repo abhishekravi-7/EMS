@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { FaRocket, FaInfoCircle, FaSearch, FaShieldAlt, FaVial, FaPen, FaFileAlt } from "react-icons/fa";
 import {
   scanExistingTests,
+  getCachedExistingTests,
   runExistingTests,
   getExistingTestsStatus,
   stopExistingTests,
@@ -199,11 +200,15 @@ export function ModernizationStepView({
   const [testFileLoading, setTestFileLoading] = useState(false);
 
   // --- Existing Test execution states replicated from Prova ---
+  const cachedScan = jobId ? getCachedExistingTests(jobId) : null;
   const [isRunningExisting, setIsRunningExisting] = useState(false);
   const [hasExistingTestsRun, setHasExistingTestsRun] = useState(false);
-  const [existingTotal, setExistingTotal] = useState<number | null>(null);
-  const [existingFramework, setExistingFramework] = useState<string | null>(null);
-  const [discoveredTests, setDiscoveredTests] = useState<TestSelectionItem[]>([]);
+  const [existingTotal, setExistingTotal] = useState<number | null>(() =>
+    cachedScan ? (cachedScan.total ?? cachedScan.test_cases?.length ?? 0) : null
+  );
+  const [existingFramework, setExistingFramework] = useState<string | null>(() => cachedScan?.framework || null);
+  const [discoveredTests, setDiscoveredTests] = useState<TestSelectionItem[]>(() => cachedScan?.test_cases || []);
+  const [isLoadingDiscoveredTests, setIsLoadingDiscoveredTests] = useState<boolean>(() => !cachedScan && Boolean(jobId));
   const [existingElapsedTime, setExistingElapsedTime] = useState(0);
   const [existingLogs, setExistingLogs] = useState<{ ts: string; msg: string; level: string }[]>([]);
   const [existingExecResult, setExistingExecResult] = useState<ExistingTestRunResponse | null>(null);
@@ -560,8 +565,22 @@ export function ModernizationStepView({
 
   // Scan existing tests from repository on mount or when jobId changes
   useEffect(() => {
-    if (!jobId) return;
+    if (!jobId) {
+      setIsLoadingDiscoveredTests(false);
+      return;
+    }
 
+    const cached = getCachedExistingTests(jobId);
+    if (cached) {
+      const total = cached.total ?? (cached.test_cases ? cached.test_cases.length : 0);
+      setExistingTotal(total);
+      setExistingFramework(cached.framework || "JUnit");
+      setDiscoveredTests(cached.test_cases || []);
+      setIsLoadingDiscoveredTests(false);
+      return;
+    }
+
+    setIsLoadingDiscoveredTests(true);
     scanExistingTests(jobId)
       .then((data) => {
         const total = data.total ?? (data.test_cases ? data.test_cases.length : 0);
@@ -573,6 +592,9 @@ export function ModernizationStepView({
         console.error("Failed to scan existing repository tests:", err);
         setExistingTotal(0);
         setDiscoveredTests([]);
+      })
+      .finally(() => {
+        setIsLoadingDiscoveredTests(false);
       });
   }, [jobId]);
 
@@ -755,6 +777,7 @@ export function ModernizationStepView({
         discoveredTests={discoveredTests}
         framework={existingFramework || "JUnit"}
         isRunning={false}
+        isLoading={isLoadingDiscoveredTests}
         onSelectTest={(t: TestResult | TestSelectionItem) => {
           setTestDetailReport(buildTestDetailReport(t, "NOT_EXECUTED"));
           setShowTestDetailModal(true);
@@ -770,7 +793,7 @@ export function ModernizationStepView({
           fileBreakdown={existingExecResult.file_breakdown || []}
           logs={existingLogs}
           onClose={() => setShowValidationReport(false)}
-          onRunAgain={() => handleRunExistingTests()}
+          onRunAgain={() => {}}
           isRunning={isRunningExisting}
           hasRun={hasExistingTestsRun}
           onSelectTest={(t: TestResult | TestSelectionItem) => {

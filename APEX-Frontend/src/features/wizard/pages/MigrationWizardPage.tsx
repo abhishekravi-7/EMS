@@ -612,8 +612,10 @@ export default function MigrationWizardPage() {
               repoAnalysis={repoAnalysis}
               codeChanges={resultExecState.codeChanges}
               fossaResult={resultExecState.fossaResult}
-              backendLogs={resultExecState.migrationLogs || migrationJob?.migration_log}
-              onMigrationComplete={() => setIsMigrationFinishedState(true)}
+              onMigrationComplete={() => {
+                setIsMigrationFinishedState(true);
+                setStep(7);
+              }}
               onViewReport={() => {
                 setIsMigrationFinishedState(true);
                 setStep(7);

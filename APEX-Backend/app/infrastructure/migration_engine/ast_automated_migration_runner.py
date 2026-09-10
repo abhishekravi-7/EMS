@@ -27,6 +27,35 @@ class AstMigrationRunResult:
     spring_boot_after: str | None = None
 
 
+# Common Java EE -> Jakarta EE namespace mappings
+_JAVAX_TO_JAKARTA_PACKAGES = [
+    ("javax.persistence.", "jakarta.persistence."),
+    ("javax.servlet.", "jakarta.servlet."),
+    ("javax.annotation.", "jakarta.annotation."),
+    ("javax.validation.", "jakarta.validation."),
+    ("javax.transaction.", "jakarta.transaction."),
+    ("javax.ws.rs.", "jakarta.ws.rs."),
+    ("javax.xml.bind.", "jakarta.xml.bind."),
+    ("javax.inject.", "jakarta.inject."),
+    ("javax.mail.", "jakarta.mail."),
+    ("javax.ejb.", "jakarta.ejb."),
+    ("javax.jms.", "jakarta.jms."),
+]
+
+# Maven dependency replacements for Jakarta EE
+_MAVEN_JAVAX_TO_JAKARTA = [
+    (r"<groupId>\s*javax\.persistence\s*</groupId>\s*<artifactId>\s*javax\.persistence-api\s*</artifactId>",
+     "<groupId>jakarta.persistence</groupId>\n            <artifactId>jakarta.persistence-api</artifactId>"),
+    (r"<groupId>\s*javax\.servlet\s*</groupId>\s*<artifactId>\s*javax\.servlet-api\s*</artifactId>",
+     "<groupId>jakarta.servlet</groupId>\n            <artifactId>jakarta.servlet-api</artifactId>"),
+    (r"<groupId>\s*javax\.annotation\s*</groupId>\s*<artifactId>\s*javax\.annotation-api\s*</artifactId>",
+     "<groupId>jakarta.annotation</groupId>\n            <artifactId>jakarta.annotation-api</artifactId>"),
+    (r"<groupId>\s*javax\.validation\s*</groupId>\s*<artifactId>\s*validation-api\s*</artifactId>",
+     "<groupId>jakarta.validation</groupId>\n            <artifactId>jakarta.validation-api</artifactId>"),
+    (r"<groupId>\s*javax\.transaction\s*</groupId>\s*<artifactId>\s*javax\.transaction-api\s*</artifactId>",
+     "<groupId>jakarta.transaction</groupId>\n            <artifactId>jakarta.transaction-api</artifactId>"),
+]
+
 class AstMigrationRunner:
     def __init__(self, jar_path: Optional[Path] = None):
         self._jar_path = jar_path or settings.java_migration_engine_jar
@@ -37,6 +66,11 @@ class AstMigrationRunner:
             logger.info("Migration engine JAR not found at %s. Executing in-process Python AST fallback rules.", self._jar_path)
             return self._run_python_fallback_rules(project_dir, plan)
 
+        # 3. Fallback to built-in AST / Rule Engine
+        logger.info("Java migration engine JAR not found at %s. Executing built-in AST migration engine.", self._jar_path)
+        return self._run_builtin(project_dir, plan)
+
+    def _run_jar(self, project_dir: Path, plan: dict[str, Any]) -> AstMigrationRunResult:
         plan_json = json.dumps(plan)
         process = None
 
