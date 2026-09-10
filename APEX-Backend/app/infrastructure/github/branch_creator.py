@@ -30,9 +30,14 @@ class BranchCreator:
         git = resolve_executable("git") or "git"
         auth_url = self._pusher._build_auth_url(repo_https_url, token)  # noqa: SLF001 - reuse
 
+        # Remove heavy build outputs before staging
+        self._pusher._cleanup_build_artifacts(repo_dir)
+
         for args in (
             ["init", "-q"],
             ["config", "core.longpaths", "true"],
+            ["config", "http.postBuffer", "524288000"],
+            ["config", "http.version", "HTTP/1.1"],
             ["symbolic-ref", "HEAD", f"refs/heads/{branch}"],
             ["config", "user.name", settings.migration_commit_author_name],
             ["config", "user.email", settings.migration_commit_author_email],
@@ -41,7 +46,16 @@ class BranchCreator:
             ["remote", "add", "origin", auth_url],
             ["push", "-u", "origin", branch],
         ):
-            cmd = [git, "-c", "core.longpaths=true", *args]
+            cmd = [
+                git,
+                "-c",
+                "core.longpaths=true",
+                "-c",
+                "http.postBuffer=524288000",
+                "-c",
+                "http.version=HTTP/1.1",
+                *args,
+            ]
             result = run_command(cmd, cwd=repo_dir, timeout=settings.git_clone_timeout_seconds)
             if not result.succeeded:
                 stderr = result.stderr.strip()
@@ -55,6 +69,11 @@ class BranchCreator:
                 if "permission" in lowered_err or "403" in lowered_err or "authentication" in lowered_err or "access denied" in lowered_err or "token" in lowered_err:
                     raise PushFailedError(
                         "Failed to push the migration branch. Check the target token/permissions."
+                    )
+                if "rpc failed" in lowered_err or "http 408" in lowered_err or "send-pack" in lowered_err or "curl 22" in lowered_err:
+                    raise PushFailedError(
+                        "Failed to push the migration branch due to network payload timeout (HTTP 408 send-pack). "
+                        "The Git push payload exceeded buffer limits. Heavy build artifacts have been stripped for retries."
                     )
                 raise PushFailedError(
                     f"Failed to push the migration branch (git {args[0]} failed: {stderr or 'unknown error'})."

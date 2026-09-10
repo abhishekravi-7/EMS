@@ -301,13 +301,15 @@ export function buildMigrationState(params: BuildMigrationStateParams): Migratio
 
   if (Array.isArray(rawUpgrades) && rawUpgrades.length > 0) {
     rawUpgrades.forEach((u: any) => {
-      const coord = u.coordinate || "";
-      const name = coord ? coord.split(":")[1] || coord : u.name || "dependency";
+      const group = u.group_id || u.groupId || "";
+      const art = u.artifact_id || u.artifactId || u.name || "";
+      const coord = u.coordinate || (group && art ? `${group}:${art}` : art || "dependency");
+      const name = art || (coord.includes(":") ? coord.split(":")[1] : coord);
       depItems.push({
-        coordinate: coord || name,
+        coordinate: coord,
         name,
-        beforeVersion: u.oldVersion || u.current_version || null,
-        afterVersion: u.newVersion || u.new_version || null,
+        beforeVersion: u.old_version || u.oldVersion || u.current_version || null,
+        afterVersion: u.new_version || u.newVersion || null,
         status: (u.status || "UPGRADED").toUpperCase(),
       });
     });

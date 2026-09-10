@@ -2,23 +2,30 @@ import json
 import logging
 import re
 import subprocess
-from pathlib import Path
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Optional
 from app.core.config import settings
-from app.infrastructure.migration_engine.gradle_preflight_modernizer import GradlePreflightModernizer
+from app.infrastructure.migration_engine.gradle_modernizer import GradleModernizer
+from app.infrastructure.migration_engine.pom_modernizer import PomModernizer
+from app.shared import file_utils
 
 logger = logging.getLogger(__name__)
+
 
 @dataclass
 class AstMigrationRunResult:
     success: bool
-    status: str # SUCCESS, PARTIAL, FAILED, MANUAL_REVIEW, UNSUPPORTED, NO_CHANGES
+    status: str  # SUCCESS, PARTIAL, FAILED, MANUAL_REVIEW, UNSUPPORTED, NO_CHANGES
     changed_files: list[str] = field(default_factory=list)
     log_lines: list[str] = field(default_factory=list)
     error_lines: list[str] = field(default_factory=list)
     rule_executions: list[dict[str, Any]] = field(default_factory=list)
     fallback_requests: list[dict[str, Any]] = field(default_factory=list)
+    dependency_upgrades: list[dict[str, str]] = field(default_factory=list)
+    spring_boot_before: str | None = None
+    spring_boot_after: str | None = None
+
 
 # Common Java EE -> Jakarta EE namespace mappings
 _JAVAX_TO_JAKARTA_PACKAGES = [
@@ -54,16 +61,10 @@ class AstMigrationRunner:
         self._jar_path = jar_path or settings.java_migration_engine_jar
 
     def run(self, project_dir: Path, plan: dict[str, Any]) -> AstMigrationRunResult:
-        """Invoke the Java-based AST migration engine via CLI, or use built-in engine if JAR is unavailable."""
-        # 1. Try Java JAR CLI if available
-        if self._jar_path and self._jar_path.exists():
-            return self._run_jar(project_dir, plan)
-
-        # 2. Check alternative jar location (e.g. WORKSPACE_ROOT.parent)
-        alt_jar = settings.workspace_root.parent / "migration-engine" / "target" / "migration-engine-1.0.0-SNAPSHOT.jar" if hasattr(settings, "workspace_root") else None
-        if alt_jar and alt_jar.exists():
-            self._jar_path = alt_jar
-            return self._run_jar(project_dir, plan)
+        """Invoke the Java-based AST migration engine via CLI with in-process Python fallback."""
+        if not self._jar_path.exists():
+            logger.info("Migration engine JAR not found at %s. Executing in-process Python AST fallback rules.", self._jar_path)
+            return self._run_python_fallback_rules(project_dir, plan)
 
         # 3. Fallback to built-in AST / Rule Engine
         logger.info("Java migration engine JAR not found at %s. Executing built-in AST migration engine.", self._jar_path)
@@ -72,6 +73,7 @@ class AstMigrationRunner:
     def _run_jar(self, project_dir: Path, plan: dict[str, Any]) -> AstMigrationRunResult:
         plan_json = json.dumps(plan)
         process = None
+
         try:
             logger.info("Invoking Java Migration Engine for project: %s", project_dir)
             process = subprocess.Popen(
@@ -80,241 +82,118 @@ class AstMigrationRunner:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                encoding="utf-8"
+                encoding="utf-8",
             )
-            
+
             stdout, stderr = process.communicate(input=plan_json, timeout=settings.migration_timeout_seconds)
-            
+
             if stderr:
                 logger.warning("Migration Engine Stderr: %s", stderr)
 
             if process.returncode != 0:
-                logger.warning("Java JAR exited with code %d. Falling back to built-in AST engine.", process.returncode)
-                return self._run_builtin(project_dir, plan)
-                
+                logger.warning("Java process exited with code %s. Falling back to in-process rules.", process.returncode)
+                fallback_res = self._run_python_fallback_rules(project_dir, plan)
+                fallback_res.log_lines.insert(0, f"Java process exited with code {process.returncode}; executed Python fallback AST engine.")
+                return fallback_res
+
             try:
                 result_data = json.loads(stdout)
             except json.JSONDecodeError:
-                logger.warning("Failed to parse JSON response from JAR. Falling back to built-in AST engine.")
-                return self._run_builtin(project_dir, plan)
+                fallback_res = self._run_python_fallback_rules(project_dir, plan)
+                fallback_res.log_lines.insert(0, "Failed to parse Java engine JSON; executed Python fallback AST engine.")
+                return fallback_res
 
             status = result_data.get("status", "FAILED")
-            
+            changed = result_data.get("changedFiles", [])
+
             return AstMigrationRunResult(
                 success=status in ("SUCCESS", "PARTIAL", "NO_CHANGES", "MANUAL_REVIEW"),
                 status=status,
-                changed_files=result_data.get("changedFiles", []),
+                changed_files=changed,
                 rule_executions=result_data.get("ruleExecutions", []),
                 fallback_requests=result_data.get("fallbackRequests", []),
-                log_lines=[f"Migration Engine finished with status: {status}"]
+                log_lines=[f"Migration Engine finished with status: {status}, changed {len(changed)} files."],
             )
-            
+
         except subprocess.TimeoutExpired:
             if process:
                 process.kill()
-            return AstMigrationRunResult(success=False, status="FAILED", error_lines=["Migration engine timed out."])
-        except Exception as e:
-            logger.exception("Failed to run Java migration engine JAR; falling back to built-in AST engine")
-            return self._run_builtin(project_dir, plan)
-
-    def _run_builtin(self, project_dir: Path, plan: dict[str, Any]) -> AstMigrationRunResult:
-        """Built-in deterministic AST/code transformation engine."""
-        target_java = plan.get("targetJavaVersion", 17)
-        active_packs = plan.get("activePacks", [])
-        active_visitors = plan.get("activeVisitors", [])
-        
-        changed_files: list[str] = []
-        log_lines: list[str] = []
-        rule_executions: list[dict[str, Any]] = []
-
-        try:
-            # Phase 1: Build file updates (pom.xml or build.gradle)
-            pom_file = project_dir / "pom.xml"
-            if pom_file.is_file():
-                pom_changed = self._transform_pom(pom_file, target_java, active_packs, active_visitors)
-                if pom_changed:
-                    rel = str(pom_file.relative_to(project_dir)).replace("\\", "/")
-                    changed_files.append(rel)
-                    log_lines.append(f"Updated build configuration in {rel} for Java {target_java}.")
-
-            for gradle_name in ("build.gradle", "build.gradle.kts"):
-                gradle_file = project_dir / gradle_name
-                if gradle_file.is_file():
-                    gradle_mod = GradlePreflightModernizer()
-                    g_changes = gradle_mod.modernize(project_dir, target_java)
-                    log_lines.extend(g_changes)
-                    g_changed = self._transform_gradle(gradle_file, target_java, active_packs)
-                    if g_changed or g_changes:
-                        rel = str(gradle_file.relative_to(project_dir)).replace("\\", "/")
-                        if rel not in changed_files:
-                            changed_files.append(rel)
-                        log_lines.append(f"Updated build configuration in {rel} for Java {target_java}.")
-
-            # Phase 2: Java source file transformations
-            java_files = list(project_dir.rglob("*.java"))
-            transformed_java_count = 0
-
-            apply_jakarta = (
-                "javax-to-jakarta" in active_packs
-                or "JAVAX-TO-JAKARTA" in active_visitors
-                or (target_java and int(target_java) >= 17)
-            )
-
-            for jf in java_files:
-                try:
-                    text = jf.read_text(encoding="utf-8", errors="ignore")
-                    updated = text
-
-                    if apply_jakarta:
-                        for old_pkg, new_pkg in _JAVAX_TO_JAKARTA_PACKAGES:
-                            if old_pkg in updated:
-                                updated = updated.replace(old_pkg, new_pkg)
-
-                    if "IMPORT-CLEANUP" in active_visitors and updated != text:
-                        updated = self._cleanup_imports(updated)
-
-                    if updated != text:
-                        jf.write_text(updated, encoding="utf-8")
-                        rel = str(jf.relative_to(project_dir)).replace("\\", "/")
-                        changed_files.append(rel)
-                        transformed_java_count += 1
-                except Exception as ex:
-                    logger.warning("Error transforming Java file %s: %s", jf, ex)
-
-            if transformed_java_count > 0:
-                log_lines.append(f"Transformed imports and API calls in {transformed_java_count} Java source file(s).")
-
-            # Record rule executions for reports/UI
-            for pack in active_packs:
-                rule_executions.append({
-                    "ruleId": pack,
-                    "status": "APPLIED",
-                    "filesAffected": len(changed_files),
-                    "description": f"Applied recipe pack: {pack}"
-                })
-
-            status = "SUCCESS" if changed_files else "NO_CHANGES"
-            log_lines.append(f"Migration Engine finished with status: {status}")
-
-            return AstMigrationRunResult(
-                success=True,
-                status=status,
-                changed_files=changed_files,
-                rule_executions=rule_executions,
-                log_lines=log_lines
-            )
-
-        except Exception as e:
-            logger.exception("Built-in migration engine error")
             return AstMigrationRunResult(
                 success=False,
                 status="FAILED",
-                error_lines=[f"Built-in AST engine failed: {e}"]
+                error_lines=["Migration engine timed out."],
             )
+        except Exception as e:
+            logger.exception("Failed to run AST migration engine; triggering Python fallback")
+            fallback_res = self._run_python_fallback_rules(project_dir, plan)
+            fallback_res.error_lines.append(f"Subprocess error: {e}")
+            return fallback_res
 
-    @staticmethod
-    def _transform_pom(pom_file: Path, target_java: int, active_packs: list[str], active_visitors: list[str]) -> bool:
-        text = pom_file.read_text(encoding="utf-8", errors="ignore")
-        updated = text
+    def _run_python_fallback_rules(self, project_dir: Path, plan: dict[str, Any]) -> AstMigrationRunResult:
+        """In-process Python AST & Regex transformation fallback engine."""
+        changed_files: list[str] = []
+        logs: list[str] = ["In-process Python Fallback AST Engine started."]
+        target_java = str(plan.get("targetJavaVersion") or "17")
+        active_visitors = plan.get("activeVisitors", [])
+        active_packs = plan.get("activePacks", [])
 
-        # Update Java version properties
-        target_str = str(target_java)
-        updated = re.sub(r"<java\.version>[^<]+</java\.version>", f"<java.version>{target_str}</java.version>", updated)
-        updated = re.sub(r"<maven\.compiler\.source>[^<]+</maven\.compiler\.source>", f"<maven.compiler.source>{target_str}</maven.compiler.source>", updated)
-        updated = re.sub(r"<maven\.compiler\.target>[^<]+</maven\.compiler\.target>", f"<maven.compiler.target>{target_str}</maven.compiler.target>", updated)
-        updated = re.sub(r"<maven\.compiler\.release>[^<]+</maven\.compiler\.release>", f"<maven.compiler.release>{target_str}</maven.compiler.release>", updated)
+        # 1. Modernize Build Manifest (pom.xml or build.gradle)
+        pom_path = project_dir / "pom.xml"
+        dep_upgrades: list[dict[str, str]] = []
+        sb_before: str | None = None
+        sb_after: str | None = None
 
-        # Update Spring Boot parent version depending on target Java version
-        if target_java >= 17 or "springboot2-to-3" in active_packs:
-            sb_target = "3.2.5"
-            updated = re.sub(
-                r"(<groupId>\s*org\.springframework\.boot\s*</groupId>\s*<artifactId>\s*spring-boot-starter-parent\s*</artifactId>\s*<version>)[^<]+(</version>)",
-                rf"\g<1>{sb_target}\g<2>",
-                updated,
-            )
-            updated = re.sub(
-                r"(<spring-boot\.version>)[^<]+(</spring-boot\.version>)",
-                rf"\g<1>{sb_target}\g<2>",
-                updated,
-            )
-            # Modernize mysql connector for Spring Boot 3
-            updated = re.sub(
-                r"<groupId>\s*mysql\s*</groupId>\s*<artifactId>\s*mysql-connector-java\s*</artifactId>",
-                "<groupId>com.mysql</groupId>\n\t\t\t<artifactId>mysql-connector-j</artifactId>",
-                updated,
-            )
-            # Modernize jstl for Jakarta / Spring Boot 3
-            updated = re.sub(
-                r"<groupId>\s*javax\.servlet\s*</groupId>\s*<artifactId>\s*jstl\s*</artifactId>",
-                "<groupId>jakarta.servlet.jsp.jstl</groupId>\n\t\t\t<artifactId>jakarta.servlet.jsp.jstl-api</artifactId>\n\t\t\t<version>3.0.0</version>",
-                updated,
-            )
-        else:
-            # Java 11 or below -> upgrade to latest Spring Boot 2.7.x
-            sb_target = "2.7.18"
-            updated = re.sub(
-                r"(<groupId>\s*org\.springframework\.boot\s*</groupId>\s*<artifactId>\s*spring-boot-starter-parent\s*</artifactId>\s*<version>)[^<]+(</version>)",
-                rf"\g<1>{sb_target}\g<2>",
-                updated,
-            )
-            # Ensure missing versions are filled for Spring Boot 2.7
-            if "jstl" in updated and "<version>" not in updated.split("jstl")[1][:100]:
-                updated = re.sub(
-                    r"(<artifactId>\s*jstl\s*</artifactId>)",
-                    r"\g<1>\n\t\t\t<version>1.2</version>",
-                    updated,
-                )
-            if "mysql-connector-java" in updated and "<version>" not in updated.split("mysql-connector-java")[1][:100]:
-                updated = re.sub(
-                    r"(<artifactId>\s*mysql-connector-java\s*</artifactId>)",
-                    r"\g<1>\n\t\t\t<version>8.0.33</version>",
-                    updated,
-                )
+        if pom_path.exists():
+            pom_res = PomModernizer().modernize(pom_path, target_java)
+            dep_upgrades = pom_res.dependency_upgrades
+            sb_before = pom_res.spring_boot_before
+            sb_after = pom_res.spring_boot_after
+            if pom_res.modified:
+                changed_files.extend(pom_res.changed_files)
+                logs.extend(pom_res.log_lines)
+        elif (project_dir / "build.gradle").exists() or (project_dir / "build.gradle.kts").exists():
+            gradle_res = GradleModernizer().modernize(project_dir, target_java)
+            dep_upgrades = gradle_res.dependency_upgrades
+            sb_before = gradle_res.spring_boot_before
+            sb_after = gradle_res.spring_boot_after
+            if gradle_res.modified:
+                changed_files.extend(gradle_res.changed_files)
+                logs.extend(gradle_res.log_lines)
 
-        # Update javax dependencies to jakarta when targeting Java 17+
-        if "javax-to-jakarta" in active_packs or "JAVAX-TO-JAKARTA" in active_visitors or target_java >= 17:
-            for pattern, replacement in _MAVEN_JAVAX_TO_JAKARTA:
-                updated = re.sub(pattern, replacement, updated)
+        # 2. Modernize Java source files (Javax to Jakarta, JUnit 4 to 5, Import cleanup)
+        for java_path in project_dir.rglob("*.java"):
+            source = file_utils.read_text(java_path)
+            original_source = source
 
-        if updated != text:
-            pom_file.write_text(updated, encoding="utf-8")
-            return True
-        return False
+            if "javax-to-jakarta" in active_packs or "JAVAX-TO-JAKARTA" in active_visitors or "jakarta" in str(active_packs):
+                source = re.sub(r"\bjavax\.persistence\b", "jakarta.persistence", source)
+                source = re.sub(r"\bjavax\.servlet\b", "jakarta.servlet", source)
+                source = re.sub(r"\bjavax\.annotation\b", "jakarta.annotation", source)
+                source = re.sub(r"\bjavax\.validation\b", "jakarta.validation", source)
+                source = re.sub(r"\bjavax\.ws\.rs\b", "jakarta.ws.rs", source)
+                source = re.sub(r"\bjavax\.xml\.bind\b", "jakarta.xml.bind", source)
 
-    @staticmethod
-    def _transform_gradle(gradle_file: Path, target_java: int, active_packs: list[str]) -> bool:
-        text = gradle_file.read_text(encoding="utf-8", errors="ignore")
-        updated = text
-        target_str = str(target_java)
+            if "junit" in str(active_packs) or "junit" in source:
+                source = source.replace("import org.junit.Test;", "import org.junit.jupiter.api.Test;")
+                source = source.replace("import org.junit.Before;", "import org.junit.jupiter.api.BeforeEach;")
+                source = source.replace("import org.junit.After;", "import org.junit.jupiter.api.AfterEach;")
+                source = source.replace("import org.junit.Ignore;", "import org.junit.jupiter.api.Disabled;")
+                source = source.replace("@Before\n", "@BeforeEach\n")
+                source = source.replace("@After\n", "@AfterEach\n")
+                source = source.replace("@Ignore\n", "@Disabled\n")
 
-        updated = re.sub(r"sourceCompatibility\s*=\s*['\"][^'\"]+['\"]", f"sourceCompatibility = '{target_str}'", updated)
-        updated = re.sub(r"targetCompatibility\s*=\s*['\"][^'\"]+['\"]", f"targetCompatibility = '{target_str}'", updated)
-        updated = re.sub(r"JavaVersion\.VERSION_1_[0-9]+", f"JavaVersion.VERSION_{target_str}", updated)
-        updated = re.sub(r"JavaVersion\.VERSION_[0-9]+", f"JavaVersion.VERSION_{target_str}", updated)
+            if source != original_source:
+                java_path.write_text(source, encoding="utf-8")
+                rel_path = java_path.relative_to(project_dir).as_posix()
+                changed_files.append(rel_path)
 
-        sb_target = "3.2.5" if target_java >= 17 or "springboot2-to-3" in active_packs else "2.7.18"
-        updated = re.sub(
-            r"(id\s+['\"]org\.springframework\.boot['\"]\s+version\s+['\"])[^'\"]+(['\"])",
-            rf"\g<1>{sb_target}\g<2>",
-            updated,
+        logs.append(f"In-process Python Fallback AST Engine completed. Transformed {len(changed_files)} file(s).")
+        return AstMigrationRunResult(
+            success=True,
+            status="SUCCESS" if changed_files else "NO_CHANGES",
+            changed_files=changed_files,
+            log_lines=logs,
+            dependency_upgrades=dep_upgrades,
+            spring_boot_before=sb_before,
+            spring_boot_after=sb_after,
         )
-
-        if updated != text:
-            gradle_file.write_text(updated, encoding="utf-8")
-            return True
-        return False
-
-    @staticmethod
-    def _cleanup_imports(text: str) -> str:
-        lines = text.splitlines()
-        seen_imports = set()
-        clean_lines = []
-        for line in lines:
-            stripped = line.strip()
-            if stripped.startswith("import ") and stripped.endswith(";"):
-                if stripped in seen_imports:
-                    continue
-                seen_imports.add(stripped)
-            clean_lines.append(line)
-        return "\n".join(clean_lines)
-

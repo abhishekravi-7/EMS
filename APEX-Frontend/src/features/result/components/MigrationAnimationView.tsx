@@ -351,15 +351,7 @@ export function MigrationAnimationView({
 
     countdownTimerRef.current = setInterval(() => {
       setRedirectCountdown((prev) => {
-        if (prev === null) return null;
-        if (prev <= 1) {
-          if (countdownTimerRef.current) {
-            clearInterval(countdownTimerRef.current);
-            countdownTimerRef.current = null;
-          }
-          navigateToResults();
-          return 0;
-        }
+        if (prev === null || prev <= 1) return 0;
         return prev - 1;
       });
     }, 1000);
@@ -368,19 +360,18 @@ export function MigrationAnimationView({
       if (countdownTimerRef.current) {
         clearInterval(countdownTimerRef.current);
         countdownTimerRef.current = null;
-      }
     };
   }, [isAllComplete]);
 
-  // Single Source of Truth MigrationState
-  const migrationState = useMemo<MigrationState>(() => {
-    return buildMigrationState({
-      migrationJob,
-      repoAnalysis,
-      codeChanges,
-      fossaResult,
-      selectedRepoName,
-      repoUrl,
+  // Safely trigger navigation when countdown reaches 0 outside of state updater calculations
+  useEffect(() => {
+    if (redirectCountdown === 0) {
+      if (countdownTimerRef.current) {
+        clearInterval(countdownTimerRef.current);
+        countdownTimerRef.current = null;
+      }
+      navigateToResults();
+    }
       selectedSourceVersion,
       effectiveTargetVersion,
       runSonar,
