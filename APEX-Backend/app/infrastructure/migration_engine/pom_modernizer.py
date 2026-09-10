@@ -5,7 +5,8 @@ Performs deterministic build manifest modernizations:
 2. Java compiler version properties (<java.version>, <maven.compiler.source>, <maven.compiler.target>).
 3. maven-compiler-plugin configuration alignment (<source>, <target>, <release>).
 4. Legacy javax.* to jakarta.* artifact dependency modernizations.
-5. Extraction of structured dependency upgrade records for migration reporting.
+5. Multi-module Maven monorepo traversal and parent-child dependency inheritance synchronization.
+6. Extraction of structured dependency upgrade records for migration reporting.
 """
 
 from __future__ import annotations
@@ -26,6 +27,8 @@ _JAVAX_TO_JAKARTA_ARTIFACTS = {
     "javax.validation-api": ("jakarta.validation", "jakarta.validation-api", "3.0.2"),
 }
 
+_IGNORED_DIRS = {"target", "build", ".git", ".idea", ".settings", "node_modules", ".gradle", "bin", "out"}
+
 
 @dataclass
 class PomModernizationResult:
@@ -38,17 +41,91 @@ class PomModernizationResult:
 
 
 class PomModernizer:
-    def modernize(self, pom_path: Path, target_java_version: str) -> PomModernizationResult:
-        """Modernize target pom.xml file cleanly and return structured execution result."""
-        if not pom_path.exists():
+    def modernize(self, target_path: Path, target_java_version: str) -> PomModernizationResult:
+        """Modernize target pom.xml file or multi-module monorepo directory cleanly."""
+        if not target_path.exists():
             return PomModernizationResult(modified=False)
 
+        project_dir = target_path if target_path.is_dir() else target_path.parent
+        pom_files = self._discover_pom_files(target_path)
+        if not pom_files:
+            return PomModernizationResult(modified=False)
+
+        logs: list[str] = []
+        changed_files: list[str] = []
+        upgrades: list[dict[str, str]] = []
+        spring_boot_before: str | None = None
+        spring_boot_after: str | None = None
+        is_any_modified = False
+
+        target_java = str(target_java_version or "17").strip()
+
+        for pom_path in pom_files:
+            rel_path = pom_path.relative_to(project_dir).as_posix() if pom_path.is_relative_to(project_dir) else pom_path.name
+            is_root = rel_path == "pom.xml"
+
+            single_res = self._modernize_single_pom(
+                pom_path=pom_path,
+                rel_path=rel_path,
+                target_java=target_java,
+                is_root=is_root,
+            )
+
+            if single_res.modified:
+                is_any_modified = True
+                changed_files.extend(single_res.changed_files)
+                logs.extend(single_res.log_lines)
+
+            if is_root or not spring_boot_before:
+                if single_res.spring_boot_before:
+                    spring_boot_before = single_res.spring_boot_before
+                if single_res.spring_boot_after:
+                    spring_boot_after = single_res.spring_boot_after
+
+            for up in single_res.dependency_upgrades:
+                if not any(existing.get("artifact_id") == up.get("artifact_id") for existing in upgrades):
+                    upgrades.append(up)
+
+        return PomModernizationResult(
+            modified=is_any_modified,
+            changed_files=changed_files,
+            log_lines=logs,
+            dependency_upgrades=upgrades,
+            spring_boot_before=spring_boot_before,
+            spring_boot_after=spring_boot_after,
+        )
+
+    def _discover_pom_files(self, target_path: Path) -> list[Path]:
+        """Find root pom.xml first, followed by child module pom.xml files."""
+        if target_path.is_file():
+            return [target_path]
+
+        root_pom = target_path / "pom.xml"
+        discovered: list[Path] = []
+        if root_pom.is_file():
+            discovered.append(root_pom)
+
+        for candidate in target_path.rglob("pom.xml"):
+            if candidate == root_pom:
+                continue
+            if any(part in _IGNORED_DIRS for part in candidate.parts):
+                continue
+            discovered.append(candidate)
+
+        return discovered
+
+    def _modernize_single_pom(
+        self,
+        pom_path: Path,
+        rel_path: str,
+        target_java: str,
+        is_root: bool,
+    ) -> PomModernizationResult:
         content = pom_path.read_text(encoding="utf-8")
         original_content = content
         logs: list[str] = []
         upgrades: list[dict[str, str]] = []
 
-        target_java = str(target_java_version or "17").strip()
         try:
             target_major = int(target_java)
         except ValueError:
@@ -56,6 +133,8 @@ class PomModernizer:
 
         spring_boot_before: str | None = None
         spring_boot_after: str | None = None
+
+        module_prefix = f"[{rel_path}] " if not is_root else ""
 
         # 1. Update Spring Boot Parent Version if target Java requires Spring Boot 3
         parent_match = re.search(r"<parent>.*?<artifactId>spring-boot-starter-parent</artifactId>.*?<version>(.*?)</version>.*?</parent>", content, re.DOTALL)
@@ -69,7 +148,7 @@ class PomModernizer:
                     content,
                 )
                 spring_boot_after = target_boot_version
-                logs.append(f"Upgraded Spring Boot parent version from {spring_boot_before} to {target_boot_version} for Java {target_java} compatibility.")
+                logs.append(f"{module_prefix}Upgraded Spring Boot parent version from {spring_boot_before} to {target_boot_version} for Java {target_java} compatibility.")
                 upgrades.append({
                     "group_id": "org.springframework.boot",
                     "artifact_id": "spring-boot-starter-parent",
@@ -86,15 +165,15 @@ class PomModernizer:
             old_val = old_val_match.group(1) if old_val_match else "unknown"
             if old_val != target_java:
                 content = re.sub(r"<java\.version>.*?</java\.version>", f"<java.version>{target_java}</java.version>", content)
-                logs.append(f"Updated <java.version> property from {old_val} to {target_java}.")
+                logs.append(f"{module_prefix}Updated <java.version> property from {old_val} to {target_java}.")
 
         if "<maven.compiler.source>" in content:
             content = re.sub(r"<maven\.compiler\.source>.*?</maven\.compiler\.source>", f"<maven.compiler.source>{target_java}</maven.compiler.source>", content)
-            logs.append(f"Updated <maven.compiler.source> property to {target_java}.")
+            logs.append(f"{module_prefix}Updated <maven.compiler.source> property to {target_java}.")
 
         if "<maven.compiler.target>" in content:
             content = re.sub(r"<maven\.compiler\.target>.*?</maven\.compiler\.target>", f"<maven.compiler.target>{target_java}</maven.compiler.target>", content)
-            logs.append(f"Updated <maven.compiler.target> property to {target_java}.")
+            logs.append(f"{module_prefix}Updated <maven.compiler.target> property to {target_java}.")
 
         # 3. Synchronize maven-compiler-plugin configuration (source, target, release)
         if "maven-compiler-plugin" in content:
@@ -111,7 +190,7 @@ class PomModernizer:
                 content,
                 flags=re.DOTALL,
             )
-            logs.append(f"Aligned maven-compiler-plugin <source>, <target>, and <release> configurations to {target_java}.")
+            logs.append(f"{module_prefix}Aligned maven-compiler-plugin <source>, <target>, and <release> configurations to {target_java}.")
 
         # 4. Modernize Javax to Jakarta Dependencies in pom.xml
         for legacy_art, (new_group, new_art, new_ver) in _JAVAX_TO_JAKARTA_ARTIFACTS.items():
@@ -127,7 +206,7 @@ class PomModernizer:
                         f"<groupId>{new_group}</groupId>",
                         content,
                     )
-                logs.append(f"Migrated dependency artifact {legacy_art} to {new_group}:{new_art}:{new_ver}.")
+                logs.append(f"{module_prefix}Migrated dependency artifact {legacy_art} to {new_group}:{new_art}:{new_ver}.")
                 upgrades.append({
                     "group_id": new_group,
                     "artifact_id": new_art,
@@ -143,10 +222,9 @@ class PomModernizer:
 
         return PomModernizationResult(
             modified=is_modified,
-            changed_files=["pom.xml"] if is_modified else [],
+            changed_files=[rel_path] if is_modified else [],
             log_lines=logs,
             dependency_upgrades=upgrades,
             spring_boot_before=spring_boot_before,
             spring_boot_after=spring_boot_after,
         )
-

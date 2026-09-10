@@ -360,6 +360,7 @@ export function MigrationAnimationView({
       if (countdownTimerRef.current) {
         clearInterval(countdownTimerRef.current);
         countdownTimerRef.current = null;
+      }
     };
   }, [isAllComplete]);
 
@@ -372,6 +373,17 @@ export function MigrationAnimationView({
       }
       navigateToResults();
     }
+  }, [redirectCountdown]);
+
+  // Single Source of Truth MigrationState
+  const migrationState = useMemo<MigrationState>(() => {
+    return buildMigrationState({
+      migrationJob,
+      repoAnalysis,
+      codeChanges,
+      fossaResult,
+      selectedRepoName,
+      repoUrl,
       selectedSourceVersion,
       effectiveTargetVersion,
       runSonar,
