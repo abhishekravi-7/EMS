@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { onAuthStateChanged, signOut, type User as FirebaseUser } from "firebase/auth";
+import { onAuthStateChanged, signOut, getRedirectResult, type User as FirebaseUser } from "firebase/auth";
 import { auth } from "@/firebase/firebase";
 import { AuthContext, type AuthContextValue, type AuthUser } from "./AuthContext";
 
@@ -12,15 +12,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isAuthLoading, setIsAuthLoading] = useState(true);
 
   useEffect(() => {
+    // Fix: BFCache (Back-Forward Cache) causes the page to be restored from cache
+    // after a signInWithRedirect flow, which drops the Vite WebSocket and prevents
+    // getRedirectResult from being called. Force a reload if the page is restored
+    // from BFCache so the auth redirect result is always processed on a fresh load.
+    const handlePageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) {
+        // Page was restored from BFCache — reload to re-run redirect result handling
+        window.location.reload();
+      }
+    };
+    window.addEventListener('pageshow', handlePageShow);
+
+    // Complete any pending OAuth redirect sign-in (Google / GitHub).
+    // Must be called on every page load after signInWithRedirect().
+    // onAuthStateChanged will fire automatically once the result is processed.
+    getRedirectResult(auth).catch(() => {
+      // Silently ignore — no redirect was pending or error is non-critical
+    });
+
     // Listen for authentication state changes from Firebase
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setCurrentUser(user);
       setIsAuthLoading(false);
     });
 
-    // Unsubscribe on unmount
-    return () => unsubscribe();
+    return () => {
+      window.removeEventListener('pageshow', handlePageShow);
+      unsubscribe();
+    };
   }, []);
+
 
   const user = useMemo<AuthUser | null>(() => {
     if (!currentUser) return null;

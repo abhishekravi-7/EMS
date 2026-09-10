@@ -1,14 +1,10 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
 import apexLogo from "../../../assets/logo.jpg";
-import {
-  FaSearch,
-  FaCogs,
-  FaChartBar,
-  FaClipboard,
-  FaBolt,
-  FaLink
-} from "react-icons/fa";
+import { FaBolt, FaCogs, FaBullseye } from "react-icons/fa";
+import IsometricHeroDiagram from "./IsometricHeroDiagram";
+import TransparentLogo from "./TransparentLogo";
+import "../landing_exact.css";
 import "../auth.css";
 
 export interface AuthLayoutProps {
@@ -16,143 +12,174 @@ export interface AuthLayoutProps {
   children: React.ReactNode;
 }
 
-interface HexTileProps {
-  x: number;
-  y: number;
-  size?: number;
-  icon: React.ComponentType<{ size?: number; style?: React.CSSProperties }>;
-  color: string;
-  label: string;
-  isCenter?: boolean;
-}
-
-const HexTile = ({ x, y, size = 1, icon: Icon, color, label, isCenter = false }: HexTileProps) => {
-  const R = 45 * size; // Radius
-  const W = R * 0.866;
-  const H = R * 0.5;
-  const depth = 12 * size;
-
-  // Hexagon Top Face Points
-  const topPoints = `0,-${H} ${W},-${H / 2} ${W},${H / 2} 0,${H} -${W},${H / 2} -${W},-${H / 2}`;
-  // Hexagon Left Face Points
-  const leftPoints = `-${W},${H / 2} 0,${H} 0,${H + depth} -${W},${H / 2 + depth}`;
-  // Hexagon Right Face Points
-  const rightPoints = `0,${H} ${W},${H / 2} ${W},${H / 2 + depth} 0,${H + depth}`;
-
-  return (
-    <g transform={`translate(${x}, ${y})`}>
-      <filter id={`shadow-${label}`}>
-        <feDropShadow dx="0" dy="12" stdDeviation="15" floodColor={color} floodOpacity="0.25" />
-      </filter>
-
-      {/* Shadow */}
-      <polygon points={topPoints} fill="#cbd5e1" filter="blur(8px)" opacity="0.6" transform={`translate(0, ${depth + 20})`} />
-
-      {/* Left Face */}
-      <polygon points={leftPoints} fill="#f1f5f9" />
-      {/* Right Face */}
-      <polygon points={rightPoints} fill="#e2e8f0" />
-      {/* Top Face */}
-      <polygon points={topPoints} fill="#ffffff" stroke="#e2e8f0" strokeWidth="1.5" filter={`url(#shadow-${label})`} />
-
-      {/* Highlight edge */}
-      <polyline points={`-${W},${H / 2} 0,${H} ${W},${H / 2}`} fill="none" stroke="#ffffff" strokeWidth="2" />
-
-      <foreignObject x={-W} y={-H - (isCenter ? 15 : 10)} width={W * 2} height={H * 2 + depth}>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', pointerEvents: 'none' }}>
-          <Icon size={isCenter ? 36 : 22} style={{ color }} />
-          <span style={{ fontSize: isCenter ? 14 : 11, fontWeight: 700, color: '#0f172a', marginTop: 6 }}>{label}</span>
-        </div>
-      </foreignObject>
-    </g>
-  );
-};
-
-const SignInHeroGraphic: React.FC = () => (
-  <div className="apex-3d-graphic-wrap" style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-    <svg width="100%" height="400" viewBox="0 0 500 400" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ overflow: 'visible', marginTop: '-20px' }}>
-
-      {/* Ground lines (circuit board effect) */}
-      <g stroke="#bfdbfe" strokeWidth="1.5" opacity="0.6">
-        {/* Horizontal */}
-        <line x1="50" y1="200" x2="450" y2="200" />
-        <circle cx="50" cy="200" r="3" fill="#bfdbfe" />
-        <circle cx="450" cy="200" r="3" fill="#bfdbfe" />
-
-        {/* Diagonal */}
-        <line x1="100" y1="100" x2="250" y2="200" />
-        <line x1="400" y1="100" x2="250" y2="200" />
-        <line x1="100" y1="300" x2="250" y2="200" />
-        <line x1="400" y1="300" x2="250" y2="200" />
-
-        {/* Circuit dots */}
-        <circle cx="100" cy="100" r="3" fill="#bfdbfe" />
-        <circle cx="400" cy="100" r="3" fill="#bfdbfe" />
-        <circle cx="100" cy="300" r="3" fill="#bfdbfe" />
-        <circle cx="400" cy="300" r="3" fill="#bfdbfe" />
-      </g>
-
-      {/* Tiles */}
-      <HexTile x={250} y={90} icon={FaSearch} color="#3b82f6" label="Discovery" />
-      <HexTile x={360} y={150} icon={FaClipboard} color="#f59e0b" label="Strategy" />
-      <HexTile x={360} y={260} icon={FaBolt} color="#f97316" label="Modernization" />
-      <HexTile x={140} y={260} icon={FaChartBar} color="#10b981" label="Summary" />
-      <HexTile x={140} y={150} icon={FaLink} color="#6366f1" label="Connect" />
-
-      {/* Center Tile */}
-      <HexTile x={250} y={200} size={1.5} icon={FaCogs} color="#2563eb" label="LLM" isCenter={true} />
-    </svg>
-  </div>
-);
-
-const AuthLayout: React.FC<AuthLayoutProps> = ({ mode, children }) => {
+const AuthLayout: React.FC<AuthLayoutProps> = ({ children }) => {
   const navigate = useNavigate();
 
   return (
-    <div className="apex-auth-page new-signin-layout">
-      <div className="new-signin-left">
-        <div className="new-signin-left-content">
-          {/* Branding Top */}
-          <div className="new-signin-brand">
-            <div className="new-signin-logo" onClick={() => navigate("/")} style={{ cursor: "pointer", marginBottom: '8px' }}>
-              <img
-                src={apexLogo}
-                alt="Java APEX"
-                style={{ height: 48, width: "auto", objectFit: "contain", display: "block" }}
-              />
-            </div>
-            <div className="new-signin-tagline" style={{ fontSize: '18px', fontWeight: 600, color: '#0f172a' }}>AI-Powered Accelerator</div>
-          </div>
+    <div className="apex-exact-viewport">
+      {/* Full-Page Background — Precisely matching the reference image layout in Blue Theme */}
+      <div className="apex-full-bg-layer" aria-hidden="true">
+        <svg
+          viewBox="0 0 1920 1080"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+          preserveAspectRatio="none"
+          className="apex-full-bg-svg"
+        >
+          <defs>
+            {/* Top-Right Diagonal Ribbons Gradients (Blue Theme) */}
+            <linearGradient id="diagRibbon1" x1="100%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stopColor="#93C5FD" stopOpacity="0.45" />
+              <stop offset="50%" stopColor="#BFDBFE" stopOpacity="0.30" />
+              <stop offset="100%" stopColor="#FFFFFF" stopOpacity="0" />
+            </linearGradient>
 
-          {/* Headings */}
-          <div className="new-signin-headings">
-            <h1 className="new-signin-title">Accelerate Your</h1>
-            <h1 className="new-signin-title-blue">Modernization Journey</h1>
-            <p className="new-signin-subtext">
-              AI-driven insights. Automated modernization.<br />Measurable results.
-            </p>
-          </div>
+            <linearGradient id="diagRibbon2" x1="100%" y1="0%" x2="20%" y2="80%">
+              <stop offset="0%" stopColor="#60A5FA" stopOpacity="0.38" />
+              <stop offset="60%" stopColor="#93C5FD" stopOpacity="0.22" />
+              <stop offset="100%" stopColor="#FFFFFF" stopOpacity="0" />
+            </linearGradient>
 
-          {/* Center Graphic */}
-          <div className="new-signin-graphic">
-            <SignInHeroGraphic />
-          </div>
+            <linearGradient id="diagRibbon3" x1="100%" y1="20%" x2="30%" y2="100%">
+              <stop offset="0%" stopColor="#BFDBFE" stopOpacity="0.35" />
+              <stop offset="70%" stopColor="#DBEAFE" stopOpacity="0.15" />
+              <stop offset="100%" stopColor="#FFFFFF" stopOpacity="0" />
+            </linearGradient>
 
-          {/* Footer */}
-          <div className="new-signin-footer">
-            <a href="http://www.javaapex.com" target="_blank" rel="noreferrer">www.javaapex.com</a>
-            <span className="powered-by">powered by <strong>SORIM.AI</strong></span>
-          </div>
-        </div>
+            {/* Bottom-Left Fluid Waves Gradients (Blue Theme) */}
+            <linearGradient id="waveBlue1" x1="0%" y1="100%" x2="60%" y2="40%">
+              <stop offset="0%" stopColor="#3B82F6" stopOpacity="0.40" />
+              <stop offset="45%" stopColor="#60A5FA" stopOpacity="0.25" />
+              <stop offset="85%" stopColor="#93C5FD" stopOpacity="0.10" />
+              <stop offset="100%" stopColor="#FFFFFF" stopOpacity="0" />
+            </linearGradient>
+
+            <linearGradient id="waveBlue2" x1="0%" y1="100%" x2="50%" y2="30%">
+              <stop offset="0%" stopColor="#2563EB" stopOpacity="0.45" />
+              <stop offset="40%" stopColor="#3B82F6" stopOpacity="0.30" />
+              <stop offset="80%" stopColor="#60A5FA" stopOpacity="0.12" />
+              <stop offset="100%" stopColor="#FFFFFF" stopOpacity="0" />
+            </linearGradient>
+
+            <linearGradient id="waveBlue3" x1="0%" y1="100%" x2="40%" y2="10%">
+              <stop offset="0%" stopColor="#1D4ED8" stopOpacity="0.30" />
+              <stop offset="50%" stopColor="#0EA5E9" stopOpacity="0.18" />
+              <stop offset="100%" stopColor="#FFFFFF" stopOpacity="0" />
+            </linearGradient>
+
+            {/* Ambient radial softness */}
+            <radialGradient id="ambientBL" cx="0%" cy="100%" r="60%">
+              <stop offset="0%"  stopColor="#3B82F6" stopOpacity="0.15" />
+              <stop offset="55%" stopColor="#93C5FD" stopOpacity="0.05" />
+              <stop offset="100%" stopColor="#FFFFFF" stopOpacity="0"   />
+            </radialGradient>
+            <radialGradient id="ambientTR" cx="100%" cy="0%" r="52%">
+              <stop offset="0%"  stopColor="#DBEAFE" stopOpacity="0.35" />
+              <stop offset="55%" stopColor="#EFF6FF" stopOpacity="0.15" />
+              <stop offset="100%" stopColor="#FFFFFF" stopOpacity="0"   />
+            </radialGradient>
+          </defs>
+
+          {/* ── 1. Ambient corner glows ── */}
+          <rect x="0" y="0" width="1920" height="1080" fill="url(#ambientBL)" />
+          <rect x="0" y="0" width="1920" height="1080" fill="url(#ambientTR)" />
+
+          {/* ── 2. Top-Right Diagonal Light Ribbons / Streaks (Exact alignment to uploaded image) ── */}
+          <path
+            d="M 1320 0 L 1680 0 L 1920 240 L 1920 600 Z"
+            fill="url(#diagRibbon1)"
+          />
+          <path
+            d="M 1600 0 L 1920 0 L 1920 320 Z"
+            fill="url(#diagRibbon2)"
+          />
+          <path
+            d="M 1150 0 L 1320 0 L 1920 600 L 1920 770 Z"
+            fill="url(#diagRibbon3)"
+          />
+          <path
+            d="M 1580 520 L 1920 860 L 1920 1080 L 1760 1080 Z"
+            fill="url(#diagRibbon1)"
+            opacity="0.6"
+          />
+
+          {/* ── 3. Bottom-Left Little Overlapping Waves (Exact alignment to uploaded image) ── */}
+          {/* Background Little Wave */}
+          <path
+            d="M -20 1090 L -20 650 C 150 630, 250 820, 500 850 C 650 870, 750 950, 950 1090 Z"
+            fill="url(#waveBlue1)"
+          />
+          {/* Middle Little Wave */}
+          <path
+            d="M -20 1090 L -20 780 C 120 750, 220 900, 420 940 C 580 970, 680 1030, 850 1090 Z"
+            fill="url(#waveBlue2)"
+          />
+          {/* Foreground Little Wave */}
+          <path
+            d="M -20 1090 L -20 900 C 80 880, 160 980, 320 1020 C 450 1050, 550 1070, 650 1090 Z"
+            fill="url(#waveBlue3)"
+          />
+        </svg>
       </div>
-      <div className="new-signin-right">
-        <div className={`apex-auth-card ${mode === "signup" ? "signup-card-custom" : ""}`}>
-          {children}
-        </div>
+
+      <div className="apex-exact-wrapper">
+        {/* Main Two-Column Layout */}
+        <main className="apex-exact-grid">
+          {/* Left Column (Marketing) */}
+          <div className="apex-exact-left-col">
+            {/* Top Logo - Sized bigger with equal top & bottom whitespace */}
+            <div
+              className="apex-top-logo-only-bar"
+              onClick={() => navigate("/")}
+              role="button"
+              tabIndex={0}
+            >
+              <TransparentLogo height={68} />
+            </div>
+
+            <div className="apex-exact-left-top">
+              {/* Headline */}
+              <div className="apex-exact-headline">
+                <h1 className="apex-exact-headline-line1">Accelerate Your</h1>
+                <h1 className="apex-exact-headline-line2">Modernization Journey</h1>
+              </div>
+
+              {/* Subtext */}
+              <p className="apex-exact-subtext">
+                AI-driven insights. Automated modernization.<br />
+                Measurable results.
+              </p>
+
+
+              {/* Visualization Diagram (Full prominent width with stat card removed) */}
+              <div className="apex-exact-visual-row" style={{ flexGrow: 1, display: 'flex', alignItems: 'center' }}>
+                <div className="apex-exact-diagram-box" style={{ 
+                  padding: '0', 
+                  display: 'flex', 
+                  justifyContent: 'flex-start',
+                  alignItems: 'center',
+                  width: '100%',
+                  height: '100%'
+                }}>
+                  <IsometricHeroDiagram />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Right Column (Login Card) */}
+          <div className="apex-exact-right-col">
+            <div className="apex-exact-login-card">
+              {/* Inner Card Content */}
+              <div className="apex-exact-card-inner">
+                {children}
+              </div>
+            </div>
+          </div>
+        </main>
       </div>
     </div>
   );
 };
-
 
 export default AuthLayout;
