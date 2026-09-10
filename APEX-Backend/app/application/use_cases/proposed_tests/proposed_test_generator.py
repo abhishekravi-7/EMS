@@ -153,12 +153,13 @@ class ProposedTestGenerator:
                         description=f"Validate that sending a valid {method} request to '{endpoint}' returns expected status code and response payload.",
                         type=ProposedTestType.API,
                         priority=priority,
-                        source=source_class,
+                        source="LLM Generated",
                         reason=reason,
                         preconditions=[
                             "Application service is running and accessible",
                             "Database contains required test seed data",
                         ],
+                        test_data={"method": method, "endpoint": endpoint, "headers": {"Content-Type": "application/json"}},
                         steps=[
                             f"Construct {method} request with valid headers and payload for {endpoint}",
                             "Send HTTP request to the API server",
@@ -166,7 +167,7 @@ class ProposedTestGenerator:
                         ],
                         expected_result="HTTP status code is 200/201 and response payload matches schema",
                         status=ProposedTestStatus.PROPOSED,
-                        generation_source="AI_GENERATED",
+                        generation_source="LLM Generated",
                         api_spec=ApiTestSpec(
                             method=method,
                             endpoint=endpoint,
@@ -193,16 +194,17 @@ class ProposedTestGenerator:
                         description=f"Verify that sending an invalid/empty payload to '{endpoint}' is rejected with HTTP 400 Bad Request.",
                         type=ProposedTestType.API,
                         priority=ProposedTestPriority.MEDIUM,
-                        source=source_class,
+                        source="LLM Generated",
                         reason=neg_reason,
                         preconditions=["Application service is running"],
+                        test_data={"method": method, "endpoint": endpoint, "request_body": {}},
                         steps=[
                             f"Send malformed or empty JSON payload to {method} {endpoint}",
                             "Assert response status is 400 or 422 Unprocessable Entity",
                         ],
                         expected_result="HTTP 400 / 422 with meaningful error message in response body",
                         status=ProposedTestStatus.PROPOSED,
-                        generation_source="AI_GENERATED",
+                        generation_source="LLM Generated",
                         api_spec=ApiTestSpec(
                             method=method,
                             endpoint=endpoint,
@@ -270,16 +272,17 @@ class ProposedTestGenerator:
                         description=f"End-to-end browser test using Playwright against {ui_name} with automated screenshot & video recording.",
                         type=ProposedTestType.UI,
                         priority=priority,
-                        source=f"{ui_name}",
+                        source="LLM Generated",
                         reason=reason,
                         preconditions=[
                             "Frontend and backend servers are running",
                             "Browser is initialized in headless mode",
                         ],
+                        test_data={"ui_view": ui_name, "route": f"/{ui_name.lower().replace('page', '')}"},
                         steps=steps,
                         expected_result=expected_result,
                         status=ProposedTestStatus.PROPOSED,
-                        generation_source="AI_GENERATED",
+                        generation_source="LLM Generated",
                         ui_spec=UiTestSpec(
                             target_route=f"/{ui_name.lower().replace('page', '')}",
                             input_fields=[{"name": "inputField", "type": "text"}],
@@ -312,14 +315,13 @@ class ProposedTestGenerator:
             matched_svc = self._match_workflow_to_service(wf, services)
             matched_ui = self._match_workflow_to_ui(wf, ui_workflows)
 
-            source_label = "BRD Document"
+            source_label = "Functional Testing Document Generated"
             test_type = ProposedTestType.API
             api_spec = None
             ui_spec = None
             unit_spec = None
 
             if matched_ep:
-                source_label = matched_ep.get("class_name") or matched_ep.get("source") or "Controller"
                 test_type = ProposedTestType.API
                 api_spec = ApiTestSpec(
                     method=matched_ep.get("method", "GET"),
@@ -331,7 +333,6 @@ class ProposedTestGenerator:
             elif matched_ui or any(k in wf.name.lower() for k in ["ui", "screen", "page", "browser", "click", "form"]):
                 test_type = ProposedTestType.UI
                 ui_route = matched_ui.get("name", "/").lower() if matched_ui else f"/{wf.name.lower().replace(' ', '-')}"
-                source_label = f"UI View ({matched_ui.get('name') if matched_ui else 'Workflow'})"
                 ui_spec = UiTestSpec(
                     target_route=ui_route,
                     actions=["navigate", "fill", "verify"],
@@ -339,7 +340,6 @@ class ProposedTestGenerator:
                 )
             elif matched_svc:
                 svc_name = matched_svc.get('name', 'Service')
-                source_label = f"{svc_name} Controller"
                 test_type = ProposedTestType.API
                 api_spec = ApiTestSpec(
                     method="POST" if wf.is_negative or "create" in wf.name.lower() or "save" in wf.name.lower() else "GET",
@@ -350,7 +350,6 @@ class ProposedTestGenerator:
                 )
             else:
                 # Default to API/Contract flow
-                source_label = "BRD Business Requirement"
                 test_type = ProposedTestType.API
                 api_spec = ApiTestSpec(
                     method="POST" if wf.is_negative or "create" in wf.name.lower() or "submit" in wf.name.lower() else "GET",
@@ -365,9 +364,10 @@ class ProposedTestGenerator:
                     description=wf.description or f"Validation of business requirement: {wf.name}",
                     type=test_type,
                     priority=priority,
-                    source=source_label,
+                    source="Functional Testing Document Generated",
                     reason=reason,
                     preconditions=wf.preconditions or ["System services online"],
+                    test_data={"workflow": wf.name, "negative": wf.is_negative},
                     steps=wf.steps or [f"Execute workflow for {wf.name}"],
                     expected_result=wf.expected_result or "Business constraints and validations satisfied",
                     status=ProposedTestStatus.PROPOSED,
@@ -415,9 +415,10 @@ class ProposedTestGenerator:
                         description=f"{ai_test.description} (Aligned with BRD: {brd_match.title})",
                         type=ai_test.type,
                         priority=ai_test.priority if ai_test.priority == ProposedTestPriority.HIGH else brd_match.priority,
-                        source=ai_test.source,
+                        source="Functional Testing Document Generated",
                         reason=merged_reason,
                         preconditions=brd_match.preconditions or ai_test.preconditions,
+                        test_data=ai_test.test_data or brd_match.test_data,
                         steps=merged_steps,
                         expected_result=ai_test.expected_result,
                         status=ProposedTestStatus.PROPOSED,
@@ -502,16 +503,17 @@ class ProposedTestGenerator:
             description="Verify that the migrated application context loads and core health/discovery endpoints respond correctly.",
             type=ProposedTestType.API,
             priority=ProposedTestPriority.HIGH,
-            source="ApplicationContext",
+            source="LLM Generated",
             reason="Baseline smoke test proposed to verify migrated application startup and health status.",
             preconditions=["Application server is running"],
+            test_data={"endpoint": "/health"},
             steps=[
                 "Send GET request to /health or /api/health",
                 "Verify HTTP 200 status code",
             ],
             expected_result="HTTP status 200 OK with healthy service status",
             status=ProposedTestStatus.PROPOSED,
-            generation_source="AI_GENERATED",
+            generation_source="LLM Generated",
             api_spec=ApiTestSpec(
                 method="GET",
                 endpoint="/health",

@@ -298,7 +298,7 @@ export function MigrationAnimationView({
   // Backend Status Detection & Genuine Migration Status
   const backendStatus = (migrationJob?.status || "").toLowerCase();
   const isBackendFailed = backendStatus === "failed" || Boolean(migrationJob?.error_message);
-  const isBackendCompleted = backendStatus === "completed";
+  const isBackendCompleted = backendStatus === "completed" || backendStatus === "success";
 
   // Check if all 6 steps are genuinely completed in the stepper
   const allStepsCompleted = useMemo(() => {
@@ -452,6 +452,21 @@ export function MigrationAnimationView({
       return;
     }
 
+    if (isBackendCompleted) {
+      setProgressPercent(100);
+      setStepStates({
+        1: "completed",
+        2: "completed",
+        3: "completed",
+        4: "completed",
+        5: "completed",
+        6: "completed",
+      });
+      onMigrationCompleteRef.current?.();
+      onViewReportRef.current?.();
+      return;
+    }
+
     if (activeStep > 6) {
       setProgressPercent(100);
       onMigrationCompleteRef.current?.();
@@ -536,7 +551,7 @@ export function MigrationAnimationView({
       cancelled = true;
       clearInterval(timer);
     };
-  }, [activeStep, isBackendFailed]);
+  }, [activeStep, isBackendFailed, isBackendCompleted]);
 
   // Smart Scroll Position Detection & Auto-Scroll
   const handleLogsScroll = () => {

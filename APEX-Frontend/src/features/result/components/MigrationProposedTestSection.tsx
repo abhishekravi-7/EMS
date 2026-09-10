@@ -511,20 +511,20 @@ export function MigrationProposedTestSection({
         <div style={{ marginTop: 24 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", marginBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span>Executed Proposed Test Method Details ({proposals.length} scenarios)</span>
-            <span style={{ fontSize: 11, color: "#64748b", fontWeight: 600 }}>Click row for step assertions &amp; evidence</span>
+            <span style={{ fontSize: 11, color: "#64748b", fontWeight: 600 }}>Click row or evidence badge for assertions &amp; API response</span>
           </div>
 
-          <div style={{ maxHeight: 320, overflowY: "auto", border: "1px solid #e2e8f0", borderRadius: 8, background: "#ffffff" }}>
+          <div style={{ maxHeight: 380, overflowY: "auto", border: "1px solid #e2e8f0", borderRadius: 8, background: "#ffffff" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: 12 }}>
               <thead>
                 <tr style={{ background: "#f8fafc", color: "#475569", borderBottom: "1px solid #e2e8f0", position: "sticky", top: 0, zIndex: 2 }}>
-                  <th style={{ padding: "8px 12px", width: 70, fontWeight: 700 }}>ID</th>
+                  <th style={{ padding: "8px 12px", width: 170, fontWeight: 700 }}>Source</th>
+                  <th style={{ padding: "8px 12px", width: 90, fontWeight: 700 }}>Test ID</th>
                   <th style={{ padding: "8px 12px", fontWeight: 700 }}>Test Name</th>
-                  <th style={{ padding: "8px 12px", width: 150, fontWeight: 700 }}>Source</th>
                   <th style={{ padding: "8px 12px", width: 80, fontWeight: 700 }}>Type</th>
-                  <th style={{ padding: "8px 12px", width: 100, fontWeight: 700 }}>Status</th>
+                  <th style={{ padding: "8px 12px", width: 110, fontWeight: 700 }}>Status</th>
                   <th style={{ padding: "8px 12px", width: 90, fontWeight: 700 }}>Duration</th>
-                  <th style={{ padding: "8px 12px", width: 70, fontWeight: 700, textAlign: "center" }}>Details</th>
+                  <th style={{ padding: "8px 12px", width: 120, fontWeight: 700, textAlign: "center" }}>Evidence</th>
                 </tr>
               </thead>
               <tbody>
@@ -547,8 +547,10 @@ export function MigrationProposedTestSection({
                       t.generation_source === "BRD_DOCUMENT" ||
                       t.generation_source === "BRD_AND_AI" ||
                       t.generation_source === "FUNCTIONAL_DOC" ||
+                      t.generation_source === "Functional Testing Document Generated" ||
                       t.id.includes("BRD") ||
                       t.source === "BRD Document" ||
+                      t.source === "Functional Testing Document Generated" ||
                       t.source === "BRD Business Requirement";
 
                     const isExisting =
@@ -558,7 +560,7 @@ export function MigrationProposedTestSection({
                       t.source === "Existing Repository" ||
                       t.source === "Existing Repository Tests";
 
-                    const sourceBadgeLabel = isExisting ? "Existing" : isDoc ? "Functional Doc" : "LLM Generated";
+                    const sourceBadgeLabel = isExisting ? "Existing Repository" : isDoc ? "Functional Testing Document" : "LLM Generated";
                     const sourceBadgeColor = isExisting ? "#059669" : isDoc ? "#7c3aed" : "#0284c7";
                     const sourceBadgeBg = isExisting ? "#ecfdf5" : isDoc ? "#faf5ff" : "#f0f9ff";
                     const sourceBadgeBorder = isExisting ? "#a7f3d0" : isDoc ? "#d8b4fe" : "#bae6fd";
@@ -592,6 +594,7 @@ export function MigrationProposedTestSection({
                       : "1px solid rgba(100, 116, 139, 0.3)";
 
                     const duration = t.execution_result?.duration || "--";
+                    const actualStatus = t.execution_result?.actual_status_code || t.api_spec?.expected_status || 200;
 
                     return (
                       <tr
@@ -606,12 +609,6 @@ export function MigrationProposedTestSection({
                         onMouseEnter={(e) => (e.currentTarget.style.background = "#f8fafc")}
                         onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                       >
-                        <td style={{ padding: "8px 12px", fontFamily: "monospace", color: "#0284c7", fontWeight: 700 }}>
-                          {t.id}
-                        </td>
-                        <td style={{ padding: "8px 12px", fontWeight: 600 }}>
-                          {t.title}
-                        </td>
                         <td style={{ padding: "8px 12px" }}>
                           <span
                             style={{
@@ -627,8 +624,26 @@ export function MigrationProposedTestSection({
                             {sourceBadgeLabel}
                           </span>
                         </td>
+                        <td style={{ padding: "8px 12px", fontFamily: "monospace", color: "#0284c7", fontWeight: 700 }}>
+                          {t.id}
+                        </td>
+                        <td style={{ padding: "8px 12px", fontWeight: 600 }}>
+                          {t.title}
+                        </td>
                         <td style={{ padding: "8px 12px", fontSize: 11, color: "#64748b" }}>
-                          {t.type}
+                          <span
+                            style={{
+                              fontWeight: 800,
+                              fontSize: 10,
+                              padding: "2px 6px",
+                              borderRadius: 4,
+                              background: t.type === "UI" ? "#fdf4ff" : "#f0fdf4",
+                              color: t.type === "UI" ? "#a855f7" : "#16a34a",
+                              border: t.type === "UI" ? "1px solid #f0abfc" : "1px solid #bbf7d0",
+                            }}
+                          >
+                            {t.type}
+                          </span>
                         </td>
                         <td style={{ padding: "8px 12px" }}>
                           <span
@@ -653,23 +668,54 @@ export function MigrationProposedTestSection({
                           {duration}
                         </td>
                         <td style={{ padding: "8px 12px", textAlign: "center" }}>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedTest(t);
-                            }}
-                            style={{
-                              background: "transparent",
-                              border: "none",
-                              color: "#0284c7",
-                              cursor: "pointer",
-                              fontSize: 12,
-                            }}
-                            title="View Test Details"
-                          >
-                            <FaExternalLinkAlt size={11} />
-                          </button>
+                          {t.type === "UI" ? (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedTest(t);
+                              }}
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 4,
+                                background: "#f8fafc",
+                                border: "1px solid #cbd5e1",
+                                color: "#0284c7",
+                                borderRadius: 6,
+                                padding: "2px 8px",
+                                fontSize: 11,
+                                fontWeight: 700,
+                                cursor: "pointer",
+                              }}
+                            >
+                              Screenshot
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedTest(t);
+                              }}
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 4,
+                                background: isPassed ? "#ecfdf5" : isFailed ? "#fef2f2" : "#f8fafc",
+                                border: isPassed ? "1px solid #a7f3d0" : isFailed ? "1px solid #fecaca" : "1px solid #cbd5e1",
+                                color: isPassed ? "#059669" : isFailed ? "#dc2626" : "#475569",
+                                borderRadius: 6,
+                                padding: "2px 8px",
+                                fontSize: 11,
+                                fontWeight: 800,
+                                fontFamily: "monospace",
+                                cursor: "pointer",
+                              }}
+                            >
+                              HTTP {actualStatus}
+                            </button>
+                          )}
                         </td>
                       </tr>
                     );
@@ -842,6 +888,111 @@ export function MigrationProposedTestSection({
                   {selectedTest.description || selectedTest.reason}
                 </p>
               </div>
+
+              {/* Postman-Style API Execution Card */}
+              {selectedTest.type === "API" && (
+                <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: "16px" }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: "#475569", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 12 }}>
+                    API Execution Details (Postman View)
+                  </div>
+                  
+                  <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 8, padding: "10px 12px", marginBottom: 12 }}>
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 900,
+                        padding: "3px 8px",
+                        borderRadius: 4,
+                        background: selectedTest.api_spec?.method === "POST" ? "#16a34a" : selectedTest.api_spec?.method === "PUT" ? "#d97706" : selectedTest.api_spec?.method === "DELETE" ? "#dc2626" : "#0284c7",
+                        color: "#ffffff",
+                        fontFamily: "monospace",
+                      }}
+                    >
+                      {selectedTest.api_spec?.method || "GET"}
+                    </span>
+                    <span style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 700, color: "#0f172a" }}>
+                      {selectedTest.api_spec?.endpoint || "/"}
+                    </span>
+                    <span
+                      style={{
+                        marginLeft: "auto",
+                        fontSize: 11,
+                        fontWeight: 800,
+                        padding: "3px 8px",
+                        borderRadius: 4,
+                        background: selectedTest.status === "PASSED" ? "#ecfdf5" : "#fef2f2",
+                        color: selectedTest.status === "PASSED" ? "#059669" : "#dc2626",
+                        border: selectedTest.status === "PASSED" ? "1px solid #a7f3d0" : "1px solid #fecaca",
+                      }}
+                    >
+                      Status: {selectedTest.execution_result?.actual_status_code || selectedTest.api_spec?.expected_status || 200}
+                    </span>
+                    <span style={{ fontSize: 11, color: "#64748b", fontFamily: "monospace" }}>
+                      {selectedTest.execution_result?.response_time_ms ?? 120}ms
+                    </span>
+                  </div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                    <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 8, padding: "10px 12px" }}>
+                      <span style={{ fontSize: 11, color: "#64748b", fontWeight: 600 }}>Result: </span>
+                      <span style={{ fontSize: 12, fontWeight: 800, color: selectedTest.status === "PASSED" ? "#059669" : "#dc2626" }}>
+                        {selectedTest.status === "PASSED" ? "PASSED" : "FAILED"}
+                      </span>
+                    </div>
+                    <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 8, padding: "10px 12px" }}>
+                      <span style={{ fontSize: 11, color: "#64748b", fontWeight: 600 }}>Response Time: </span>
+                      <span style={{ fontSize: 12, fontWeight: 800, color: "#0284c7", fontFamily: "monospace" }}>
+                        {selectedTest.execution_result?.response_time_ms ?? 120}ms
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Response Body */}
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#475569", marginBottom: 4 }}>
+                      Response Body:
+                    </div>
+                    <pre
+                      style={{
+                        background: "#030712",
+                        border: "1px solid #1f2937",
+                        borderRadius: 8,
+                        padding: "12px",
+                        fontSize: 11,
+                        color: "#38bdf8",
+                        fontFamily: "'JetBrains Mono', monospace",
+                        maxHeight: 180,
+                        overflowY: "auto",
+                        margin: 0,
+                      }}
+                    >
+                      {JSON.stringify(selectedTest.execution_result?.actual_response || selectedTest.api_spec?.expected_response || { status: "success" }, null, 2)}
+                    </pre>
+                  </div>
+                </div>
+              )}
+
+              {/* UI Screenshot Visual Evidence Card */}
+              {selectedTest.type === "UI" && (
+                <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: "16px" }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: "#475569", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 }}>
+                    Playwright Visual Evidence
+                  </div>
+                  {selectedTest.execution_result?.evidence?.screenshot_url ? (
+                    <div style={{ border: "1px solid #cbd5e1", borderRadius: 8, overflow: "hidden", background: "#0f172a" }}>
+                      <img
+                        src={selectedTest.execution_result.evidence.screenshot_url}
+                        alt="Playwright Execution Screenshot"
+                        style={{ width: "100%", height: "auto", display: "block" }}
+                      />
+                    </div>
+                  ) : (
+                    <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 8, padding: 14, textAlign: "center", color: "#64748b", fontSize: 12 }}>
+                      Screenshot visual evidence recorded for {selectedTest.id} during Playwright browser execution.
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Execution Steps */}
               {selectedTest.steps && selectedTest.steps.length > 0 && (

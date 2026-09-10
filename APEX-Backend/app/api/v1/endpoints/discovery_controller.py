@@ -276,6 +276,29 @@ async def upload_brd_document(
     if len(content) > max_size_bytes:
         raise HTTPException(status_code=400, detail="File exceeds maximum allowed size of 25MB")
 
+    # Content signature validation to prevent file spoofing
+    if content.startswith(b"MZ"):
+        raise HTTPException(status_code=400, detail="Executable files are not permitted.")
+
+    if ext == ".pdf" and not content.startswith(b"%PDF-"):
+        raise HTTPException(status_code=400, detail="Invalid PDF file content: missing PDF signature.")
+
+    if ext in [".docx", ".xlsx"] and not content.startswith(b"PK\x03\x04"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid {ext} file content: missing OpenXML/ZIP archive signature.",
+        )
+
+    if ext == ".xls" and not (
+        content.startswith(b"\xd0\xcf\x11\xe0")
+        or b"<?xml" in content[:200]
+        or b"<Workbook" in content[:500]
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid Excel (.xls) file content: missing binary workbook signature.",
+        )
+
     paths = WorkspacePaths(job_id)
     paths.brd_dir.mkdir(parents=True, exist_ok=True)
 

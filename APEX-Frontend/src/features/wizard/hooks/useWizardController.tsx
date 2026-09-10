@@ -7,6 +7,7 @@ import {
   FaProjectDiagram,
   FaRocket,
   FaSearch,
+  FaSpinner,
 } from "react-icons/fa";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
@@ -58,6 +59,7 @@ import {
 import { scanExistingTests } from "@/features/modernization/services/existingTestService";
 import type {
   RepoAnalysis,
+  RepoInfo,
   DependencyInfo,
   MicroserviceEligibilityResult,
   MicroserviceServiceCandidate,
@@ -71,9 +73,21 @@ import {
 } from "@/features/modernization/services/modernizationService";
 import {
   clearWizardStorage,
+  readPersistedValue,
   readSessionJson,
+  removeSessionValue,
+  writeSessionValue,
   type PersistedWizardFormState,
   WIZARD_FORM_STATE_KEY,
+  WIZARD_JOB_ID_KEY,
+  WIZARD_REPO_ANALYSIS_KEY,
+  WIZARD_SELECTED_REPO_KEY,
+  WIZARD_REPO_URL_KEY,
+  WIZARD_DISCOVERY_COMPLETED_KEY,
+  WIZARD_STRATEGY_COMPLETED_KEY,
+  WIZARD_MIGRATION_COMPLETED_KEY,
+  WIZARD_MIGRATION_JOB_KEY,
+  getScopedStepUnlockKey,
 } from "@/shared/utils/migrationWizardStorage";
 import { getStepFromPath, STEP_ROUTES } from "@/config/stepRoutes";
 import { useMigrationWizardPersistence } from "@/shared/hooks/useMigrationWizardPersistence";
@@ -110,105 +124,118 @@ interface PrefetchedBrdDocument {
 const mergeMigrationSummaryIntoJob = (
   previous: MigrationResult | null,
   summary: MigrationJobSummary
-): MigrationResult => ({
-  ...(previous ?? {
-    dependencies: [],
-    migration_log: [],
-    issues: [],
-    file_diffs: [],
-    test_insights: [],
-    target_repo: null,
-    test_summary: null,
-    test_llm_model: null,
-    sonar_quality_gate: null,
-    sonar_error_message: null,
-    fossa_policy_status: null,
-    fossa_total_dependencies: 0,
-    fossa_license_issues: 0,
-    fossa_vulnerabilities: 0,
-    fossa_outdated_dependencies: 0,
-    fossa_scan_mode: null,
-    fossa_real_scan: false,
-    fossa_analysis_url: null,
-    fossa_error_message: null,
-    error_message: null,
-    started_at: summary.started_at,
-    worker_started_at: summary.worker_started_at ?? null,
-    completed_at: summary.completed_at,
-    conversion_types: summary.conversion_types,
+): MigrationResult => {
+  const resolvedJobId = summary.job_id || (summary as any).jobId || previous?.job_id || (previous as any)?.jobId || "";
+  return {
+    ...(previous ?? {
+      dependencies: (summary as any).dependencies ?? (summary as any).dependency_upgrades ?? [],
+      migration_log: [],
+      issues: [],
+      file_diffs: [],
+      modified_files: [],
+      test_insights: [],
+      target_repo: null,
+      test_summary: null,
+      test_llm_model: null,
+      sonar_quality_gate: null,
+      sonar_error_message: null,
+      fossa_policy_status: null,
+      fossa_total_dependencies: 0,
+      fossa_license_issues: 0,
+      fossa_vulnerabilities: 0,
+      fossa_outdated_dependencies: 0,
+      fossa_scan_mode: null,
+      fossa_real_scan: false,
+      fossa_analysis_url: null,
+      fossa_error_message: null,
+      error_message: null,
+      started_at: summary.started_at,
+      worker_started_at: summary.worker_started_at ?? null,
+      completed_at: summary.completed_at,
+      conversion_types: summary.conversion_types,
+      source_repo: summary.source_repo,
+      source_java_version: summary.source_java_version,
+      target_java_version: summary.target_java_version,
+      status: summary.status,
+      progress_percent: summary.progress_percent,
+      current_step: summary.current_step,
+      files_modified: summary.files_modified,
+      issues_fixed: summary.issues_fixed,
+      api_endpoints_validated: summary.api_endpoints_validated,
+      api_endpoints_working: summary.api_endpoints_working,
+      sonar_bugs: summary.sonar_bugs,
+      sonar_vulnerabilities: summary.sonar_vulnerabilities,
+      sonar_code_smells: summary.sonar_code_smells,
+      sonar_coverage: summary.sonar_coverage,
+      tests_run: summary.tests_run,
+      tests_passed: summary.tests_passed,
+      tests_failed: summary.tests_failed,
+      total_errors: summary.total_errors,
+      total_warnings: summary.total_warnings,
+      errors_fixed: summary.errors_fixed,
+      warnings_fixed: summary.warnings_fixed,
+      dependency_count: summary.dependency_count,
+      job_id: resolvedJobId,
+    }),
+    job_id: resolvedJobId,
+    status: summary.status,
     source_repo: summary.source_repo,
+    target_repo: summary.target_repo ?? previous?.target_repo ?? null,
     source_java_version: summary.source_java_version,
     target_java_version: summary.target_java_version,
-    status: summary.status,
+    conversion_types: summary.conversion_types,
+    started_at: summary.started_at,
+    worker_started_at: summary.worker_started_at ?? previous?.worker_started_at ?? null,
+    completed_at: summary.completed_at ?? previous?.completed_at ?? null,
     progress_percent: summary.progress_percent,
     current_step: summary.current_step,
-    files_modified: summary.files_modified,
-    issues_fixed: summary.issues_fixed,
+    files_modified: summary.files_modified ?? previous?.files_modified ?? 0,
+    issues_fixed: summary.issues_fixed ?? previous?.issues_fixed ?? 0,
     api_endpoints_validated: summary.api_endpoints_validated,
     api_endpoints_working: summary.api_endpoints_working,
+    tests_run: summary.tests_run,
+    tests_passed: summary.tests_passed,
+    tests_failed: summary.tests_failed,
+    sonar_quality_gate: summary.sonar_quality_gate ?? previous?.sonar_quality_gate ?? null,
     sonar_bugs: summary.sonar_bugs,
     sonar_vulnerabilities: summary.sonar_vulnerabilities,
     sonar_code_smells: summary.sonar_code_smells,
     sonar_coverage: summary.sonar_coverage,
-    tests_run: summary.tests_run,
-    tests_passed: summary.tests_passed,
-    tests_failed: summary.tests_failed,
+    sonar_duplications: summary.sonar_duplications ?? previous?.sonar_duplications,
+    sonar_security_hotspots: summary.sonar_security_hotspots ?? previous?.sonar_security_hotspots,
+    sonar_scan_mode: summary.sonar_scan_mode ?? previous?.sonar_scan_mode ?? null,
+    sonar_real_scan: summary.sonar_real_scan ?? previous?.sonar_real_scan,
+    sonar_analysis_url: summary.sonar_analysis_url ?? previous?.sonar_analysis_url ?? null,
+    sonar_error_message: summary.sonar_error_message ?? previous?.sonar_error_message ?? null,
+    sonar_report: summary.sonar_report ?? previous?.sonar_report ?? null,
+    fossa_policy_status: summary.fossa_policy_status ?? previous?.fossa_policy_status ?? null,
+    fossa_total_dependencies: summary.fossa_total_dependencies,
+    fossa_license_issues: summary.fossa_license_issues,
+    fossa_vulnerabilities: summary.fossa_vulnerabilities,
+    fossa_outdated_dependencies: summary.fossa_outdated_dependencies,
+    fossa_scan_mode: summary.fossa_scan_mode ?? previous?.fossa_scan_mode ?? null,
+    fossa_real_scan: summary.fossa_real_scan ?? previous?.fossa_real_scan,
+    fossa_analysis_url: summary.fossa_analysis_url ?? previous?.fossa_analysis_url ?? null,
+    fossa_error_message: summary.fossa_error_message ?? previous?.fossa_error_message ?? null,
+    fossa_report: (summary as any).fossa_report ?? previous?.fossa_report ?? null,
+    test_pipeline: (summary as any).test_pipeline ?? previous?.test_pipeline ?? null,
+    file_diffs: previous?.file_diffs ?? [],
+    modified_files: previous?.modified_files ?? [],
+    test_insights: (summary as any).test_insights ?? previous?.test_insights ?? [],
+    issues: previous?.issues ?? [],
+    migration_log: previous?.migration_log ?? [],
+    dependencies: previous?.dependencies?.length ? previous.dependencies : ((summary as any).dependencies ?? (summary as any).dependency_upgrades ?? []),
+    dependency_upgrades: (summary as any).dependency_upgrades ?? previous?.dependency_upgrades ?? [],
+    error_message: summary.error_message ?? previous?.error_message ?? null,
     total_errors: summary.total_errors,
     total_warnings: summary.total_warnings,
     errors_fixed: summary.errors_fixed,
     warnings_fixed: summary.warnings_fixed,
     dependency_count: summary.dependency_count,
-    job_id: summary.job_id,
-  }),
-  job_id: summary.job_id,
-  status: summary.status,
-  source_repo: summary.source_repo,
-  target_repo: summary.target_repo,
-  source_java_version: summary.source_java_version,
-  target_java_version: summary.target_java_version,
-  conversion_types: summary.conversion_types,
-  started_at: summary.started_at,
-  worker_started_at: summary.worker_started_at ?? previous?.worker_started_at ?? null,
-  completed_at: summary.completed_at,
-  progress_percent: summary.progress_percent,
-  current_step: summary.current_step,
-  files_modified: summary.files_modified,
-  issues_fixed: summary.issues_fixed,
-  api_endpoints_validated: summary.api_endpoints_validated,
-  api_endpoints_working: summary.api_endpoints_working,
-  tests_run: summary.tests_run,
-  tests_passed: summary.tests_passed,
-  tests_failed: summary.tests_failed,
-  sonar_quality_gate: summary.sonar_quality_gate ?? null,
-  sonar_bugs: summary.sonar_bugs,
-  sonar_vulnerabilities: summary.sonar_vulnerabilities,
-  sonar_code_smells: summary.sonar_code_smells,
-  sonar_coverage: summary.sonar_coverage,
-  sonar_duplications: summary.sonar_duplications,
-  sonar_security_hotspots: summary.sonar_security_hotspots,
-  sonar_scan_mode: summary.sonar_scan_mode ?? null,
-  sonar_real_scan: summary.sonar_real_scan,
-  sonar_analysis_url: summary.sonar_analysis_url ?? null,
-  sonar_error_message: summary.sonar_error_message ?? null,
-  sonar_report: summary.sonar_report ?? previous?.sonar_report ?? null,
-  fossa_policy_status: summary.fossa_policy_status ?? null,
-  fossa_total_dependencies: summary.fossa_total_dependencies,
-  fossa_license_issues: summary.fossa_license_issues,
-  fossa_vulnerabilities: summary.fossa_vulnerabilities,
-  fossa_outdated_dependencies: summary.fossa_outdated_dependencies,
-  fossa_scan_mode: summary.fossa_scan_mode ?? null,
-  fossa_real_scan: summary.fossa_real_scan,
-  fossa_analysis_url: summary.fossa_analysis_url ?? null,
-  fossa_error_message: summary.fossa_error_message ?? null,
-  error_message: summary.error_message ?? null,
-  total_errors: summary.total_errors,
-  total_warnings: summary.total_warnings,
-  errors_fixed: summary.errors_fixed,
-  warnings_fixed: summary.warnings_fixed,
-  dependency_count: summary.dependency_count,
-});
+  };
+};
 
-const TERMINAL_MIGRATION_STATUSES = new Set(["completed", "failed", "cancelled"]);
+const TERMINAL_MIGRATION_STATUSES = new Set(["completed", "success", "failed", "cancelled"]);
 
 const isTerminalMigrationStatus = (status: string | null | undefined): boolean =>
   Boolean(status && TERMINAL_MIGRATION_STATUSES.has(status.toLowerCase()));
@@ -860,6 +887,28 @@ const classifyDependencyRisk = (dep: DependencyInfo): { risk: DependencyRiskLeve
   };
 };
 
+function isValidAiDependencyResponse(res: unknown): res is DependencyAnalysisResponse {
+  if (!res || typeof res !== "object") return false;
+  const obj = res as Record<string, any>;
+  if (obj.provider_used === "heuristic") {
+    return false;
+  }
+  if (!Array.isArray(obj.dependencies) || obj.dependencies.length === 0) {
+    return false;
+  }
+  if (!obj.overall_risk || typeof obj.overall_risk !== "string") {
+    return false;
+  }
+  const validRisks = new Set(["CRITICAL", "HIGH", "MEDIUM", "LOW", "critical", "high", "medium", "low"]);
+  const hasValidRisks = obj.dependencies.every(
+    (item: any) => item && typeof item === "object" && validRisks.has(item.risk)
+  );
+  if (!hasValidRisks) {
+    return false;
+  }
+  return true;
+}
+
 const categorizeDependencies = (
   dependencies: DependencyInfo[],
   analysis?: DependencyAnalysisResponse | null
@@ -894,6 +943,18 @@ const categorizeDependencies = (
         risk: validRisk,
         reason: found.explanation || `${dep.artifact_id} analyzed for Java migration compatibility.`,
         recommendation: found.recommendation || "",
+      };
+    }
+
+    if (analysis) {
+      // AI analysis completed successfully: avoid mixing with heuristic rule evaluation
+      return {
+        ...dep,
+        displayName: `${dep.group_id}:${dep.artifact_id}`,
+        category: "Other" as DependencyCategory,
+        risk: "low" as DependencyRiskLevel,
+        reason: `${dep.artifact_id} assessed for migration compatibility.`,
+        recommendation: "Verify compatibility with target Java version.",
       };
     }
 
@@ -1200,9 +1261,12 @@ export function useWizardController() {
     setDependencyAnalysis,
     dependencyAnalysisLoading,
     setDependencyAnalysisLoading,
+    dependencyAnalysisStatus,
+    setDependencyAnalysisStatus,
     resetTargetRepoNaming,
     applyDetectedSourceVersion,
   } = strategyState;
+  const effectiveTargetVersion = selectedTargetVersion;
   const fetchedRiskExplanationKeyRef = useRef<string>("");
   const fetchedDependencyAnalysisKeyRef = useRef<string>("");
   const modernizationState = useModernizationState(persistedFormState);
@@ -1282,6 +1346,12 @@ export function useWizardController() {
     resetAccessTokenValidationState,
     jobId,
   } = connectState;
+
+  const isDiscoveryPending =
+    !error &&
+    isJavaProject !== false &&
+    (analysisLoading || (step === 2 && selectedRepo && !repoAnalysis));
+
   const currentMigrationApproach =
     !isPrivateRepo && migrationApproach === "branch"
       ? "fork"
@@ -1752,6 +1822,7 @@ export function useWizardController() {
   const migrationPollingErrorCountRef = useRef(0);
   const fossaLoadedJobIdRef = useRef<string | null>(null);
   const detailFetchGenRef = useRef(0);
+  const hasNavigatedToReportRef = useRef<string | null>(null);
 
   const toggleMicroserviceAccordion = (section: MicroserviceAccordionKey) => {
     setMicroserviceAccordionState((current) => ({
@@ -2072,6 +2143,10 @@ export function useWizardController() {
   };
 
   const handleCheckMicroserviceEligibility = useCallback(async () => {
+    // Temporarily disabled: Microservice Assessment.
+    // Preserve implementation for future re-enablement.
+    return;
+    /*
     if (!repoAnalysis || !selectedRepo?.url) return;
     setMicroserviceLoading(true);
     setMicroserviceAssessmentResolved(false);
@@ -2101,6 +2176,7 @@ export function useWizardController() {
       setMicroserviceAssessmentResolved(true);
       setMicroserviceLoading(false);
     }
+    */
   }, [
     currentToken,
     jobId,
@@ -2288,11 +2364,15 @@ export function useWizardController() {
     pdf.save(filename);
   };
 
+  // Temporarily disabled: Microservice Assessment.
+  // Preserve implementation for future re-enablement.
+  /*
   useEffect(() => {
     if (repoAnalysis && selectedRepo?.url && !microserviceAssessmentResolved && !microserviceLoading) {
       void handleCheckMicroserviceEligibility();
     }
   }, [repoAnalysis, selectedRepo?.url, microserviceAssessmentResolved, microserviceLoading, handleCheckMicroserviceEligibility]);
+  */
 
   /*
   const renderCodeChangesViewer = ({
@@ -2835,28 +2915,122 @@ export function useWizardController() {
       });
     }
 
+    const currentScope = jobId || connectState?.jobId || selectedRepo?.url || repoUrl;
+    if (currentScope) {
+      writeSessionValue(getScopedStepUnlockKey(WIZARD_STRATEGY_COMPLETED_KEY, currentScope), "true");
+    }
+    if (jobId) {
+      writeSessionValue(getScopedStepUnlockKey(WIZARD_STRATEGY_COMPLETED_KEY, jobId), "true");
+    }
+    if (selectedRepo?.url) {
+      writeSessionValue(getScopedStepUnlockKey(WIZARD_STRATEGY_COMPLETED_KEY, selectedRepo.url), "true");
+    }
+    writeSessionValue(WIZARD_STRATEGY_COMPLETED_KEY, "true");
     setStrategyCompleted(true);
     setStep(nextStep);
   };
 
   const renderCategorizedDependencies = (dependencies: DependencyInfo[]) => {
-    const categorizedDependencies = categorizeDependencies(dependencies, dependencyAnalysis);
-    const riskCounts = categorizedDependencies.reduce(
-      (acc, dep) => {
-        acc[dep.risk] += 1;
-        return acc;
-      },
-      { critical: 0, high: 0, medium: 0, low: 0 } as Record<DependencyRiskLevel, number>
+    const isAiAnalyzing =
+      dependencyAnalysisStatus === "loading" ||
+      dependencyAnalysisLoading ||
+      (dependencyAnalysisStatus === "idle" && (dependencies?.length || 0) > 0);
+
+    const isFallback = dependencyAnalysisStatus === "fallback";
+    const isAiSuccess = dependencyAnalysisStatus === "success" && !!dependencyAnalysis;
+
+    if (isAiAnalyzing) {
+      return (
+        <div style={styles.dependencyInsightsPanel} data-testid="dependency-analysis-loading">
+          <div style={styles.dependencyInsightsHeader}>
+            <div style={styles.dependencyInsightsTitle}>Total Dependencies ({dependencies.length})</div>
+            <div style={{ ...styles.dependencyInsightsSubtitle, display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
+              <FaSpinner className="animate-spin" style={{ color: "#2563eb" }} size={14} />
+              <span style={{ color: "#2563eb", fontWeight: 600 }}>Analyzing dependencies with AI...</span>
+              <span style={{ color: "#64748b", fontSize: 12 }}>
+                (Evaluating {dependencies.length} {dependencies.length === 1 ? "dependency" : "dependencies"})
+              </span>
+            </div>
+          </div>
+
+          <div style={styles.dependencySummaryGrid}>
+            {["Overall Risk", "Critical", "High", "Medium", "Low"].map((label) => (
+              <div key={label} style={{ ...styles.dependencySummaryCard, cursor: "default" }}>
+                <div style={styles.dependencySummaryLabel}>{label}</div>
+                <div
+                  className="skeleton"
+                  style={{
+                    height: 28,
+                    width: "50%",
+                    margin: "0 auto",
+                    borderRadius: 6,
+                    minWidth: 40,
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+
+          <div style={styles.categorizedDependenciesSection}>
+            <div style={{ ...styles.categorizedDependenciesSectionTitle, color: "#64748b", display: "flex", alignItems: "center", gap: 8 }}>
+              <div className="skeleton" style={{ height: 16, width: 220, borderRadius: 4 }} />
+            </div>
+            <div style={styles.categorizedDependenciesGrid}>
+              {[1, 2, 3, 4].map((i) => (
+                <div
+                  key={i}
+                  style={{
+                    ...styles.categorizedDependencyCard,
+                    background: "#f8fafc",
+                    borderColor: "#e2e8f0",
+                    boxShadow: "none",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                    <div className="skeleton" style={{ height: 16, width: "55%", borderRadius: 4 }} />
+                    <div className="skeleton" style={{ height: 18, width: "22%", borderRadius: 10 }} />
+                  </div>
+                  <div className="skeleton" style={{ height: 13, width: "35%", marginBottom: 12, borderRadius: 4 }} />
+                  <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+                    <div className="skeleton" style={{ height: 18, width: 70, borderRadius: 10 }} />
+                  </div>
+                  <div className="skeleton" style={{ height: 13, width: "90%", marginBottom: 6, borderRadius: 4 }} />
+                  <div className="skeleton" style={{ height: 13, width: "70%", borderRadius: 4 }} />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    const categorizedDependencies = categorizeDependencies(
+      dependencies,
+      isFallback ? null : dependencyAnalysis
     );
+    const riskCounts = isAiSuccess && dependencyAnalysis?.counts
+      ? {
+          critical: dependencyAnalysis.counts.critical ?? 0,
+          high: dependencyAnalysis.counts.high ?? 0,
+          medium: dependencyAnalysis.counts.medium ?? 0,
+          low: dependencyAnalysis.counts.low ?? 0,
+        }
+      : categorizedDependencies.reduce(
+          (acc, dep) => {
+            acc[dep.risk] += 1;
+            return acc;
+          },
+          { critical: 0, high: 0, medium: 0, low: 0 } as Record<DependencyRiskLevel, number>
+        );
     const visibleDependencies =
       dependencyRiskFilter === "all"
         ? categorizedDependencies
         : categorizedDependencies.filter((dep) => dep.risk === dependencyRiskFilter);
     const attentionDependencies = visibleDependencies.filter((dep) => dep.risk !== "low");
     const otherDependencies = visibleDependencies.filter((dep) => dep.risk === "low");
-    const dominantRisk: DependencyRiskLevel =
-      (dependencyAnalysis?.overall_risk?.toLowerCase() as DependencyRiskLevel) ||
-      (riskCounts.critical > 0 ? "critical" : riskCounts.high > 0 ? "high" : riskCounts.medium > 0 ? "medium" : "low");
+    const dominantRisk: DependencyRiskLevel = isAiSuccess && dependencyAnalysis?.overall_risk
+      ? (dependencyAnalysis.overall_risk.toLowerCase() as DependencyRiskLevel)
+      : (riskCounts.critical > 0 ? "critical" : riskCounts.high > 0 ? "high" : riskCounts.medium > 0 ? "medium" : "low");
     const topAttentionNames = attentionDependencies.slice(0, 5).map((dep) => dep.artifact_id).join(", ");
     const activeFilterLabel = dependencyRiskFilter === "all" ? "All Dependencies" : `${dependencyRiskFilter.toUpperCase()} Only`;
 
@@ -2950,10 +3124,56 @@ export function useWizardController() {
     return (
       <div style={styles.dependencyInsightsPanel}>
         <div style={styles.dependencyInsightsHeader}>
-          <div style={styles.dependencyInsightsTitle}>Total Dependencies ({categorizedDependencies.length})</div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 6 }}>
+            <div style={styles.dependencyInsightsTitle}>Total Dependencies ({dependencies.length})</div>
+            {isFallback && (
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "4px 12px",
+                  borderRadius: 20,
+                  backgroundColor: "#fef3c7",
+                  border: "1px solid #fde68a",
+                  color: "#92400e",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.04em",
+                }}
+                data-testid="rule-based-fallback-badge"
+              >
+                Rule-Based Analysis
+              </span>
+            )}
+            {isAiSuccess && (
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "4px 12px",
+                  borderRadius: 20,
+                  backgroundColor: "#ede9fe",
+                  border: "1px solid #ddd6fe",
+                  color: "#6d28d9",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.04em",
+                }}
+                data-testid="ai-analysis-badge"
+              >
+                AI-Powered Analysis
+              </span>
+            )}
+          </div>
           <div style={styles.dependencyInsightsSubtitle}>
-            {dependencyAnalysisLoading ? (
-              <span style={{ color: "#2563eb", fontWeight: 600 }}>Analyzing dependencies with AI...</span>
+            {isFallback ? (
+              <span style={{ color: "#92400e", fontWeight: 500 }}>
+                Rule-Based Analysis — AI analysis was unavailable, so a rule-based dependency assessment is shown.
+              </span>
             ) : dependencyAnalysis?.overall_explanation ? (
               dependencyAnalysis.overall_explanation
             ) : (
@@ -3165,6 +3385,49 @@ export function useWizardController() {
     documentPrefetchPromiseRef.current = null;
     discoveryInFlightKeyRef.current = "";
     resetTargetRepoNaming();
+    setDependencyAnalysis(null);
+    setDependencyAnalysisStatus("idle");
+    setDependencyAnalysisLoading(false);
+    fetchedDependencyAnalysisKeyRef.current = "";
+
+    // Reset wizard step unlock state so new job/repo starts strictly locked
+    setDiscoveryCompleted(false);
+    setStrategyCompleted(false);
+    setIsMigrationFinishedState(false);
+    setMigrationJob(null);
+    setMigrationDetailLoadedJobId(null);
+    setMigrationLogs([]);
+    setFossaResult(null);
+    setMigrationPreview(null);
+    hasNavigatedToReportRef.current = null;
+    removeSessionValue(WIZARD_DISCOVERY_COMPLETED_KEY);
+    removeSessionValue(WIZARD_STRATEGY_COMPLETED_KEY);
+    removeSessionValue(WIZARD_MIGRATION_COMPLETED_KEY);
+    removeSessionValue(WIZARD_MIGRATION_JOB_KEY);
+
+    const prevJobId = jobId || connectState?.jobId;
+    const prevRepoUrl = selectedRepo?.url || repoUrl;
+    if (prevJobId) {
+      removeSessionValue(getScopedStepUnlockKey(WIZARD_DISCOVERY_COMPLETED_KEY, prevJobId));
+      removeSessionValue(getScopedStepUnlockKey(WIZARD_STRATEGY_COMPLETED_KEY, prevJobId));
+      removeSessionValue(getScopedStepUnlockKey(WIZARD_MIGRATION_COMPLETED_KEY, prevJobId));
+      removeSessionValue(getScopedStepUnlockKey(WIZARD_MIGRATION_JOB_KEY, prevJobId));
+    }
+    if (prevRepoUrl) {
+      removeSessionValue(getScopedStepUnlockKey(WIZARD_DISCOVERY_COMPLETED_KEY, prevRepoUrl));
+      removeSessionValue(getScopedStepUnlockKey(WIZARD_STRATEGY_COMPLETED_KEY, prevRepoUrl));
+      removeSessionValue(getScopedStepUnlockKey(WIZARD_MIGRATION_COMPLETED_KEY, prevRepoUrl));
+      removeSessionValue(getScopedStepUnlockKey(WIZARD_MIGRATION_JOB_KEY, prevRepoUrl));
+    }
+
+    connectState.setJobId("");
+    removeSessionValue(WIZARD_JOB_ID_KEY);
+    removeSessionValue(WIZARD_REPO_ANALYSIS_KEY);
+    removeSessionValue(WIZARD_SELECTED_REPO_KEY);
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem(WIZARD_JOB_ID_KEY);
+      window.localStorage.removeItem(WIZARD_MIGRATION_JOB_KEY);
+    }
   }
 
   const handleOpenFrameworkFile = useCallback(async (framework: { name: string; path: string; type: string }) => {
@@ -3224,22 +3487,62 @@ export function useWizardController() {
     };
   }, [setTargetVersions]);
 
-  // Step 1: Connect completed
+  // Step 1: Connect completed - strictly requires a valid selected repository with an active URL/ref
   const isConnectCompleted = Boolean(
-    (selectedRepo && (selectedRepo.url || selectedRepo.name)) ||
-    (connectState?.jobId && repoUrl) ||
-    Boolean(connectState?.jobId) ||
-    Boolean(selectedRepo)
+    selectedRepo &&
+    Boolean(selectedRepo.url?.trim() || selectedRepo.name?.trim()) &&
+    (isLocalRepoRef(selectedRepo.url) || Boolean(connectState?.jobId) || Boolean(repoUrl?.trim()))
   );
 
-  // Track milestone completion across steps and backward navigation
-  const [discoveryCompleted, setDiscoveryCompleted] = useState<boolean>(false);
-  const [strategyCompleted, setStrategyCompleted] = useState<boolean>(false);
+  // Ensure that if no repository is selected, repoAnalysis is never retained
+  useEffect(() => {
+    if (!selectedRepo || !selectedRepo.url) {
+      if (repoAnalysis) {
+        setRepoAnalysis(null);
+      }
+    }
+  }, [selectedRepo, repoAnalysis, setRepoAnalysis]);
 
-  const continueToStrategy = useCallback(() => {
-    setDiscoveryCompleted(true);
-    setStep(3);
-  }, [setStep]);
+  // Scoped unlock keys helper
+  const isStepUnlockedInStorage = useCallback((baseKey: string): boolean => {
+    if (typeof window === "undefined") return false;
+    const currentScope = jobId || connectState?.jobId || selectedRepo?.url || repoUrl;
+    if (!currentScope) return false;
+    if (readPersistedValue(getScopedStepUnlockKey(baseKey, currentScope)) === "true") return true;
+    if (jobId && readPersistedValue(getScopedStepUnlockKey(baseKey, jobId)) === "true") return true;
+    if (connectState?.jobId && readPersistedValue(getScopedStepUnlockKey(baseKey, connectState.jobId)) === "true") return true;
+    if (selectedRepo?.url && readPersistedValue(getScopedStepUnlockKey(baseKey, selectedRepo.url)) === "true") return true;
+    return false;
+  }, [jobId, connectState?.jobId, selectedRepo?.url, repoUrl]);
+
+  // Track milestone completion across steps and backward navigation
+  const [discoveryCompleted, setDiscoveryCompleted] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    const persistedJobId = readPersistedValue(WIZARD_JOB_ID_KEY);
+    const persistedRepo = readSessionJson<RepoInfo>(WIZARD_SELECTED_REPO_KEY);
+    const persistedUrl = readPersistedValue(WIZARD_REPO_URL_KEY);
+    const scope = persistedJobId || persistedRepo?.url || persistedUrl;
+    if (!scope) return false;
+    return (
+      readPersistedValue(getScopedStepUnlockKey(WIZARD_DISCOVERY_COMPLETED_KEY, scope)) === "true" ||
+      (persistedJobId ? readPersistedValue(getScopedStepUnlockKey(WIZARD_DISCOVERY_COMPLETED_KEY, persistedJobId)) === "true" : false) ||
+      (persistedRepo?.url ? readPersistedValue(getScopedStepUnlockKey(WIZARD_DISCOVERY_COMPLETED_KEY, persistedRepo.url)) === "true" : false)
+    );
+  });
+
+  const [strategyCompleted, setStrategyCompleted] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    const persistedJobId = readPersistedValue(WIZARD_JOB_ID_KEY);
+    const persistedRepo = readSessionJson<RepoInfo>(WIZARD_SELECTED_REPO_KEY);
+    const persistedUrl = readPersistedValue(WIZARD_REPO_URL_KEY);
+    const scope = persistedJobId || persistedRepo?.url || persistedUrl;
+    if (!scope) return false;
+    return (
+      readPersistedValue(getScopedStepUnlockKey(WIZARD_STRATEGY_COMPLETED_KEY, scope)) === "true" ||
+      (persistedJobId ? readPersistedValue(getScopedStepUnlockKey(WIZARD_STRATEGY_COMPLETED_KEY, persistedJobId)) === "true" : false) ||
+      (persistedRepo?.url ? readPersistedValue(getScopedStepUnlockKey(WIZARD_STRATEGY_COMPLETED_KEY, persistedRepo.url)) === "true" : false)
+    );
+  });
 
   useEffect(() => {
     if (!isConnectCompleted) {
@@ -3248,46 +3551,166 @@ export function useWizardController() {
     }
   }, [isConnectCompleted]);
 
+  const resolvedActiveJobId = (connectState?.jobId || jobId || readPersistedValue(WIZARD_JOB_ID_KEY) || migrationJob?.job_id || (migrationJob as any)?.jobId || "").trim();
+  const activeJobId = resolvedActiveJobId;
+
+  // Invalidate any stale migration job if active repository job ID changes or doesn't match
+  useEffect(() => {
+    const currentActiveJobId = (connectState?.jobId || jobId || readPersistedValue(WIZARD_JOB_ID_KEY) || "").trim();
+    const currentMigrationJobId = ((migrationJob?.job_id || (migrationJob as any)?.jobId || "") as string).trim();
+    if (migrationJob && currentActiveJobId && currentMigrationJobId && currentMigrationJobId !== currentActiveJobId) {
+      setMigrationJob(null);
+      setMigrationDetailLoadedJobId(null);
+      setMigrationLogs([]);
+      setFossaResult(null);
+      setMigrationPreview(null);
+      setIsMigrationFinishedState(false);
+      removeSessionValue(WIZARD_MIGRATION_JOB_KEY);
+    }
+  }, [connectState?.jobId, jobId, migrationJob, setMigrationJob, setMigrationDetailLoadedJobId, setMigrationLogs, setFossaResult, setMigrationPreview]);
+
+  // Step 2: Discovery Analysis Complete (when repoAnalysis is ready and not pending/loading)
+  const isDiscoveryAnalysisComplete = Boolean(
+    isConnectCompleted &&
+    repoAnalysis &&
+    !analysisLoading &&
+    !isDiscoveryPending
+  );
+
+  // User has clicked "Continue to Strategy" for the active job/repo context
+  const isDiscoveryActionDone = Boolean(
+    discoveryCompleted || isStepUnlockedInStorage(WIZARD_DISCOVERY_COMPLETED_KEY)
+  );
+
+  // Step 3 (Strategy) Accessible:
+  // Requires: Connect completed + valid repo/job context + (Discovery analysis completed OR discovery milestone action done)
+  const isStrategyAccessible = Boolean(
+    isConnectCompleted &&
+    Boolean(selectedRepo?.url) &&
+    (isDiscoveryAnalysisComplete || isDiscoveryActionDone)
+  );
+
+  // User has completed Strategy via Continue with Target Version for the active job/repo context
+  const isStrategyActionDone = Boolean(
+    strategyCompleted || isStepUnlockedInStorage(WIZARD_STRATEGY_COMPLETED_KEY)
+  );
+
+  // Step 3 (Strategy) Completed:
+  // Strategy is accessible AND user has completed the target version selection and clicked Continue
+  const isStrategyCompleted = Boolean(
+    isStrategyAccessible &&
+    (Boolean(effectiveTargetVersion) || isStrategyActionDone) &&
+    isStrategyActionDone
+  );
+
+  // Step 4 (Migration) Accessible:
+  // Strictly requires Strategy to be legitimately completed
+  const isMigrationAccessible = Boolean(
+    isStrategyAccessible &&
+    isStrategyCompleted
+  );
+
+  const currentMigrationJobId = ((migrationJob?.job_id || (migrationJob as any)?.jobId || "") as string).trim();
+  const currentMigrationStatus = (migrationJob?.status || "").toLowerCase();
+  const isMigrationStatusFinished = currentMigrationStatus === "completed" || currentMigrationStatus === "success";
+
+  // Step 4 (Migration) Completed:
+  // Only after migration process has actually finished for the CURRENT job
+  const isCurrentJobMigrationCompleted = Boolean(
+    migrationJob &&
+    (resolvedActiveJobId ? currentMigrationJobId === resolvedActiveJobId : Boolean(currentMigrationJobId)) &&
+    isMigrationStatusFinished
+  );
+
+  const isMigrationActionDone = Boolean(
+    isCurrentJobMigrationCompleted ||
+    isMigrationFinishedState ||
+    isStepUnlockedInStorage(WIZARD_MIGRATION_COMPLETED_KEY)
+  );
+
+  useEffect(() => {
+    if (isCurrentJobMigrationCompleted) {
+      setIsMigrationFinishedState(true);
+      const currentScope = currentMigrationJobId || resolvedActiveJobId || selectedRepo?.url || repoUrl;
+      if (currentScope) {
+        writeSessionValue(getScopedStepUnlockKey(WIZARD_MIGRATION_COMPLETED_KEY, currentScope), "true");
+      }
+      if (resolvedActiveJobId) {
+        writeSessionValue(getScopedStepUnlockKey(WIZARD_MIGRATION_COMPLETED_KEY, resolvedActiveJobId), "true");
+      }
+      writeSessionValue(WIZARD_MIGRATION_COMPLETED_KEY, "true");
+    } else {
+      setIsMigrationFinishedState(false);
+    }
+  }, [isCurrentJobMigrationCompleted, currentMigrationJobId, resolvedActiveJobId, selectedRepo?.url, repoUrl]);
+
+  const isMigrationCompleted = Boolean(
+    (isMigrationAccessible || isStrategyActionDone) &&
+    isMigrationActionDone
+  );
+
+  // Step 5 (Results / Report) Accessible:
+  // Strictly requires Migration to be completed for the current job
+  const isResultsAccessible = Boolean(
+    isConnectCompleted &&
+    (isMigrationAccessible || isStrategyActionDone) &&
+    isMigrationActionDone
+  );
+
+  // Automatically navigate to Report when current migration finishes
   useEffect(() => {
     if (
-      migrationJob?.status === "completed" ||
-      step === 7
+      isCurrentJobMigrationCompleted &&
+      (step === 5 || step === 6)
     ) {
-      setIsMigrationFinishedState(true);
+      const currentJobKey = currentMigrationJobId || resolvedActiveJobId || "completed";
+      if (hasNavigatedToReportRef.current !== currentJobKey) {
+        hasNavigatedToReportRef.current = currentJobKey;
+        setMigrationDetailLoadedJobId(null);
+        setStep(7);
+      }
     }
-  }, [migrationJob?.status, step]);
-  // Step 2: Discovery completed (strictly when repoAnalysis is ready AND user explicitly clicked Continue to Strategy)
-  const isDiscoveryCompleted =
-    isConnectCompleted &&
-    Boolean(repoAnalysis && !analysisLoading) &&
-    discoveryCompleted;
+  }, [isCurrentJobMigrationCompleted, currentMigrationJobId, resolvedActiveJobId, step, setStep, setMigrationDetailLoadedJobId]);
 
-  // Step 3: Strategy completed (strictly when Discovery completed AND user explicitly clicked Continue to Migration)
-  const isStrategyCompleted = isDiscoveryCompleted && strategyCompleted;
+  const isDiscoveryCompleted = isStrategyAccessible;
+  const isResultsCompleted = isResultsAccessible;
 
-  // Step 4: Migration completed (only after migration process has actually completed or loader finishes)
-  const isMigrationCompleted =
-    isStrategyCompleted &&
-    Boolean(
-      migrationJob?.status === "completed" ||
-      isMigrationFinishedState ||
-      step === 7 ||
-      step === 6
-    );
+  const continueToStrategy = useCallback(() => {
+    if (!isDiscoveryAnalysisComplete || !isConnectCompleted || !selectedRepo?.url) {
+      return;
+    }
 
-  // Step 5: Results completed (only when viewed/completed at results phase)
-  const isResultsCompleted =
-    isMigrationCompleted &&
-    Boolean(step === 7 || (migrationJob?.status === "completed" && step === 7));
+    const currentScope = jobId || connectState?.jobId || selectedRepo.url || repoUrl;
+    if (currentScope) {
+      writeSessionValue(getScopedStepUnlockKey(WIZARD_DISCOVERY_COMPLETED_KEY, currentScope), "true");
+    }
+    if (jobId) {
+      writeSessionValue(getScopedStepUnlockKey(WIZARD_DISCOVERY_COMPLETED_KEY, jobId), "true");
+    }
+    if (selectedRepo.url) {
+      writeSessionValue(getScopedStepUnlockKey(WIZARD_DISCOVERY_COMPLETED_KEY, selectedRepo.url), "true");
+    }
+    writeSessionValue(WIZARD_DISCOVERY_COMPLETED_KEY, "true");
+    setDiscoveryCompleted(true);
+    setStep(3);
+  }, [
+    isDiscoveryAnalysisComplete,
+    isConnectCompleted,
+    selectedRepo?.url,
+    jobId,
+    connectState?.jobId,
+    repoUrl,
+    setStep,
+  ]);
 
-  // Highest completed step number (0 to 5)
+  // Highest completed milestone step number (0 to 5 for sidebar)
   const highestCompletedStep = isResultsCompleted
     ? 5
     : isMigrationCompleted
       ? 4
       : isStrategyCompleted
         ? 3
-        : isDiscoveryCompleted
+        : isStrategyAccessible
           ? 2
           : isConnectCompleted
             ? 1
@@ -3297,35 +3720,72 @@ export function useWizardController() {
     return stepId <= highestCompletedStep;
   };
 
+  // Step accessibility for both sidebar items (1-5) and route steps (1-7)
   const isStepAccessible = (stepId: number): boolean => {
     if (stepId === 1) return true;
+    if (!isConnectCompleted) return false;
+    if (stepId === 2) return true;
+    if (stepId === 3) return isStrategyAccessible;
+    if (stepId === 4) return isMigrationAccessible;
+    // Step 5: If on route /migrating, accessible during active migration; for sidebar item 5 (Results), only when results ready
     if (stepId === 5) {
-      return isMigrationCompleted || isMigrationFinishedState || (isStrategyCompleted && step >= 4);
+      const isRouteMigrating = location.pathname.replace(/\/+$/, "") === "/migrating";
+      if (isRouteMigrating) {
+        return isMigrationAccessible && Boolean(migrationJob || loading);
+      }
+      return isResultsAccessible;
     }
-    return (stepId - 1) <= highestCompletedStep;
+    if (stepId === 6) {
+      return isMigrationAccessible && Boolean(migrationJob || loading);
+    }
+    if (stepId === 7) return isResultsAccessible;
+    return false;
   };
 
-  const getMaxAllowedRouteStep = (highestCompleted: number): number => {
-    if (highestCompleted <= 0) return 1;
-    if (highestCompleted === 1) return 2;
-    if (highestCompleted === 2) return 3;
-    return 7;
+  // Dedicated route check
+  const isRouteAccessible = (routeStep: number): boolean => {
+    if (routeStep === 1) return true;
+    if (!isConnectCompleted) return false;
+    if (routeStep === 2) return true;
+    if (routeStep === 3) return isStrategyAccessible;
+    if (routeStep === 4) return isMigrationAccessible;
+    if (routeStep === 5 || routeStep === 6) {
+      return isMigrationAccessible && Boolean(migrationJob || loading);
+    }
+    if (routeStep === 7) return isResultsAccessible;
+    return false;
+  };
+
+  const getLatestValidStep = (): number => {
+    if (isResultsAccessible) return 7;
+    if (isMigrationAccessible) return 4;
+    if (isStrategyAccessible) return 3;
+    if (isConnectCompleted) return 2;
+    return 1;
   };
 
   useEffect(() => {
     const routeStep = getStepFromPath(location.pathname);
     // Route guard: prevent manually navigating or skipping forward to locked steps
-    const maxAllowedStep = getMaxAllowedRouteStep(highestCompletedStep);
-
-    if (routeStep > maxAllowedStep) {
-      const fallbackRoute = STEP_ROUTES[maxAllowedStep] || "/connect";
+    if (!isRouteAccessible(routeStep)) {
+      const validStep = getLatestValidStep();
+      const fallbackRoute = STEP_ROUTES[validStep] || "/connect";
       navigate(fallbackRoute, { replace: true });
-      setStepState(maxAllowedStep);
+      setStepState(validStep);
       return;
     }
 
     setStepState((current) => (current !== routeStep ? routeStep : current));
-  }, [location.pathname, highestCompletedStep, navigate]);
+  }, [
+    location.pathname,
+    isConnectCompleted,
+    isStrategyAccessible,
+    isMigrationAccessible,
+    isResultsAccessible,
+    migrationJob,
+    loading,
+    navigate,
+  ]);
 
   useEffect(() => {
     setMaxVisitedIndicatorStep((currentMax) =>
@@ -3528,20 +3988,44 @@ export function useWizardController() {
   }, [migrationJob?.dependencies?.length, migrationJob?.job_id, setReportDependencyPage]);
 
   useEffect(() => {
-    if (step !== 7 || !migrationJob?.job_id) {
+    const activeJobId = (connectState?.jobId || jobId || readPersistedValue(WIZARD_JOB_ID_KEY) || migrationJob?.job_id || (migrationJob as any)?.jobId || "").trim();
+    if (step !== 7 || !activeJobId || !isResultsAccessible) {
       return;
     }
 
+    let cancelled = false;
+    let pollTimer: number | null = null;
     const gen = ++detailFetchGenRef.current;
 
-    getMigrationDetail(migrationJob.job_id)
-      .then((job) => {
-        if (detailFetchGenRef.current !== gen) return;
-        setMigrationJob(job);
-        setMigrationDetailLoadedJobId(job.job_id);
-      })
-      .catch(() => {});
-  }, [migrationJob?.job_id, setMigrationDetailLoadedJobId, setMigrationJob, step]);
+    const fetchDetail = async () => {
+      try {
+        const job = await getMigrationDetail(activeJobId);
+        if (cancelled || detailFetchGenRef.current !== gen) return;
+        const normalizedJob: MigrationResult = {
+          ...job,
+          job_id: (job as any).job_id || (job as any).jobId || activeJobId,
+        };
+        setMigrationJob(normalizedJob);
+        setMigrationDetailLoadedJobId(normalizedJob.job_id);
+
+        const s = (normalizedJob.status || "").toLowerCase();
+        if (s === "running" || s === "preparing" || s === "migrating" || s === "validating" || s === "publishing" || s === "queued") {
+          pollTimer = window.setTimeout(fetchDetail, 2500);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.error("Failed to load migration detail report:", err);
+        }
+      }
+    };
+
+    void fetchDetail();
+
+    return () => {
+      cancelled = true;
+      if (pollTimer) clearTimeout(pollTimer);
+    };
+  }, [connectState?.jobId, jobId, isResultsAccessible, migrationJob?.job_id, setMigrationDetailLoadedJobId, setMigrationJob, step]);
 
   useEffect(() => {
     if (step !== 5 || !migrationJob?.job_id) {
@@ -3637,7 +4121,6 @@ export function useWizardController() {
       return targetVersionNumber !== null && targetVersionNumber > detectedSourceVersionNumber;
     });
   }, [detectedSourceVersionNumber, targetVersions]);
-  const effectiveTargetVersion = selectedTargetVersion;
   const defaultRecommendedTargetVersion = useMemo(() => {
     const ltsJavaVersions = new Set(["8", "11", "17", "21", "25"]);
     return (
@@ -3726,8 +4209,8 @@ export function useWizardController() {
   }, [availableTargetVersions, detectedSourceVersionForTargets, versionRecommendation]);
 
   const categorizedStrategyDependencies = useMemo(
-    () => categorizeDependencies(repoAnalysis?.dependencies || [], dependencyAnalysis),
-    [repoAnalysis?.dependencies, dependencyAnalysis]
+    () => categorizeDependencies(repoAnalysis?.dependencies || [], dependencyAnalysisStatus === "fallback" ? null : dependencyAnalysis),
+    [repoAnalysis?.dependencies, dependencyAnalysis, dependencyAnalysisStatus]
   );
   const dependencyRiskSummary = useMemo(() => {
     return categorizedStrategyDependencies.reduce(
@@ -4010,10 +4493,6 @@ export function useWizardController() {
   const formattedAnalysisCompleted = `${Math.floor(analysisCompletedSeconds / 60)
   .toString()
   .padStart(2, "0")}:${(analysisCompletedSeconds % 60).toString().padStart(2, "0")}`;
-  const isDiscoveryPending =
-    !error &&
-    isJavaProject !== false &&
-    (analysisLoading || (step === 2 && selectedRepo && !repoAnalysis));
  
   useEffect(() => {
     if (!isDiscoveryPending) {
@@ -4079,16 +4558,20 @@ export function useWizardController() {
   }, [migrationJob, migrationJob?.progress_percent, migrationJob?.status, setAnimationProgress, step]);
 
   useEffect(() => {
-    if (step === 2 && jobId) {
+    if (step === 2 && jobId && selectedRepo && selectedRepo.url) {
       void fetchBrdMetadata(jobId);
     }
-  }, [step, jobId, fetchBrdMetadata]);
+  }, [step, jobId, selectedRepo, fetchBrdMetadata]);
 
   const executeAnalysis = useCallback(
     async (isRerun = false) => {
       if (!selectedRepo) return;
       const isLocalProject = isLocalRepoRef(selectedRepo.url);
-      const discoveryKey = `${selectedRepo.url}::${jobId || ""}::${currentToken || ""}`;
+      const effectiveJobId = jobId || readPersistedValue(WIZARD_JOB_ID_KEY) || "";
+      if (!jobId && effectiveJobId) {
+        connectState.setJobId(effectiveJobId);
+      }
+      const discoveryKey = `${selectedRepo.url}::${effectiveJobId}::${currentToken || ""}`;
 
       if (discoveryInFlightKeyRef.current === discoveryKey && analysisLoading) {
         return;
@@ -4135,7 +4618,7 @@ export function useWizardController() {
             return s;
           })
         );
-      }, 700);
+      }, 2500);
 
       const stageTimer2 = window.setTimeout(() => {
         setDiscoveryStages((prev) =>
@@ -4145,7 +4628,7 @@ export function useWizardController() {
             return s;
           })
         );
-      }, 1400);
+      }, 5000);
 
       const stageTimer3 = window.setTimeout(() => {
         setDiscoveryStages((prev) =>
@@ -4155,7 +4638,7 @@ export function useWizardController() {
             return s;
           })
         );
-      }, 2100);
+      }, 8000);
 
       if (isRerun) {
         setRepoAnalysis(null);
@@ -4168,15 +4651,18 @@ export function useWizardController() {
         }
         fetchedRiskExplanationKeyRef.current = "";
         fetchedDependencyAnalysisKeyRef.current = "";
+        setDependencyAnalysis(null);
+        setDependencyAnalysisStatus("idle");
+        setDependencyAnalysisLoading(false);
       }
 
       try {
-        const analyzePromise = isLocalProject
-          ? analyzeLocalProject(extractLocalRepoPath(selectedRepo.url))
-              .then(async (result) => enrichAnalysisWithPomVersion(result.analysis, selectedRepo.url, ""))
-          : jobId
-            ? runDiscovery(jobId, currentToken, isRerun)
-                .then(async (result) => enrichAnalysisWithPomVersion(result.analysis, selectedRepo.url, currentToken))
+        const analyzePromise = effectiveJobId
+          ? runDiscovery(effectiveJobId, currentToken, isRerun)
+              .then(async (result) => enrichAnalysisWithPomVersion(result.analysis, selectedRepo.url, currentToken))
+          : isLocalProject
+            ? analyzeLocalProject(extractLocalRepoPath(selectedRepo.url))
+                .then(async (result) => enrichAnalysisWithPomVersion(result.analysis, selectedRepo.url, ""))
             : analyzeRepoUrl(selectedRepo.url, currentToken, true)
                 .then(async (result) => enrichAnalysisWithPomVersion(result.analysis, selectedRepo.url, currentToken));
 
@@ -4184,6 +4670,10 @@ export function useWizardController() {
         window.clearTimeout(stageTimer1);
         window.clearTimeout(stageTimer2);
         window.clearTimeout(stageTimer3);
+
+        if (discoveryInFlightKeyRef.current !== discoveryKey || !selectedRepo) {
+          return;
+        }
 
         const stagesData = (analysis as any).discovery_stages;
         const repoMapSummary = stagesData?.repositoryMap?.summary ||
@@ -4289,6 +4779,7 @@ export function useWizardController() {
       extractLocalRepoPath,
       isLocalRepoRef,
       jobId,
+      connectState.setJobId,
       selectedRepo,
       setAccessTokenValidationMessage,
       setAccessTokenValidationState,
@@ -4451,12 +4942,17 @@ export function useWizardController() {
     }
 
     const depsKey = `${repoAnalysis.java_version || repoAnalysis.java_version_from_build || ""}_${repoAnalysis.build_tool || ""}_${effectiveTargetVersion || ""}_${repoAnalysis.dependencies.map((d) => `${d.group_id}:${d.artifact_id}:${d.current_version}`).join(";")}`;
-    if (fetchedDependencyAnalysisKeyRef.current === depsKey && dependencyAnalysis) {
+    if (
+      fetchedDependencyAnalysisKeyRef.current === depsKey &&
+      (dependencyAnalysis || dependencyAnalysisStatus === "fallback")
+    ) {
       return;
     }
 
     let cancelled = false;
     fetchedDependencyAnalysisKeyRef.current = depsKey;
+    setDependencyAnalysis(null);
+    setDependencyAnalysisStatus("loading");
     setDependencyAnalysisLoading(true);
 
     analyzeDependencies({
@@ -4471,13 +4967,21 @@ export function useWizardController() {
     })
       .then((res) => {
         if (cancelled) return;
-        if (res && res.dependencies && res.dependencies.length > 0) {
+        if (isValidAiDependencyResponse(res)) {
           setDependencyAnalysis(res);
+          setDependencyAnalysisStatus("success");
+        } else {
+          // Token limit, provider failure, timeout, or heuristic fallback from backend
+          console.warn("AI dependency analysis response invalid or heuristic fallback, transitioning to client rule-based fallback");
+          setDependencyAnalysis(null);
+          setDependencyAnalysisStatus("fallback");
         }
       })
       .catch((err) => {
         if (cancelled) return;
         console.warn("Dependency analysis fetch error, using client fallback:", err);
+        setDependencyAnalysis(null);
+        setDependencyAnalysisStatus("fallback");
       })
       .finally(() => {
         if (!cancelled) {
@@ -4495,7 +4999,9 @@ export function useWizardController() {
     effectiveTargetVersion,
     jobId,
     dependencyAnalysis,
+    dependencyAnalysisStatus,
     setDependencyAnalysis,
+    setDependencyAnalysisStatus,
     setDependencyAnalysisLoading,
   ]);
 
@@ -4508,10 +5014,10 @@ export function useWizardController() {
       // GitHub repos: read the clone Discovery already made on disk (fast,
       // works for any repo, no GitHub API calls). Falls back to the direct
       // GitHub file-browser only if no job id is available (edge case).
-      const filesPromise = isLocalProject
-        ? listLocalProjectFiles(extractLocalRepoPath(selectedRepo.url), currentPath)
-        : jobId
-          ? listDiscoveryFiles(jobId, currentPath)
+      const filesPromise = jobId
+        ? listDiscoveryFiles(jobId, currentPath)
+        : isLocalProject
+          ? listLocalProjectFiles(extractLocalRepoPath(selectedRepo.url), currentPath)
           : listRepoFiles(selectedRepo.url, currentToken, currentPath);
 
       setRepoFilesLoading(true);
@@ -4662,14 +5168,14 @@ export function useWizardController() {
     technicalDocumentFallbackRepoName,
   ]);
 
-  // Background pre-fetch existing tests as soon as a valid repository session/jobId is available
+  // Background pre-fetch existing tests once discovery analysis is ready
   useEffect(() => {
-    if (jobId) {
-      scanExistingTests(jobId).catch((err) => {
+    if (jobId && repoAnalysis) {
+      scanExistingTests(jobId, true).catch((err) => {
         console.debug("Background prefetch of existing tests:", err);
       });
     }
-  }, [jobId]);
+  }, [jobId, repoAnalysis]);
 
   // Auto-fill target names for each migration approach until the user customizes them.
   useEffect(() => {
@@ -4730,12 +5236,12 @@ export function useWizardController() {
   ]);
 
   useEffect(() => {
-    const jobId = migrationJob?.job_id;
+    const activePollingJobId = (migrationJob?.job_id || (migrationJob as any)?.jobId || connectState?.jobId || jobId || readPersistedValue(WIZARD_JOB_ID_KEY) || "").trim();
 
     if (
       step < 5 ||
       step > 6 ||
-      !jobId ||
+      !activePollingJobId ||
       isTerminalMigrationStatus(migrationJob?.status)
     ) {
       if (migrationPollingTimerRef.current) {
@@ -4771,15 +5277,19 @@ export function useWizardController() {
       migrationPollingInFlightRef.current = true;
 
       try {
-        const summary = await getMigrationStatusSummary(jobId);
+        const summary = await getMigrationStatusSummary(activePollingJobId);
         if (cancelled) {
           return;
         }
 
         migrationPollingErrorCountRef.current = 0;
         setError("");
-        setMigrationJob((prev) => mergeMigrationSummaryIntoJob(prev, summary));
-        getMigrationLogs(summary.job_id)
+        const normalizedSummary: MigrationJobSummary = {
+          ...summary,
+          job_id: summary.job_id || (summary as any).jobId || activePollingJobId,
+        };
+        setMigrationJob((prev) => mergeMigrationSummaryIntoJob(prev, normalizedSummary));
+        getMigrationLogs(normalizedSummary.job_id)
           .then((logs) => {
             if (cancelled) return;
             const nextLogs = logs.logs || [];
@@ -4790,13 +5300,12 @@ export function useWizardController() {
           })
           .catch(() => undefined);
 
-        const isTerminal = isTerminalMigrationStatus(summary.status);
-        if (summary.status === "completed") {
+        const isTerminal = isTerminalMigrationStatus(normalizedSummary.status);
+        const normalizedStatus = (normalizedSummary.status || "").toLowerCase();
+        if (normalizedStatus === "completed" || normalizedStatus === "success") {
+          setIsMigrationFinishedState(true);
           setMigrationDetailLoadedJobId(null);
-          // Keep user on step 5 so they can experience the full 6-step dynamic migration loader
-          if (step !== 5) {
-            setStep(7);
-          }
+          setStep(7);
         }
 
         if (isTerminal) {
@@ -4804,7 +5313,7 @@ export function useWizardController() {
           return;
         }
 
-        scheduleNextPoll(getMigrationPollingDelayMs(summary.status, summary.started_at));
+        scheduleNextPoll(getMigrationPollingDelayMs(normalizedSummary.status, normalizedSummary.started_at));
       } catch (err) {
         if (cancelled) {
           return;
@@ -4843,7 +5352,7 @@ export function useWizardController() {
       clearScheduledPoll();
       migrationPollingInFlightRef.current = false;
     };
-  }, [migrationJob?.job_id, migrationJob?.status, setMigrationDetailLoadedJobId, setMigrationJob, setMigrationLogs, step]);
+  }, [connectState?.jobId, jobId, migrationJob?.job_id, (migrationJob as any)?.jobId, migrationJob?.status, setMigrationDetailLoadedJobId, setMigrationJob, setMigrationLogs, step]);
 
   /* useEffect(() => {
       
@@ -4863,10 +5372,12 @@ export function useWizardController() {
     }, [step, migrationJob?.job_id, migrationJob?.status]);
   */
   useEffect(() => {
-    if (migrationJob?.status === "completed" || resultExecState?.migrationJob?.status === "completed" || step === 7) {
+    const currentActiveJobId = connectState?.jobId || jobId;
+    const effectiveJob = migrationJob || resultExecState?.migrationJob;
+    if (effectiveJob && currentActiveJobId && effectiveJob.job_id === currentActiveJobId && effectiveJob.status === "completed") {
       setIsMigrationFinishedState(true);
     }
-  }, [migrationJob?.status, resultExecState?.migrationJob?.status, step]);
+  }, [connectState?.jobId, jobId, migrationJob, resultExecState?.migrationJob]);
 
   // NOTE: Intentionally removed the duplicate setStep(7) useEffect that was
   // previously here. The migration polling loop (above) already calls setStep(7)
@@ -5003,6 +5514,7 @@ export function useWizardController() {
     setMigrationLogs([]);
     setMigrationJob(null);
     setMigrationDetailLoadedJobId(null);
+    hasNavigatedToReportRef.current = null;
     setStep(5);
 
     const migrationRequest = buildMigrationRequest();
@@ -5016,12 +5528,18 @@ export function useWizardController() {
 
     startMigration(jobId, migrationRequest)
       .then((job) => {
-        setMigrationJob(job);
+        const normalizedJob: MigrationResult = {
+          ...job,
+          job_id: (job as any).job_id || (job as any).jobId || jobId,
+        };
+        setMigrationJob(normalizedJob);
         setMigrationDetailLoadedJobId(null);
 
-        if (job.status === "completed") {
-          setStep(5);
-          getMigrationLogs(job.job_id).then((logs) => setMigrationLogs(logs.logs || [])).catch(() => {});
+        const statusStr = (normalizedJob.status || "").toLowerCase();
+        if (statusStr === "completed" || statusStr === "success") {
+          setIsMigrationFinishedState(true);
+          getMigrationLogs(normalizedJob.job_id).then((logs) => setMigrationLogs(logs.logs || [])).catch(() => {});
+          setStep(7);
           return;
         }
 
@@ -5088,6 +5606,7 @@ export function useWizardController() {
     setSelectedDiffFile(null);
     setShowCodeChanges(true);
     setVisibleReportDiffCount(REPORT_DIFFS_PAGE_SIZE);
+    hasNavigatedToReportRef.current = null;
 
     clearWizardStorage();
   };
@@ -5240,6 +5759,7 @@ export function useWizardController() {
     riskExplanationLoading,
     dependencyAnalysis,
     dependencyAnalysisLoading,
+    dependencyAnalysisStatus,
     buildToolDisplayLabel,
     renderCategorizedDependencies,
     sourceAlreadyAtLatestSupportedVersion,
@@ -5292,5 +5812,6 @@ export function useWizardController() {
     isResultsCompleted,
     isMigrationFinishedState,
     setIsMigrationFinishedState,
+    resetDiscoverySelectionState,
   };
 }

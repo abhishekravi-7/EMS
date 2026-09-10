@@ -255,6 +255,25 @@ class ProposedTestService:
         self._save_validation_summary(job_id, val_summary)
         return validated_proposals, val_summary.model_dump()
 
+    def run_proposed_tests(
+        self,
+        job_id: str,
+        request: Any = None,
+    ) -> dict[str, Any]:
+        sources = getattr(request, "sources", None) if request else None
+        test_ids = getattr(request, "test_ids", None) if request else None
+        framework = getattr(request, "framework", "PLAYWRIGHT") if request else "PLAYWRIGHT"
+        if isinstance(request, dict):
+            sources = request.get("sources", sources)
+            test_ids = request.get("test_ids", test_ids)
+            framework = request.get("framework", framework)
+        return self.run_approved_tests(
+            job_id=job_id,
+            sources=sources,
+            test_ids=test_ids,
+            framework=framework,
+        )
+
     def run_approved_tests(
         self,
         job_id: str,
@@ -608,11 +627,10 @@ class ProposedTestService:
         brd_gen = len([
             p for p in proposals
             if (
-                p.generation_source in ["BRD_DOCUMENT", "FUNCTIONAL_DOC", "FUNCTIONAL_DOCUMENT"]
+                p.generation_source in ["BRD_DOCUMENT", "FUNCTIONAL_DOC", "FUNCTIONAL_DOCUMENT", "Functional Testing Document Generated"]
                 or ("BRD" in p.id and p.generation_source != "BRD_AND_AI")
-                or p.source in ["BRD Document", "BRD Business Requirement"]
-            )
-            and p.generation_source != "BRD_AND_AI"
+                or p.source in ["BRD Document", "BRD Business Requirement", "Functional Testing Document Generated"]
+            ) and p.generation_source != "BRD_AND_AI"
         ])
         existing_gen = len([
             p for p in proposals
@@ -634,6 +652,8 @@ class ProposedTestService:
             gaps_count=total,
             ai_generated_count=ai_gen,
             brd_generated_count=brd_gen,
+            llm_generated_count=ai_gen,
+            functional_doc_generated_count=brd_gen,
             existing_generated_count=existing_gen,
             existing_count=existing_gen,
             pass_percentage=pass_pct,

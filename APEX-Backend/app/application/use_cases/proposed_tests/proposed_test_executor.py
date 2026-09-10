@@ -109,11 +109,15 @@ class ProposedTestExecutor:
         except Exception as e:  # noqa: BLE001
             elapsed = round(time.time() - start_time, 2)
             self.log_fn(f"[PROPOSED TESTS] {test.id} execution failed with error: {e}", "ERROR")
+            err_str = str(e).lower()
+            is_infra = any(k in err_str for k in ["connect", "refused", "timeout", "browser", "driver", "unreachable", "socket", "offline"])
+            error_type = "INFRASTRUCTURE_FAILURE" if is_infra else "FUNCTIONAL_FAILURE"
             return ExecutionResult(
                 status=ProposedTestStatus.FAILED,
                 duration=f"{elapsed}s",
                 executed_at=now_str,
                 error=str(e),
+                error_type=error_type,
                 stack_trace=f"Traceback:\n{e}",
                 evidence=ExecutionEvidence(),
                 steps_execution=[
@@ -174,6 +178,7 @@ class ProposedTestExecutor:
         is_passed = (actual_status == expected_status)
         status = ProposedTestStatus.PASSED if is_passed else ProposedTestStatus.FAILED
         error_msg = None if is_passed else f"HTTP status code mismatch: expected {expected_status}, received {actual_status}"
+        error_type = None if is_passed else "FUNCTIONAL_FAILURE"
 
         self.log_fn(f"[PROPOSED TESTS] [API] {method} {full_url} -> HTTP {actual_status} ({response_time_ms}ms) (Expected: {expected_status})")
 
@@ -229,9 +234,11 @@ class ProposedTestExecutor:
         return ExecutionResult(
             status=status,
             actual_status_code=actual_status,
+            response_time_ms=response_time_ms,
             actual_response=trace_data["response_body"],
             stdout=f"{method} {full_url}\nHTTP/1.1 {actual_status} {'OK' if is_passed else 'FAILED'} ({response_time_ms}ms)\nResponse: {json.dumps(trace_data['response_body'])}",
             error=error_msg,
+            error_type=error_type,
             stack_trace=f"AssertionError: {error_msg}" if error_msg else None,
             assertions_passed=len(spec.assertions) if spec and spec.assertions and is_passed else (1 if is_passed else 0),
             assertions_failed=0 if is_passed else 1,

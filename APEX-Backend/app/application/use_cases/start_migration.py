@@ -118,7 +118,7 @@ class StartMigrationUseCase:
             discovery,
         )
 
-        destination = self._resolve_destination(config, connect)
+        destination = self._resolve_destination(config, connect, request)
 
         proposed_test_sources = (
             request.get("proposed_test_sources")
@@ -129,6 +129,18 @@ class StartMigrationUseCase:
                 else options.get("proposedTestSources")
             )
         )
+
+        initial_target_repo = None
+        if destination.get("mode") == MODE_LOCAL_FOLDER:
+            initial_target_repo = destination.get("targetLocalDir") or "Local Workspace"
+        elif destination.get("mode") == MODE_EXISTING_REPO_BRANCH:
+            branch = destination.get("targetBranch") or "migration"
+            initial_target_repo = f"{source_repo_url.rstrip('/').removesuffix('.git')}/tree/{branch}" if source_repo_url else branch
+        elif destination.get("targetRepoName"):
+            t_name = destination.get("targetRepoName") or ""
+            t_owner = destination.get("targetOwner") or settings.github_target_owner or "JavaAPEX"
+            t_host = destination.get("targetHost") or "github.com"
+            initial_target_repo = f"https://{t_host}/{t_owner}/{t_name}"
 
         store = MigrationReportStore(WorkspacePaths(job_id))
         report = {
@@ -147,7 +159,7 @@ class StartMigrationUseCase:
             "runTests": bool(options.get("runTests") or request.get("run_tests")),
             "proposedTestSources": proposed_test_sources,
             "destination": destination,
-            "targetRepo": None,
+            "targetRepo": initial_target_repo,
             "startedAt": _now(),
             "completedAt": None,
             "errorMessage": None,
@@ -226,11 +238,18 @@ class StartMigrationUseCase:
                 paths.original_repo_dir, paths.migrated_repo_dir
             )
             files_modified = change_analysis.files_modified_count
+            issues_fixed_count = (
+                len(change_analysis.import_changes)
+                + len(change_analysis.source_changes)
+                + len(result.dependency_upgrades)
+                + len(result.rule_executions)
+            )
             store.update(
                 filesModified=files_modified,
                 modifiedFiles=change_analysis.all_changed_files[:200],
                 importChanges=[change.to_dict() for change in change_analysis.import_changes[:200]],
                 sourceChanges=[change.to_dict() for change in change_analysis.source_changes[:200]],
+                issuesFixed=issues_fixed_count,
                 progressPercent=60,
             )
             if not change_analysis.import_changes and not change_analysis.source_changes:
@@ -775,18 +794,43 @@ class StartMigrationUseCase:
     # -- helpers ------------------------------------------------------------- #
 
     @staticmethod
-    def _resolve_destination(config: dict[str, Any], connect: dict[str, Any]) -> dict[str, Any]:
+    def _resolve_destination(
+        config: dict[str, Any],
+        connect: dict[str, Any],
+        request: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        request = request or {}
         destination = dict(config.get("destination") or {})
+
+        req_approach = request.get("migration_approach") or request.get("approach")
+        req_target_name = request.get("target_repo_name")
+
+        if req_approach == "local" or destination.get("mode") == MODE_LOCAL_FOLDER:
+            return {
+                "mode": MODE_LOCAL_FOLDER,
+                "targetLocalDir": req_target_name or destination.get("targetLocalDir") or "migrated-repo",
+            }
+
+        if req_approach == "branch" or destination.get("mode") == MODE_EXISTING_REPO_BRANCH:
+            return {
+                "mode": MODE_EXISTING_REPO_BRANCH,
+                "targetBranch": req_target_name or destination.get("targetBranch") or "migration",
+            }
+
         if destination.get("mode"):
+            if req_target_name:
+                destination["targetRepoName"] = req_target_name
             return destination
+
         # No saved config — default to a new repo under the configured owner.
         repo_name = connect.get("repoName") or "repo"
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+        target_name = req_target_name or f"{repo_name}-Migrated{timestamp}"
         return {
             "mode": MODE_CREATE_NEW_REPO,
-            "targetOwner": settings.github_target_owner,
+            "targetOwner": settings.github_target_owner or "JavaAPEX",
             "targetHost": "github.com",
-            "targetRepoName": f"{repo_name}-Migrated{timestamp}",
+            "targetRepoName": target_name,
         }
 
     @staticmethod

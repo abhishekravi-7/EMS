@@ -86,12 +86,13 @@ export interface LocalProjectCapabilities {
 }
 
 export interface LocalProjectAnalysisResponse {
+  jobId?: string;
   project_path: string;
   project_name: string;
   repo_url: string;
   owner: string;
   repo: string;
-  analysis: RepoAnalysis;
+  analysis?: RepoAnalysis;
 }
 
 export interface RepoVisibilityInfo {

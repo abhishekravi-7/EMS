@@ -82,6 +82,7 @@ interface ResultReportViewProps {
   resetWizard: () => void;
   onBack: () => void;
   onError: (message: string) => void;
+  currentJobId?: string;
 }
 
 interface FileDiffDetail {
@@ -101,6 +102,7 @@ export function ResultReportView({
   resetWizard,
   onBack,
   onError,
+  currentJobId,
 }: ResultReportViewProps) {
   const {
     migrationJob,
@@ -676,6 +678,28 @@ export function ResultReportView({
     dependencyStartIndex + REPORT_DEPENDENCIES_PAGE_SIZE,
     dependencyUpdates.length || 0
   );
+
+  const isJobValid = Boolean(
+    migrationJob &&
+    migrationJob.status === "completed" &&
+    (!currentJobId || migrationJob.job_id === currentJobId)
+  );
+
+  if (!isJobValid) {
+    return (
+      <div style={styles.card}>
+        <div style={{ ...styles.loadingBox, minHeight: "360px", padding: "48px 24px" }}>
+          <div style={styles.spinner}></div>
+          <span style={{ fontSize: "16px", fontWeight: 600, color: "#1e293b", marginTop: "16px" }}>
+            Checking migration status...
+          </span>
+          <span style={{ fontSize: "13px", color: "#64748b", marginTop: "8px" }}>
+            Validating current migration job results.
+          </span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={styles.card}>
