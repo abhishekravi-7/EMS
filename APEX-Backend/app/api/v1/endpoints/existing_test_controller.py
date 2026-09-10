@@ -27,7 +27,7 @@ async def scan_existing_tests_total(
     db: Session | None = Depends(get_db_optional)  # noqa: B008
 ):
     """Fast scan — returns total test count before execution (no run)."""
-    await asyncio.to_thread(verify_job_ownership, db, job_id, current_user)
+    await verify_job_ownership(db, job_id, current_user)
     try:
         res = await asyncio.to_thread(
             existing_test_runner_service.scan_total, job_id
@@ -47,7 +47,7 @@ async def run_existing_tests_endpoint(
     db: Session | None = Depends(get_db_optional)  # noqa: B008
 ):
     """Start existing tests in the background and return immediately."""
-    await asyncio.to_thread(verify_job_ownership, db, job_id, current_user)
+    await verify_job_ownership(db, job_id, current_user)
     try:
         current = await asyncio.to_thread(existing_test_runner_service.get_status, job_id)
         if current.get("status") in {"RUNNING", "IN_PROGRESS"}:
@@ -128,7 +128,7 @@ async def get_existing_tests_status_endpoint(
     db: Session | None = Depends(get_db_optional)  # noqa: B008
 ):
     """Returns current run status + live logs + final result when done."""
-    await asyncio.to_thread(verify_job_ownership, db, job_id, current_user)
+    await verify_job_ownership(db, job_id, current_user)
     try:
         res = await asyncio.to_thread(existing_test_runner_service.get_status, job_id)
         return JSONResponse(content=res)
@@ -145,7 +145,7 @@ async def reset_existing_tests_endpoint(
     db: Session | None = Depends(get_db_optional)  # noqa: B008
 ):
     """Reset execution state for a job."""
-    await asyncio.to_thread(verify_job_ownership, db, job_id, current_user)
+    await verify_job_ownership(db, job_id, current_user)
     try:
         await asyncio.to_thread(existing_test_runner_service.reset, job_id)
         return JSONResponse(content={"reset": True})
@@ -162,7 +162,7 @@ async def stop_existing_tests_endpoint(
     db: Session | None = Depends(get_db_optional)  # noqa: B008
 ):
     """Aborts/terminates the current execution of existing tests."""
-    await asyncio.to_thread(verify_job_ownership, db, job_id, current_user)
+    await verify_job_ownership(db, job_id, current_user)
     try:
         await asyncio.to_thread(existing_test_runner_service.stop_existing_tests, job_id)
         return JSONResponse(content={"stopped": True})

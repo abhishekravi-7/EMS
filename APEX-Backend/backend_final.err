@@ -1,0 +1,18 @@
+18:20:21 | INFO    | app.main | Frontend bundle not found at C:\Users\ST-SUBRAMANI\OneDrive - SORIM TECHNOLOGIES\Documents\JAVA_APEX\JavaAPEX\APEX-Backend\frontend-dist; API-only mode.
+INFO:     Started server process [20084]
+INFO:     Waiting for application startup.
+18:20:22 | INFO    | app.infrastructure.java_runtime | [JAVA RUNTIME] OS=nt Java=25 JAVA_HOME=none Executable=C:\Program Files\Common Files\Oracle\Java\javapath\java.EXE (Valid=True)
+18:20:22 | INFO    | app.main | [DATABASE] PostgreSQL enabled: True
+18:20:22 | INFO    | app.main | [DATABASE] PostgreSQL configuration loaded: True
+18:20:22 | INFO    | app.main | [CONNECT] Database-independent mode: disabled
+18:20:22 | INFO    | app.main | PostgreSQL runtime initialization skipped (Active Persistence: MongoDB).
+18:20:22 | INFO    | app.main | Firebase Auth initialization skipped (Active Provider: MongoDB).
+18:20:22 | INFO    | app.main | LLM Token Tracing initialized (sinks: JSONL + Database)
+18:20:22 | INFO    | app.infrastructure.persistence.mongodb | MongoDB client initialized and pinged successfully for database: java_apex
+18:20:22 | INFO    | app.infrastructure.persistence.mongodb_indexes | Setting up MongoDB indexes...
+18:20:23 | INFO    | app.infrastructure.persistence.mongodb_indexes | MongoDB indexes verified/created successfully.
+INFO:     Application startup complete.
+ERROR:    [Errno 10048] error while attempting to bind on address ('127.0.0.1', 8000): only one usage of each socket address (protocol/network address/port) is normally permitted
+INFO:     Waiting for application shutdown.
+18:20:23 | INFO    | app.infrastructure.persistence.mongodb | MongoDB connection closed.
+INFO:     Application shutdown complete.

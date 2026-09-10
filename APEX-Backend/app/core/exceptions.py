@@ -473,25 +473,19 @@ class RepositoryFileNotTextError(RepositoryBrowseError):
 
 
 class AuthError(Exception):
-    """Base class for all authentication failures.
-
-    Attributes
-    ----------
-    status:
-        Stable machine-readable status returned to the frontend.
-    message:
-        Clean, user-friendly message. Never exposes technical internals
-        (no stack traces, database errors, or secrets).
-    http_status:
-        HTTP status code the API layer should respond with.
-    """
-
+    """Base class for all authentication failures."""
     status: str = "AUTH_ERROR"
     http_status: int = 400
 
     def __init__(self, message: str) -> None:
         super().__init__(message)
         self.message = message
+
+
+class AuthenticationError(AuthError):
+    """Generic authentication failure (invalid credentials, etc.)."""
+    status = "AUTHENTICATION_FAILED"
+    http_status = 401
 
 
 class EmailAlreadyRegisteredError(AuthError):

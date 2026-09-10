@@ -17,15 +17,17 @@ from app.api.v1.endpoints import (
     local_project_controller,
     migration_execution_controller,
     migration_preview_controller,
+    mongodb_test_controller,
     strategy_controller,
 )
 
 utility_router = APIRouter()
+
 utility_router.include_router(auth_controller.router)
 utility_router.include_router(github_controller.router)
 utility_router.include_router(local_project_controller.router)
 utility_router.include_router(java_version_controller.router)
 utility_router.include_router(migration_execution_controller.router)
 utility_router.include_router(migration_preview_controller.router)
+utility_router.include_router(mongodb_test_controller.router)
 utility_router.include_router(strategy_controller.router)
-

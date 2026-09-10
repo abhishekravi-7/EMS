@@ -19,6 +19,17 @@ export interface RepoFile {
   url: string;
 }
 
+export interface UserResponse {
+  id: string;
+  fullName: string;
+  email: string;
+  role: string;
+  isActive: boolean;
+  isEmailVerified: boolean;
+  createdAt: string;
+  lastLoginAt: string | null;
+}
+
 export interface DependencyInfo {
   group_id: string;
   artifact_id: string;
