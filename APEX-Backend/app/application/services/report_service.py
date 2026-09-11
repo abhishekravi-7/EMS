@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 from app.application.services.file_diff_service import FileDiffService
+from app.infrastructure.github.repo_creator import RepoCreator
 
 _diff_service = FileDiffService()
 
@@ -28,7 +29,8 @@ def _resolve_target_repo(report: dict[str, Any]) -> str | None:
     if dest.get("targetRepoName"):
         target_owner = dest.get("targetOwner") or "JavaAPEX"
         target_host = dest.get("targetHost") or "github.com"
-        return f"https://{target_host}/{target_owner}/{dest.get('targetRepoName')}"
+        clean_name = RepoCreator.clean_repo_name(dest.get("targetRepoName"))
+        return f"https://{target_host}/{target_owner}/{clean_name}"
     return None
 
 

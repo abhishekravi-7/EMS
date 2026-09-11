@@ -348,22 +348,23 @@ class ProposedTestService:
         seen_ids: set[str] = set()
 
         for p in proposals:
-            is_doc = (
-                p.generation_source in ["BRD_DOCUMENT", "BRD_AND_AI", "FUNCTIONAL_DOC"]
-                or "BRD" in p.id
-                or p.source in ["BRD Document", "BRD Business Requirement"]
-            )
-            is_existing = (
-                p.generation_source in ["EXISTING", "EXISTING_TESTS"]
-                or "EXT" in p.id
-                or p.source in ["Existing Repository", "Existing Repository Tests"]
-            )
-            is_llm = not is_doc and not is_existing
+            if test_ids:
+                should_run = (p.id in test_ids)
+            else:
+                is_doc = (
+                    p.generation_source in ["BRD_DOCUMENT", "BRD_AND_AI", "FUNCTIONAL_DOC"]
+                    or "BRD" in p.id
+                    or p.source in ["BRD Document", "BRD Business Requirement"]
+                )
+                is_existing = (
+                    p.generation_source in ["EXISTING", "EXISTING_TESTS"]
+                    or "EXT" in p.id
+                    or p.source in ["Existing Repository", "Existing Repository Tests"]
+                )
+                is_llm = not is_doc and not is_existing
+                should_run = (run_llm and is_llm) or (run_doc and is_doc) or (run_existing and is_existing)
 
-            should_run = (run_llm and is_llm) or (run_doc and is_doc) or (run_existing and is_existing)
             if should_run:
-                if test_ids and p.id not in test_ids:
-                    continue
                 # If validation flagged test as non-executable (e.g. hallucinated/invalid), skip execution unless explicitly chosen by test_id
                 if not test_ids and p.validation and not p.validation.playwright_executable:
                     self._log(job_id, f"[PROPOSED TESTS] Skipping non-executable test {p.id} ({p.validation.status.value}): {p.validation.issue}")
@@ -683,9 +684,14 @@ class ProposedTestService:
         )
 
     def _save_proposals(self, job_id: str, proposals: list[ProposedTestCase]) -> None:
-        target = self._get_proposals_file(job_id)
-        data = [p.model_dump() for p in proposals]
-        target.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        with self._lock:
+            try:
+                target = self._get_proposals_file(job_id)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                data = [p.model_dump() for p in proposals]
+                target.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"Failed to write proposals file for {job_id}: {e}")
 
 
 proposed_test_service = ProposedTestService()

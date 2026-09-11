@@ -240,3 +240,62 @@ def test_ui_test_execution_fails_with_functional_failure_on_missing_element(runn
     assert res.error_type == "FUNCTIONAL_FAILURE"
     assert "was not visible in page DOM" in res.error
 
+
+def test_proposed_tests_persisted_without_auto_run_and_executed_on_demand(running_migrated_server, tmp_path, monkeypatch):
+    """Verify that Proposed Tests remain stored in PROPOSED state and execute only on explicit on-demand call."""
+    from unittest.mock import patch
+    from app.application.use_cases.proposed_tests.proposed_test_service import ProposedTestService
+    from app.infrastructure.workspace.workspace_paths import WorkspacePaths
+
+    job_id = "job-on-demand-test"
+    job_dir = tmp_path / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+
+    class MockWorkspacePaths:
+        def __init__(self, j_id):
+            self.job_id = j_id
+            self.job_dir = job_dir
+            self.migrated_repo_dir = job_dir / "migrated_repo"
+            self.original_repo_dir = job_dir / "original_repo"
+            self.brd_dir = job_dir / "brd"
+            self.migration_report_path = job_dir / "migration-report.json"
+
+    monkeypatch.setattr("app.application.use_cases.proposed_tests.proposed_test_service.WorkspacePaths", MockWorkspacePaths)
+
+    service = ProposedTestService()
+    test_cases = [
+        ProposedTestCase(
+            id="PTC-ON-DEMAND-001",
+            title="Verify GET /api/attendance",
+            description="Attendance API endpoint",
+            type=ProposedTestType.API,
+            priority=ProposedTestPriority.HIGH,
+            source="AttendanceController",
+            reason="Verify attendance",
+            expected_result="200 OK",
+            status=ProposedTestStatus.PROPOSED,
+            api_spec=ApiTestSpec(
+                method="GET",
+                endpoint="/api/attendance",
+                expected_status=200,
+            ),
+        )
+    ]
+    service._save_proposals(job_id, test_cases)
+
+    # 1. Verify tests are stored in PROPOSED status and status is IDLE before execution
+    loaded_tests = service.get_proposed_tests(job_id)
+    assert len(loaded_tests) == 1
+    assert loaded_tests[0].status == ProposedTestStatus.PROPOSED
+
+    status_data = service.get_status(job_id)
+    assert len(status_data["proposals"]) == 1
+    assert status_data["proposals"][0]["status"] == "PROPOSED"
+
+    # 2. Trigger on-demand execution for selected test IDs
+    with patch("app.application.use_cases.proposed_tests.proposed_test_executor.resolve_migrated_app_url", return_value=running_migrated_server):
+        res = service.run_approved_tests(job_id, test_ids=["PTC-ON-DEMAND-001"])
+        assert res["status"] == "RUNNING"
+        assert res["total_approved"] == 1
+
+

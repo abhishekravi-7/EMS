@@ -400,26 +400,17 @@ class StartMigrationUseCase:
             store.append_logs([f"Migration completed. Published to {target_repo}"])
             logger.info("Migration completed for job %s -> %s", job_id, target_repo)
 
-            # --- Step 6: Automatically execute Proposed Functional Tests based strictly on user's selection ---
+            # --- Step 6: Generate and validate Proposed Functional Test Cases (persisted for Report-page execution) ---
             try:
                 from app.application.use_cases.proposed_tests.proposed_test_service import proposed_test_service
-                selected_pt_sources = report.get("proposedTestSources")
-                # Ensure proposals are generated
                 proposals = proposed_test_service.get_proposed_tests(job_id)
                 if not proposals:
+                    store.append_logs(["[PROPOSED TESTS] Discovering, generating, and validating proposed functional test cases..."])
                     proposals = proposed_test_service.generate_proposed_tests(job_id)
-
-                if selected_pt_sources is not None:
-                    if len(selected_pt_sources) > 0:
-                        store.append_logs([f"Starting Proposed Test execution for selected sources: {', '.join(selected_pt_sources)}"])
-                        proposed_test_service.run_approved_tests(job_id, sources=selected_pt_sources)
-                    else:
-                        store.append_logs(["No Proposed Test sources selected for execution."])
-                        proposed_test_service.run_approved_tests(job_id, sources=[])
-                else:
-                    proposed_test_service.run_approved_tests(job_id, sources=["LLM", "FUNCTIONAL_DOC", "EXISTING"])
+                store.append_logs([f"[PROPOSED TESTS] {len(proposals)} proposed functional test case(s) generated, validated, and ready for execution."])
+                logger.info("Generated and persisted %d proposed test case(s) for job %s (ready for Report-page execution)", len(proposals), job_id)
             except Exception as pt_exc:  # noqa: BLE001
-                logger.warning(f"Post-migration proposed test execution notice for job {job_id}: {pt_exc}")
+                logger.warning(f"Post-migration proposed test generation notice for job {job_id}: {pt_exc}")
 
             # Refresh the chatbot's vector index
             self._reindex_knowledge_base(job_id)
@@ -819,13 +810,19 @@ class StartMigrationUseCase:
 
         if destination.get("mode"):
             if req_target_name:
-                destination["targetRepoName"] = req_target_name
+                if destination.get("mode") == MODE_CREATE_NEW_REPO:
+                    destination["targetRepoName"] = RepoCreator.clean_repo_name(req_target_name)
+                else:
+                    destination["targetRepoName"] = req_target_name
+            elif destination.get("targetRepoName") and destination.get("mode") == MODE_CREATE_NEW_REPO:
+                destination["targetRepoName"] = RepoCreator.clean_repo_name(destination["targetRepoName"])
             return destination
 
         # No saved config — default to a new repo under the configured owner.
-        repo_name = connect.get("repoName") or "repo"
+        raw_repo_name = connect.get("repoName") or "repo"
+        repo_name = RepoCreator.clean_repo_name(raw_repo_name)
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
-        target_name = req_target_name or f"{repo_name}-Migrated{timestamp}"
+        target_name = RepoCreator.clean_repo_name(req_target_name) if req_target_name else f"{repo_name}-Migrated{timestamp}"
         return {
             "mode": MODE_CREATE_NEW_REPO,
             "targetOwner": settings.github_target_owner or "JavaAPEX",

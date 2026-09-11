@@ -77,3 +77,126 @@ def test_build_result_derives_actual_migration_findings():
     assert len(result["dependency_upgrades"]) == 1
     assert result["dependency_upgrades"][0]["artifactId"] == "spring-boot-starter-web"
     assert len(result["dependencies"]) == 1
+
+
+def test_clean_repo_name():
+    from app.infrastructure.github.repo_creator import RepoCreator
+
+    assert RepoCreator.clean_repo_name("test-repository") == "test-repository"
+    assert RepoCreator.clean_repo_name("test-repository.git") == "test-repository"
+    assert RepoCreator.clean_repo_name("https://github.com/test-owner/test-repository") == "test-repository"
+    assert RepoCreator.clean_repo_name("https://github.com/test-owner/test-repository.git") == "test-repository"
+    assert RepoCreator.clean_repo_name("https://github.com/test-owner/test-repository-Migrated2026") == "test-repository-Migrated2026"
+    assert RepoCreator.clean_repo_name("git@github.com:test-owner/test-repository.git") == "test-repository"
+    assert RepoCreator.clean_repo_name("/path/to/my-custom-repo") == "my-custom-repo"
+    assert RepoCreator.clean_repo_name("C:\\Projects\\my-custom-repo") == "my-custom-repo"
+    assert RepoCreator.clean_repo_name("") == "repo"
+    assert RepoCreator.clean_repo_name(None) == "repo"
+
+
+def test_target_repo_resolution_cases():
+    # 1. Authoritative targetRepo directly in report
+    rep1 = {
+        "jobId": "test-job-1",
+        "targetRepo": "https://github.com/test-owner/test-app-Migrated2026",
+    }
+    assert report_service.build_result(rep1)["target_repo"] == "https://github.com/test-owner/test-app-Migrated2026"
+
+    # 2. Authoritative target_repo (snake_case) with .git
+    rep2 = {
+        "jobId": "test-job-2",
+        "target_repo": "https://github.com/test-owner/test-app-Migrated2026.git",
+    }
+    assert report_service.build_result(rep2)["target_repo"] == "https://github.com/test-owner/test-app-Migrated2026.git"
+
+    # 3. Destination with full URL accidentally in targetRepoName (normalized cleanly)
+    rep3 = {
+        "jobId": "test-job-3",
+        "sourceRepoUrl": "https://github.com/source-owner/source-app",
+        "destination": {
+            "mode": "CREATE_NEW_REPO",
+            "targetOwner": "target-owner",
+            "targetHost": "github.com",
+            "targetRepoName": "https://github.com/target-owner/target-app-Migrated2026",
+        },
+    }
+    assert report_service.build_result(rep3)["target_repo"] == "https://github.com/target-owner/target-app-Migrated2026"
+
+    # 4. Destination with .git in targetRepoName
+    rep4 = {
+        "jobId": "test-job-4",
+        "destination": {
+            "mode": "CREATE_NEW_REPO",
+            "targetOwner": "custom-owner-123",
+            "targetHost": "github.com",
+            "targetRepoName": "my-app-Migrated2026.git",
+        },
+    }
+    assert report_service.build_result(rep4)["target_repo"] == "https://github.com/custom-owner-123/my-app-Migrated2026"
+
+    # 5. Local folder destination
+    rep5 = {
+        "jobId": "test-job-5",
+        "destination": {
+            "mode": "LOCAL_FOLDER",
+            "targetLocalDir": "C:/Projects/my-app-Migrated",
+        },
+    }
+    assert report_service.build_result(rep5)["target_repo"] == "C:/Projects/my-app-Migrated"
+
+    # 6. Existing repo branch destination
+    rep6 = {
+        "jobId": "test-job-6",
+        "sourceRepoUrl": "https://github.com/source-owner/source-app.git",
+        "destination": {
+            "mode": "EXISTING_REPO_BRANCH",
+            "targetBranch": "migration-v2",
+        },
+    }
+    assert report_service.build_result(rep6)["target_repo"] == "https://github.com/source-owner/source-app/tree/migration-v2"
+
+    # 7. Missing target URL / None destination
+    rep7 = {
+        "jobId": "test-job-7",
+    }
+    assert report_service.build_result(rep7)["target_repo"] is None
+
+
+def test_github_create_repo_response_mapping():
+    """Verify that authoritative GitHub API create response is used directly."""
+    from app.infrastructure.github.profile_resolver import TargetProfile
+    from app.infrastructure.github.repo_creator import RepoCreator
+
+    profile = TargetProfile(owner="target-owner", is_org=False, host="github.com")
+    gh_data = {
+        "name": "target-app-Migrated2026",
+        "full_name": "target-owner/target-app-Migrated2026",
+        "html_url": "https://github.com/target-owner/target-app-Migrated2026",
+        "clone_url": "https://github.com/target-owner/target-app-Migrated2026.git",
+    }
+    created = RepoCreator._created_repo_from_response(profile, "target-app-Migrated2026", gh_data)
+    assert created.html_url == "https://github.com/target-owner/target-app-Migrated2026"
+    assert created.clone_url == "https://github.com/target-owner/target-app-Migrated2026.git"
+    assert created.name == "target-app-Migrated2026"
+    assert created.owner == "target-owner"
+
+
+def test_target_repo_does_not_contain_source_repo_url():
+    """Regression test ensuring source repo URL/owner is never concatenated into target repository URL."""
+    rep = {
+        "jobId": "test-job-regression",
+        "sourceRepoUrl": "https://github.com/source-owner/source-app",
+        "destination": {
+            "mode": "CREATE_NEW_REPO",
+            "targetOwner": "target-owner",
+            "targetHost": "github.com",
+            "targetRepoName": "target-app-Migrated2026",
+        },
+    }
+    res = report_service.build_result(rep)
+    assert res["target_repo"] == "https://github.com/target-owner/target-app-Migrated2026"
+    assert "source-owner" not in res["target_repo"]
+    assert "source-app" not in res["target_repo"]
+    assert "https-github" not in res["target_repo"]
+
+
