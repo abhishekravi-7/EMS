@@ -375,8 +375,8 @@ export function MigrationAnimationView({
     }
   }, [redirectCountdown]);
 
-  // Build the live Unified MigrationState (Single Source of Truth)
-  const migrationState = useMemo(() => {
+  // Single Source of Truth MigrationState
+  const migrationState = useMemo<MigrationState>(() => {
     return buildMigrationState({
       migrationJob,
       repoAnalysis,

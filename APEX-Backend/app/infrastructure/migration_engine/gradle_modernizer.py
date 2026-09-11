@@ -4,7 +4,8 @@ Performs deterministic Gradle build manifest modernizations:
 1. Spring Boot plugin version upgrades (e.g. 2.7.x -> 3.2.5 when target Java is >= 17/21).
 2. Java toolchain and compatibility configuration (sourceCompatibility, targetCompatibility, JavaLanguageVersion).
 3. Legacy javax.* to jakarta.* dependency artifact modernizations.
-4. Extraction of structured dependency upgrade records for migration reporting.
+4. Multi-subproject Gradle monorepo traversal and inheritance synchronization.
+5. Extraction of structured dependency upgrade records for migration reporting.
 """
 
 from __future__ import annotations
@@ -24,6 +25,8 @@ _JAVAX_TO_JAKARTA_GRADLE = {
     "javax.validation:validation-api": ("jakarta.validation", "jakarta.validation-api", "3.0.2"),
 }
 
+_IGNORED_DIRS = {"build", ".gradle", ".git", ".idea", ".settings", "node_modules", "bin", "out"}
+
 
 @dataclass
 class GradleModernizationResult:
@@ -37,17 +40,91 @@ class GradleModernizationResult:
 
 class GradleModernizer:
     def modernize(self, project_dir: Path, target_java_version: str) -> GradleModernizationResult:
-        """Modernize target build.gradle / build.gradle.kts file cleanly."""
-        build_file = self._find_build_file(project_dir)
-        if build_file is None:
+        """Modernize target build.gradle / build.gradle.kts files across subprojects."""
+        if not project_dir.exists():
             return GradleModernizationResult(modified=False)
 
+        build_files = self._discover_build_files(project_dir)
+        if not build_files:
+            return GradleModernizationResult(modified=False)
+
+        logs: list[str] = []
+        changed_files: list[str] = []
+        upgrades: list[dict[str, str]] = []
+        spring_boot_before: str | None = None
+        spring_boot_after: str | None = None
+        is_any_modified = False
+
+        target_java = str(target_java_version or "17").strip()
+
+        for build_file in build_files:
+            rel_path = build_file.relative_to(project_dir).as_posix() if build_file.is_relative_to(project_dir) else build_file.name
+            is_root = build_file.parent == project_dir
+
+            single_res = self._modernize_single_build_file(
+                build_file=build_file,
+                rel_path=rel_path,
+                target_java=target_java,
+                is_root=is_root,
+            )
+
+            if single_res.modified:
+                is_any_modified = True
+                changed_files.extend(single_res.changed_files)
+                logs.extend(single_res.log_lines)
+
+            if is_root or not spring_boot_before:
+                if single_res.spring_boot_before:
+                    spring_boot_before = single_res.spring_boot_before
+                if single_res.spring_boot_after:
+                    spring_boot_after = single_res.spring_boot_after
+
+            for up in single_res.dependency_upgrades:
+                if not any(existing.get("artifact_id") == up.get("artifact_id") for existing in upgrades):
+                    upgrades.append(up)
+
+        return GradleModernizationResult(
+            modified=is_any_modified,
+            changed_files=changed_files,
+            log_lines=logs,
+            dependency_upgrades=upgrades,
+            spring_boot_before=spring_boot_before,
+            spring_boot_after=spring_boot_after,
+        )
+
+    def _discover_build_files(self, project_dir: Path) -> list[Path]:
+        """Find root build.gradle / build.gradle.kts first, followed by subproject build scripts."""
+        if project_dir.is_file():
+            return [project_dir]
+
+        discovered: list[Path] = []
+        for name in ("build.gradle", "build.gradle.kts"):
+            root_candidate = project_dir / name
+            if root_candidate.is_file():
+                discovered.append(root_candidate)
+
+        for pattern in ("**/build.gradle", "**/build.gradle.kts"):
+            for candidate in project_dir.glob(pattern):
+                if candidate in discovered:
+                    continue
+                if any(part in _IGNORED_DIRS for part in candidate.parts):
+                    continue
+                discovered.append(candidate)
+
+        return discovered
+
+    def _modernize_single_build_file(
+        self,
+        build_file: Path,
+        rel_path: str,
+        target_java: str,
+        is_root: bool,
+    ) -> GradleModernizationResult:
         content = build_file.read_text(encoding="utf-8", errors="ignore")
         original_content = content
         logs: list[str] = []
         upgrades: list[dict[str, str]] = []
 
-        target_java = str(target_java_version or "17").strip()
         try:
             target_major = int(target_java)
         except ValueError:
@@ -55,6 +132,7 @@ class GradleModernizer:
 
         spring_boot_before: str | None = None
         spring_boot_after: str | None = None
+        module_prefix = f"[{rel_path}] " if not is_root else ""
 
         # 1. Update Spring Boot Plugin Version (DSL Groovy & Kotlin)
         boot_match = (
@@ -82,7 +160,7 @@ class GradleModernizer:
                     content,
                 )
                 spring_boot_after = target_boot_version
-                logs.append(f"Upgraded Gradle Spring Boot plugin version from {spring_boot_before} to {target_boot_version} for Java {target_java} compatibility.")
+                logs.append(f"{module_prefix}Upgraded Gradle Spring Boot plugin version from {spring_boot_before} to {target_boot_version} for Java {target_java} compatibility.")
                 upgrades.append({
                     "group_id": "org.springframework.boot",
                     "artifact_id": "spring-boot-gradle-plugin",
@@ -97,16 +175,16 @@ class GradleModernizer:
         if "sourceCompatibility" in content:
             content = re.sub(r"sourceCompatibility\s*=\s*['\"]?\d+(?:\.\d+)?['\"]?", f"sourceCompatibility = '{target_java}'", content)
             content = re.sub(r"sourceCompatibility\s*=\s*JavaVersion\.VERSION_\d+_\d+", f"sourceCompatibility = JavaVersion.VERSION_{target_java}", content)
-            logs.append(f"Updated sourceCompatibility to {target_java}.")
+            logs.append(f"{module_prefix}Updated sourceCompatibility to {target_java}.")
 
         if "targetCompatibility" in content:
             content = re.sub(r"targetCompatibility\s*=\s*['\"]?\d+(?:\.\d+)?['\"]?", f"targetCompatibility = '{target_java}'", content)
             content = re.sub(r"targetCompatibility\s*=\s*JavaVersion\.VERSION_\d+_\d+", f"targetCompatibility = JavaVersion.VERSION_{target_java}", content)
-            logs.append(f"Updated targetCompatibility to {target_java}.")
+            logs.append(f"{module_prefix}Updated targetCompatibility to {target_java}.")
 
         if "JavaLanguageVersion.of(" in content:
             content = re.sub(r"JavaLanguageVersion\.of\(\d+\)", f"JavaLanguageVersion.of({target_java})", content)
-            logs.append(f"Updated Gradle JavaLanguageVersion toolchain to {target_java}.")
+            logs.append(f"{module_prefix}Updated Gradle JavaLanguageVersion toolchain to {target_java}.")
 
         # 3. Modernize Javax to Jakarta Dependencies in Gradle
         for legacy_coord, (new_group, new_art, new_ver) in _JAVAX_TO_JAKARTA_GRADLE.items():
@@ -117,7 +195,7 @@ class GradleModernizer:
                     f"'{new_group}:{new_art}:{new_ver}'",
                     content,
                 )
-                logs.append(f"Migrated Gradle dependency {legacy_coord} to {new_group}:{new_art}:{new_ver}.")
+                logs.append(f"{module_prefix}Migrated Gradle dependency {legacy_coord} to {new_group}:{new_art}:{new_ver}.")
                 upgrades.append({
                     "group_id": new_group,
                     "artifact_id": new_art,
@@ -132,17 +210,9 @@ class GradleModernizer:
 
         return GradleModernizationResult(
             modified=is_modified,
-            changed_files=[build_file.name] if is_modified else [],
+            changed_files=[rel_path] if is_modified else [],
             log_lines=logs,
             dependency_upgrades=upgrades,
             spring_boot_before=spring_boot_before,
             spring_boot_after=spring_boot_after,
         )
-
-    @staticmethod
-    def _find_build_file(project_dir: Path) -> Path | None:
-        for name in ("build.gradle", "build.gradle.kts"):
-            candidate = project_dir / name
-            if candidate.is_file():
-                return candidate
-        return None
