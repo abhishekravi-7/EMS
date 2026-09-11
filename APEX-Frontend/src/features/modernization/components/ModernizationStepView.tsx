@@ -18,6 +18,7 @@ import { ExistingTestTable } from "./ExistingTestTable";
 import { ExistingTestLogs } from "./ExistingTestLogs";
 import { ExistingTestValidationReport } from "./ExistingTestValidationReport";
 import { FunctionalTestingTabs } from "./FunctionalTestingTabs";
+import { FunctionalTestingDocumentCard } from "./FunctionalTestingDocumentCard";
 import { ProposedTestCasesPanel } from "./ProposedTestCasesPanel";
 import { runApprovedProposedTests } from "../services/proposedTestService";
 import { TestReportsModal, type TestReportData } from "./TestReportsModal";
@@ -571,22 +572,24 @@ export function ModernizationStepView({
     }
 
     const cached = getCachedExistingTests(jobId);
-    if (cached) {
-      const total = cached.total ?? (cached.test_cases ? cached.test_cases.length : 0);
+    if (cached && (cached.total > 0 || (cached.test_cases && cached.test_cases.length > 0))) {
+      const tests = cached.test_cases || cached.tests || [];
+      const total = cached.total ?? cached.testCasesFound ?? tests.length;
       setExistingTotal(total);
       setExistingFramework(cached.framework || "JUnit");
-      setDiscoveredTests(cached.test_cases || []);
+      setDiscoveredTests(tests);
       setIsLoadingDiscoveredTests(false);
       return;
     }
 
     setIsLoadingDiscoveredTests(true);
-    scanExistingTests(jobId)
+    scanExistingTests(jobId, true)
       .then((data) => {
-        const total = data.total ?? (data.test_cases ? data.test_cases.length : 0);
+        const tests = data.test_cases || data.tests || [];
+        const total = data.total ?? data.testCasesFound ?? tests.length;
         setExistingTotal(total);
         setExistingFramework(data.framework || "JUnit");
-        setDiscoveredTests(data.test_cases || []);
+        setDiscoveredTests(tests);
       })
       .catch((err) => {
         console.error("Failed to scan existing repository tests:", err);
@@ -783,6 +786,9 @@ export function ModernizationStepView({
           setShowTestDetailModal(true);
         }}
       />
+
+      {/* Functional Testing Document Upload Section */}
+      <FunctionalTestingDocumentCard jobId={jobId} />
 
       {/* Test Validation Report Modal */}
       {showValidationReport && existingExecResult && (

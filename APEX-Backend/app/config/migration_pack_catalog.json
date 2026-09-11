@@ -11,7 +11,7 @@
       "phases": [
         {
           "id": "BUILD_CONFIGURATION",
-          "rules": ["MAVEN-JAVA-RELEASE-11"]
+          "rules": ["MAVEN-JAVA-UPGRADE"]
         }
       ]
     },
@@ -26,7 +26,7 @@
       "phases": [
         {
           "id": "BUILD_CONFIGURATION",
-          "rules": ["MAVEN-JAVA-RELEASE-17"]
+          "rules": ["MAVEN-JAVA-UPGRADE"]
         }
       ]
     },
@@ -41,7 +41,7 @@
       "phases": [
         {
           "id": "BUILD_CONFIGURATION",
-          "rules": ["MAVEN-JAVA-RELEASE-21"]
+          "rules": ["MAVEN-JAVA-UPGRADE"]
         }
       ]
     },
@@ -57,6 +57,62 @@
           "visitors": ["JAVAX-TO-JAKARTA"]
         }
       ]
+    },
+    {
+      "id": "springboot2-to-3",
+      "version": "1.0.0",
+      "conditions": {
+        "frameworks": ["spring-boot"]
+      },
+      "phases": [
+        {
+          "id": "BUILD_CONFIGURATION",
+          "rules": ["SPRINGBOOT-3"]
+        }
+      ]
+    },
+    {
+      "id": "dependency-upgrade",
+      "version": "1.0.0",
+      "conditions": {
+        "conversionTypes": ["java_version"]
+      },
+      "phases": [
+        {
+          "id": "BUILD_CONFIGURATION",
+          "rules": ["MAVEN-DEPENDENCY-UPGRADE"]
+        }
+      ]
+    },
+    {
+      "id": "plugin-upgrade",
+      "version": "1.0.0",
+      "conditions": {
+        "conversionTypes": ["java_version"]
+      },
+      "phases": [
+        {
+          "id": "BUILD_CONFIGURATION",
+          "rules": ["MAVEN-PLUGIN-UPGRADE"]
+        }
+      ]
     }
+  ],
+  "springBootMappings": [
+    { "targetJava": 11, "targetSpringBoot": "2.7.18" },
+    { "targetJava": 17, "targetSpringBoot": "3.2.5" },
+    { "targetJava": 21, "targetSpringBoot": "3.3.2" },
+    { "targetJava": 25, "targetSpringBoot": "3.4.0" }
+  ],
+  "dependencyMappings": [
+    { "groupId": "org.json", "artifactId": "json", "targetVersion": "20231013" },
+    { "groupId": "com.google.guava", "artifactId": "guava", "targetVersion": "33.0.0-jre" },
+    { "groupId": "org.apache.commons", "artifactId": "commons-lang3", "targetVersion": "3.14.0" },
+    { "groupId": "commons-io", "artifactId": "commons-io", "targetVersion": "2.15.1" }
+  ],
+  "pluginMappings": [
+    { "groupId": "org.apache.maven.plugins", "artifactId": "maven-surefire-plugin", "targetVersion": "3.2.5" },
+    { "groupId": "org.apache.maven.plugins", "artifactId": "maven-compiler-plugin", "targetVersion": "3.13.0" },
+    { "groupId": "org.apache.maven.plugins", "artifactId": "maven-failsafe-plugin", "targetVersion": "3.2.5" }
   ]
 }

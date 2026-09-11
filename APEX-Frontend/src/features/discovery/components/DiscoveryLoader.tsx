@@ -86,7 +86,8 @@ const SCANS_CONFIG: ScanDefinition[] = [
       "Identify core frameworks (Spring / Jakarta / JEE)",
       "Detect ORM & database drivers (Hibernate, JPA, JDBC)",
       "Detect web and REST service layers",
-      "Assess Spring Boot & microservice readiness",
+      "Assess Spring Boot readiness",
+      // "Assess Spring Boot & microservice readiness",
     ],
     calloutTitle: "Detecting frameworks & service fit...",
     calloutDescription: "Analyzing framework annotations, configuration files, and service patterns.",
@@ -144,31 +145,20 @@ export function DiscoveryLoader({
   const allStagesDone = Boolean(stages && stages.length > 0 && stages.every((s) => s.status === "complete"));
 
   // Determine status & percentage for each of the 4 scans
-  // Scan 0: Repository Scan
   const isRepoComplete = allStagesDone || repoStage?.status === "complete";
-  const isRepoActive = !isRepoComplete && (repoStage?.status === "in_progress" || (!stages && elapsedSeconds < 0.7));
-
-  // Scan 1: Java Version Scan
   const isJavaComplete = allStagesDone || prevStage?.status === "complete";
-  const isJavaActive = !isJavaComplete && (prevStage?.status === "in_progress" || (!stages && elapsedSeconds >= 0.7 && elapsedSeconds < 1.4) || isRepoComplete);
-
-  // Scan 2: Dependencies Scan
   const isDepComplete = allStagesDone || depStage?.status === "complete";
-  const isDepActive = !isDepComplete && (depStage?.status === "in_progress" || (!stages && elapsedSeconds >= 1.4 && elapsedSeconds < 2.1) || isJavaComplete);
-
-  // Scan 3: Framework Scan
   const isFrameworkComplete = allStagesDone || fitStage?.status === "complete";
-  const isFrameworkActive = !isFrameworkComplete && (fitStage?.status === "in_progress" || (!stages && elapsedSeconds >= 2.1) || isDepComplete);
 
-  // Determine active scan index (0 to 3)
+  // Determine active scan index based on real stage statuses or elapsed time pacing
   let activeScanIndex = 0;
   if (allStagesDone || isFrameworkComplete) {
     activeScanIndex = 3;
-  } else if (isFrameworkActive) {
+  } else if (fitStage?.status === "in_progress" || isDepComplete || elapsedSeconds >= 8.0) {
     activeScanIndex = 3;
-  } else if (isDepActive) {
+  } else if (depStage?.status === "in_progress" || isJavaComplete || elapsedSeconds >= 5.0) {
     activeScanIndex = 2;
-  } else if (isJavaActive) {
+  } else if (prevStage?.status === "in_progress" || isRepoComplete || elapsedSeconds >= 2.5) {
     activeScanIndex = 1;
   } else {
     activeScanIndex = 0;
@@ -178,15 +168,37 @@ export function DiscoveryLoader({
   const getScanPercent = (idx: number, isComplete: boolean, isActive: boolean) => {
     if (isComplete || allStagesDone) return 100;
     if (!isActive) return 0;
-    const stageElapsed = Math.max(0, elapsedSeconds - idx * 0.7);
-    return Math.min(95, Math.max(30, Math.round(40 + Math.min(55, stageElapsed * 45))));
+
+    // Realistic stage start times (0s, 2.5s, 5.0s, 8.0s)
+    const stageStart = idx === 0 ? 0 : idx === 1 ? 2.5 : idx === 2 ? 5.0 : 8.0;
+    const stageElapsed = Math.max(0, elapsedSeconds - stageStart);
+
+    if (idx < 3) {
+      // Intermediate stages advance smoothly from 20% to ~88% over their allotted duration
+      const duration = idx === 2 ? 3.0 : 2.5;
+      const progressRatio = Math.min(1, stageElapsed / duration);
+      return Math.min(88, Math.round(20 + progressRatio * 68));
+    } else {
+      // Framework Scan (runs until backend finishes):
+      // Smoothly advance across subtasks without ever freezing at 95%/99%
+      if (stageElapsed < 2.0) {
+        return Math.round(15 + (stageElapsed / 2.0) * 10);
+      } else if (stageElapsed < 4.5) {
+        return Math.round(25 + ((stageElapsed - 2.0) / 2.5) * 25);
+      } else if (stageElapsed < 7.5) {
+        return Math.round(50 + ((stageElapsed - 4.5) / 3.0) * 25);
+      } else {
+        const extraTime = stageElapsed - 7.5;
+        return Math.min(90, Math.round(75 + 15 * (1 - Math.exp(-extraTime / 8.0))));
+      }
+    }
   };
 
   const scanStates = SCANS_CONFIG.map((scan, idx) => {
     const isComplete =
-      idx === 0 ? isRepoComplete : idx === 1 ? isJavaComplete : idx === 2 ? isDepComplete : isFrameworkComplete;
-    const isActive =
-      idx === 0 ? isRepoActive : idx === 1 ? isJavaActive : idx === 2 ? isDepActive : isFrameworkActive;
+      allStagesDone ||
+      (idx === 3 ? isFrameworkComplete : idx < activeScanIndex);
+    const isActive = !isComplete && idx === activeScanIndex;
 
     const status: "completed" | "in_progress" | "pending" = isComplete
       ? "completed"
@@ -205,14 +217,14 @@ export function DiscoveryLoader({
   const activeScan = scanStates[activeScanIndex];
 
   // Calculate overall progress percentage
-  const completedScansCount = scanStates.filter((s) => s.status === "completed").length;
+  // 100% is reached ONLY when all discovery work has genuinely completed
   let calculatedOverall = 0;
-  if (allStagesDone || completedScansCount === 4) {
+  if (allStagesDone || isFrameworkComplete) {
     calculatedOverall = 100;
   } else {
-    const baseProgress = completedScansCount * 25;
+    const baseProgress = activeScanIndex * 25;
     const activePercent = activeScan ? activeScan.percent : 0;
-    calculatedOverall = Math.min(99, Math.round(baseProgress + (activePercent / 100) * 25));
+    calculatedOverall = Math.min(97, Math.max(1, Math.round(baseProgress + (activePercent / 100) * 25)));
   }
 
   const finalOverallPercent =

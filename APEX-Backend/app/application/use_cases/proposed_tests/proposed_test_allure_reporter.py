@@ -152,16 +152,16 @@ class ProposedTestAllureReporter:
             if t.type == ProposedTestType.UI:
                 evidence_src_dir = self.base_dir / "evidence" / t.id
                 # Check for screenshot
-                sc_file = evidence_src_dir / "screenshot.svg"
+                sc_file = evidence_src_dir / "screenshot.png"
                 if not sc_file.exists():
-                    sc_file = evidence_src_dir / "screenshot.png"
+                    sc_file = evidence_src_dir / "screenshot.svg"
                 if sc_file.exists():
                     att_dest = self.results_dir / f"{test_uuid}-screenshot{sc_file.suffix}"
                     shutil.copy2(sc_file, att_dest)
                     attachments.append({
                         "name": f"Screenshot - {t.title}",
                         "source": att_dest.name,
-                        "type": "image/svg+xml" if sc_file.suffix == ".svg" else "image/png",
+                        "type": "image/png" if sc_file.suffix == ".png" else "image/svg+xml",
                     })
 
                 # Check for video
@@ -409,7 +409,7 @@ class ProposedTestAllureReporter:
                 screenshot_url = res.evidence.screenshot_url if res and res.evidence else None
                 ui_info = {
                     "target_route": t.ui_spec.target_route if t.ui_spec else "/",
-                    "screenshot_url": screenshot_url or f"/api/v1/migration/{self.job_id}/proposed-tests/evidence/{t.id}/screenshot.svg",
+                    "screenshot_url": screenshot_url or f"/api/v1/migration/{self.job_id}/proposed-tests/evidence/{t.id}/screenshot.png",
                     "video_available": res.evidence.video_available if res and res.evidence else False,
                     "video_url": res.evidence.video_url if res and res.evidence else None,
                 }

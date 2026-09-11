@@ -1,9 +1,18 @@
 import { useState } from "react";
-import { readSessionJson, type PersistedWizardFormState, WIZARD_REPO_ANALYSIS_KEY } from "@/shared/utils/migrationWizardStorage";
+import {
+  readPersistedValue,
+  readSessionJson,
+  type PersistedWizardFormState,
+  WIZARD_REPO_ANALYSIS_KEY,
+  WIZARD_SELECTED_REPO_KEY,
+  WIZARD_JOB_ID_KEY,
+  getScopedRepoAnalysisKey,
+} from "@/shared/utils/migrationWizardStorage";
 import type {
   MicroserviceEligibilityResult,
   RepoAnalysis,
   RepoFile,
+  RepoInfo,
 } from "@/shared/types/domain";
 
 type MicroserviceAccordionKey =
@@ -60,9 +69,13 @@ export function useDiscoveryState(
   persistedFormState: PersistedWizardFormState | null,
   createDefaultMicroserviceAccordionState: () => Record<MicroserviceAccordionKey, boolean>
 ) {
-  const [repoAnalysis, setRepoAnalysis] = useState<RepoAnalysis | null>(() =>
-    readSessionJson<RepoAnalysis>(WIZARD_REPO_ANALYSIS_KEY)
-  );
+  const [repoAnalysis, setRepoAnalysis] = useState<RepoAnalysis | null>(() => {
+    const activeRepo = readSessionJson<RepoInfo>(WIZARD_SELECTED_REPO_KEY);
+    if (!activeRepo || !activeRepo.url) return null;
+    const activeJobId = readPersistedValue(WIZARD_JOB_ID_KEY);
+    const scopedKey = getScopedRepoAnalysisKey(activeJobId || activeRepo.url);
+    return readSessionJson<RepoAnalysis>(scopedKey) || readSessionJson<RepoAnalysis>(WIZARD_REPO_ANALYSIS_KEY);
+  });
   const [discoveryStages, setDiscoveryStages] = useState<DiscoveryStageState[]>(INITIAL_DISCOVERY_STAGES);
   const [repoFiles, setRepoFiles] = useState<RepoFile[]>([]);
   const [repoFilesLoading, setRepoFilesLoading] = useState(false);

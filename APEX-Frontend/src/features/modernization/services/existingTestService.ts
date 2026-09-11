@@ -195,19 +195,35 @@ const scanInFlight = new Map<string, Promise<ExistingTestScanResponse>>();
 
 export function getCachedExistingTests(jobId: string): ExistingTestScanResponse | null {
   if (!jobId) return null;
-  return scanCache.get(jobId) || null;
+  const cached = scanCache.get(jobId);
+  if (cached && (cached.total > 0 || (cached.test_cases && cached.test_cases.length > 0))) {
+    return cached;
+  }
+  return null;
 }
 
-export async function scanExistingTests(jobId: string): Promise<ExistingTestScanResponse> {
+export function clearCachedExistingTests(jobId?: string): void {
+  if (jobId) {
+    scanCache.delete(jobId);
+    scanInFlight.delete(jobId);
+  } else {
+    scanCache.clear();
+    scanInFlight.clear();
+  }
+}
+
+export async function scanExistingTests(jobId: string, forceRefresh = false): Promise<ExistingTestScanResponse> {
   if (!jobId) {
     return { total: 0, framework: "JUnit", test_cases: [] };
   }
-  const cached = scanCache.get(jobId);
-  if (cached) {
-    return cached;
+  if (!forceRefresh) {
+    const cached = scanCache.get(jobId);
+    if (cached && (cached.total > 0 || (cached.test_cases && cached.test_cases.length > 0))) {
+      return cached;
+    }
   }
   const inFlight = scanInFlight.get(jobId);
-  if (inFlight) {
+  if (inFlight && !forceRefresh) {
     return inFlight;
   }
 
@@ -216,9 +232,18 @@ export async function scanExistingTests(jobId: string): Promise<ExistingTestScan
     "Failed to scan existing tests"
   )
     .then((res) => {
-      scanCache.set(jobId, res);
+      const tests = res.test_cases || res.tests || [];
+      const total = res.total ?? res.testCasesFound ?? tests.length;
+      const normalizedRes: ExistingTestScanResponse = {
+        ...res,
+        total,
+        test_cases: tests,
+        tests,
+        framework: res.framework || "JUnit",
+      };
+      scanCache.set(jobId, normalizedRes);
       scanInFlight.delete(jobId);
-      return res;
+      return normalizedRes;
     })
     .catch((err) => {
       scanInFlight.delete(jobId);

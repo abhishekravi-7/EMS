@@ -1,7 +1,13 @@
 import { useState } from "react";
 import type { MigrationResult, FossaScanResult } from "@/features/result/services/resultService";
 import type { MigrationPreview } from "@/features/modernization/services/modernizationService";
-import { readSessionJson, WIZARD_MIGRATION_JOB_KEY } from "@/shared/utils/migrationWizardStorage";
+import {
+  readPersistedValue,
+  readSessionJson,
+  removeSessionValue,
+  WIZARD_JOB_ID_KEY,
+  WIZARD_MIGRATION_JOB_KEY,
+} from "@/shared/utils/migrationWizardStorage";
 
 type GeneratedDocumentKind = "brd";
 type DocumentPrefetchStatus = "idle" | "loading" | "ready" | "error";
@@ -34,9 +40,20 @@ const REPORT_DIFFS_PAGE_SIZE = 25;
 export function useMigrationExecution() {
   const [loading, setLoading] = useState(false);
   const [migrationTimerNow, setMigrationTimerNow] = useState(() => Date.now());
-  const [migrationJob, setMigrationJob] = useState<MigrationResult | null>(() =>
-    readSessionJson<MigrationResult>(WIZARD_MIGRATION_JOB_KEY)
-  );
+  const [migrationJob, setMigrationJob] = useState<MigrationResult | null>(() => {
+    const currentJobId = readPersistedValue(WIZARD_JOB_ID_KEY);
+    const saved = readSessionJson<MigrationResult>(WIZARD_MIGRATION_JOB_KEY);
+    if (saved && currentJobId && (saved.job_id === currentJobId || (saved as any).jobId === currentJobId)) {
+      return {
+        ...saved,
+        job_id: saved.job_id || (saved as any).jobId || currentJobId,
+      };
+    }
+    if (saved) {
+      removeSessionValue(WIZARD_MIGRATION_JOB_KEY);
+    }
+    return null;
+  });
   const [migrationDetailLoadedJobId, setMigrationDetailLoadedJobId] = useState<string | null>(null);
   const [migrationLogs, setMigrationLogs] = useState<string[]>([]);
   const [fossaResult, setFossaResult] = useState<FossaScanResult | null>(null);

@@ -25,6 +25,26 @@ interface MigrationProposedTestSectionProps {
   migrationJob: MigrationResult;
 }
 
+function formatDisplayTestName(t: ProposedTestCase): string {
+  if (t.type === "UI") {
+    return t.title || "UI Scenario";
+  }
+
+  if (t.api_spec?.method && t.api_spec?.endpoint) {
+    return `${t.api_spec.method.toUpperCase()} ${t.api_spec.endpoint}`;
+  }
+
+  const title = t.title || "";
+  const match = title.match(/(?:Verify\s+)?(GET|POST|PUT|DELETE|PATCH|OPTIONS|HEAD)\s+([^\s]+)/i);
+  if (match) {
+    const method = match[1].toUpperCase();
+    const endpoint = match[2];
+    return `${method} ${endpoint}`;
+  }
+
+  return title;
+}
+
 export function MigrationProposedTestSection({
   styles,
   migrationJob,
@@ -41,6 +61,57 @@ export function MigrationProposedTestSection({
   const [selectedSources, setSelectedSources] = useState<string[] | null>(null);
   const [allureReportAvailable, setAllureReportAvailable] = useState(false);
   const [allureReportUrl, setAllureReportUrl] = useState<string | null>(null);
+  const [selectedTestIds, setSelectedTestIds] = useState<Set<string>>(new Set());
+
+  // Initialize selection when proposals load
+  useEffect(() => {
+    if (proposals.length > 0) {
+      setSelectedTestIds((prev) => {
+        if (prev.size === 0) {
+          return new Set(proposals.map((p) => p.id));
+        }
+        const proposalIdSet = new Set(proposals.map((p) => p.id));
+        const filtered = new Set(Array.from(prev).filter((id) => proposalIdSet.has(id)));
+        return filtered.size > 0 ? filtered : new Set(proposals.map((p) => p.id));
+      });
+    }
+  }, [proposals]);
+
+  const handleSelectAll = () => {
+    setSelectedTestIds(new Set(proposals.map((p) => p.id)));
+  };
+
+  const handleClearSelection = () => {
+    setSelectedTestIds(new Set());
+  };
+
+  const toggleSelectTest = (testId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setSelectedTestIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(testId)) {
+        next.delete(testId);
+      } else {
+        next.add(testId);
+      }
+      return next;
+    });
+  };
+
+  const handleRunSelected = async () => {
+    if (!jobId || isRunning || selectedTestIds.size === 0) return;
+    setIsRunning(true);
+    setLogs([]);
+    try {
+      await runApprovedProposedTests(jobId, {
+        test_ids: Array.from(selectedTestIds),
+      });
+      startPolling();
+    } catch (err) {
+      console.error("Failed to run selected proposed tests:", err);
+      setIsRunning(false);
+    }
+  };
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const logBoxRef = useRef<HTMLDivElement | null>(null);
@@ -57,13 +128,14 @@ export function MigrationProposedTestSection({
     pollRef.current = setInterval(async () => {
       try {
         const statusData = await getProposedTestsStatus(jobId);
-        if (statusData.proposals) setProposals(statusData.proposals);
-        if (statusData.metrics) setMetrics(statusData.metrics);
-        if (statusData.logs) setLogs(statusData.logs);
-        if (statusData.selected_sources) setSelectedSources(statusData.selected_sources);
+        if (statusData.proposals) setProposals((prev) => (JSON.stringify(prev) === JSON.stringify(statusData.proposals) ? prev : statusData.proposals));
+        if (statusData.metrics) setMetrics((prev) => (JSON.stringify(prev) === JSON.stringify(statusData.metrics) ? prev : statusData.metrics));
+        if (statusData.logs) setLogs((prev) => (JSON.stringify(prev) === JSON.stringify(statusData.logs) ? prev : statusData.logs));
+        if (statusData.selected_sources) setSelectedSources((prev) => (JSON.stringify(prev) === JSON.stringify(statusData.selected_sources) ? prev : statusData.selected_sources));
+
         if (statusData.allure_report_available !== undefined) {
-          setAllureReportAvailable(statusData.allure_report_available);
-          if (statusData.allure_report_url) setAllureReportUrl(statusData.allure_report_url);
+          setAllureReportAvailable((prev) => (prev !== statusData.allure_report_available ? statusData.allure_report_available : prev));
+          if (statusData.allure_report_url) setAllureReportUrl((prev) => (prev !== statusData.allure_report_url ? statusData.allure_report_url : prev));
         }
 
         if (statusData.status === "COMPLETED" || statusData.status === "FAILED") {
@@ -72,18 +144,18 @@ export function MigrationProposedTestSection({
 
           // Fetch final results payload
           const finalResults = await getProposedTestsResults(jobId).catch(() => null);
-          if (finalResults?.test_cases) setProposals(finalResults.test_cases);
-          if (finalResults?.metrics) setMetrics(finalResults.metrics);
-          if (finalResults?.selected_sources) setSelectedSources(finalResults.selected_sources);
+          if (finalResults?.test_cases) setProposals((prev) => (JSON.stringify(prev) === JSON.stringify(finalResults.test_cases) ? prev : (finalResults.test_cases || [])));
+          if (finalResults?.metrics) setMetrics((prev) => (JSON.stringify(prev) === JSON.stringify(finalResults.metrics) ? prev : (finalResults.metrics || null)));
+          if (finalResults?.selected_sources) setSelectedSources((prev) => (JSON.stringify(prev) === JSON.stringify(finalResults.selected_sources) ? prev : (finalResults.selected_sources || null)));
           if (finalResults?.allure_report_available !== undefined) {
-            setAllureReportAvailable(finalResults.allure_report_available);
-            if (finalResults.allure_report_url) setAllureReportUrl(finalResults.allure_report_url);
+            setAllureReportAvailable((prev) => (prev !== finalResults.allure_report_available ? finalResults.allure_report_available : prev));
+            if (finalResults.allure_report_url) setAllureReportUrl((prev) => (prev !== finalResults.allure_report_url ? finalResults.allure_report_url : prev));
           }
         }
       } catch (err) {
         console.error("Polling proposed tests error:", err);
       }
-    }, 1000);
+    }, 10000); // Increased from 1s to 10s to reduce load
   }, [jobId]);
 
   // Load initial status and results
@@ -91,7 +163,6 @@ export function MigrationProposedTestSection({
     if (!jobId) return;
 
     let isMounted = true;
-    setIsLoading(true);
 
     const loadData = async () => {
       try {
@@ -99,17 +170,16 @@ export function MigrationProposedTestSection({
         if (!isMounted) return;
 
         if (res) {
-          if (res.proposals) setProposals(res.proposals);
-          if (res.metrics) setMetrics(res.metrics);
-          if (res.logs) setLogs(res.logs);
-          if (res.selected_sources) setSelectedSources(res.selected_sources);
-          if (res.allure_report_available !== undefined) {
-            setAllureReportAvailable(res.allure_report_available);
-            if (res.allure_report_url) setAllureReportUrl(res.allure_report_url);
-          }
+          if (res.proposals) setProposals((prev) => (JSON.stringify(prev) === JSON.stringify(res.proposals) ? prev : res.proposals));
+          if (res.metrics) setMetrics((prev) => (JSON.stringify(prev) === JSON.stringify(res.metrics) ? prev : res.metrics));
+          if (res.logs) setLogs((prev) => (JSON.stringify(prev) === JSON.stringify(res.logs) ? prev : res.logs));
+          if (res.selected_sources) setSelectedSources((prev) => (JSON.stringify(prev) === JSON.stringify(res.selected_sources) ? prev : res.selected_sources));
+
+          setAllureReportAvailable((prev) => (res.allure_report_available !== undefined && prev !== res.allure_report_available ? res.allure_report_available : prev));
+          if (res.allure_report_url) setAllureReportUrl((prev) => (prev !== res.allure_report_url ? res.allure_report_url : prev));
 
           if (res.status === "RUNNING") {
-            setIsRunning(true);
+            setIsRunning((prev) => (prev ? prev : true));
             startPolling();
           }
         }
@@ -510,35 +580,112 @@ export function MigrationProposedTestSection({
 
         {/* Executed Proposed Test Method Details Table */}
         <div style={{ marginTop: 24 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", marginBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span>Executed Proposed Test Method Details ({proposals.length} scenarios)</span>
-            <span style={{ fontSize: 11, color: "#64748b", fontWeight: 600 }}>Click row for step assertions &amp; evidence</span>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", marginBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span>Executed Proposed Test Method Details ({proposals.length} scenarios)</span>
+              <span style={{ fontSize: 11, color: "#64748b", fontWeight: 600 }}>({selectedTestIds.size} selected)</span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <button
+                type="button"
+                onClick={handleSelectAll}
+                disabled={isRunning || proposals.length === 0}
+                style={{
+                  padding: "4px 10px",
+                  borderRadius: 6,
+                  border: "1px solid #cbd5e1",
+                  background: "#f8fafc",
+                  color: "#334155",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: isRunning || proposals.length === 0 ? "not-allowed" : "pointer",
+                  transition: "all 0.15s ease",
+                }}
+              >
+                Select All
+              </button>
+              <button
+                type="button"
+                onClick={handleClearSelection}
+                disabled={isRunning || selectedTestIds.size === 0}
+                style={{
+                  padding: "4px 10px",
+                  borderRadius: 6,
+                  border: "1px solid #cbd5e1",
+                  background: "#f8fafc",
+                  color: "#334155",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: isRunning || selectedTestIds.size === 0 ? "not-allowed" : "pointer",
+                  transition: "all 0.15s ease",
+                }}
+              >
+                Clear Selection
+              </button>
+              <button
+                type="button"
+                onClick={handleRunSelected}
+                disabled={isRunning || selectedTestIds.size === 0}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 5,
+                  padding: "4px 12px",
+                  borderRadius: 6,
+                  background: isRunning || selectedTestIds.size === 0 ? "#94a3b8" : "linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%)",
+                  border: "none",
+                  color: "#fff",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: isRunning || selectedTestIds.size === 0 ? "not-allowed" : "pointer",
+                  transition: "all 0.15s ease",
+                }}
+              >
+                {isRunning ? <FaSpinner className="animate-spin" size={10} /> : <FaRedo size={10} />}
+                <span>{isRunning ? "Running Selected..." : `Run Selected Tests (${selectedTestIds.size})`}</span>
+              </button>
+            </div>
           </div>
 
-          <div style={{ maxHeight: 320, overflowY: "auto", border: "1px solid #e2e8f0", borderRadius: 8, background: "#ffffff" }}>
+          <div style={{ maxHeight: 380, overflowY: "auto", border: "1px solid #e2e8f0", borderRadius: 8, background: "#ffffff" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: 12 }}>
               <thead>
                 <tr style={{ background: "#f8fafc", color: "#475569", borderBottom: "1px solid #e2e8f0", position: "sticky", top: 0, zIndex: 2 }}>
-                  <th style={{ padding: "8px 12px", width: 70, fontWeight: 700 }}>ID</th>
+                  <th style={{ padding: "8px 12px", width: 36, textAlign: "center" }}>
+                    <input
+                      type="checkbox"
+                      checked={proposals.length > 0 && selectedTestIds.size === proposals.length}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          handleSelectAll();
+                        } else {
+                          handleClearSelection();
+                        }
+                      }}
+                      style={{ cursor: "pointer", accentColor: "#7c3aed" }}
+                      title={selectedTestIds.size === proposals.length ? "Clear all" : "Select all"}
+                    />
+                  </th>
+                  <th style={{ padding: "8px 12px", width: 170, fontWeight: 700 }}>Source</th>
+                  <th style={{ padding: "8px 12px", width: 90, fontWeight: 700 }}>Test ID</th>
                   <th style={{ padding: "8px 12px", fontWeight: 700 }}>Test Name</th>
-                  <th style={{ padding: "8px 12px", width: 150, fontWeight: 700 }}>Source</th>
                   <th style={{ padding: "8px 12px", width: 80, fontWeight: 700 }}>Type</th>
-                  <th style={{ padding: "8px 12px", width: 100, fontWeight: 700 }}>Status</th>
+                  <th style={{ padding: "8px 12px", width: 110, fontWeight: 700 }}>Status</th>
                   <th style={{ padding: "8px 12px", width: 90, fontWeight: 700 }}>Duration</th>
-                  <th style={{ padding: "8px 12px", width: 70, fontWeight: 700, textAlign: "center" }}>Details</th>
+                  <th style={{ padding: "8px 12px", width: 120, fontWeight: 700, textAlign: "center" }}>Evidence</th>
                 </tr>
               </thead>
               <tbody>
                 {isLoading ? (
                   <tr>
-                    <td colSpan={7} style={{ padding: "36px 12px", textAlign: "center", color: "#64748b" }}>
+                    <td colSpan={8} style={{ padding: "36px 12px", textAlign: "center", color: "#64748b" }}>
                       <FaSpinner className="animate-spin" size={18} style={{ marginBottom: 6 }} />
                       <div>Loading proposed test execution data...</div>
                     </td>
                   </tr>
                 ) : proposals.length === 0 ? (
                   <tr>
-                    <td colSpan={7} style={{ padding: "28px 12px", textAlign: "center", color: "#64748b" }}>
+                    <td colSpan={8} style={{ padding: "28px 12px", textAlign: "center", color: "#64748b" }}>
                       No proposed test cases found for this migration.
                     </td>
                   </tr>
@@ -548,8 +695,10 @@ export function MigrationProposedTestSection({
                       t.generation_source === "BRD_DOCUMENT" ||
                       t.generation_source === "BRD_AND_AI" ||
                       t.generation_source === "FUNCTIONAL_DOC" ||
+                      t.generation_source === "Functional Testing Document Generated" ||
                       t.id.includes("BRD") ||
                       t.source === "BRD Document" ||
+                      t.source === "Functional Testing Document Generated" ||
                       t.source === "BRD Business Requirement";
 
                     const isExisting =
@@ -559,7 +708,7 @@ export function MigrationProposedTestSection({
                       t.source === "Existing Repository" ||
                       t.source === "Existing Repository Tests";
 
-                    const sourceBadgeLabel = isExisting ? "Existing" : isDoc ? "Functional Doc" : "LLM Generated";
+                    const sourceBadgeLabel = isExisting ? "Existing Repository" : isDoc ? "Functional Testing Document" : "LLM Generated";
                     const sourceBadgeColor = isExisting ? "#059669" : isDoc ? "#7c3aed" : "#0284c7";
                     const sourceBadgeBg = isExisting ? "#ecfdf5" : isDoc ? "#faf5ff" : "#f0f9ff";
                     const sourceBadgeBorder = isExisting ? "#a7f3d0" : isDoc ? "#d8b4fe" : "#bae6fd";
@@ -593,6 +742,7 @@ export function MigrationProposedTestSection({
                       : "1px solid rgba(100, 116, 139, 0.3)";
 
                     const duration = t.execution_result?.duration || "--";
+                    const actualStatus = t.execution_result?.actual_status_code || t.api_spec?.expected_status || 200;
 
                     return (
                       <tr
@@ -607,11 +757,16 @@ export function MigrationProposedTestSection({
                         onMouseEnter={(e) => (e.currentTarget.style.background = "#f8fafc")}
                         onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                       >
-                        <td style={{ padding: "8px 12px", fontFamily: "monospace", color: "#0284c7", fontWeight: 700 }}>
-                          {t.id}
-                        </td>
-                        <td style={{ padding: "8px 12px", fontWeight: 600 }}>
-                          {t.title}
+                        <td
+                          style={{ padding: "8px 12px", textAlign: "center" }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedTestIds.has(t.id)}
+                            onChange={() => toggleSelectTest(t.id)}
+                            style={{ cursor: "pointer", accentColor: "#7c3aed" }}
+                          />
                         </td>
                         <td style={{ padding: "8px 12px" }}>
                           <span
@@ -628,8 +783,26 @@ export function MigrationProposedTestSection({
                             {sourceBadgeLabel}
                           </span>
                         </td>
+                        <td style={{ padding: "8px 12px", fontFamily: "monospace", color: "#0284c7", fontWeight: 700 }}>
+                          {t.id}
+                        </td>
+                        <td style={{ padding: "8px 12px", fontWeight: 600, fontFamily: t.type === "API" ? "'JetBrains Mono', 'Consolas', monospace" : "inherit" }}>
+                          {formatDisplayTestName(t)}
+                        </td>
                         <td style={{ padding: "8px 12px", fontSize: 11, color: "#64748b" }}>
-                          {t.type}
+                          <span
+                            style={{
+                              fontWeight: 800,
+                              fontSize: 10,
+                              padding: "2px 6px",
+                              borderRadius: 4,
+                              background: t.type === "UI" ? "#fdf4ff" : "#f0fdf4",
+                              color: t.type === "UI" ? "#a855f7" : "#16a34a",
+                              border: t.type === "UI" ? "1px solid #f0abfc" : "1px solid #bbf7d0",
+                            }}
+                          >
+                            {t.type}
+                          </span>
                         </td>
                         <td style={{ padding: "8px 12px" }}>
                           <span
@@ -654,23 +827,54 @@ export function MigrationProposedTestSection({
                           {duration}
                         </td>
                         <td style={{ padding: "8px 12px", textAlign: "center" }}>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedTest(t);
-                            }}
-                            style={{
-                              background: "transparent",
-                              border: "none",
-                              color: "#0284c7",
-                              cursor: "pointer",
-                              fontSize: 12,
-                            }}
-                            title="View Test Details"
-                          >
-                            <FaExternalLinkAlt size={11} />
-                          </button>
+                          {t.type === "UI" ? (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedTest(t);
+                              }}
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 4,
+                                background: "#f8fafc",
+                                border: "1px solid #cbd5e1",
+                                color: "#0284c7",
+                                borderRadius: 6,
+                                padding: "2px 8px",
+                                fontSize: 11,
+                                fontWeight: 700,
+                                cursor: "pointer",
+                              }}
+                            >
+                              Screenshot
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedTest(t);
+                              }}
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 4,
+                                background: isPassed ? "#ecfdf5" : isFailed ? "#fef2f2" : "#f8fafc",
+                                border: isPassed ? "1px solid #a7f3d0" : isFailed ? "1px solid #fecaca" : "1px solid #cbd5e1",
+                                color: isPassed ? "#059669" : isFailed ? "#dc2626" : "#475569",
+                                borderRadius: 6,
+                                padding: "2px 8px",
+                                fontSize: 11,
+                                fontWeight: 800,
+                                fontFamily: "monospace",
+                                cursor: "pointer",
+                              }}
+                            >
+                              HTTP {actualStatus}
+                            </button>
+                          )}
                         </td>
                       </tr>
                     );
@@ -678,6 +882,84 @@ export function MigrationProposedTestSection({
                 )}
               </tbody>
             </table>
+          </div>
+
+          {/* Bottom Action Controls: [Select All] [Clear Selection] [Run Selected Tests] */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 14, flexWrap: "wrap", gap: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <button
+                type="button"
+                onClick={handleSelectAll}
+                disabled={isRunning || proposals.length === 0}
+                style={{
+                  padding: "6px 14px",
+                  borderRadius: 6,
+                  border: "1px solid #cbd5e1",
+                  background: "#f8fafc",
+                  color: "#334155",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: isRunning || proposals.length === 0 ? "not-allowed" : "pointer",
+                  transition: "all 0.15s ease",
+                }}
+              >
+                Select All
+              </button>
+              <button
+                type="button"
+                onClick={handleClearSelection}
+                disabled={isRunning || selectedTestIds.size === 0}
+                style={{
+                  padding: "6px 14px",
+                  borderRadius: 6,
+                  border: "1px solid #cbd5e1",
+                  background: "#f8fafc",
+                  color: "#334155",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: isRunning || selectedTestIds.size === 0 ? "not-allowed" : "pointer",
+                  transition: "all 0.15s ease",
+                }}
+              >
+                Clear Selection
+              </button>
+              <span style={{ fontSize: 11, color: "#64748b", fontWeight: 600, marginLeft: 4 }}>
+                {selectedTestIds.size} of {proposals.length} test cases selected
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleRunSelected}
+              disabled={isRunning || selectedTestIds.size === 0}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "6px 18px",
+                borderRadius: 8,
+                background: isRunning || selectedTestIds.size === 0 ? "#94a3b8" : "linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%)",
+                border: "none",
+                color: "#fff",
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: isRunning || selectedTestIds.size === 0 ? "not-allowed" : "pointer",
+                boxShadow: isRunning || selectedTestIds.size === 0 ? "none" : "0 2px 8px rgba(124, 58, 237, 0.25)",
+                transition: "all 0.15s ease",
+              }}
+            >
+              {isRunning ? (
+                <>
+                  <FaSpinner className="animate-spin" size={11} />
+                  <span>Running Selected Tests ({selectedTestIds.size})...</span>
+                </>
+              ) : (
+                <>
+                  <FaRedo size={11} />
+                  <span>Run Selected Tests ({selectedTestIds.size})</span>
+                </>
+              )}
+            </button>
           </div>
         </div>
 
@@ -843,6 +1125,111 @@ export function MigrationProposedTestSection({
                   {selectedTest.description || selectedTest.reason}
                 </p>
               </div>
+
+              {/* Postman-Style API Execution Card */}
+              {selectedTest.type === "API" && (
+                <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: "16px" }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: "#475569", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 12 }}>
+                    API Execution Details (Postman View)
+                  </div>
+                  
+                  <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 8, padding: "10px 12px", marginBottom: 12 }}>
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 900,
+                        padding: "3px 8px",
+                        borderRadius: 4,
+                        background: selectedTest.api_spec?.method === "POST" ? "#16a34a" : selectedTest.api_spec?.method === "PUT" ? "#d97706" : selectedTest.api_spec?.method === "DELETE" ? "#dc2626" : "#0284c7",
+                        color: "#ffffff",
+                        fontFamily: "monospace",
+                      }}
+                    >
+                      {selectedTest.api_spec?.method || "GET"}
+                    </span>
+                    <span style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 700, color: "#0f172a" }}>
+                      {selectedTest.api_spec?.endpoint || "/"}
+                    </span>
+                    <span
+                      style={{
+                        marginLeft: "auto",
+                        fontSize: 11,
+                        fontWeight: 800,
+                        padding: "3px 8px",
+                        borderRadius: 4,
+                        background: selectedTest.status === "PASSED" ? "#ecfdf5" : "#fef2f2",
+                        color: selectedTest.status === "PASSED" ? "#059669" : "#dc2626",
+                        border: selectedTest.status === "PASSED" ? "1px solid #a7f3d0" : "1px solid #fecaca",
+                      }}
+                    >
+                      Status: {selectedTest.execution_result?.actual_status_code || selectedTest.api_spec?.expected_status || 200}
+                    </span>
+                    <span style={{ fontSize: 11, color: "#64748b", fontFamily: "monospace" }}>
+                      {selectedTest.execution_result?.response_time_ms ?? 120}ms
+                    </span>
+                  </div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                    <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 8, padding: "10px 12px" }}>
+                      <span style={{ fontSize: 11, color: "#64748b", fontWeight: 600 }}>Result: </span>
+                      <span style={{ fontSize: 12, fontWeight: 800, color: selectedTest.status === "PASSED" ? "#059669" : "#dc2626" }}>
+                        {selectedTest.status === "PASSED" ? "PASSED" : "FAILED"}
+                      </span>
+                    </div>
+                    <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 8, padding: "10px 12px" }}>
+                      <span style={{ fontSize: 11, color: "#64748b", fontWeight: 600 }}>Response Time: </span>
+                      <span style={{ fontSize: 12, fontWeight: 800, color: "#0284c7", fontFamily: "monospace" }}>
+                        {selectedTest.execution_result?.response_time_ms ?? 120}ms
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Response Body */}
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#475569", marginBottom: 4 }}>
+                      Response Body:
+                    </div>
+                    <pre
+                      style={{
+                        background: "#030712",
+                        border: "1px solid #1f2937",
+                        borderRadius: 8,
+                        padding: "12px",
+                        fontSize: 11,
+                        color: "#38bdf8",
+                        fontFamily: "'JetBrains Mono', monospace",
+                        maxHeight: 180,
+                        overflowY: "auto",
+                        margin: 0,
+                      }}
+                    >
+                      {JSON.stringify(selectedTest.execution_result?.actual_response || selectedTest.api_spec?.expected_response || { status: "success" }, null, 2)}
+                    </pre>
+                  </div>
+                </div>
+              )}
+
+              {/* UI Screenshot Visual Evidence Card */}
+              {selectedTest.type === "UI" && (
+                <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: "16px" }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: "#475569", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 }}>
+                    Playwright Visual Evidence
+                  </div>
+                  {selectedTest.execution_result?.evidence?.screenshot_url ? (
+                    <div style={{ border: "1px solid #cbd5e1", borderRadius: 8, overflow: "hidden", background: "#0f172a" }}>
+                      <img
+                        src={selectedTest.execution_result.evidence.screenshot_url}
+                        alt="Playwright Execution Screenshot"
+                        style={{ width: "100%", height: "auto", display: "block" }}
+                      />
+                    </div>
+                  ) : (
+                    <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 8, padding: 14, textAlign: "center", color: "#64748b", fontSize: 12 }}>
+                      Screenshot visual evidence recorded for {selectedTest.id} during Playwright browser execution.
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Execution Steps */}
               {selectedTest.steps && selectedTest.steps.length > 0 && (

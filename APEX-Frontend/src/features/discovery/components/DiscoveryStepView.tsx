@@ -60,6 +60,9 @@ function renderFrameworkIcon(category: string) {
 }
 
 function extractDetectedFrameworks(repoAnalysis: RepoAnalysis | null): DetectedFrameworkDetail[] {
+  if (!repoAnalysis) {
+    return [];
+  }
   const items: DetectedFrameworkDetail[] = [];
   const seen = new Set<string>();
 
@@ -431,6 +434,7 @@ interface DiscoveryStepViewProps {
   onChooseDifferentRepository: () => void;
   onContinueToStrategy: () => void;
   onError: (message: string) => void;
+  onHandleJobError?: (err: any) => boolean;
 }
 
 interface FileTreeItem {
@@ -478,6 +482,7 @@ export function DiscoveryStepView({
   onChooseDifferentRepository,
   onContinueToStrategy,
   onError,
+  onHandleJobError,
 }: DiscoveryStepViewProps) {
   const {
     repoAnalysis,
@@ -498,7 +503,6 @@ export function DiscoveryStepView({
   const { isLocalRepoRef, extractLocalRepoPath } = repoUtils;
 
   // Search & folder collapse state for the Repository Files tree
-  // Search & folder collapse state for the Repository Files tree
   const [searchQuery, setSearchQuery] = useState("");
   const [collapsedFolders, setCollapsedFolders] = useState<Record<string, boolean>>({});
 
@@ -517,43 +521,15 @@ export function DiscoveryStepView({
   // File lists categorized for popovers
   const javaFileList = (repoAnalysis?.java_files && repoAnalysis.java_files.length > 0)
     ? repoAnalysis.java_files
-    : [
-        "src/main/java/com/mewebstudio/javaspringbootboilerplate/MainApplication.java",
-        "src/main/java/com/mewebstudio/javaspringbootboilerplate/config/AppConfig.java",
-        "src/main/java/com/mewebstudio/javaspringbootboilerplate/config/WebMvcConfig.java",
-        "src/main/java/com/mewebstudio/javaspringbootboilerplate/config/WebSecurityConfig.java",
-        "src/main/java/com/mewebstudio/javaspringbootboilerplate/controller/AuthController.java",
-        "src/main/java/com/mewebstudio/javaspringbootboilerplate/controller/AccountController.java",
-        "src/main/java/com/mewebstudio/javaspringbootboilerplate/controller/DashboardController.java",
-        "src/main/java/com/mewebstudio/javaspringbootboilerplate/entity/User.java",
-        "src/main/java/com/mewebstudio/javaspringbootboilerplate/entity/Role.java",
-        "src/main/java/com/mewebstudio/javaspringbootboilerplate/entity/JwtToken.java",
-        "src/main/java/com/mewebstudio/javaspringbootboilerplate/repository/UserRepository.java",
-        "src/main/java/com/mewebstudio/javaspringbootboilerplate/repository/RoleRepository.java",
-      ];
+    : [];
 
   const configFileList = (repoAnalysis?.config_files && repoAnalysis.config_files.length > 0)
     ? repoAnalysis.config_files
-    : [
-        "pom.xml",
-        "src/main/resources/application.yml",
-        "checkstyle.xml",
-        "checkstyle-exclude.xml",
-        "docker-compose.yaml",
-        "src/main/resources/locales/messages.properties",
-        "src/main/resources/db/changelog/master.xml",
-      ];
+    : [];
 
   const otherFileList = (repoAnalysis?.other_files && repoAnalysis.other_files.length > 0)
     ? repoAnalysis.other_files
-    : [
-        "README.md",
-        ".gitignore",
-        "Dockerfile",
-        "mvnw",
-        "mvnw.cmd",
-        "src/main/resources/Java Spring Boot Boilerplate.postman_collection.json",
-      ];
+    : [];
 
   // Dynamic calculations from repoAnalysis
   const javaFiles = repoAnalysis?.java_file_count ?? repoAnalysis?.java_files?.length ?? javaFileList.length;
@@ -587,7 +563,7 @@ export function DiscoveryStepView({
   };
 
   const detectedJavaVersion =
-    repoAnalysis?.java_version || repoAnalysis?.java_version_from_build || "17";
+    repoAnalysis?.java_version || repoAnalysis?.java_version_from_build || "";
 
   const buildFileName =
     configFileList.find((f) => f === "pom.xml" || f.endsWith("/pom.xml") || f === "build.gradle" || f.endsWith("/build.gradle"))
@@ -596,7 +572,9 @@ export function DiscoveryStepView({
         )
       : repoAnalysis?.structure?.has_build_gradle || repoAnalysis?.build_tool?.toLowerCase().includes("gradle")
       ? "build.gradle"
-      : "pom.xml";
+      : repoAnalysis?.structure?.has_pom_xml || repoAnalysis?.build_tool?.toLowerCase().includes("maven")
+      ? "pom.xml"
+      : "";
 
   const detectedFrameworks = extractDetectedFrameworks(repoAnalysis);
   const [showFrameworksModal, setShowFrameworksModal] = useState(false);
@@ -617,13 +595,10 @@ export function DiscoveryStepView({
     (repoFiles || []).forEach((f) => {
       if (f.path) pathSet.add(f.path);
     });
-    if (pathSet.size === 0) {
-      [...javaFileList, ...configFileList, ...otherFileList].forEach((f) => pathSet.add(f));
-    }
     return Array.from(pathSet)
       .map((p) => p.replace(/\\/g, "/").replace(/^\/+/, ""))
       .filter(Boolean);
-  }, [repoAnalysis, repoFiles, javaFileList, configFileList, otherFileList]);
+  }, [repoAnalysis, repoFiles]);
 
   interface DynamicTreeNode {
     id: string;
@@ -639,18 +614,23 @@ export function DiscoveryStepView({
     const rootNodes: DynamicTreeNode[] = [];
 
     const findOrCreateDir = (list: DynamicTreeNode[], name: string, currentPath: string): DynamicTreeNode => {
-      let dir = list.find((item) => item.isDir && item.name === name);
-      if (!dir) {
-        dir = {
-          id: currentPath,
-          name,
-          path: currentPath,
-          isDir: true,
-          children: [],
-          itemCount: 0,
-        };
-        list.push(dir);
+      let existing = list.find((item) => item.name === name);
+      if (existing) {
+        if (!existing.isDir) {
+          existing.isDir = true;
+          existing.children = existing.children || [];
+        }
+        return existing;
       }
+      const dir: DynamicTreeNode = {
+        id: currentPath,
+        name,
+        path: currentPath,
+        isDir: true,
+        children: [],
+        itemCount: 0,
+      };
+      list.push(dir);
       return dir;
     };
 
@@ -667,14 +647,17 @@ export function DiscoveryStepView({
         const isLast = i === parts.length - 1;
 
         if (isLast) {
-          currentList.push({
-            id: accumulatedPath,
-            name: part,
-            path: accumulatedPath,
-            isDir: false,
-            children: [],
-            itemCount: 1,
-          });
+          const existing = currentList.find((item) => item.name === part);
+          if (!existing) {
+            currentList.push({
+              id: accumulatedPath,
+              name: part,
+              path: accumulatedPath,
+              isDir: false,
+              children: [],
+              itemCount: 1,
+            });
+          }
         } else {
           const dirNode = findOrCreateDir(currentList, part, accumulatedPath);
           currentList = dirNode.children;
@@ -827,10 +810,11 @@ export function DiscoveryStepView({
   const renderTreeNode = (node: DynamicTreeNode, depth = 0) => {
     const open = isFolderOpen(node.id);
     const paddingLeft = 12 + depth * 18;
+    const nodeKey = `${node.isDir ? "dir" : "file"}-${node.id || node.name}-${depth}`;
 
     if (node.isDir) {
       return (
-        <React.Fragment key={node.id}>
+        <React.Fragment key={nodeKey}>
           <div
             className="discovery-tree-row"
             style={{ paddingLeft }}
@@ -860,7 +844,7 @@ export function DiscoveryStepView({
 
     return (
       <div
-        key={node.id}
+        key={nodeKey}
         className={`discovery-tree-row ${isSelected ? "is-active" : ""}`}
         style={{ paddingLeft }}
         onClick={() => void handleSelectFile({ name: node.name, path: node.path })}
@@ -889,6 +873,70 @@ export function DiscoveryStepView({
       </div>
     );
   };
+
+  if (!selectedRepo || !selectedRepo.url) {
+    return (
+      <div className="discovery-dashboard-wrapper">
+        <div className="discovery-header-box">
+          <div className="discovery-header-left">
+            <div className="discovery-header-icon-badge">
+              <FaSearch />
+            </div>
+            <div className="discovery-header-titles">
+              <h2>Repository Discovery &amp; Dependencies</h2>
+              <p>Explore the repository structure, dependencies, and frameworks detected.</p>
+            </div>
+          </div>
+        </div>
+
+        <div
+          className="discovery-empty-state-card"
+          style={{
+            background: "#ffffff",
+            borderRadius: "16px",
+            border: "1px dashed #cbd5e1",
+            padding: "56px 24px",
+            textAlign: "center",
+            margin: "32px auto",
+            maxWidth: "600px",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: "16px",
+          }}
+        >
+          <div
+            style={{
+              width: "60px",
+              height: "60px",
+              borderRadius: "50%",
+              background: "#eff6ff",
+              color: "#2563eb",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: "24px",
+            }}
+          >
+            <FaFolderOpen />
+          </div>
+          <h3 style={{ margin: 0, fontSize: "18px", fontWeight: 700, color: "#0f172a" }}>
+            No Repository Connected
+          </h3>
+          <p style={{ margin: 0, fontSize: "13px", color: "#64748b", maxWidth: "420px", lineHeight: 1.5 }}>
+            No repository has been provided. Please connect and validate a repository on the Connect page to run discovery analysis.
+          </p>
+          <button
+            onClick={onChooseDifferentRepository || onBack}
+            className="discovery-btn-continue"
+            style={{ marginTop: "8px", display: "inline-flex", alignItems: "center", gap: "8px" }}
+          >
+            <FaArrowLeft size={11} /> Go to Connect Page
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="discovery-dashboard-wrapper">

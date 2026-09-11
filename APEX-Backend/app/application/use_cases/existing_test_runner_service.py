@@ -344,17 +344,20 @@ class ExistingTestDetector:
             count = len(matches)
             test_names = matches
             
-        # Java Test Detection (JUnit, TestNG)
-        elif name.endswith('.java') and (
-            'test' in name or 'tests' in name or name.endswith(('test.java', 'it.java'))
-            or any(ann in c_lower for ann in ["@test", "@parameterizedtest", "@repeatedtest", "@testfactory", "@testtemplate"])
+        # Java/JVM Test Detection (JUnit 4/5, TestNG, Spock)
+        elif name.endswith(('.java', '.kt', '.groovy')) and (
+            'test' in name or 'tests' in name or 'spec' in name or name.endswith(('test.java', 'it.java', 'test.kt', 'test.groovy'))
+            or '/test/' in rel_path.lower() or '/tests/' in rel_path.lower()
+            or any(ann in c_lower for ann in ["@test", "@parameterizedtest", "@repeatedtest", "@testfactory", "@testtemplate", "org.junit", "org.testng", "extendswith", "runwith"])
         ):
             is_test = True
-            language = "Java"
-            if "org.junit" in content or "org.junit.jupiter" in content:
-                framework = "JUnit"
-            elif "org.testng" in content:
+            language = "Kotlin" if name.endswith('.kt') else "Groovy" if name.endswith('.groovy') else "Java"
+            if "org.testng" in content:
                 framework = "TestNG"
+            elif "org.junit" in content or "org.junit.jupiter" in content or "@test" in c_lower:
+                framework = "JUnit"
+            elif "spock" in c_lower:
+                framework = "Spock"
             else:
                 framework = "JUnit"
 
@@ -401,34 +404,65 @@ class ExistingTestDetector:
             else:
                 test_type = "UNIT"
 
-            # Comprehensive pattern matching JUnit 4, JUnit 5 (@Test, @ParameterizedTest, @RepeatedTest, @TestFactory, @TestTemplate) and TestNG
-            # allowing intermediate annotations (e.g. @DisplayName, @ValueSource, @CsvSource, @Order, @Timeout, @Tag, @Disabled, etc.)
-            test_method_pattern = re.compile(
-                r'@(?:Test|ParameterizedTest|RepeatedTest|TestFactory|TestTemplate)\b(?:\([^)]*\))?'
-                r'(?:\s*@[\w.]+(?:\([^)]*\))?)*'
-                r'\s*(?:public\s+|protected\s+|private\s+)?(?:static\s+)?(?:final\s+)?(?:<[\w\s,.<>?]+>\s+)?(?:void|boolean|int|long|String|var|[\w<>[\],.]+)\s+'
-                r'([a-zA-Z0-9_$]+)\s*\(',
-                re.MULTILINE
-            )
-            raw_matches = test_method_pattern.findall(content)
-            matches = [m for m in raw_matches if m not in ("if", "for", "while", "switch", "catch", "new", "return", "class", "interface", "enum")]
+            # Extract test methods using robust multi-pass extraction
+            matched_methods = []
+            seen_methods = set()
 
-            if not matches:
-                # Fallback: scan any method declaration following test annotations within 200 chars
-                fallback_matches = re.findall(
-                    r'@(?:Test|ParameterizedTest|RepeatedTest|TestFactory|TestTemplate)[\s\S]{0,200}?(?:void|boolean|int|long|String|var|[\w<>[\],.]+)\s+([a-zA-Z0-9_$]+)\s*\(',
+            # Pass 1: Extract methods following test annotations (JUnit 4, JUnit 5, TestNG)
+            ann_iter = re.finditer(r'@(?:[a-zA-Z0-9_.]+\.)?(?:Test|ParameterizedTest|RepeatedTest|TestFactory|TestTemplate)\b', content)
+            for ann_match in ann_iter:
+                start_pos = ann_match.end()
+                window = content[start_pos:start_pos + 1200]
+                m = re.search(
+                    r'(?:(?:@[a-zA-Z0-9_.]+(?:\([^)]*\))?|\s+)*)'
+                    r'(?:(?:public|protected|private|static|final|synchronized|<[^>]+>)\s+)*'
+                    r'(?:void|boolean|int|long|String|var|[\w<>[\],.]+)\s+'
+                    r'([a-zA-Z0-9_$]+)\s*\(',
+                    window
+                )
+                if m:
+                    m_name = m.group(1)
+                    if m_name not in ("if", "for", "while", "switch", "catch", "new", "return", "class", "interface", "enum", "record"):
+                        if m_name not in seen_methods:
+                            seen_methods.add(m_name)
+                            matched_methods.append(m_name)
+
+            # Pass 2: Extract JUnit 3 / naming convention test methods (public void testXxx())
+            if not matched_methods or '/test/' in rel_path.lower() or 'test' in name:
+                conv_matches = re.findall(
+                    r'(?:public|protected|private)?\s*(?:static\s+)?void\s+(test[A-Z0-9_$][a-zA-Z0-9_$]*)\s*\(',
                     content
                 )
-                matches = [m for m in fallback_matches if m not in ("if", "for", "while", "switch", "catch", "new", "return", "class", "interface", "enum")]
+                for m_name in conv_matches:
+                    if m_name not in seen_methods:
+                        seen_methods.add(m_name)
+                        matched_methods.append(m_name)
 
-            if not matches:
-                # Last resort annotation counting
+            # Pass 3: Kotlin / Groovy methods if applicable
+            if language == "Kotlin":
+                kt_matches = re.findall(r'fun\s+(?:`([^`]+)`|([a-zA-Z0-9_$]+))\s*\(', content)
+                for k1, k2 in kt_matches:
+                    m_name = k1 or k2
+                    if m_name and m_name not in seen_methods and ('test' in m_name.lower() or '@test' in c_lower):
+                        seen_methods.add(m_name)
+                        matched_methods.append(m_name)
+            elif language == "Groovy":
+                groovy_matches = re.findall(r'(?:def|void)\s+[\'"]([^\'"]+)[\'"]\s*\(', content)
+                for g_name in groovy_matches:
+                    if g_name not in seen_methods:
+                        seen_methods.add(g_name)
+                        matched_methods.append(g_name)
+
+            # Pass 4: Fallback when annotations exist but method names were not parsed by regex
+            if not matched_methods:
                 ann_count = len(re.findall(r'@(?:Test|ParameterizedTest|RepeatedTest|TestFactory|TestTemplate)\b', content))
                 if ann_count > 0:
-                    matches = [f"testMethod{i}" for i in range(ann_count)]
+                    matched_methods = [f"testMethod{i + 1}" for i in range(ann_count)]
+                elif ('/test/' in rel_path.lower() or '/tests/' in rel_path.lower()) and ('test' in name or 'it' in name):
+                    matched_methods = [f"{filepath.stem}Test"]
 
-            count = len(matches)
-            test_names = matches
+            count = len(matched_methods)
+            test_names = matched_methods
             
         # Python Test Detection (PyTest, unittest)
         elif (name.startswith('test_') or name.endswith('_test.py')) and name.endswith('.py'):

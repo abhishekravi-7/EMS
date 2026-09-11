@@ -27,6 +27,15 @@ import ResultPage from "@/features/result/pages/ResultPage";
 import { MigrationAnimationView } from "@/features/result/components/MigrationAnimationView";
 import { MigrationProgressView } from "@/features/result/components/MigrationProgressView";
 import { ResultReportView } from "@/features/result/components/ResultReportView";
+import {
+  removeSessionValue,
+  WIZARD_JOB_ID_KEY,
+  WIZARD_REPO_ANALYSIS_KEY,
+  WIZARD_SELECTED_REPO_KEY,
+  WIZARD_REPO_URL_KEY,
+  WIZARD_DISCOVERY_COMPLETED_KEY,
+  WIZARD_STRATEGY_COMPLETED_KEY,
+} from "@/shared/utils/migrationWizardStorage";
 import "./MigrationWizardPage.css";
 
 const WIZARD_SIDEBAR_STEPS = [
@@ -124,10 +133,12 @@ export default function MigrationWizardPage() {
     setDiscoveryCompleted,
     setStrategyCompleted,
     maxVisitedIndicatorStep,
+    handleJobIdError,
     highestCompletedStep,
     isStepCompleted,
     isStepAccessible,
     setIsMigrationFinishedState,
+    resetDiscoverySelectionState,
   } = useWizardController();
 
   const { setContext } = useChatbot();
@@ -175,22 +186,19 @@ export default function MigrationWizardPage() {
       projectName:
         selectedRepo?.name ||
         (repoUrl ? repoUrl.split("/").pop()?.replace(/\.git$/i, "") : null) ||
-        "essl",
+        "",
       currentJavaVersion:
         selectedSourceVersion ||
         repoAnalysis?.java_version ||
         repoAnalysis?.java_version_from_build ||
-        "21",
-      targetJavaVersion: effectiveTargetVersion || "25",
+        "",
+      targetJavaVersion: effectiveTargetVersion || "",
       totalFiles:
         repoAnalysis?.total_file_count ||
         repoAnalysis?.java_file_count ||
         repoAnalysis?.java_files?.length ||
-        35,
-      frameworks:
-        detectedFrameworksList.length > 0
-          ? detectedFrameworksList
-          : ["Spring Framework", "Lombok"],
+        0,
+      frameworks: detectedFrameworksList,
       migrationReadiness: 78,
       migrationBlockers: 0,
       deprecatedApis: 0,
@@ -402,7 +410,6 @@ export default function MigrationWizardPage() {
                   onClick={() => {
                     if (canClick) {
                       if (s.id === 5) {
-                        setIsMigrationFinishedState(true);
                         setStep(7);
                       } else {
                         setStep(s.id);
@@ -489,7 +496,22 @@ export default function MigrationWizardPage() {
             <ConnectStepView
               connect={connectState}
               onError={setError}
-              onClearRepoAnalysis={() => setRepoAnalysis(null)}
+              onClearRepoAnalysis={() => {
+                setRepoAnalysis(null);
+                connectState.setJobId("");
+                setSelectedRepo(null);
+                if (typeof resetDiscoverySelectionState === "function") {
+                  resetDiscoverySelectionState();
+                } else if (typeof discoveryState?.resetDiscoverySelectionState === "function") {
+                  discoveryState.resetDiscoverySelectionState();
+                }
+                removeSessionValue(WIZARD_JOB_ID_KEY);
+                removeSessionValue(WIZARD_REPO_ANALYSIS_KEY);
+                removeSessionValue(WIZARD_SELECTED_REPO_KEY);
+                if (typeof window !== "undefined") {
+                  window.localStorage.removeItem(WIZARD_JOB_ID_KEY);
+                }
+              }}
             />
           </ConnectPage>
         )}
@@ -529,14 +551,30 @@ export default function MigrationWizardPage() {
               onChooseDifferentRepository={() => {
                 setDiscoveryCompleted(false);
                 setStrategyCompleted(false);
+                removeSessionValue(WIZARD_DISCOVERY_COMPLETED_KEY);
+                removeSessionValue(WIZARD_STRATEGY_COMPLETED_KEY);
                 setStep(1);
                 setSelectedRepo(null);
                 setRepoAnalysis(null);
                 setRepoUrl("");
+                connectState.setJobId("");
+                if (typeof resetDiscoverySelectionState === "function") {
+                  resetDiscoverySelectionState();
+                } else if (typeof discoveryState?.resetDiscoverySelectionState === "function") {
+                  discoveryState.resetDiscoverySelectionState();
+                }
+                removeSessionValue(WIZARD_JOB_ID_KEY);
+                removeSessionValue(WIZARD_REPO_ANALYSIS_KEY);
+                removeSessionValue(WIZARD_SELECTED_REPO_KEY);
+                removeSessionValue(WIZARD_REPO_URL_KEY);
+                if (typeof window !== "undefined") {
+                  window.localStorage.removeItem(WIZARD_JOB_ID_KEY);
+                }
                 setError("");
               }}
               onContinueToStrategy={continueToStrategy}
               onError={setError}
+              onHandleJobError={handleJobIdError}
             />
           </DiscoveryPage>
         )}
@@ -648,6 +686,7 @@ export default function MigrationWizardPage() {
               resetWizard={resetWizard}
               onBack={() => setStep(4)}
               onError={(message) => setError(message)}
+              currentJobId={connectState.jobId || jobId}
             />
           </ResultPage>
         )}

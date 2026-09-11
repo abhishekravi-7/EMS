@@ -268,6 +268,13 @@ export async function analyzeDependencies(
   );
 }
 
+export interface StrategyAnswerResponse {
+  answer: string;
+  rationale?: string[];
+  provider_used?: string;
+  context_used?: Record<string, unknown>;
+}
+
 export async function queryStrategy(
   request: StrategyQueryRequest
 ): Promise<StrategyAnswerResponse> {
