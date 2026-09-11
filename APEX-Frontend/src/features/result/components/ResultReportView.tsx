@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import React from "react";
 import {
   FaCheckCircle,
@@ -124,35 +124,49 @@ export function ResultReportView({
   const [selectedFileDiff, setSelectedFileDiff] = useState<FileDiffDetail | null>(null);
   const [selectedChangeSection, setSelectedChangeSection] = useState<"files" | "transformations" | "dependencies">("transformations");
 
-  // Fetch file diff when selection changes
+  const diffCacheRef = useRef<Map<string, FileDiffDetail>>(new Map());
+  const selectedDiffFileSummary = migrationJob?.file_diffs?.[selectedDiffIndex];
+  const selectedFilePath = selectedDiffFileSummary?.relativePath || selectedDiffFileSummary?.file_path || "";
+  const activeJobId = migrationJob?.job_id || "";
+
+  // Fetch file diff only when selected file path or jobId actually changes
   useEffect(() => {
-    const fetchDiff = async () => {
-      const summary = migrationJob?.file_diffs || [];
-      if (summary.length === 0) {
-        setSelectedFileDiff(null);
-        return;
-      }
+    if (!activeJobId || !selectedFilePath) {
+      setSelectedFileDiff(null);
+      return;
+    }
 
-      const file = summary[selectedDiffIndex];
-      if (!file) return;
+    const cacheKey = `${activeJobId}::${selectedFilePath}`;
+    const cached = diffCacheRef.current.get(cacheKey);
+    if (cached) {
+      setSelectedFileDiff(cached);
+      return;
+    }
 
-      const filePath = file.relativePath || file.file_path;
-      if (!filePath || !migrationJob?.job_id) return;
+    let cancelled = false;
+    setFileDiffLoading(true);
 
-      setFileDiffLoading(true);
-      try {
-        const detail = await getMigrationFileDiff(migrationJob.job_id, filePath);
+    getMigrationFileDiff(activeJobId, selectedFilePath)
+      .then((detail) => {
+        if (cancelled) return;
+        diffCacheRef.current.set(cacheKey, detail);
         setSelectedFileDiff(detail);
-      } catch (err) {
+      })
+      .catch((err) => {
+        if (cancelled) return;
         console.error("Failed to fetch file diff", err);
         setSelectedFileDiff(null);
-      } finally {
-        setFileDiffLoading(false);
-      }
-    };
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setFileDiffLoading(false);
+        }
+      });
 
-    fetchDiff();
-  }, [selectedDiffIndex, migrationJob?.file_diffs, migrationJob?.job_id]);
+    return () => {
+      cancelled = true;
+    };
+  }, [activeJobId, selectedFilePath]);
 
   const [sonarFindingFilter, setSonarFindingFilter] = useState<SonarFindingFilter>("all");
   const [codeSmellSeverityFilter, setCodeSmellSeverityFilter] = useState<CodeSmellSeverityFilter>("all");

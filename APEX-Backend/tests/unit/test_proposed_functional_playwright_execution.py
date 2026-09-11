@@ -1,9 +1,12 @@
 """Comprehensive unit tests for Proposed Functional Test Case Generation and Playwright Execution against Migrated Application."""
 
+import http.server
 import json
 import os
 import shutil
+import socketserver
 import tempfile
+import threading
 from pathlib import Path
 import pytest
 
@@ -26,6 +29,47 @@ from app.domain.models.proposed_test_models import (
     UnitTestSpec,
     ValidationStatus,
 )
+
+
+class MockAppHandler(http.server.SimpleHTTPRequestHandler):
+    """Simple HTTP server simulating a running migrated Spring Boot / React application."""
+
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.end_headers()
+        html = """
+        <!DOCTYPE html>
+        <html>
+        <head><title>Test App - Login</title></head>
+        <body>
+            <h1>Test Application Portal</h1>
+            <div id="login-container">
+                <form id="login-form">
+                    <input type="text" name="username" id="username" value="testuser" />
+                    <input type="password" name="password" id="password" value="secret" />
+                    <button type="submit" id="submit-btn">Sign In</button>
+                </form>
+            </div>
+        </body>
+        </html>
+        """
+        self.wfile.write(html.encode("utf-8"))
+
+    def log_message(self, format, *args):
+        pass
+
+
+@pytest.fixture(scope="module")
+def running_mock_server():
+    """Starts a live HTTP server in a background thread to act as the migrated application."""
+    server = socketserver.TCPServer(("127.0.0.1", 0), MockAppHandler)
+    port = server.server_address[1]
+    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+    server_thread.start()
+    yield f"http://127.0.0.1:{port}"
+    server.shutdown()
+    server.server_close()
 
 
 @pytest.fixture
@@ -282,13 +326,13 @@ def test_api_test_executor_postman_style_evidence(tmp_path):
     assert trace["actual_status"] == 201
 
 
-def test_ui_test_executor_playwright_evidence(tmp_path):
-    """6. Verify UI execution generates visual screenshot and browser steps log."""
+def test_ui_test_executor_playwright_evidence(running_mock_server, tmp_path):
+    """6. Verify UI execution generates real Playwright PNG screenshot and browser steps log."""
     evidence_dir = tmp_path / "evidence"
     executor = ProposedTestExecutor(
         job_id="test-job-ui",
         evidence_dir=evidence_dir,
-        base_url="http://localhost:8089",
+        base_url=running_mock_server,
     )
 
     ui_test = ProposedTestCase(
@@ -300,17 +344,23 @@ def test_ui_test_executor_playwright_evidence(tmp_path):
         source="LoginPage",
         reason="Verify user login",
         expected_result="Redirect to dashboard",
-        ui_spec=UiTestSpec(target_route="/login"),
+        ui_spec=UiTestSpec(
+            target_route="/login",
+            input_fields=[{"name": "username", "type": "text"}, {"name": "password", "type": "password"}],
+            actions=["click submit button"],
+        ),
     )
 
     res = executor.execute_test(ui_test)
     assert res.status == ProposedTestStatus.PASSED
     assert res.evidence.screenshot_available is True
-    assert res.evidence.screenshot_url is not None
+    assert res.evidence.screenshot_url == f"/api/v1/migration/test-job-ui/proposed-tests/evidence/{ui_test.id}/screenshot.png"
 
-    screenshot_file = evidence_dir / "PTC-002" / "screenshot.svg"
+    screenshot_file = evidence_dir / "PTC-002" / "screenshot.png"
     assert screenshot_file.exists()
-    assert "Playwright Visual Evidence" in screenshot_file.read_text(encoding="utf-8")
+    screenshot_bytes = screenshot_file.read_bytes()
+    assert len(screenshot_bytes) > 1000
+    assert screenshot_bytes[:8] == b"\x89PNG\r\n\x1a\n"
 
 
 def test_distinguish_infrastructure_vs_functional_failure(tmp_path):
@@ -319,7 +369,7 @@ def test_distinguish_infrastructure_vs_functional_failure(tmp_path):
     executor = ProposedTestExecutor(
         job_id="test-job-failure-types",
         evidence_dir=evidence_dir,
-        base_url="http://localhost:8089",
+        base_url="http://127.0.0.1:59998",
     )
 
     # Functional failure (HTTP status code mismatch)
@@ -344,6 +394,22 @@ def test_distinguish_infrastructure_vs_functional_failure(tmp_path):
     assert res_func.status == ProposedTestStatus.FAILED
     assert res_func.error_type == "FUNCTIONAL_FAILURE"
     assert "HTTP status code mismatch" in res_func.error
+
+    # Infrastructure failure (Unreachable URL for UI test)
+    ui_infra_test = ProposedTestCase(
+        id="PTC-004",
+        title="UI Test Against Down Server",
+        description="Server unreachable",
+        type=ProposedTestType.UI,
+        priority=ProposedTestPriority.HIGH,
+        source="LoginPage",
+        reason="Check infra failure",
+        expected_result="Connection failure",
+        ui_spec=UiTestSpec(target_route="/login"),
+    )
+    res_infra = executor.execute_test(ui_infra_test)
+    assert res_infra.status == ProposedTestStatus.FAILED
+    assert res_infra.error_type == "INFRASTRUCTURE_UNAVAILABLE"
 
 
 def test_proposed_test_service_run_again_and_job_isolation(tmp_path):

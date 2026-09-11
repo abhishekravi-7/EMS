@@ -1290,6 +1290,7 @@ export function useWizardController() {
     setMigrationTimerNow,
     migrationJob,
     setMigrationJob,
+    migrationDetailLoadedJobId,
     setMigrationDetailLoadedJobId,
     setMigrationLogs,
     fossaResult,
@@ -1821,6 +1822,8 @@ export function useWizardController() {
   const migrationPollingInFlightRef = useRef(false);
   const migrationPollingErrorCountRef = useRef(0);
   const fossaLoadedJobIdRef = useRef<string | null>(null);
+  const brdLoadedJobIdRef = useRef<string | null>(null);
+  const step5DetailLoadedJobIdRef = useRef<string | null>(null);
   const detailFetchGenRef = useRef(0);
   const hasNavigatedToReportRef = useRef<string | null>(null);
 
@@ -3399,6 +3402,9 @@ export function useWizardController() {
     setMigrationLogs([]);
     setFossaResult(null);
     setMigrationPreview(null);
+    fossaLoadedJobIdRef.current = null;
+    brdLoadedJobIdRef.current = null;
+    step5DetailLoadedJobIdRef.current = null;
     hasNavigatedToReportRef.current = null;
     removeSessionValue(WIZARD_DISCOVERY_COMPLETED_KEY);
     removeSessionValue(WIZARD_STRATEGY_COMPLETED_KEY);
@@ -3943,7 +3949,7 @@ export function useWizardController() {
       })
       .catch(() => {
         if (!cancelled) {
-          fossaLoadedJobIdRef.current = null;
+          fossaLoadedJobIdRef.current = jobId;
         }
       })
       .finally(() => {
@@ -3993,6 +3999,11 @@ export function useWizardController() {
       return;
     }
 
+    // If detail is already loaded for this terminal job, do not refetch repeatedly
+    if (migrationDetailLoadedJobId === activeJobId && isTerminalMigrationStatus(migrationJob?.status)) {
+      return;
+    }
+
     let cancelled = false;
     let pollTimer: number | null = null;
     const gen = ++detailFetchGenRef.current;
@@ -4025,10 +4036,14 @@ export function useWizardController() {
       cancelled = true;
       if (pollTimer) clearTimeout(pollTimer);
     };
-  }, [connectState?.jobId, jobId, isResultsAccessible, migrationJob?.job_id, setMigrationDetailLoadedJobId, setMigrationJob, step]);
+  }, [connectState?.jobId, jobId, isResultsAccessible, migrationDetailLoadedJobId, migrationJob?.job_id, migrationJob?.status, setMigrationDetailLoadedJobId, setMigrationJob, step]);
 
   useEffect(() => {
     if (step !== 5 || !migrationJob?.job_id) {
+      return;
+    }
+
+    if (step5DetailLoadedJobIdRef.current === migrationJob.job_id) {
       return;
     }
 
@@ -4045,6 +4060,7 @@ export function useWizardController() {
       return;
     }
 
+    step5DetailLoadedJobIdRef.current = migrationJob.job_id;
     const gen = ++detailFetchGenRef.current;
 
     getMigrationDetail(migrationJob.job_id)
@@ -4559,7 +4575,10 @@ export function useWizardController() {
 
   useEffect(() => {
     if (step === 2 && jobId && selectedRepo && selectedRepo.url) {
-      void fetchBrdMetadata(jobId);
+      if (brdLoadedJobIdRef.current !== jobId) {
+        brdLoadedJobIdRef.current = jobId;
+        void fetchBrdMetadata(jobId);
+      }
     }
   }, [step, jobId, selectedRepo, fetchBrdMetadata]);
 
@@ -5352,7 +5371,7 @@ export function useWizardController() {
       clearScheduledPoll();
       migrationPollingInFlightRef.current = false;
     };
-  }, [connectState?.jobId, jobId, migrationJob?.job_id, (migrationJob as any)?.jobId, migrationJob?.status, setMigrationDetailLoadedJobId, setMigrationJob, setMigrationLogs, step]);
+  }, [connectState?.jobId, jobId, setMigrationDetailLoadedJobId, setMigrationJob, setMigrationLogs, setStep, step]);
 
   /* useEffect(() => {
       

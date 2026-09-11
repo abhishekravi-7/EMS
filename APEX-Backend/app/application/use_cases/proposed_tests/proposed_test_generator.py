@@ -219,9 +219,17 @@ class ProposedTestGenerator:
         # 2. Generate UI Proposals from UI Workflows
         ui_workflows = self.analysis.get("ui_workflows", [])
         for ui in ui_workflows:
+            if ui.get("is_fragment", False):
+                continue
+
             ui_name = ui.get("name", "Page")
             ui_type = ui.get("type", "FORM")
-            sig = f"UI:{ui_name}:{ui_type}"
+            ui_route = ui.get("route") or f"/{ui_name.lower().replace('page', '')}"
+            grounded_selectors = ui.get("grounded_selectors", [])
+            grounded_inputs = ui.get("input_fields", [])
+            grounded_actions = ui.get("actions", [])
+
+            sig = f"UI:{ui_name}:{ui_route}"
             if sig in seen_signatures:
                 continue
             seen_signatures.add(sig)
@@ -232,34 +240,49 @@ class ProposedTestGenerator:
                 ptc_id = f"PTC-{counter:03d}"
                 counter += 1
 
+                # Choose best grounded selectors for assertion
+                expected_elements = [s for s in grounded_selectors if not s.startswith("input")][:3]
+                if not expected_elements:
+                    expected_elements = grounded_selectors[:2] if grounded_selectors else ["h1, h2, form, table, nav, div, body"]
+
                 if ui.get("has_login"):
                     title = f"Playwright UI: Verify User Authentication workflow on {ui_name}"
-                    reason = f"Authentication view '{ui_name}' detected; Playwright end-to-end browser test proposed for login workflow."
+                    reason = f"Authentication view '{ui_name}' detected at '{ui_route}'; Playwright end-to-end browser test proposed for login workflow."
                     priority = ProposedTestPriority.HIGH
                     steps = [
-                        f"Navigate to {ui_name} route in browser",
-                        "Locate username and password input fields",
-                        "Enter valid credentials and submit form",
-                        "Verify redirect to Dashboard and capture screenshot evidence",
+                        f"Navigate to '{ui_route}' in browser",
+                        "Locate and fill authentication input fields",
+                        "Submit authentication form",
+                        "Verify target elements rendered and capture screenshot evidence",
                     ]
-                    expected_result = "User is successfully authenticated and redirected to dashboard view"
+                    expected_result = "User authentication workflow succeeds and target view is rendered"
                 elif ui.get("has_form"):
                     title = f"Playwright UI: Validate form submission and feedback on {ui_name}"
-                    reason = f"Interactive form detected in '{ui_name}'; Playwright browser test proposed for data entry and submission."
+                    reason = f"Interactive form detected in '{ui_name}' at '{ui_route}'; Playwright browser test proposed for data entry and submission."
                     priority = ProposedTestPriority.MEDIUM
                     steps = [
-                        f"Navigate to {ui_name} route in browser",
+                        f"Navigate to '{ui_route}' in browser",
                         "Fill out required form inputs",
-                        "Click submit button",
+                        "Submit form",
                         "Verify success notification/confirmation modal is rendered",
                     ]
                     expected_result = "Form submits successfully with visual confirmation displayed"
+                elif ui.get("has_table"):
+                    title = f"Playwright UI: Verify data table rendering and layout on {ui_name}"
+                    reason = f"Data table view detected in '{ui_name}' at '{ui_route}'; Playwright browser test proposed for tabular data display."
+                    priority = ProposedTestPriority.MEDIUM
+                    steps = [
+                        f"Navigate to '{ui_route}' in browser",
+                        "Verify table headers and data rows",
+                        "Capture full-page screenshot evidence",
+                    ]
+                    expected_result = "Data table renders with valid columns and rows"
                 else:
                     title = f"Playwright UI: Verify page rendering and navigation on {ui_name}"
-                    reason = f"UI view '{ui_name}' detected; Playwright visual verification proposed."
+                    reason = f"UI view '{ui_name}' detected at '{ui_route}'; Playwright visual verification proposed."
                     priority = ProposedTestPriority.LOW
                     steps = [
-                        f"Open browser and navigate to {ui_name}",
+                        f"Open browser and navigate to '{ui_route}'",
                         "Verify header, navigation links, and primary content container",
                         "Capture full-page screenshot",
                     ]
@@ -269,7 +292,7 @@ class ProposedTestGenerator:
                     ProposedTestCase(
                         id=ptc_id,
                         title=title,
-                        description=f"End-to-end browser test using Playwright against {ui_name} with automated screenshot & video recording.",
+                        description=f"End-to-end browser test using Playwright against '{ui_route}' with automated screenshot & video recording.",
                         type=ProposedTestType.UI,
                         priority=priority,
                         source="LLM Generated",
@@ -278,17 +301,17 @@ class ProposedTestGenerator:
                             "Frontend and backend servers are running",
                             "Browser is initialized in headless mode",
                         ],
-                        test_data={"ui_view": ui_name, "route": f"/{ui_name.lower().replace('page', '')}"},
+                        test_data={"ui_view": ui_name, "route": ui_route},
                         steps=steps,
                         expected_result=expected_result,
                         status=ProposedTestStatus.PROPOSED,
                         generation_source="LLM Generated",
                         ui_spec=UiTestSpec(
-                            target_route=f"/{ui_name.lower().replace('page', '')}",
-                            input_fields=[{"name": "inputField", "type": "text"}],
-                            actions=["navigate", "fill", "click", "screenshot"],
-                            expected_elements=["[data-testid='main-container']", "header"],
-                            assertions=["page.title().not.toBeEmpty()", "expect(page.locator('body')).toBeVisible()"],
+                            target_route=ui_route,
+                            input_fields=grounded_inputs if grounded_inputs else [{"name": "search", "type": "text"}],
+                            actions=grounded_actions if grounded_actions else ["navigate", "screenshot"],
+                            expected_elements=expected_elements,
+                            assertions=[f"expect(page.locator('{expected_elements[0]}')).toBeVisible()"],
                         ),
                     )
                 )
@@ -330,13 +353,16 @@ class ProposedTestGenerator:
                     expected_status=200 if not wf.is_negative else 400,
                     assertions=["status == 200" if not wf.is_negative else "status in [400, 422]"],
                 )
-            elif matched_ui or any(k in wf.name.lower() for k in ["ui", "screen", "page", "browser", "click", "form"]):
+            elif matched_ui and not matched_ui.get("is_fragment", False) and not (matched_ui.get("route", "")).startswith("/api/"):
                 test_type = ProposedTestType.UI
-                ui_route = matched_ui.get("name", "/").lower() if matched_ui else f"/{wf.name.lower().replace(' ', '-')}"
+                ui_route = matched_ui.get("route") or f"/{matched_ui.get('name', '').lower()}"
+                ui_sels = (matched_ui.get("grounded_selectors") or [])[:2] or ["h1, h2, form, table, nav, div"]
                 ui_spec = UiTestSpec(
                     target_route=ui_route,
-                    actions=["navigate", "fill", "verify"],
-                    assertions=["expect(page).toBeVisible()"],
+                    actions=matched_ui.get("actions") or ["navigate", "fill", "verify"],
+                    input_fields=matched_ui.get("input_fields") or [],
+                    expected_elements=ui_sels,
+                    assertions=[f"expect(page.locator('{ui_sels[0]}')).toBeVisible()"],
                 )
             elif matched_svc:
                 svc_name = matched_svc.get('name', 'Service')
