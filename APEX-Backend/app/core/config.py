@@ -354,9 +354,19 @@ class Settings(BaseSettings):
         nothing secret reaches the startup log.
         """
         missing = []
-        if self.database_enabled:
-            missing.append("DATABASE_URL") if not self.database_url else None
-        missing.append("JWT_SECRET_KEY") if not self.jwt_secret_key else None
+        # PostgreSQL is required if database is enabled and it's the active backend
+        if self.database_enabled and self.persistence_backend == "postgres":
+            if not self.database_url:
+                missing.append("DATABASE_URL")
+
+        # MongoDB is required if it's the active provider or backend
+        if self.auth_provider == "mongodb" or self.persistence_backend == "mongodb":
+            if not self.mongodb_uri:
+                missing.append("MONGODB_URI")
+
+        if not self.jwt_secret_key:
+            missing.append("JWT_SECRET_KEY")
+
         if missing:
             raise RuntimeError(
                 "Missing required environment variable(s): "

@@ -40,9 +40,8 @@ class MongoDBManager:
             await setup_mongodb_indexes(self.db)
         except Exception as e:
             logger.error("Failed to initialize MongoDB client: %s", e)
-            # If MongoDB is the active persistence backend, this is fatal.
-            if settings.persistence_backend == "mongodb":
-                raise RuntimeError(f"MongoDB is active persistence backend but failed to connect: {e}") from e
+            # Do not raise RuntimeError here to avoid crashing the entire server startup.
+            # Downstream logic using MongoDB will handle the missing connection.
 
     def get_sync_db(self):
         return self._sync_db

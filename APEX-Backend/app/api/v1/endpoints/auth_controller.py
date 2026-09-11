@@ -147,7 +147,8 @@ async def signup(payload: SignupRequest, db: Session = Depends(get_db)) -> JSONR
             user_data = dict(user)
             user_data["id"] = str(user_data.pop("_id"))
             logger.info("New user registered in MongoDB (user_id=%s).", user_data["id"])
-            return JSONResponse(status_code=201, content=user_data)
+            body = UserResponse.model_validate(user_data).model_dump(by_alias=True, mode="json")
+            return JSONResponse(status_code=201, content=body)
         except AuthError as exc:
             return _auth_error_response(exc)
 
@@ -186,7 +187,7 @@ async def login(payload: LoginRequest, db: Session | None = Depends(get_db_optio
             user_data["id"] = str(user_data.pop("_id"))
             
             logger.info("User logged in via MongoDB (user_id=%s).", user_data["id"])
-            body = AuthResponse(user=user_data, message="Login successful.")
+            body = AuthResponse(user=UserResponse.model_validate(user_data), message="Login successful.")
             response = JSONResponse(status_code=200, content=body.model_dump(by_alias=True, mode="json"))
             _set_auth_cookies(response, access_token, refresh_token)
             return response
@@ -408,11 +409,7 @@ async def google_callback(request: Request, db: Session = Depends(get_db)) -> Re
                 full_name=profile.full_name,
                 profile_image=profile.profile_image,
             )
-            # Create session logic needs to be implemented for MongoDB
-            # For now I'll use a simplified version here
-            access_token = security.create_access_token(user_data["_id"])
-            refresh_token = security.create_refresh_token(user_data["_id"])
-            await service._store_refresh_token(user_data["_id"], refresh_token)
+            access_token, refresh_token = await service.create_login_session(user_data)
             user_id_for_log = user_data["_id"]
         else:
             service = AuthService(db)
@@ -487,9 +484,7 @@ async def github_callback(request: Request, db: Session = Depends(get_db)) -> Re
                 full_name=profile.full_name,
                 profile_image=profile.profile_image,
             )
-            access_token = security.create_access_token(user_data["_id"])
-            refresh_token = security.create_refresh_token(user_data["_id"])
-            await service._store_refresh_token(user_data["_id"], refresh_token)
+            access_token, refresh_token = await service.create_login_session(user_data)
             user_id_for_log = user_data["_id"]
         else:
             service = AuthService(db)

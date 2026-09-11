@@ -79,7 +79,16 @@ async def run_existing_tests_endpoint(
         logger.info("[EXISTING-TEST-JOB] Created and stored initial RUNNING state for job %s", job_id)
 
         # Ensure database ownership record is persisted
-        if db is not None and settings.database_enabled:
+        if settings.persistence_backend == "mongodb":
+             from app.infrastructure.persistence.mongodb import get_mongodb
+             from app.infrastructure.persistence.mongodb_ownership_repository import record_job_owner as record_mongo_owner
+             try:
+                 mongo_db = await get_mongodb()
+                 if mongo_db is not None:
+                     await record_mongo_owner(mongo_db, job_id=job_id, user_id=str(current_user.id))
+             except Exception as rec_err: # noqa: BLE001
+                 logger.debug("Non-fatal: could not record job owner in MongoDB for %s: %s", job_id, rec_err)
+        elif db is not None and settings.database_enabled:
             from app.infrastructure.persistence.migration_ownership_repository import record_job_owner
             try:
                 await asyncio.to_thread(record_job_owner, db, job_id=job_id, user_id=current_user.id)

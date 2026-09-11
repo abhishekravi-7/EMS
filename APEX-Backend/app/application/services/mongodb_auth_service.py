@@ -7,6 +7,7 @@ from app.core import security
 from app.core.exceptions import (
     AccountDisabledError,
     AuthenticationError,
+    EmailAlreadyRegisteredError,
     NotAuthenticatedError,
     OAuthAccountConflictError,
     OAuthEmailMissingError,
@@ -22,7 +23,7 @@ class MongoDBAuthService:
     async def signup(self, full_name: str, email: str, password: str) -> dict:
         existing = await mongodb_user_repository.get_user_by_email(self._db, email)
         if existing:
-            raise AuthenticationError("An account with this email already exists.")
+            raise EmailAlreadyRegisteredError()
 
         user = await mongodb_user_repository.create_user(
             self._db,
@@ -36,25 +37,29 @@ class MongoDBAuthService:
     async def login(self, email: str, password: str) -> Tuple[dict, str, str]:
         user = await mongodb_user_repository.get_user_by_email(self._db, email)
         if not user or not user.get("password_hash"):
-            # Avoid enumeration by always doing a "fake" check? 
-            # For simplicity now just generic error.
             raise AuthenticationError("Invalid email or password.")
 
         if not security.verify_password(password, user["password_hash"]):
             raise AuthenticationError("Invalid email or password.")
 
         if not user.get("is_active", True):
-            raise AuthenticationError("Account is disabled.")
+            raise AccountDisabledError()
 
-        await mongodb_user_repository.update_last_login(self._db, user["_id"])
+        access_token, refresh_token = await self.create_login_session(user)
+        return user, access_token, refresh_token
+
+    async def create_login_session(self, user: dict) -> Tuple[str, str]:
+        """Consolidated session creation for MongoDB users."""
+        user_id = user["_id"]
+        await mongodb_user_repository.update_last_login(self._db, user_id)
         
-        access_token = security.create_access_token(user["_id"])
-        refresh_token = security.create_refresh_token(user["_id"])
+        access_token = security.create_access_token(user_id)
+        refresh_token = security.create_refresh_token(user_id)
         
         # Store refresh token hash
-        await self._store_refresh_token(user["_id"], refresh_token)
+        await self._store_refresh_token(user_id, refresh_token)
         
-        return user, access_token, refresh_token
+        return access_token, refresh_token
 
     async def _store_refresh_token(self, user_id: str, token: str):
         token_hash = security.hash_refresh_token(token)

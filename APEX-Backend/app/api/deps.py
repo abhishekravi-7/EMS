@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from types import SimpleNamespace
 
 from fastapi import Depends, Header, HTTPException, Request
 from sqlalchemy.orm import Session
@@ -67,26 +66,33 @@ async def get_current_user(request: Request, db: Session | None = Depends(get_db
         from app.application.services.mongodb_auth_service import MongoDBAuthService
         
         if not raw_token:
+            if not settings.is_production and not settings.firebase_auth_enabled:
+                return _get_mock_user()
             raise HTTPException(status_code=401, detail="Missing access token.")
-            
+
         mongo_db = await get_mongodb()
+        if mongo_db is None:
+            logger.error("MongoDB is not initialized (mongo_db is None)")
+            raise HTTPException(status_code=503, detail="Database connection unavailable.")
+
         auth_service = MongoDBAuthService(mongo_db)
         try:
             user_data = await auth_service.get_user_from_access_token(raw_token)
             
-            # Use a simple namespace/object to mimic the User model without SQLAlchemy constraints
-            from types import SimpleNamespace
-            user = SimpleNamespace(
-                id=str(user_data["_id"]),
-                email=user_data["email"],
-                full_name=user_data.get("full_name", ""),
-                role=user_data.get("role", "USER"),
-                is_active=user_data.get("is_active", True),
-                is_email_verified=user_data.get("is_email_verified", False),
-                created_at=user_data.get("created_at"),
-                last_login_at=user_data.get("last_login_at")
-            )
+            # Map dict to an object that behaves like a SQLAlchemy User model
+            class MongoUser:
+                def __init__(self, data):
+                    self.id = str(data["_id"])
+                    self.email = data["email"]
+                    self.full_name = data.get("full_name", "")
+                    self.role = data.get("role", "USER")
+                    self.is_active = data.get("is_active", True)
+                    self.is_email_verified = data.get("is_email_verified", False)
+                    # Fallback for created_at to avoid Pydantic validation error if missing
+                    self.created_at = data.get("created_at") or datetime.now(timezone.utc)
+                    self.last_login_at = data.get("last_login_at")
             
+            user = MongoUser(user_data)
             user_id_ctx.set(user.id)
             return user # type: ignore
         except NotAuthenticatedError as exc:
