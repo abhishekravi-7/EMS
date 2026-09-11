@@ -55,6 +55,7 @@ class ProjectAnalysis:
     has_src_main: bool
     has_src_test: bool
     has_tests: bool
+    project_root: Path
     java_files: list[str] = field(default_factory=list)
     config_files: list[str] = field(default_factory=list)
     other_files: list[str] = field(default_factory=list)
@@ -190,6 +191,7 @@ class ProjectAnalyzer:
             has_src_main=has_src_main,
             has_src_test=has_src_test,
             has_tests=has_src_test,
+            project_root=project_root,
             java_files=java_files,
             config_files=config_files,
             other_files=other_files,

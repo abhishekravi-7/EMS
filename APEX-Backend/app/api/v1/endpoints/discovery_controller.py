@@ -12,6 +12,7 @@ import logging
 import re
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile
 from fastapi.concurrency import run_in_threadpool
@@ -24,16 +25,17 @@ from app.application.use_cases.assess_microservice_eligibility import (
     AssessMicroserviceEligibilityUseCase,
 )
 from app.application.use_cases.browse_repository import RepositoryFileBrowser
+from app.application.use_cases.get_dashboard_stats import GetDashboardStatsUseCase
 from app.core.exceptions import DiscoveryError, RepositoryBrowseError
 from app.domain.models.brd_models import BrdMetadata
 from app.infrastructure.persistence.database import get_db_optional
 from app.infrastructure.persistence.job_repository import JobRepository
 from app.infrastructure.persistence.models import User
 from app.infrastructure.workspace.workspace_paths import WorkspacePaths
+from app.schemas.dashboard_schema import DashboardStatsResponse
 from app.schemas.discovery_schema import DiscoveryRequest, DiscoveryResponse
 
-from app.application.use_cases.get_dashboard_stats import GetDashboardStatsUseCase
-from app.schemas.dashboard_schema import DashboardStatsResponse
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["discovery"])
 
@@ -41,6 +43,19 @@ _pipeline = DiscoveryPipeline()
 _file_browser = RepositoryFileBrowser()
 _microservice_use_case = AssessMicroserviceEligibilityUseCase()
 _dashboard_stats_use_case = GetDashboardStatsUseCase()
+
+
+@router.get(
+    "/discovery/{job_id}/dashboard-stats:1",
+    include_in_schema=False,
+)
+async def get_dashboard_stats_compat(
+    job_id: str,
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session | None = Depends(get_db_optional),  # noqa: B008
+) -> Any:
+    """Compatibility route for 'dashboard-stats:1' suffix."""
+    return await get_dashboard_stats(job_id, current_user, db)
 
 
 @router.get(
@@ -52,8 +67,15 @@ async def get_dashboard_stats(
     job_id: str,
     current_user: User = Depends(get_current_user),  # noqa: B008
     db: Session | None = Depends(get_db_optional),  # noqa: B008
-) -> DashboardStatsResponse:
-    verify_job_ownership(db, job_id, current_user)
+) -> Any:
+    try:
+        verify_job_ownership(db, job_id, current_user)
+    except HTTPException as exc:
+        # If the job is not found or access is denied, return null to avoid console errors.
+        if exc.status_code in (403, 404):
+            return JSONResponse(status_code=200, content=None)
+        raise
+
     try:
         return await run_in_threadpool(_dashboard_stats_use_case.execute, job_id)
     except Exception as exc:
@@ -205,6 +227,16 @@ async def get_microservice_eligibility(
             status_code=exc.http_status,
             content={"jobId": job_id, "status": exc.status, "message": exc.message},
         )
+    except Exception as exc:
+        logger.exception("Unexpected error in microservice eligibility for job %s", job_id)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "jobId": job_id,
+                "status": "ERROR",
+                "message": f"An internal error occurred during microservice assessment: {exc}",
+            },
+        )
 
     return JSONResponse(status_code=200, content=result)
 
@@ -244,6 +276,29 @@ async def upload_brd_document(
     if len(content) > max_size_bytes:
         raise HTTPException(status_code=400, detail="File exceeds maximum allowed size of 25MB")
 
+    # Content signature validation to prevent file spoofing
+    if content.startswith(b"MZ"):
+        raise HTTPException(status_code=400, detail="Executable files are not permitted.")
+
+    if ext == ".pdf" and not content.startswith(b"%PDF-"):
+        raise HTTPException(status_code=400, detail="Invalid PDF file content: missing PDF signature.")
+
+    if ext in [".docx", ".xlsx"] and not content.startswith(b"PK\x03\x04"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid {ext} file content: missing OpenXML/ZIP archive signature.",
+        )
+
+    if ext == ".xls" and not (
+        content.startswith(b"\xd0\xcf\x11\xe0")
+        or b"<?xml" in content[:200]
+        or b"<Workbook" in content[:500]
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid Excel (.xls) file content: missing binary workbook signature.",
+        )
+
     paths = WorkspacePaths(job_id)
     paths.brd_dir.mkdir(parents=True, exist_ok=True)
 
@@ -270,6 +325,19 @@ async def upload_brd_document(
     paths.brd_metadata_path.write_text(json.dumps(metadata.model_dump(), indent=2), encoding="utf-8")
 
     return JSONResponse(status_code=200, content=metadata.model_dump())
+
+
+@router.get(
+    "/discovery/{job_id}/brd:1",
+    include_in_schema=False,
+)
+async def get_brd_metadata_compat(
+    job_id: str,
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session | None = Depends(get_db_optional),  # noqa: B008
+) -> JSONResponse:
+    """Compatibility route for 'brd:1' suffix seen in some logs."""
+    return await get_brd_document_metadata(job_id, current_user, db)
 
 
 @router.get(
@@ -303,22 +371,6 @@ async def get_brd_document_metadata(
         return JSONResponse(status_code=200, content=metadata)
 
     return JSONResponse(status_code=200, content={"status": "NONE", "job_id": job_id})
-
-
-@router.get(
-    "/discovery/{job_id}/brd:1",
-    include_in_schema=False,
-)
-async def get_brd_metadata_compat(
-    job_id: str,
-    current_user: User = Depends(get_current_user),  # noqa: B008
-    db: Session | None = Depends(get_db_optional),  # noqa: B008
-) -> JSONResponse:
-    """Compatibility route for 'brd:1' suffix seen in some logs."""
-    return await get_brd_document_metadata(job_id, current_user, db)
-
-
-logger = logging.getLogger(__name__)
 
 
 @router.delete(

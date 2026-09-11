@@ -187,10 +187,69 @@ class ProposedTestValidator:
         if test.type == ProposedTestType.UI:
             target_route = (test.ui_spec.target_route if test.ui_spec else "/") or "/"
             norm_route = _normalize_endpoint(target_route)
+            route_slug = norm_route.strip("/").lower()
+
+            # Reject REST API endpoints mistakenly proposed as UI tests
+            if norm_route.startswith("/api/") or norm_route.startswith("/rest/") or target_route.startswith("/api/") or target_route.startswith("/rest/"):
+                return ProposedTestValidationResult(
+                    status=ValidationStatus.INVALID,
+                    repository_evidence=None,
+                    issue=f"Target route '{target_route}' is a REST API endpoint, not a browser-navigable UI page. Generate an API test instead.",
+                    playwright_executable=False,
+                    functional_area=functional_area,
+                )
+
+            # Reject unrouted fragments and partial components (e.g. /footer, /head, /header, /preheader, /layout, /inputfield)
+            fragment_slugs = {
+                "footer",
+                "head",
+                "header",
+                "preheader",
+                "layout",
+                "inputfield",
+                "selectfield",
+                "sidebar",
+                "menu",
+                "navbar",
+                "nav",
+                "partials",
+                "fragments",
+                "modal",
+                "button",
+            }
+            if route_slug in fragment_slugs and norm_route not in self.ui_routes:
+                return ProposedTestValidationResult(
+                    status=ValidationStatus.INVALID,
+                    repository_evidence=None,
+                    issue=f"Target route '{target_route}' is an internal UI fragment or component, not a navigable application route.",
+                    playwright_executable=False,
+                    functional_area=functional_area,
+                )
 
             # Check in discovered UI workflows
             if norm_route in self.ui_routes:
                 ui_info = self.ui_routes[norm_route]
+                grounded_sels = ui_info.get("grounded_selectors", [])
+
+                # Verify that required selectors/elements exist in repository template
+                if test.ui_spec and test.ui_spec.expected_elements:
+                    ungrounded_sels = []
+                    for el_sel in test.ui_spec.expected_elements:
+                        # Flag synthetic or ungrounded selectors like [data-testid="main-container"]
+                        if "main-container" in el_sel:
+                            ungrounded_sels.append(el_sel)
+                        elif el_sel.startswith("#") and grounded_sels and not any(el_sel in s for s in grounded_sels):
+                            ungrounded_sels.append(el_sel)
+
+                    if ungrounded_sels:
+                        return ProposedTestValidationResult(
+                            status=ValidationStatus.PARTIALLY_VALID,
+                            repository_evidence=f"UI Route '{target_route}' discovered in {ui_info.get('file', 'UI Template')}",
+                            issue=f"Selectors {ungrounded_sels} are not grounded in the template DOM for route '{target_route}'.",
+                            playwright_executable=False,
+                            functional_area=functional_area,
+                        )
+
                 return ProposedTestValidationResult(
                     status=ValidationStatus.VALID,
                     repository_evidence=f"UI Route '{target_route}' discovered in {ui_info.get('file', 'UI Template')}",
@@ -199,20 +258,19 @@ class ProposedTestValidator:
                     functional_area=functional_area,
                 )
 
-            # Check if common default routes exist (/ or /login or /dashboard)
-            if self.ui_workflows:
+            # Check if root route / or /index.html is supported when ui_workflows exist
+            if norm_route in ["/", "/index.html"] and self.ui_workflows:
                 first_ui = self.ui_workflows[0]
                 return ProposedTestValidationResult(
-                    status=ValidationStatus.PARTIALLY_VALID,
-                    repository_evidence=f"UI frontend present ({first_ui.get('file', 'frontend')}), but route '{target_route}' not explicitly mapped",
-                    issue=f"UI route '{target_route}' not found in static template discovery",
+                    status=ValidationStatus.VALID,
+                    repository_evidence=f"Root UI Route '/' matched with template {first_ui.get('file', 'UI Template')}",
+                    issue=None,
                     playwright_executable=True,
                     functional_area=functional_area,
                 )
 
             # Check if project has a frontend or web MVC layer
             if not self.ui_workflows:
-                # Backend-only project trying to run UI tests
                 return ProposedTestValidationResult(
                     status=ValidationStatus.HALLUCINATED,
                     repository_evidence=None,
@@ -220,6 +278,15 @@ class ProposedTestValidator:
                     playwright_executable=False,
                     functional_area=functional_area,
                 )
+
+            # UI route not found in application routes
+            return ProposedTestValidationResult(
+                status=ValidationStatus.HALLUCINATED,
+                repository_evidence=None,
+                issue=f"UI route '{target_route}' is not a navigable route in this application.",
+                playwright_executable=False,
+                functional_area=functional_area,
+            )
 
         # 6. Any other non-UI / non-API test case is strictly INVALID
         return ProposedTestValidationResult(
@@ -229,6 +296,7 @@ class ProposedTestValidator:
             playwright_executable=False,
             functional_area=functional_area,
         )
+
 
     def validate_all(
         self,

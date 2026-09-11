@@ -11,6 +11,7 @@ import {
   WIZARD_REPO_ANALYSIS_KEY,
   WIZARD_REPO_URL_KEY,
   WIZARD_SELECTED_REPO_KEY,
+  getScopedRepoAnalysisKey,
   writeSessionJson,
   writeSessionValue,
 } from "../utils/migrationWizardStorage";
@@ -62,8 +63,14 @@ export function useMigrationWizardPersistence({
   }, [selectedRepo]);
 
   useEffect(() => {
+    if (!selectedRepo?.url) {
+      removeSessionValue(WIZARD_REPO_ANALYSIS_KEY);
+      return;
+    }
+    const scopedKey = getScopedRepoAnalysisKey(selectedRepo.url);
+    persistSessionJson(scopedKey, repoAnalysis);
     persistSessionJson(WIZARD_REPO_ANALYSIS_KEY, repoAnalysis);
-  }, [repoAnalysis]);
+  }, [repoAnalysis, selectedRepo]);
 
   useEffect(() => {
     persistSessionJson(

@@ -1,8 +1,11 @@
 """Unit and Integration Tests for Proposed Test Cases Allure Reporting."""
 
+import http.server
 import json
 import shutil
+import socketserver
 import tempfile
+import threading
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -23,6 +26,55 @@ from app.domain.models.proposed_test_models import (
     ProposedTestType,
     UiTestSpec,
 )
+
+
+class MockAppHandler(http.server.SimpleHTTPRequestHandler):
+    """Simple HTTP server simulating a running migrated Spring Boot / React application."""
+
+    def do_GET(self):
+        if "application/json" in self.headers.get("Accept", "") or self.path.startswith("/api/"):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            body = json.dumps({"status": "success", "count": 5, "orderId": "ORD-123"})
+            self.wfile.write(body.encode("utf-8"))
+            return
+
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.end_headers()
+        html = """
+        <!DOCTYPE html>
+        <html>
+        <head><title>Test App - Login</title></head>
+        <body>
+            <h1>Test Application Portal</h1>
+            <div id="login-container">
+                <form id="login-form">
+                    <input type="text" name="username" id="username" value="testuser" />
+                    <input type="password" name="password" id="password" value="secret" />
+                    <button type="submit" id="submit-btn">Sign In</button>
+                </form>
+            </div>
+        </body>
+        </html>
+        """
+        self.wfile.write(html.encode("utf-8"))
+
+    def log_message(self, format, *args):
+        pass
+
+
+@pytest.fixture(scope="module")
+def running_mock_server():
+    """Starts a live HTTP server in a background thread to act as the migrated application."""
+    server = socketserver.TCPServer(("127.0.0.1", 0), MockAppHandler)
+    port = server.server_address[1]
+    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+    server_thread.start()
+    yield f"http://127.0.0.1:{port}"
+    server.shutdown()
+    server.server_close()
 
 
 @pytest.fixture
@@ -79,11 +131,11 @@ def test_sanitize_headers():
     assert sanitized["User-Agent"] == "Playwright/1.41.0"
 
 
-def test_proposed_test_executor_api_validation(temp_job_environment):
+def test_proposed_test_executor_api_validation(running_mock_server, temp_job_environment):
     """Verify ProposedTestExecutor accurately checks expected vs actual status codes and sanitizes headers."""
     job_id, job_path = temp_job_environment
     evidence_dir = job_path / "proposed-tests" / "evidence"
-    executor = ProposedTestExecutor(job_id=job_id, evidence_dir=evidence_dir)
+    executor = ProposedTestExecutor(job_id=job_id, evidence_dir=evidence_dir, base_url=running_mock_server)
 
     # 1. Successful 200 API test
     passed_api_test = ProposedTestCase(
@@ -143,11 +195,11 @@ def test_proposed_test_executor_api_validation(temp_job_environment):
     assert "status code mismatch" in res_fail.error.lower()
 
 
-def test_proposed_test_executor_ui_evidence(temp_job_environment):
-    """Verify ProposedTestExecutor generates visual screenshots, step logs, and video placeholders for UI tests."""
+def test_proposed_test_executor_ui_evidence(running_mock_server, temp_job_environment):
+    """Verify ProposedTestExecutor generates real Playwright screenshots and browser steps logs."""
     job_id, job_path = temp_job_environment
     evidence_dir = job_path / "proposed-tests" / "evidence"
-    executor = ProposedTestExecutor(job_id=job_id, evidence_dir=evidence_dir)
+    executor = ProposedTestExecutor(job_id=job_id, evidence_dir=evidence_dir, base_url=running_mock_server)
 
     ui_test = ProposedTestCase(
         id="PTC-UI-001",
@@ -159,15 +211,20 @@ def test_proposed_test_executor_ui_evidence(temp_job_environment):
         reason="Verify UI login flow",
         expected_result="Dashboard visible",
         status=ProposedTestStatus.READY,
-        ui_spec=UiTestSpec(target_route="/login"),
+        ui_spec=UiTestSpec(
+            target_route="/login",
+            input_fields=[{"name": "username", "type": "text"}, {"name": "password", "type": "password"}],
+            actions=["click submit button"],
+        ),
     )
 
     res_ui = executor.execute_test(ui_test)
     assert res_ui.status == ProposedTestStatus.PASSED
     assert res_ui.evidence.screenshot_available is True
-    assert (evidence_dir / "PTC-UI-001" / "screenshot.svg").exists()
+    screenshot_file = evidence_dir / "PTC-UI-001" / "screenshot.png"
+    assert screenshot_file.exists()
+    assert screenshot_file.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
     assert (evidence_dir / "PTC-UI-001" / "browser_steps.log").exists()
-    assert (evidence_dir / "PTC-UI-001" / "video.webm").exists()
 
 
 def test_allure_results_and_html_generation(temp_job_environment):
@@ -199,7 +256,8 @@ def test_allure_results_and_html_generation(temp_job_environment):
 
     evidence_ui_dir = job_path / "proposed-tests" / "evidence" / "PTC-BRD-UI-001"
     evidence_ui_dir.mkdir(parents=True, exist_ok=True)
-    (evidence_ui_dir / "screenshot.svg").write_text("<svg>test screenshot</svg>", encoding="utf-8")
+    # Write valid PNG header bytes to mock evidence artifact
+    (evidence_ui_dir / "screenshot.png").write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR...")
     (evidence_ui_dir / "browser_steps.log").write_text("Playwright logs", encoding="utf-8")
 
     test_2 = ProposedTestCase(
@@ -219,7 +277,7 @@ def test_allure_results_and_html_generation(temp_job_environment):
             duration="0.35s",
             evidence=ExecutionEvidence(
                 screenshot_available=True,
-                screenshot_url=f"/api/v1/migration/{job_id}/proposed-tests/evidence/PTC-BRD-UI-001/screenshot.svg",
+                screenshot_url=f"/api/v1/migration/{job_id}/proposed-tests/evidence/PTC-BRD-UI-001/screenshot.png",
             ),
         ),
     )

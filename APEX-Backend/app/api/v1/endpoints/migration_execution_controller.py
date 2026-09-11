@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, verify_job_ownership
 from app.application.pipelines.migration_execution_pipeline import MigrationExecutionPipeline
+from app.application.services.file_diff_service import FileDiffService
 from app.application.services.unit_test_report_generator import UnitTestReportGenerator
 from app.application.use_cases.run_unit_tests import RunUnitTestSuiteUseCase
 from app.core.exceptions import MigrationConfigError, MigrationExecutionError, MigrationJobNotFoundError
@@ -31,6 +32,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["migration"])
 
 _pipeline = MigrationExecutionPipeline()
+_diff_service = FileDiffService()
 
 
 def _not_found_response() -> JSONResponse:
@@ -355,6 +357,26 @@ async def rerun_migration_tests(
                 "bl_coverage": 85.0,
             },
         )
+
+
+@router.get("/migration/{job_id}/diff", summary="Get details for a specific file transformation.")
+async def get_file_diff(
+    job_id: str,
+    path: str,
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
+) -> JSONResponse:
+    verify_job_ownership(db, job_id, current_user)
+    try:
+        diff = _diff_service.get_file_diff(job_id, path)
+        if not diff:
+            raise HTTPException(status_code=404, detail="File diff not found or unauthorized.")
+        return JSONResponse(status_code=200, content=diff)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("[MIGRATION DIFF ERROR] job_id=%s path=%s error=%s", job_id, path, exc, exc_info=True)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
 _unit_test_report_gen = UnitTestReportGenerator()

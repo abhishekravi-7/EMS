@@ -302,6 +302,14 @@ export function StrategyStepView({
             {(() => {
               const count = repoAnalysis.dependencies?.length || 0;
 
+              const isHigh = count > 30;
+              const isMed  = count > 10;
+              const dColor = isHigh ? "#7c3aed" : isMed ? "#2563eb" : "#0ea5e9";
+              const dBg    = isHigh ? "#ede9fe"  : isMed ? "#eff6ff"  : "#f0f9ff";
+              const dLabel = count.toString();
+
+
+
               return (
                 <div
                   className="strat-assessment-card strat-card-dependencies"

@@ -66,8 +66,8 @@ class RunDiscoveryUseCase:
         owner = connect.get("owner", "")
         repo_name = connect.get("repoName", "")
         visibility = connect.get("repoVisibility", "PUBLIC")
-
-        paths = WorkspacePaths(job_id)
+        storage_dir = getattr(self._job_repository, "_storage_dir", None)
+        paths = WorkspacePaths(job_id, storage_dir=storage_dir)
 
         # Check if discovery was already completed and the cloned workspace is intact
         if not force_refresh:
@@ -93,19 +93,27 @@ class RunDiscoveryUseCase:
 
         logger.info("Discovery started for job %s (%s)", job_id, repo_url)
 
-        # 2. Prepare workspace + clone into original-repo.
+        # 2. Prepare workspace + clone into original-repo (or verify local project).
         workspace = WorkspaceManager(paths)
         workspace.ensure_job_dirs()
-        workspace.prepare_original_repo_target()
 
-        logger.info("Cloning repository into workspace for job %s ...", job_id)
-        self._cloner.clone(
-            repo_url,
-            paths.original_repo_dir,
-            token=token,
-            log_path=paths.discovery_log_path,
-        )
-        logger.info("Clone finished for job %s. Analyzing project ...", job_id)
+        is_local_project = bool(connect.get("isLocalProject")) or repo_url.startswith("local://")
+
+        if is_local_project:
+            logger.info("Local project detected for job %s. Using existing files in original-repo ...", job_id)
+            if not paths.original_repo_dir.is_dir() or not any(paths.original_repo_dir.iterdir()):
+                logger.error("Local project workspace is empty or missing for job %s: %s", job_id, paths.original_repo_dir)
+                raise UnsupportedProjectError()
+        else:
+            workspace.prepare_original_repo_target()
+            logger.info("Cloning repository into workspace for job %s ...", job_id)
+            self._cloner.clone(
+                repo_url,
+                paths.original_repo_dir,
+                token=token,
+                log_path=paths.discovery_log_path,
+            )
+            logger.info("Clone finished for job %s. Analyzing project ...", job_id)
 
         # 3. Analyze the cloned project (read-only).
         analysis = self._analyzer.analyze(paths.original_repo_dir)

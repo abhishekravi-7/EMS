@@ -4,6 +4,7 @@ import AppShell from "@/app/shell/AppShell";
 import { AuthProvider } from "@/shared/context/AuthProvider";
 import { ChatbotProvider } from "@/shared/context/ChatbotContext";
 import "./App.css";
+import "@/features/auth/landing_exact.css";
 
 const MigrationWizardPage = lazy(() => import("@/features/wizard/pages/MigrationWizardPage"));
 // const LandingPage = lazy(() => import("@/features/auth/pages/LandingPage"));

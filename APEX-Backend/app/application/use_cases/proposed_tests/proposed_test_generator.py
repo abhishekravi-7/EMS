@@ -153,12 +153,13 @@ class ProposedTestGenerator:
                         description=f"Validate that sending a valid {method} request to '{endpoint}' returns expected status code and response payload.",
                         type=ProposedTestType.API,
                         priority=priority,
-                        source=source_class,
+                        source="LLM Generated",
                         reason=reason,
                         preconditions=[
                             "Application service is running and accessible",
                             "Database contains required test seed data",
                         ],
+                        test_data={"method": method, "endpoint": endpoint, "headers": {"Content-Type": "application/json"}},
                         steps=[
                             f"Construct {method} request with valid headers and payload for {endpoint}",
                             "Send HTTP request to the API server",
@@ -166,7 +167,7 @@ class ProposedTestGenerator:
                         ],
                         expected_result="HTTP status code is 200/201 and response payload matches schema",
                         status=ProposedTestStatus.PROPOSED,
-                        generation_source="AI_GENERATED",
+                        generation_source="LLM Generated",
                         api_spec=ApiTestSpec(
                             method=method,
                             endpoint=endpoint,
@@ -193,16 +194,17 @@ class ProposedTestGenerator:
                         description=f"Verify that sending an invalid/empty payload to '{endpoint}' is rejected with HTTP 400 Bad Request.",
                         type=ProposedTestType.API,
                         priority=ProposedTestPriority.MEDIUM,
-                        source=source_class,
+                        source="LLM Generated",
                         reason=neg_reason,
                         preconditions=["Application service is running"],
+                        test_data={"method": method, "endpoint": endpoint, "request_body": {}},
                         steps=[
                             f"Send malformed or empty JSON payload to {method} {endpoint}",
                             "Assert response status is 400 or 422 Unprocessable Entity",
                         ],
                         expected_result="HTTP 400 / 422 with meaningful error message in response body",
                         status=ProposedTestStatus.PROPOSED,
-                        generation_source="AI_GENERATED",
+                        generation_source="LLM Generated",
                         api_spec=ApiTestSpec(
                             method=method,
                             endpoint=endpoint,
@@ -217,9 +219,17 @@ class ProposedTestGenerator:
         # 2. Generate UI Proposals from UI Workflows
         ui_workflows = self.analysis.get("ui_workflows", [])
         for ui in ui_workflows:
+            if ui.get("is_fragment", False):
+                continue
+
             ui_name = ui.get("name", "Page")
             ui_type = ui.get("type", "FORM")
-            sig = f"UI:{ui_name}:{ui_type}"
+            ui_route = ui.get("route") or f"/{ui_name.lower().replace('page', '')}"
+            grounded_selectors = ui.get("grounded_selectors", [])
+            grounded_inputs = ui.get("input_fields", [])
+            grounded_actions = ui.get("actions", [])
+
+            sig = f"UI:{ui_name}:{ui_route}"
             if sig in seen_signatures:
                 continue
             seen_signatures.add(sig)
@@ -230,34 +240,49 @@ class ProposedTestGenerator:
                 ptc_id = f"PTC-{counter:03d}"
                 counter += 1
 
+                # Choose best grounded selectors for assertion
+                expected_elements = [s for s in grounded_selectors if not s.startswith("input")][:3]
+                if not expected_elements:
+                    expected_elements = grounded_selectors[:2] if grounded_selectors else ["h1, h2, form, table, nav, div, body"]
+
                 if ui.get("has_login"):
                     title = f"Playwright UI: Verify User Authentication workflow on {ui_name}"
-                    reason = f"Authentication view '{ui_name}' detected; Playwright end-to-end browser test proposed for login workflow."
+                    reason = f"Authentication view '{ui_name}' detected at '{ui_route}'; Playwright end-to-end browser test proposed for login workflow."
                     priority = ProposedTestPriority.HIGH
                     steps = [
-                        f"Navigate to {ui_name} route in browser",
-                        "Locate username and password input fields",
-                        "Enter valid credentials and submit form",
-                        "Verify redirect to Dashboard and capture screenshot evidence",
+                        f"Navigate to '{ui_route}' in browser",
+                        "Locate and fill authentication input fields",
+                        "Submit authentication form",
+                        "Verify target elements rendered and capture screenshot evidence",
                     ]
-                    expected_result = "User is successfully authenticated and redirected to dashboard view"
+                    expected_result = "User authentication workflow succeeds and target view is rendered"
                 elif ui.get("has_form"):
                     title = f"Playwright UI: Validate form submission and feedback on {ui_name}"
-                    reason = f"Interactive form detected in '{ui_name}'; Playwright browser test proposed for data entry and submission."
+                    reason = f"Interactive form detected in '{ui_name}' at '{ui_route}'; Playwright browser test proposed for data entry and submission."
                     priority = ProposedTestPriority.MEDIUM
                     steps = [
-                        f"Navigate to {ui_name} route in browser",
+                        f"Navigate to '{ui_route}' in browser",
                         "Fill out required form inputs",
-                        "Click submit button",
+                        "Submit form",
                         "Verify success notification/confirmation modal is rendered",
                     ]
                     expected_result = "Form submits successfully with visual confirmation displayed"
+                elif ui.get("has_table"):
+                    title = f"Playwright UI: Verify data table rendering and layout on {ui_name}"
+                    reason = f"Data table view detected in '{ui_name}' at '{ui_route}'; Playwright browser test proposed for tabular data display."
+                    priority = ProposedTestPriority.MEDIUM
+                    steps = [
+                        f"Navigate to '{ui_route}' in browser",
+                        "Verify table headers and data rows",
+                        "Capture full-page screenshot evidence",
+                    ]
+                    expected_result = "Data table renders with valid columns and rows"
                 else:
                     title = f"Playwright UI: Verify page rendering and navigation on {ui_name}"
-                    reason = f"UI view '{ui_name}' detected; Playwright visual verification proposed."
+                    reason = f"UI view '{ui_name}' detected at '{ui_route}'; Playwright visual verification proposed."
                     priority = ProposedTestPriority.LOW
                     steps = [
-                        f"Open browser and navigate to {ui_name}",
+                        f"Open browser and navigate to '{ui_route}'",
                         "Verify header, navigation links, and primary content container",
                         "Capture full-page screenshot",
                     ]
@@ -267,25 +292,26 @@ class ProposedTestGenerator:
                     ProposedTestCase(
                         id=ptc_id,
                         title=title,
-                        description=f"End-to-end browser test using Playwright against {ui_name} with automated screenshot & video recording.",
+                        description=f"End-to-end browser test using Playwright against '{ui_route}' with automated screenshot & video recording.",
                         type=ProposedTestType.UI,
                         priority=priority,
-                        source=f"{ui_name}",
+                        source="LLM Generated",
                         reason=reason,
                         preconditions=[
                             "Frontend and backend servers are running",
                             "Browser is initialized in headless mode",
                         ],
+                        test_data={"ui_view": ui_name, "route": ui_route},
                         steps=steps,
                         expected_result=expected_result,
                         status=ProposedTestStatus.PROPOSED,
-                        generation_source="AI_GENERATED",
+                        generation_source="LLM Generated",
                         ui_spec=UiTestSpec(
-                            target_route=f"/{ui_name.lower().replace('page', '')}",
-                            input_fields=[{"name": "inputField", "type": "text"}],
-                            actions=["navigate", "fill", "click", "screenshot"],
-                            expected_elements=["[data-testid='main-container']", "header"],
-                            assertions=["page.title().not.toBeEmpty()", "expect(page.locator('body')).toBeVisible()"],
+                            target_route=ui_route,
+                            input_fields=grounded_inputs if grounded_inputs else [{"name": "search", "type": "text"}],
+                            actions=grounded_actions if grounded_actions else ["navigate", "screenshot"],
+                            expected_elements=expected_elements,
+                            assertions=[f"expect(page.locator('{expected_elements[0]}')).toBeVisible()"],
                         ),
                     )
                 )
@@ -312,14 +338,13 @@ class ProposedTestGenerator:
             matched_svc = self._match_workflow_to_service(wf, services)
             matched_ui = self._match_workflow_to_ui(wf, ui_workflows)
 
-            source_label = "BRD Document"
+            source_label = "Functional Testing Document Generated"
             test_type = ProposedTestType.API
             api_spec = None
             ui_spec = None
             unit_spec = None
 
             if matched_ep:
-                source_label = matched_ep.get("class_name") or matched_ep.get("source") or "Controller"
                 test_type = ProposedTestType.API
                 api_spec = ApiTestSpec(
                     method=matched_ep.get("method", "GET"),
@@ -328,18 +353,19 @@ class ProposedTestGenerator:
                     expected_status=200 if not wf.is_negative else 400,
                     assertions=["status == 200" if not wf.is_negative else "status in [400, 422]"],
                 )
-            elif matched_ui or any(k in wf.name.lower() for k in ["ui", "screen", "page", "browser", "click", "form"]):
+            elif matched_ui and not matched_ui.get("is_fragment", False) and not (matched_ui.get("route", "")).startswith("/api/"):
                 test_type = ProposedTestType.UI
-                ui_route = matched_ui.get("name", "/").lower() if matched_ui else f"/{wf.name.lower().replace(' ', '-')}"
-                source_label = f"UI View ({matched_ui.get('name') if matched_ui else 'Workflow'})"
+                ui_route = matched_ui.get("route") or f"/{matched_ui.get('name', '').lower()}"
+                ui_sels = (matched_ui.get("grounded_selectors") or [])[:2] or ["h1, h2, form, table, nav, div"]
                 ui_spec = UiTestSpec(
                     target_route=ui_route,
-                    actions=["navigate", "fill", "verify"],
-                    assertions=["expect(page).toBeVisible()"],
+                    actions=matched_ui.get("actions") or ["navigate", "fill", "verify"],
+                    input_fields=matched_ui.get("input_fields") or [],
+                    expected_elements=ui_sels,
+                    assertions=[f"expect(page.locator('{ui_sels[0]}')).toBeVisible()"],
                 )
             elif matched_svc:
                 svc_name = matched_svc.get('name', 'Service')
-                source_label = f"{svc_name} Controller"
                 test_type = ProposedTestType.API
                 api_spec = ApiTestSpec(
                     method="POST" if wf.is_negative or "create" in wf.name.lower() or "save" in wf.name.lower() else "GET",
@@ -350,7 +376,6 @@ class ProposedTestGenerator:
                 )
             else:
                 # Default to API/Contract flow
-                source_label = "BRD Business Requirement"
                 test_type = ProposedTestType.API
                 api_spec = ApiTestSpec(
                     method="POST" if wf.is_negative or "create" in wf.name.lower() or "submit" in wf.name.lower() else "GET",
@@ -365,9 +390,10 @@ class ProposedTestGenerator:
                     description=wf.description or f"Validation of business requirement: {wf.name}",
                     type=test_type,
                     priority=priority,
-                    source=source_label,
+                    source="Functional Testing Document Generated",
                     reason=reason,
                     preconditions=wf.preconditions or ["System services online"],
+                    test_data={"workflow": wf.name, "negative": wf.is_negative},
                     steps=wf.steps or [f"Execute workflow for {wf.name}"],
                     expected_result=wf.expected_result or "Business constraints and validations satisfied",
                     status=ProposedTestStatus.PROPOSED,
@@ -415,9 +441,10 @@ class ProposedTestGenerator:
                         description=f"{ai_test.description} (Aligned with BRD: {brd_match.title})",
                         type=ai_test.type,
                         priority=ai_test.priority if ai_test.priority == ProposedTestPriority.HIGH else brd_match.priority,
-                        source=ai_test.source,
+                        source="Functional Testing Document Generated",
                         reason=merged_reason,
                         preconditions=brd_match.preconditions or ai_test.preconditions,
+                        test_data=ai_test.test_data or brd_match.test_data,
                         steps=merged_steps,
                         expected_result=ai_test.expected_result,
                         status=ProposedTestStatus.PROPOSED,
@@ -502,16 +529,17 @@ class ProposedTestGenerator:
             description="Verify that the migrated application context loads and core health/discovery endpoints respond correctly.",
             type=ProposedTestType.API,
             priority=ProposedTestPriority.HIGH,
-            source="ApplicationContext",
+            source="LLM Generated",
             reason="Baseline smoke test proposed to verify migrated application startup and health status.",
             preconditions=["Application server is running"],
+            test_data={"endpoint": "/health"},
             steps=[
                 "Send GET request to /health or /api/health",
                 "Verify HTTP 200 status code",
             ],
             expected_result="HTTP status 200 OK with healthy service status",
             status=ProposedTestStatus.PROPOSED,
-            generation_source="AI_GENERATED",
+            generation_source="LLM Generated",
             api_spec=ApiTestSpec(
                 method="GET",
                 endpoint="/health",
