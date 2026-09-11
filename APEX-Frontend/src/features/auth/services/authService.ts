@@ -3,12 +3,16 @@ import {
   signInWithEmailAndPassword,
   signOut,
   updateProfile,
-  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   sendPasswordResetEmail,
   linkWithCredential,
   linkWithPopup,
   updatePassword,
   fetchSignInMethodsForEmail,
+  setPersistence,
+  browserLocalPersistence,
+  browserSessionPersistence,
   EmailAuthProvider,
   GoogleAuthProvider,
   GithubAuthProvider,
@@ -79,12 +83,9 @@ export async function signUp(payload: SignUpRequest): Promise<FirebaseUser> {
       payload.email,
       payload.password
     );
-
-    // Update profile with full name
     await updateProfile(userCredential.user, {
       displayName: payload.fullName
     });
-
     return userCredential.user;
   } catch (error) {
     throw new Error(mapFirebaseError(extractFirebaseErrorMessage(error)));
@@ -94,10 +95,21 @@ export async function signUp(payload: SignUpRequest): Promise<FirebaseUser> {
 export interface SignInRequest {
   email: string;
   password: string;
+  rememberMe?: boolean;
 }
 
+/**
+ * Sign in with email/password.
+ * rememberMe=true → persists session across browser closes (localStorage).
+ * rememberMe=false → session only (cleared on browser close).
+ */
 export async function signIn(payload: SignInRequest): Promise<FirebaseUser> {
   try {
+    // Set persistence BEFORE signing in
+    await setPersistence(
+      auth,
+      payload.rememberMe ? browserLocalPersistence : browserSessionPersistence
+    );
     const userCredential = await signInWithEmailAndPassword(
       auth,
       payload.email,
@@ -123,40 +135,64 @@ export async function signIn(payload: SignInRequest): Promise<FirebaseUser> {
 }
 
 /**
- * Sign in with Google using Firebase.
+ * Sign in with Google using redirect.
+ * Fixes "Cross-Origin-Opener-Policy policy would block the window.closed call"
+ * that occurs when using signInWithPopup in modern browsers with COOP headers.
+ * After redirect completes, handleRedirectResult() is called automatically
+ * by the auth observer in the app.
  */
-export async function signInWithGoogle(): Promise<FirebaseUser> {
+export async function signInWithGoogle(): Promise<void> {
   const provider = new GoogleAuthProvider();
-  try {
-    const result = await signInWithPopup(auth, provider);
-    return result.user;
-  } catch (error) {
-    throw new Error(mapFirebaseError(extractFirebaseErrorMessage(error)));
-  }
+  provider.addScope("email");
+  provider.addScope("profile");
+  await signInWithRedirect(auth, provider);
 }
 
 /**
- * Sign in with GitHub using Firebase.
+ * Sign in with GitHub using redirect (same COOP fix as Google).
  */
-export async function signInWithGithub(): Promise<FirebaseUser> {
+export async function signInWithGithub(): Promise<void> {
   const provider = new GithubAuthProvider();
+  provider.addScope("read:user");
+  provider.addScope("user:email");
+  await signInWithRedirect(auth, provider);
+}
+
+/**
+ * Must be called once on app load (in App.tsx / auth context).
+ * Completes the redirect-based OAuth sign-in and returns the signed-in user,
+ * or null if no redirect was pending.
+ */
+export async function handleRedirectResult(): Promise<FirebaseUser | null> {
   try {
-    const result = await signInWithPopup(auth, provider);
-    return result.user;
+    const result = await getRedirectResult(auth);
+    return result ? result.user : null;
   } catch (error) {
     throw new Error(mapFirebaseError(extractFirebaseErrorMessage(error)));
   }
 }
 
 /**
- * Send a password reset email to the specified email address.
- * Enables Google-authenticated users to set a password and sign in with email/password.
+ * Send a password reset email to the specified address.
  */
 export async function resetPassword(email: string): Promise<void> {
+  console.log("[Auth] Requesting password reset for:", email);
   try {
+    // We use the simplest possible call first to avoid any configuration-related failures
+    // such as unauthorized redirect URIs or action code settings.
     await sendPasswordResetEmail(auth, email);
-  } catch (error) {
-    throw new Error(mapFirebaseError(extractFirebaseErrorMessage(error)));
+    console.log("[Auth] Password reset request successful (according to SDK)");
+  } catch (error: any) {
+    const errorCode = error.code || extractFirebaseErrorMessage(error);
+    console.error("[Auth] Firebase Reset Password Error Object:", error);
+    console.error("[Auth] Firebase Reset Password Error Code:", errorCode);
+
+    // Specifically handle the case where the feature might be disabled in Firebase
+    if (errorCode === "auth/operation-not-allowed") {
+      throw new Error("Password reset is currently disabled in the Firebase Console. Please enable it in Authentication > Templates.");
+    }
+
+    throw new Error(mapFirebaseError(errorCode));
   }
 }
 
