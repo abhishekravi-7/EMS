@@ -44,6 +44,8 @@ def record_job_owner(db: Session | None, *, job_id: str, user_id: int | str) -> 
         db.commit()
     except (SQLAlchemyError, ValueError, TypeError) as exc:
         db.rollback()
+        # If it's a type error (e.g. UUID string into INT column), log it as warning
+        # but don't crash the whole connect process in hybrid setups.
         if "InvalidTextRepresentation" in str(exc) or "integer" in str(exc).lower():
             logger.warning(
                 "[CONNECT] Could not record job owner in PostgreSQL due to type mismatch (user_id=%s). "
