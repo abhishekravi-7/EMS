@@ -707,7 +707,6 @@ export function MigrationAnimationView({
               title="Click to view migration report immediately"
             >
               <span>View Migration Report</span>
-              <FaArrowRight size={13} />
             </button>
           </div>
         )}

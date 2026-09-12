@@ -24,15 +24,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
     window.addEventListener('pageshow', handlePageShow);
 
-    // Complete any pending OAuth redirect sign-in (Google / GitHub).
-    // Must be called on every page load after signInWithRedirect().
-    // onAuthStateChanged will fire automatically once the result is processed.
-    getRedirectResult(auth).catch(() => {
-      // Silently ignore — no redirect was pending or error is non-critical
-    });
-
     // Listen for authentication state changes from Firebase
     const unsubscribe = onAuthStateChanged(auth, (user) => {
+      console.log("[Auth] State changed:", user ? user.email : "Logged out");
       setCurrentUser(user);
       setIsAuthLoading(false);
     });
@@ -59,9 +53,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       loading: isAuthLoading,
       user,
       currentUser,
-      login: () => {
-          // Firebase maintains state automatically via onAuthStateChanged
-          // This method can be used to manually trigger local state updates if needed
+      login: (newUser: FirebaseUser) => {
+        setCurrentUser(newUser);
+        setIsAuthLoading(false);
       },
       logout: async () => {
         await signOut(auth);

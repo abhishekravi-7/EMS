@@ -445,7 +445,7 @@ const MIGRATION_STEPS = [
     icon: <FaRocket />,
     accent: "#f59e0b",
     description: "Build Modernization & Migration",
-    summary: "Execute the upgrade using automation tools and refactor legacy components"
+    summary: ""
   },
   {
     id: 5,
@@ -1028,7 +1028,6 @@ export function useWizardController() {
   };
 
   const [step, setStepState] = useState(() => initialStep);
-  const [isMigrationFinishedState, setIsMigrationFinishedState] = useState<boolean>(false);
 
   const setStep = useCallback((target: number | ((prev: number) => number)) => {
     if (typeof target === "number") {
@@ -2950,9 +2949,7 @@ export function useWizardController() {
         <div style={styles.dependencyInsightsHeader}>
           <div style={styles.dependencyInsightsTitle}>Total Dependencies ({categorizedDependencies.length})</div>
           <div style={styles.dependencyInsightsSubtitle}>
-            {dependencyAnalysisLoading ? (
-              <span style={{ color: "#2563eb", fontWeight: 600 }}>Analyzing dependencies with AI...</span>
-            ) : dependencyAnalysis?.overall_explanation ? (
+            {!dependencyAnalysisLoading && dependencyAnalysis?.overall_explanation ? (
               dependencyAnalysis.overall_explanation
             ) : (
               "Categorized from repository analysis. Risk levels are migration compatibility signals, not live CVE results."
@@ -3255,20 +3252,14 @@ export function useWizardController() {
   // Step 3: Strategy completed (strictly when Discovery completed AND user explicitly clicked Continue to Migration)
   const isStrategyCompleted = isDiscoveryCompleted && strategyCompleted;
 
-  // Step 4: Migration completed (only after migration process has actually completed or loader finishes)
+  // Step 4: Migration completed (strictly when backend job is completed)
   const isMigrationCompleted =
     isStrategyCompleted &&
-    Boolean(
-      migrationJob?.status === "completed" ||
-      isMigrationFinishedState ||
-      step === 7 ||
-      step === 6
-    );
+    Boolean(migrationJob && migrationJob.status === "completed");
 
-  // Step 5: Results completed (only when viewed/completed at results phase)
+  // Step 5: Results completed (only when viewed at results phase)
   const isResultsCompleted =
-    isMigrationCompleted &&
-    Boolean(step === 7 || (migrationJob?.status === "completed" && step === 7));
+    isMigrationCompleted && Boolean(step === 7);
 
   // Highest completed step number (0 to 5)
   const highestCompletedStep = isResultsCompleted
@@ -3289,17 +3280,20 @@ export function useWizardController() {
 
   const isStepAccessible = (stepId: number): boolean => {
     if (stepId === 1) return true;
+    // Step 5 (Results) is ONLY accessible if Migration is completed by the backend
     if (stepId === 5) {
-      return isMigrationCompleted || isMigrationFinishedState || (isStrategyCompleted && step >= 4);
+      return isMigrationCompleted;
     }
+    // Any other step (2, 3, 4) is accessible if the previous step is completed
     return (stepId - 1) <= highestCompletedStep;
   };
 
   const getMaxAllowedRouteStep = (highestCompleted: number): number => {
-    if (highestCompleted <= 0) return 1;
-    if (highestCompleted === 1) return 2;
-    if (highestCompleted === 2) return 3;
-    return 7;
+    if (highestCompleted <= 0) return 1; // Not connected -> only Connect (1)
+    if (highestCompleted === 1) return 2; // Connected -> allow Discovery (2)
+    if (highestCompleted === 2) return 3; // Discovery done -> allow Strategy (3)
+    if (highestCompleted === 3) return 6; // Strategy done -> allow Migration phases (4, 5, 6)
+    return 7; // Migration done -> allow Result Report (7)
   };
 
   useEffect(() => {
@@ -5246,7 +5240,5 @@ export function useWizardController() {
     isStrategyCompleted,
     isMigrationCompleted,
     isResultsCompleted,
-    isMigrationFinishedState,
-    setIsMigrationFinishedState,
   };
 }

@@ -19,9 +19,9 @@ export function WizardSectionHeading({
     <div style={style}>
       <div
         style={{
-          fontSize: 16,
-          fontWeight: 600,
-          color: "#1e293b",
+          fontSize: 20,
+          fontWeight: 800,
+          color: "#0f172a",
           marginBottom: description ? 8 : 0,
           display: "flex",
           alignItems: "center",

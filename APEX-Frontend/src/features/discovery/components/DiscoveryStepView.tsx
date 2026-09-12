@@ -25,7 +25,12 @@ import {
   FaWrench,
   FaVial,
 } from "react-icons/fa";
-import { Button } from "@/shared/components/ui";
+import {
+  renderWizardIconBadge,
+  renderBackButtonLabel,
+  renderForwardButtonLabel,
+} from "@/shared/components/wizard";
+import { wizardStyles as styles } from "@/shared/components/wizard/wizardStyles";
 import type { RepoAnalysis, RepoFile, RepoInfo } from "@/shared/types/domain";
 import { getFileContent, getDiscoveryFileContent } from "../services/discoveryService";
 import { getLocalProjectFileContent } from "@/features/connect/services/connectService";
@@ -620,9 +625,10 @@ export function DiscoveryStepView({
     if (pathSet.size === 0) {
       [...javaFileList, ...configFileList, ...otherFileList].forEach((f) => pathSet.add(f));
     }
-    return Array.from(pathSet)
+    const normalizedPaths = Array.from(pathSet)
       .map((p) => p.replace(/\\/g, "/").replace(/^\/+/, ""))
       .filter(Boolean);
+    return Array.from(new Set(normalizedPaths));
   }, [repoAnalysis, repoFiles, javaFileList, configFileList, otherFileList]);
 
   interface DynamicTreeNode {
@@ -895,13 +901,12 @@ export function DiscoveryStepView({
 
       {/* Main Header */}
       <div className="discovery-header-box">
-        <div className="discovery-header-left">
+        <div className="discovery-header-left" style={{ alignItems: "center" }}>
           <div className="discovery-header-icon-badge">
             <FaSearch />
           </div>
           <div className="discovery-header-titles">
-            <h2>Repository Discovery &amp; Dependencies</h2>
-            <p>Explore the repository structure, dependencies, and frameworks detected.</p>
+            <h2 style={{ margin: 0, fontSize: 22 }}>Repository Discovery &amp; Dependencies</h2>
           </div>
         </div>
 
@@ -1684,27 +1689,19 @@ export function DiscoveryStepView({
         </>
       )}
 
-      {/* Bottom Bar: Pro Tip & Navigation Buttons (hidden while analysis is in progress) */}
+      {/* Bottom Bar: Navigation Buttons (hidden while analysis is in progress) */}
       {!isDiscoveryPending && (
-        <div className="discovery-bottom-bar">
-          <div className="discovery-protip">
-            {/* <FaLightbulb color="#eab308" size={16} /> */}
-            {/* <span className="discovery-protip-tag">Pro Tip</span> */}
-            {/* <span>Use JavaApex Assistant to ask questions about your repository, dependencies, or migration readiness.</span> */}
-          </div>
-
-          <div className="discovery-nav-btns">
-            <button className="discovery-btn-back" onClick={onBack}>
-              <FaArrowLeft size={11} style={{ marginRight: 6 }} /> Back
-            </button>
-            <button
-              className="discovery-btn-continue"
-              onClick={onContinueToStrategy}
-              disabled={isDiscoveryPending}
-            >
-              Continue to Strategy <FaArrowRight size={11} style={{ marginLeft: 6 }} />
-            </button>
-          </div>
+        <div style={styles.btnRow} className="discovery-nav-btn-row">
+          <button style={styles.secondaryBtn} onClick={onBack}>
+            {renderBackButtonLabel()}
+          </button>
+          <button
+            style={styles.primaryBtn}
+            onClick={onContinueToStrategy}
+            disabled={isDiscoveryPending}
+          >
+            {renderForwardButtonLabel("Continue to Strategy")}
+          </button>
         </div>
       )}
 

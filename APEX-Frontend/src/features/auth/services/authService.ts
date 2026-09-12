@@ -4,6 +4,7 @@ import {
   signOut,
   updateProfile,
   signInWithRedirect,
+  signInWithPopup,
   getRedirectResult,
   sendPasswordResetEmail,
   linkWithCredential,
@@ -58,8 +59,20 @@ export function mapFirebaseError(code: string): string {
       return "This operation requires a recent sign-in. Please sign in again.";
     case "auth/too-many-requests":
       return "Access to this account has been temporarily disabled due to many failed attempts. Please try again later or reset your password.";
+    case "auth/network-request-failed":
+      return "Network error. Please check your internet connection.";
+    case "auth/internal-error":
+      return "Internal authentication error. Please try again.";
+    case "auth/invalid-api-key":
+      return "Firebase Configuration Error: Invalid API Key. Please check your .env file.";
+    case "auth/unauthorized-domain":
+      return "This domain (localhost) is not authorized in the Firebase Console.";
+    case "auth/operation-not-allowed":
+      return "This sign-in method (Email/Google/GitHub) is disabled in the Firebase Console.";
     default:
-      return "An unexpected error occurred. Please try again.";
+      console.warn("[Auth] Unmapped error code:", code);
+      // Return a descriptive string instead of "Unexpected error"
+      return `Auth Error: ${code.replace("auth/", "").replace(/-/g, " ")}`;
   }
 }
 
@@ -69,11 +82,13 @@ interface FirebaseErrorLike {
 }
 
 function extractFirebaseErrorMessage(error: unknown): string {
+  console.error("[Auth] Raw Firebase Error:", error);
   if (error && typeof error === "object") {
     const fbErr = error as FirebaseErrorLike;
-    return fbErr.code || fbErr.message || "An unknown authentication error occurred.";
+    // Firebase JS SDK errors typically have a .code property
+    return fbErr.code || fbErr.message || "unknown-error";
   }
-  return typeof error === "string" ? error : "An unknown authentication error occurred.";
+  return typeof error === "string" ? error : "unknown-error";
 }
 
 export async function signUp(payload: SignUpRequest): Promise<FirebaseUser> {
@@ -95,21 +110,16 @@ export async function signUp(payload: SignUpRequest): Promise<FirebaseUser> {
 export interface SignInRequest {
   email: string;
   password: string;
-  rememberMe?: boolean;
 }
 
 /**
  * Sign in with email/password.
- * rememberMe=true → persists session across browser closes (localStorage).
- * rememberMe=false → session only (cleared on browser close).
+ * Session is persisted across browser closes by default.
  */
 export async function signIn(payload: SignInRequest): Promise<FirebaseUser> {
   try {
-    // Set persistence BEFORE signing in
-    await setPersistence(
-      auth,
-      payload.rememberMe ? browserLocalPersistence : browserSessionPersistence
-    );
+    // Always use local persistence (stays logged in across browser restarts)
+    await setPersistence(auth, browserLocalPersistence);
     const userCredential = await signInWithEmailAndPassword(
       auth,
       payload.email,
@@ -135,27 +145,34 @@ export async function signIn(payload: SignInRequest): Promise<FirebaseUser> {
 }
 
 /**
- * Sign in with Google using redirect.
- * Fixes "Cross-Origin-Opener-Policy policy would block the window.closed call"
- * that occurs when using signInWithPopup in modern browsers with COOP headers.
- * After redirect completes, handleRedirectResult() is called automatically
- * by the auth observer in the app.
+ * Sign in with Google using Popup.
+ * Popups are more reliable for React SPAs as they don't cause a full page reload.
  */
-export async function signInWithGoogle(): Promise<void> {
+export async function signInWithGoogle(): Promise<FirebaseUser> {
   const provider = new GoogleAuthProvider();
   provider.addScope("email");
   provider.addScope("profile");
-  await signInWithRedirect(auth, provider);
+  try {
+    const result = await signInWithPopup(auth, provider);
+    return result.user;
+  } catch (error) {
+    throw new Error(mapFirebaseError(extractFirebaseErrorMessage(error)));
+  }
 }
 
 /**
- * Sign in with GitHub using redirect (same COOP fix as Google).
+ * Sign in with GitHub using Popup.
  */
-export async function signInWithGithub(): Promise<void> {
+export async function signInWithGithub(): Promise<FirebaseUser> {
   const provider = new GithubAuthProvider();
   provider.addScope("read:user");
   provider.addScope("user:email");
-  await signInWithRedirect(auth, provider);
+  try {
+    const result = await signInWithPopup(auth, provider);
+    return result.user;
+  } catch (error) {
+    throw new Error(mapFirebaseError(extractFirebaseErrorMessage(error)));
+  }
 }
 
 /**

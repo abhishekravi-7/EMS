@@ -302,7 +302,7 @@ export function DiscoveryLoader({
               }
 
               return (
-                <div key={taskName} className={`discovery-subtask-row is-${taskStatus}`}>
+                <div key={`${taskName}-${idx}`} className={`discovery-subtask-row is-${taskStatus}`}>
                   <div className="discovery-subtask-left">
                     {taskStatus === "completed" ? (
                       <FaCheckCircle className="discovery-subtask-icon is-completed" />

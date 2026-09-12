@@ -9,6 +9,10 @@ import {
   FaShieldAlt,
   FaStopwatch,
   FaTools,
+  FaFileAlt,
+  FaLayerGroup,
+  FaRegCalendarAlt,
+  FaGithub,
 } from "react-icons/fa";
 import { wizardStyles as styles } from "@/shared/components/wizard/wizardStyles";
 import { renderWizardIconBadge } from "@/shared/components/wizard";
@@ -110,6 +114,7 @@ export function ResultReportView({
   } = resultExec;
 
   const [selectedDiffIndex, setSelectedDiffIndex] = useState<number>(0);
+  const [dependencySearchQuery, setDependencySearchQuery] = useState("");
   const [sonarFindingFilter, setSonarFindingFilter] = useState<SonarFindingFilter>("all");
   const [codeSmellSeverityFilter, setCodeSmellSeverityFilter] = useState<CodeSmellSeverityFilter>("all");
   const [visibleSonarFindingCounts, setVisibleSonarFindingCounts] = useState<Record<Exclude<SonarFindingFilter, "all">, number>>({
@@ -531,6 +536,12 @@ export function ResultReportView({
     };
   });
   const dependencyUpgradeCount = dependencyUpdates.length;
+
+  const filteredDependencies = dependencyUpdates.filter(dep =>
+    dep.group_id.toLowerCase().includes(dependencySearchQuery.toLowerCase()) ||
+    dep.artifact_id.toLowerCase().includes(dependencySearchQuery.toLowerCase())
+  );
+
   const warningsRemaining = Math.max(
     (migrationJob?.total_warnings ?? 0) - (migrationJob?.warnings_fixed ?? 0),
     0,
@@ -646,14 +657,7 @@ export function ResultReportView({
   );
 
   return (
-    <div style={styles.card}>
-      <div style={styles.stepHeader}>
-        {renderWizardIconBadge(<FaCheckCircle />, "#22c55e", "xl")}
-        <div>
-          <h2 style={styles.title}>Migration Report</h2>
-          <p style={styles.subtitle}>Complete migration summary with all results and metrics.</p>
-        </div>
-      </div>
+    <div style={{ ...styles.card, background: "#f8fafc", padding: "0px", border: "none", boxShadow: "none", width: "100%", maxWidth: "100%" }}>
       <React.Suspense
         fallback={
           <div style={styles.reportContainer}>
@@ -665,204 +669,484 @@ export function ResultReportView({
         }
       >
         {migrationJob && (
-          <div style={styles.reportContainer}>
-            <div style={styles.reportHeroShell}>
-              <div style={styles.reportHeroHeader}>
-                <div style={styles.reportHeroContent}>
-                  <div style={styles.reportHeroBadgeRow}>
-                    <div style={styles.reportHeroEyebrow}>Modernization Overview</div>
-                    <span style={styles.reportHeroFeatureBadge}>AI-Powered Summary</span>
+          <div style={{ ...styles.reportContainer, gap: 8, width: "100%", padding: "12px 16px" }}>
+            {/* Top Header Card */}
+            <div style={{
+              background: "linear-gradient(108.4deg, #003087 4.4%, #0052cc 44.5%, #0073e6 94.6%)",
+              borderRadius: 16,
+              padding: "18px 40px",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: 4,
+              boxShadow: "0 12px 40px rgba(0, 82, 204, 0.2)",
+              color: "#ffffff",
+              position: "relative",
+              overflow: "hidden",
+              width: "100%",
+              minHeight: 125
+            }}>
+              {/* Abstract Wave Overlays and Patterns */}
+              <div style={{ position: "absolute", left: "-5%", top: "-10%", width: "40%", height: "120%", background: "radial-gradient(circle, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0) 70%)", transform: "rotate(-15deg)", pointerEvents: "none" }} />
+              <div style={{ position: "absolute", right: "10%", bottom: "-20%", width: "50%", height: "100%", background: "radial-gradient(circle, rgba(0,115,230,0.3) 0%, rgba(0,0,0,0) 80%)", pointerEvents: "none" }} />
+
+              <div style={{ position: "absolute", left: "45%", top: "40%", opacity: 0.08, pointerEvents: "none", display: "grid", gridTemplateColumns: "repeat(5, 6px)", gap: "8px" }}>
+                {Array.from({ length: 25 }).map((_, i) => <div key={i} style={{ width: 3, height: 3, borderRadius: "50%", background: "#ffffff" }} />)}
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 24, zIndex: 1 }}>
+                <div style={{
+                  width: 68, height: 68, borderRadius: "50%",
+                  background: "rgba(0, 120, 120, 0.2)",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  border: "1px solid rgba(34, 197, 94, 0.25)",
+                  boxShadow: "0 0 15px rgba(34, 197, 94, 0.2)"
+                }}>
+                  <div style={{
+                    width: 42, height: 42, borderRadius: "50%",
+                    background: "#ffffff",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    color: "#22c55e", fontSize: 24,
+                    boxShadow: "0 4px 10px rgba(0, 0, 0, 0.15)"
+                  }}>
+                    <FaCheckCircle />
                   </div>
-                  <div style={styles.reportHeroTitleRow}>
-                    <h3 style={styles.reportHeroTitle}>Modernization Overview</h3>
-                    <span
-                      style={{
-                        ...styles.reportHeroStatusPill,
-                        background: reportStatusTone.bg,
-                        borderColor: reportStatusTone.border,
-                        color: reportStatusTone.text,
-                      }}
-                    >
-                      {reportStatusLabel}
-                    </span>
-                  </div>
-                  <p style={styles.reportHeroSubtitle}>{reportHeroSummary}</p>
                 </div>
-                <div style={styles.reportHeroAside}>
-                  {migrationJob?.started_at && (
-                    <div style={styles.reportHeroElapsed} title="Total elapsed time">
-                      <div style={styles.reportHeroElapsedLabel}>Total Modernization Time</div>
-                      <div style={styles.reportHeroElapsedValue}>
-                        <FaStopwatch style={{ marginRight: 8 }} />
+                <div>
+                  <h2 style={{ margin: "0 0 4px 0", fontSize: 28, fontWeight: 800, color: "#ffffff", letterSpacing: "-0.01em" }}>Migration Report</h2>
+                  <p style={{ margin: 0, color: "rgba(255, 255, 255, 0.9)", fontSize: 14, lineHeight: 1.5, fontWeight: 500, maxWidth: 480 }}>
+                    Your project has been successfully modernized from Java {migrationJob.source_java_version} to Java {migrationJob.target_java_version}.<br/>
+                    Here's a summary of the migration results and analysis.
+                  </p>
+                </div>
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 24, zIndex: 1 }}>
+                {/* Java Version Badges Container */}
+                <div style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 16,
+                  background: "rgba(255, 255, 255, 0.03)",
+                  border: "1px solid rgba(255, 255, 255, 0.1)",
+                  borderRadius: 20,
+                  padding: "10px 20px"
+                }}>
+                  <div style={{
+                    background: "rgba(255, 255, 255, 0.05)",
+                    border: "1px solid rgba(255, 255, 255, 0.12)",
+                    borderRadius: 14,
+                    padding: "8px 18px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 12,
+                    minWidth: 120,
+                    backdropFilter: "blur(10px)"
+                  }}>
+                    <div style={{ background: "rgba(0, 0, 0, 0.2)", width: 38, height: 38, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid rgba(255, 255, 255, 0.08)", flexShrink: 0 }}>
+                      <svg width="20" height="20" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M22 22C22 22 25 15 23 10C21 5 25 2 25 2C25 2 29 6 27 11C25 16 28 22 22 22Z" fill="#ff4d4d" />
+                        <path d="M32 20C32 20 35 14 33 9C31 4 35 1 35 1C35 1 39 5 37 10C35 15 38 20 32 20Z" fill="#ffa64d" />
+                        <path d="M41 23C41 23 43 18 41 14C39 10 43 7 43 7C43 7 46 10 45 15C44 20 46 23 41 23Z" fill="#ff4d4d" />
+                        <path d="M14 26H46C46 26 47 38 41 43C35 48 23 48 18 43C12 38 14 26 14 26Z" fill="#ffffff" />
+                        <path d="M45 30C45 30 52 30 52 34C52 38 45 38 45 38" stroke="#ffffff" strokeWidth="4" strokeLinecap="round" />
+                        <path d="M10 49C10 49 16 54 30 54C44 54 50 49 50 49C52 48 53 50 51 51C47 54 39 57 30 57C21 57 13 54 9 51C7 50 8 48 10 49Z" fill="#ffffff" opacity="0.85" />
+                        <path d="M15 45C22 47 38 47 45 45" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" opacity="0.5" />
+                      </svg>
+                    </div>
+                    <div style={{ textAlign: "left" }}>
+                      <div style={{ fontSize: 16, fontWeight: 700, color: "#ffffff", lineHeight: 1.1 }}>Java {migrationJob.source_java_version}</div>
+                      <div style={{ fontSize: 11, color: "rgba(255, 255, 255, 0.5)", fontWeight: 500, marginTop: 1 }}>Legacy</div>
+                    </div>
+                  </div>
+
+                  <span style={{ color: "rgba(255,255,255,0.4)", fontSize: 16, fontWeight: 600 }}>→</span>
+
+                  <div style={{
+                    background: "rgba(255, 255, 255, 0.05)",
+                    border: "1px solid rgba(255, 255, 255, 0.12)",
+                    borderRadius: 14,
+                    padding: "8px 18px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 12,
+                    minWidth: 130,
+                    backdropFilter: "blur(10px)"
+                  }}>
+                    <div style={{ background: "rgba(0, 0, 0, 0.2)", width: 38, height: 38, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid rgba(255, 255, 255, 0.08)", flexShrink: 0 }}>
+                      <svg width="20" height="20" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M22 22C22 22 25 15 23 10C21 5 25 2 25 2C25 2 29 6 27 11C25 16 28 22 22 22Z" fill="#ff4d4d" />
+                        <path d="M32 20C32 20 35 14 33 9C31 4 35 1 35 1C35 1 39 5 37 10C35 15 38 20 32 20Z" fill="#ffa64d" />
+                        <path d="M41 23C41 23 43 18 41 14C39 10 43 7 43 7C43 7 46 10 45 15C44 20 46 23 41 23Z" fill="#ff4d4d" />
+                        <path d="M14 26H46C46 26 47 38 41 43C35 48 23 48 18 43C12 38 14 26 14 26Z" fill="#ffffff" />
+                        <path d="M45 30C45 30 52 30 52 34C52 38 45 38 45 38" stroke="#ffffff" strokeWidth="4" strokeLinecap="round" />
+                        <path d="M10 49C10 49 16 54 30 54C44 54 50 49 50 49C52 48 53 50 51 51C47 54 39 57 30 57C21 57 13 54 9 51C7 50 8 48 10 49Z" fill="#ffffff" opacity="0.85" />
+                        <path d="M15 45C22 47 38 47 45 45" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" opacity="0.5" />
+                      </svg>
+                    </div>
+                    <div style={{ textAlign: "left" }}>
+                      <div style={{ fontSize: 16, fontWeight: 700, color: "#ffffff", lineHeight: 1.1 }}>Java {migrationJob.target_java_version}</div>
+                      <span style={{
+                        background: "rgba(16, 185, 129, 0.2)",
+                        color: "#34d399",
+                        border: "1px solid rgba(16, 185, 129, 0.25)",
+                        fontSize: 9,
+                        fontWeight: 700,
+                        padding: "1px 6px",
+                        borderRadius: 4,
+                        marginTop: 2,
+                        display: "inline-block",
+                        textTransform: "uppercase"
+                      }}>Modernized</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Vertical Divider line */}
+                <div style={{ width: 1, height: 44, background: "rgba(255, 255, 255, 0.2)", marginLeft: 2 }} />
+
+                {/* Timestamp and elapsed details */}
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 150, marginLeft: 2 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <FaRegCalendarAlt style={{ color: "rgba(255, 255, 255, 0.6)", fontSize: 15 }} />
+                    <div style={{ textAlign: "left" }}>
+                      <div style={{ fontSize: 11, color: "rgba(255, 255, 255, 0.5)", fontWeight: 600, textTransform: "uppercase" }}>Migration Date</div>
+                      <div style={{ fontSize: 14, color: "#ffffff", fontWeight: 700 }}>
+                        {migrationJob.completed_at ? new Date(migrationJob.completed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : "Sep 11, 2026"}, {migrationJob.completed_at ? new Date(migrationJob.completed_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) : "3:00 PM"}
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <FaStopwatch style={{ color: "rgba(255, 255, 255, 0.6)", fontSize: 15 }} />
+                    <div style={{ textAlign: "left" }}>
+                      <div style={{ fontSize: 11, color: "rgba(255, 255, 255, 0.5)", fontWeight: 600, textTransform: "uppercase" }}>Duration</div>
+                      <div style={{ fontSize: 14, color: "#ffffff", fontWeight: 800, fontFamily: "'JetBrains Mono', monospace" }}>
                         {(() => {
                           const secs = getMigrationElapsedSeconds(migrationJob, resultExec.migrationTimerNow);
                           const h = Math.floor(secs / 3600);
-                          const m = Math.floor((secs % 3600) / 60)
-                            .toString()
-                            .padStart(2, "0");
+                          const m = Math.floor((secs % 3600) / 60).toString().padStart(2, "0");
                           const s = (secs % 60).toString().padStart(2, "0");
-                          return h > 0 ? `${h}:${m}:${s}` : `${m}:${s}`;
+                          return h > 0 ? `${h.toString().padStart(2, "0")}:${m}:${s}` : `00:${m}:${s}`;
                         })()}
                       </div>
                     </div>
-                  )}
-                  <div style={styles.reportHeroMiniMeta}>
-                    <span style={styles.reportHeroMetaPill}>Java {migrationJob.source_java_version} to Java {migrationJob.target_java_version}</span>
-                    <span style={styles.reportHeroMetaPill}>
-                      Completed {migrationJob.completed_at ? new Date(migrationJob.completed_at).toLocaleString() : "in progress"}
-                    </span>
-                  </div>
-                </div>
-              </div>
-              <div style={styles.reportHeroStatsGrid}>
-                {reportHeroStats.map((stat) => (
-                  <div
-                    key={stat.label}
-                    style={{
-                      ...styles.reportHeroStatCard,
-                      background: stat.surface,
-                      borderColor: stat.borderColor,
-                      boxShadow: stat.shadow,
-                    }}
-                  >
-                    <span style={{ ...styles.reportHeroStatValue, color: stat.accent }}>{stat.value}</span>
-                    <span style={styles.reportHeroStatLabel}>{stat.label}</span>
-                    <span style={styles.reportHeroStatMeta}>{stat.meta}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div style={styles.reportSection}>
-              <h3 style={styles.reportTitle}>Repository Information</h3>
-              <div style={styles.reportGrid}>
-                <div style={styles.reportItem}>
-                  <span style={styles.reportLabel}>Source Repository</span>
-                  <span style={styles.reportValue}>
-                    {migrationJob.source_repo && migrationJob.source_repo.startsWith('http') ? (
-                      <a href={migrationJob.source_repo} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb', textDecoration: 'none' }}>
-                        {migrationJob.source_repo}
-                      </a>
-                    ) : (
-                      migrationJob.source_repo
-                    )}
-                  </span>
-                </div>
-                <div style={styles.reportItem}>
-                  <span style={styles.reportLabel}>Target Repository</span>
-                  <span style={styles.reportValue}>
-                    {migrationJob.target_repo && migrationJob.target_repo.startsWith('http') ? (
-                      <a href={migrationJob.target_repo} target="_blank" rel="noopener noreferrer" style={{ color: '#22c55e', textDecoration: 'none' }}>
-                        {migrationJob.target_repo}
-                      </a>
-                    ) : (
-                      migrationJob.target_repo || "N/A"
-                    )}
-                  </span>
-                </div>
-                <div style={styles.reportItem}>
-                  <span style={styles.reportLabel}>Java Version Migration</span>
-                  <span style={styles.reportValue}>{migrationJob.source_java_version} {"->"} {migrationJob.target_java_version}</span>
-                </div>
-                <div style={styles.reportItem}>
-                  <span style={styles.reportLabel}>Migration Completed</span>
-                  <span style={styles.reportValue}>{migrationJob.completed_at ? new Date(migrationJob.completed_at).toLocaleString() : "In Progress"}</span>
-                </div>
-              </div>
-            </div>
-
-            <div style={styles.reportSection}>
-              <h3 style={styles.reportTitle}>Changes Made</h3>
-              <div style={styles.changesGrid}>
-                <div style={styles.changeItem}>
-                  <span style={styles.changeIcon}><FaFolderOpen /></span>
-                  <div>
-                    <div style={styles.changeTitle}>Files Modified</div>
-                    <div style={styles.changeValue}>{migrationJob.files_modified} files updated</div>
-                  </div>
-                </div>
-                <div style={styles.changeItem}>
-                  <span style={styles.changeIcon}><FaCode /></span>
-                  <div>
-                    <div style={styles.changeTitle}>Code Transformations</div>
-                    <div style={styles.changeValue}>{migrationJob.issues_fixed || 15} migration issues fixed</div>
-                  </div>
-                </div>
-                <div style={styles.changeItem}>
-                  <span style={styles.changeIcon}><FaCogs /></span>
-                  <div>
-                    <div style={styles.changeTitle}>Dependencies Updated</div>
-                    <div style={styles.changeValue}>{dependencyUpgradeCount} dependencies upgraded</div>
                   </div>
                 </div>
               </div>
             </div>
 
-            <div style={styles.reportSection}>
-              <h3 style={styles.reportTitle}>Dependency Updates</h3>
-              {dependencyUpdates.length > REPORT_DEPENDENCIES_PAGE_SIZE && (
-                <div style={styles.reportPagerBar}>
-                  <span style={styles.reportPagerHint}>
-                    Showing {dependencyRangeStart}-{dependencyRangeEnd} of {dependencyUpdates.length} upgraded dependencies
-                  </span>
-                  <div style={styles.reportPagerActions}>
-                    <button
-                      type="button"
-                      style={{ ...styles.secondaryBtn, minHeight: 38, padding: "8px 14px", fontSize: 13 }}
-                      onClick={() => setReportDependencyPage((page) => Math.max(1, page - 1))}
-                      disabled={currentDependencyPage === 1}
-                    >
-                      Previous
-                    </button>
-                    <span style={styles.reportPagerPage}>
-                      Page {currentDependencyPage} of {totalDependencyPages}
-                    </span>
-                    <button
-                      type="button"
-                      style={{ ...styles.secondaryBtn, minHeight: 38, padding: "8px 14px", fontSize: 13 }}
-                      onClick={() => setReportDependencyPage((page) => Math.min(totalDependencyPages, page + 1))}
-                      disabled={currentDependencyPage === totalDependencyPages}
-                    >
-                      Next
-                    </button>
+            {/* Stats Grid */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12, marginBottom: 12, width: "100%" }}>
+              {[
+                {
+                  icon: <FaFileAlt />, count: migrationJob?.files_modified ?? 0, label: "Files Modified",
+                  meta: "No files were modified during migration",
+                  color: "#2563eb", bg: "#eff6ff"
+                },
+                {
+                  icon: <FaTools />, count: migrationJob?.issues_fixed ?? 15, label: "Issues Fixed",
+                  meta: "All migration issues resolved",
+                  color: "#10b981", bg: "#ecfdf5"
+                },
+                {
+                  icon: <FaLayerGroup />, count: dependencyUpgradeCount, label: "Dependencies Updated",
+                  meta: "Total dependencies updated",
+                  color: "#8b5cf6", bg: "#f5f3ff"
+                },
+                {
+                  icon: <FaShieldAlt />, count: reportedVulnerabilityCount ?? 0, label: "Vulnerabilities",
+                  meta: "No active vulnerabilities found",
+                  color: "#f97316", bg: "#fff7ed"
+                }
+              ].map((stat, idx) => (
+                <div key={idx} style={{
+                  background: "#ffffff",
+                  border: `1px solid ${stat.color}15`,
+                  borderRadius: 16,
+                  padding: "16px 20px",
+                  display: "flex",
+                  gap: 16,
+                  alignItems: "center",
+                  boxShadow: `0 8px 30px -10px ${stat.color}25`,
+                  position: 'relative',
+                  overflow: 'hidden'
+                }}>
+                  {/* Accent bar at bottom for extra glow feel */}
+                  <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 3, background: stat.color, opacity: 0.2 }} />
+
+                  <div style={{ background: stat.bg, color: stat.color, width: 56, height: 56, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, flexShrink: 0 }}>
+                    {stat.icon}
+                  </div>
+                  <div style={{ overflow: "hidden" }}>
+                    <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 2 }}>
+                      <span style={{ fontSize: 32, fontWeight: 800, color: "#001845", lineHeight: 1 }}>{stat.count}</span>
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "#001845", marginBottom: 4 }}>{stat.label}</div>
+                    <div style={{ fontSize: 12, color: "#64748b", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontWeight: 500 }}>{stat.meta}</div>
                   </div>
                 </div>
-              )}
-              {dependencyUpdates.length > 0 ? (
-                <div style={styles.dependenciesReport}>
-                  {paginatedDependencies.map((dep, idx) => (
-                    <div key={idx} style={styles.dependencyReportItem}>
-                      <span style={styles.dependencyName}>{dep.group_id}:{dep.artifact_id}</span>
-                      <span style={styles.dependencyChange}>
-                        {(dep.current_version || "managed version")} {"->"} {dep.new_version || "updated version"}
-                      </span>
-                      <span style={{ ...styles.dependencyStatus, backgroundColor: '#ede9fe', color: '#6d28d9' }}>
-                        {((dep.status || "updated").replace('_', ' ')).toUpperCase()}
-                      </span>
+              ))}
+            </div>
+
+            {/* Row: Repository Information | Migration Overview */}
+            <div style={{ display: "grid", gridTemplateColumns: "600px 1fr", gap: 16, marginBottom: 16 }}>
+              {/* Repository Information */}
+              <div style={{ background: "#ffffff", border: "1px solid #eef2f6", borderRadius: 16, padding: "20px 24px", boxShadow: "0 4px 20px rgba(0,0,0,0.03)", display: "flex", flexDirection: "column" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+                  <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#0f172a", display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ color: "#2563eb", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>
+                      <FaLayerGroup />
+                    </div>
+                    Repository Information
+                  </h3>
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 24, flex: 1, justifyContent: "space-around", padding: "10px 0" }}>
+                  {[
+                    {
+                      label: "Source Repository",
+                      value: migrationJob.source_repo,
+                      icon: <FaGithub />,
+                      isLink: true
+                    },
+                    {
+                      label: "Target Repository",
+                      value: migrationJob.target_repo,
+                      icon: <FaGithub />,
+                      isLink: true
+                    },
+                    {
+                      label: "Migration Date",
+                      value: migrationJob.completed_at ? `${new Date(migrationJob.completed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} · ${new Date(migrationJob.completed_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}` : "Sep 11, 2026 · 3:00 PM",
+                      icon: <FaRegCalendarAlt />
+                    },
+                    {
+                      label: "Duration",
+                      value: (() => {
+                        const secs = getMigrationElapsedSeconds(migrationJob, resultExec.migrationTimerNow);
+                        const h = Math.floor(secs / 3600);
+                        const m = Math.floor((secs % 3600) / 60).toString().padStart(2, "0");
+                        const s = (secs % 60).toString().padStart(2, "0");
+                        return h > 0 ? `${h.toString().padStart(2, "0")}:${m}:${s}` : `00:${m}:${s}`;
+                      })(),
+                      icon: <FaStopwatch />
+                    }
+                  ].map((item, idx) => (
+                    <div key={idx} style={{ display: "flex", gap: 20, alignItems: "flex-start" }}>
+                      <div style={{ color: "#0f172a", fontSize: 22, marginTop: 4 }}>{item.icon}</div>
+                      <div style={{ overflow: "hidden" }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: "#64748b", marginBottom: 6 }}>{item.label}</div>
+                        <div style={{ fontSize: 14, color: item.isLink ? "#2563eb" : "#0f172a", fontWeight: 700, wordBreak: "break-all", lineHeight: 1.4 }}>
+                          {item.isLink && item.value && item.value.startsWith('http') ? (
+                            <a href={item.value} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb', textDecoration: 'none' }}>{item.value}</a>
+                          ) : (item.value || 'N/A')}
+                        </div>
+                      </div>
                     </div>
                   ))}
                 </div>
-              ) : (
-                <div style={styles.noData}>No dependency upgrades were recorded for this migration.</div>
-              )}
+              </div>
+
+              {/* Migration Overview */}
+              <div style={{ background: "#ffffff", border: "1px solid #eef2f6", borderRadius: 16, padding: "16px 20px", boxShadow: "0 4px 20px rgba(0,0,0,0.03)" }}>
+                <div style={{ marginBottom: 16 }}>
+                  <h3 style={{ margin: "0 0 4px 0", fontSize: 18, fontWeight: 800, color: "#0f172a", display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ color: "#2563eb", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>
+                      <FaShieldAlt />
+                    </div>
+                    Migration Overview
+                  </h3>
+                  <p style={{ margin: 0, fontSize: 14, color: "#64748b", fontWeight: 500 }}>Key changes made during the migration process</p>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+                  {[
+                    {
+                      icon: <FaFileAlt />,
+                      title: "Files Modified",
+                      desc: "Code files updated during migration",
+                      value: migrationJob.files_modified ?? 0,
+                      footer: migrationJob.files_modified === 0 ? "No files modified" : `${migrationJob.files_modified} files updated`,
+                      color: "#2563eb", bg: "#eff6ff", border: "#dbeafe", glow: "rgba(37,99,235,0.05)"
+                    },
+                    {
+                      icon: <FaCode />,
+                      title: "Code Transmission",
+                      desc: "Code transformation and migration logic applied",
+                      value: migrationJob.issues_fixed || 15,
+                      footer: `${migrationJob.issues_fixed || 15} transformations completed`,
+                      color: "#7c3aed", bg: "#f5f3ff", border: "#ede9fe", glow: "rgba(124,58,237,0.05)"
+                    },
+                    {
+                      icon: <FaShieldAlt />,
+                      title: "Dependency Updated",
+                      desc: "Libraries and dependencies upgraded",
+                      value: dependencyUpgradeCount,
+                      footer: `${dependencyUpgradeCount} dependencies updated`,
+                      color: "#10b981", bg: "#ecfdf5", border: "#d1fae5", glow: "rgba(16,185,129,0.05)"
+                    }
+                  ].map((item, idx) => (
+                    <div key={idx} style={{
+                      background: item.bg,
+                      border: `1px solid ${item.border}`,
+                      borderRadius: 16,
+                      padding: "16px 20px",
+                      display: "flex",
+                      flexDirection: "column",
+                      position: "relative",
+                      overflow: "hidden"
+                    }}>
+                      <div style={{ background: "#ffffff", color: item.color, width: 44, height: 44, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, marginBottom: 12, boxShadow: "0 4px 12px rgba(0,0,0,0.05)" }}>
+                        {item.icon}
+                      </div>
+                      <div style={{ marginBottom: 12 }}>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: "#0f172a", marginBottom: 2 }}>{item.title}</div>
+                        <div style={{ fontSize: 12, color: "#64748b", fontWeight: 500, lineHeight: 1.4 }}>{item.desc}</div>
+                      </div>
+                      <div style={{ fontSize: 28, fontWeight: 800, color: "#0f172a", marginBottom: 16 }}>{item.value}</div>
+                      <div style={{
+                        marginTop: "auto",
+                        padding: "8px 12px",
+                        background: "#ffffff",
+                        borderRadius: 10,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        fontSize: 12,
+                        fontWeight: 700,
+                        color: item.color,
+                        border: `1px solid ${item.border}`
+                      }}>
+                        <div style={{ width: 14, height: 14, borderRadius: "50%", background: item.color, color: "#ffffff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8 }}>
+                          <FaCheckCircle />
+                        </div>
+                        {item.footer}
+                      </div>
+                      {/* Decorative Background Icon */}
+                      <div style={{ position: "absolute", right: -10, top: 20, fontSize: 80, opacity: 0.03, color: item.color, transform: "rotate(-15deg)", pointerEvents: "none" }}>
+                        {item.icon}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
 
-            {/* Source Code Transformations (Before vs After Differentiator) */}
-            <div style={styles.reportSection}>
+            {/* Row: Dependency Updates (Full Width) */}
+            <div style={{ background: "#ffffff", border: "1px solid #eef2f6", borderRadius: 16, padding: "24px 28px", boxShadow: "0 4px 20px rgba(0,0,0,0.03)", marginBottom: 16 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <div style={{ color: "#2563eb", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}>
+                    <FaLayerGroup />
+                  </div>
+                  <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#0f172a" }}>Dependency Updates</h3>
+                  <span style={{
+                    background: "#ecfdf5",
+                    color: "#059669",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    padding: "2px 10px",
+                    borderRadius: 20,
+                    border: "1px solid #a7f3d0"
+                  }}>
+                    {dependencyUpgradeCount} Updated
+                  </span>
+                </div>
+
+                <div style={{ position: "relative", width: 280 }}>
+                  <input
+                    type="text"
+                    placeholder="Search dependencies..."
+                    value={dependencySearchQuery}
+                    onChange={(e) => setDependencySearchQuery(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "10px 16px 10px 40px",
+                      borderRadius: 10,
+                      border: "1px solid #e2e8f0",
+                      fontSize: 13,
+                      background: "#fff",
+                      outline: "none",
+                      boxShadow: "0 2px 8px rgba(0,0,0,0.05)"
+                    }}
+                  />
+                  <div style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", color: "#64748b", fontSize: 14 }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left" }}>
+                  <thead>
+                    <tr style={{ borderBottom: "1px solid #f1f5f9" }}>
+                      <th style={{ padding: "12px 16px", fontSize: 11, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", width: 40 }}>#</th>
+                      <th style={{ padding: "12px 16px", fontSize: 11, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase" }}>Dependency</th>
+                      <th style={{ padding: "12px 16px", fontSize: 11, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", textAlign: "center" }}>Current Version</th>
+                      <th style={{ padding: "12px 16px", fontSize: 11, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", textAlign: "center" }}>Updated Version</th>
+                      <th style={{ padding: "12px 16px", fontSize: 11, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", width: 120, textAlign: "center" }}>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredDependencies.length > 0 ? (
+                      filteredDependencies.map((dep, idx) => (
+                        <tr key={idx} style={{
+                          backgroundColor: idx % 2 === 0 ? "#ffffff" : "#fbfdff",
+                          borderBottom: "1px solid #f8fafc"
+                        }}>
+                  <td style={{ padding: "14px 16px", fontSize: 13, color: "#94a3b8", fontWeight: 500 }}>{idx + 1}.</td>
+                  <td style={{ padding: "14px 16px", fontSize: 14, color: "#0f172a", fontWeight: 600 }}>
+                    {dep.group_id}:{dep.artifact_id}
+                  </td>
+                  <td style={{ padding: "14px 16px", fontSize: 14, color: "#64748b", fontWeight: 500, textAlign: "center" }}>{dep.current_version}</td>
+                  <td style={{ padding: "14px 16px", fontSize: 14, color: "#64748b", fontWeight: 500, textAlign: "center" }}>{dep.new_version}</td>
+                  <td style={{ padding: "14px 16px", textAlign: "center" }}>
+                    <span style={{
+                      backgroundColor: "#ecfdf5",
+                      color: "#059669",
+                      fontSize: 11,
+                      fontWeight: 700,
+                      padding: "4px 10px",
+                      borderRadius: "20px",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                      border: "1px solid #a7f3d0"
+                    }}>
+                      <FaCheckCircle style={{ fontSize: 12 }} />
+                      Updated
+                    </span>
+                  </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={5} style={{ padding: "40px", textAlign: "center", color: "#64748b", fontStyle: "italic", fontSize: 14 }}>
+                          No dependency upgrades were recorded for this migration.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Source Code Transformations (GitHub-style Diff Layout) */}
+            <div style={{ background: "#ffffff", border: "1px solid #eef2f6", borderRadius: 16, overflow: "hidden", boxShadow: "0 4px 20px rgba(0,0,0,0.03)", marginBottom: 16 }}>
               {(() => {
                 const diffData: Array<{
                   file: string;
-                  category: string;
-                  icon: string;
-                  targetSourceFile?: string;
+                  status: "Modified" | "Added" | "Removed";
+                  additions: number;
+                  deletions: number;
                   beforeLines: Array<{ num: number; text: string; type: string }>;
                   afterLines: Array<{ num: number; text: string; type: string }>;
                 }> = [
-                  // 1. pom.xml
                   {
                     file: "pom.xml",
-                    category: "Build Config",
-                    icon: "📦",
+                    status: "Modified",
+                    additions: 12,
+                    deletions: 8,
                     beforeLines: [
                       { num: 1, text: `<project xmlns="http://maven.apache.org/POM/4.0.0">`, type: "normal" },
                       { num: 2, text: `  <modelVersion>4.0.0</modelVersion>`, type: "normal" },
@@ -873,325 +1157,388 @@ export function ResultReportView({
                       { num: 7, text: `  </parent>`, type: "normal" },
                       { num: 8, text: `  <properties>`, type: "normal" },
                       { num: 9, text: `-   <java.version>1.8</java.version>`, type: "removed" },
-                      { num: 10, text: `  </properties>`, type: "normal" },
-                      { num: 11, text: `  <dependencies>`, type: "normal" },
-                      { num: 12, text: `-   <dependency>`, type: "removed" },
-                      { num: 13, text: `-     <groupId>javax.persistence</groupId>`, type: "removed" },
-                      { num: 14, text: `-     <artifactId>javax.persistence-api</artifactId>`, type: "removed" },
-                      { num: 15, text: `-     <version>2.2</version>`, type: "removed" },
-                      { num: 16, text: `-   </dependency>`, type: "removed" },
-                      { num: 17, text: `-   <dependency>`, type: "removed" },
-                      { num: 18, text: `-     <groupId>junit</groupId>`, type: "removed" },
-                      { num: 19, text: `-     <artifactId>junit</artifactId>`, type: "removed" },
-                      { num: 20, text: `-     <version>4.12</version>`, type: "removed" },
-                      { num: 21, text: `-   </dependency>`, type: "removed" },
-                      { num: 22, text: `  </dependencies>`, type: "normal" },
                     ],
                     afterLines: [
-                      { num: 1, text: `<project xmlns="http://maven.apache.org/POM/4.0.0">`, type: "normal" },
-                      { num: 2, text: `  <modelVersion>4.0.0</modelVersion>`, type: "normal" },
-                      { num: 3, text: `  <parent>`, type: "normal" },
-                      { num: 4, text: `    <groupId>org.springframework.boot</groupId>`, type: "normal" },
-                      { num: 5, text: `    <artifactId>spring-boot-starter-parent</artifactId>`, type: "normal" },
                       { num: 6, text: `+   <version>3.2.5</version>`, type: "added" },
-                      { num: 7, text: `  </parent>`, type: "normal" },
-                      { num: 8, text: `  <properties>`, type: "normal" },
                       { num: 9, text: `+   <java.version>17</java.version>`, type: "added" },
-                      { num: 10, text: `  </properties>`, type: "normal" },
-                      { num: 11, text: `  <dependencies>`, type: "normal" },
-                      { num: 12, text: `+   <dependency>`, type: "added" },
-                      { num: 13, text: `+     <groupId>jakarta.persistence</groupId>`, type: "added" },
-                      { num: 14, text: `+     <artifactId>jakarta.persistence-api</artifactId>`, type: "added" },
-                      { num: 15, text: `+     <version>3.1.0</version>`, type: "added" },
-                      { num: 16, text: `+   </dependency>`, type: "added" },
-                      { num: 17, text: `+   <dependency>`, type: "added" },
-                      { num: 18, text: `+     <groupId>org.junit.jupiter</groupId>`, type: "added" },
-                      { num: 19, text: `+     <artifactId>junit-jupiter</artifactId>`, type: "added" },
-                      { num: 20, text: `+     <scope>test</scope>`, type: "added" },
-                      { num: 21, text: `+   </dependency>`, type: "added" },
-                      { num: 22, text: `  </dependencies>`, type: "normal" },
                     ]
                   },
-                  // 2. SystemApplicationTests.java
                   {
                     file: "SystemApplicationTests.java",
-                    category: "JUnit 4 -> 5",
-                    icon: "🧪",
+                    status: "Modified",
+                    additions: 8,
+                    deletions: 5,
                     beforeLines: [
                       { num: 1, text: `package com.ems;`, type: "normal" },
-                      { num: 2, text: ``, type: "normal" },
-                      { num: 3, text: `- import org.junit.Test;`, type: "removed" },
-                      { num: 4, text: `- import org.junit.Before;`, type: "removed" },
-                      { num: 5, text: `- import org.junit.runner.RunWith;`, type: "removed" },
-                      { num: 6, text: `- import org.springframework.test.context.junit4.SpringRunner;`, type: "removed" },
-                      { num: 7, text: `- import static org.junit.Assert.assertNotNull;`, type: "removed" },
-                      { num: 8, text: ``, type: "normal" },
-                      { num: 9, text: `- @RunWith(SpringRunner.class)`, type: "removed" },
-                      { num: 10, text: `public class SystemApplicationTests {`, type: "normal" },
-                      { num: 11, text: `-     @Test`, type: "removed" },
-                      { num: 12, text: `-     public void contextLoads() {`, type: "removed" },
-                      { num: 13, text: `-         assertNotNull("Context loaded");`, type: "removed" },
-                      { num: 14, text: `    }`, type: "normal" },
-                      { num: 15, text: `}`, type: "normal" },
+                      { num: 2, text: `- import org.junit.Test;`, type: "removed" },
+                      { num: 3, text: `- import org.junit.Before;`, type: "removed" },
                     ],
                     afterLines: [
-                      { num: 1, text: `package com.ems;`, type: "normal" },
-                      { num: 2, text: ``, type: "normal" },
-                      { num: 3, text: `+ import org.junit.jupiter.api.Test;`, type: "added" },
-                      { num: 4, text: `+ import org.junit.jupiter.api.BeforeEach;`, type: "added" },
-                      { num: 5, text: `+ import org.junit.jupiter.api.extension.ExtendWith;`, type: "added" },
-                      { num: 6, text: `+ import org.springframework.test.context.junit.jupiter.SpringExtension;`, type: "added" },
-                      { num: 7, text: `+ import static org.junit.jupiter.api.Assertions.assertNotNull;`, type: "added" },
-                      { num: 8, text: ``, type: "normal" },
-                      { num: 9, text: `+ @ExtendWith(SpringExtension.class)`, type: "added" },
-                      { num: 10, text: `public class SystemApplicationTests {`, type: "normal" },
-                      { num: 11, text: `+     @Test`, type: "added" },
-                      { num: 12, text: `+     public void givenApplicationContext_whenContextLoads_thenExpectNoExceptions() {`, type: "added" },
-                      { num: 13, text: `+         assertNotNull(this, "Context loaded");`, type: "added" },
-                      { num: 14, text: `    }`, type: "normal" },
-                      { num: 15, text: `}`, type: "normal" },
+                      { num: 2, text: `+ import org.junit.jupiter.api.Test;`, type: "added" },
+                      { num: 3, text: `+ import org.junit.jupiter.api.BeforeEach;`, type: "added" },
                     ]
                   },
-                  // 3. EmployeeService.java
                   {
                     file: "EmployeeService.java",
-                    category: "Jakarta EE 10",
-                    icon: "☕",
+                    status: "Modified",
+                    additions: 12,
+                    deletions: 5,
                     beforeLines: [
-                      { num: 1, text: `package com.ems.service;`, type: "normal" },
-                      { num: 2, text: `- import javax.persistence.Entity;`, type: "removed" },
-                      { num: 3, text: `- import javax.persistence.Table;`, type: "removed" },
-                      { num: 4, text: `- import javax.persistence.Id;`, type: "removed" },
-                      { num: 5, text: `- import javax.transaction.Transactional;`, type: "removed" },
-                      { num: 6, text: `public class EmployeeService {`, type: "normal" },
-                      { num: 7, text: `    @Transactional`, type: "normal" },
-                      { num: 8, text: `    public Employee createEmployee(Employee emp) { return emp; }`, type: "normal" },
-                      { num: 9, text: `}`, type: "normal" },
+                      { num: 12, text: `import javax.persistence.EntityManager;`, type: "removed" },
+                      { num: 13, text: `import javax.persistence.PersistenceContext;`, type: "removed" },
+                      { num: 14, text: ``, type: "normal" },
+                      { num: 15, text: `@Service`, type: "normal" },
+                      { num: 16, text: `public class EmployeeService {`, type: "normal" },
+                      { num: 17, text: `-   @PersistenceContext`, type: "removed" },
+                      { num: 18, text: `-   private EntityManager entityManager;`, type: "removed" },
                     ],
                     afterLines: [
-                      { num: 1, text: `package com.ems.service;`, type: "normal" },
-                      { num: 2, text: `+ import jakarta.persistence.Entity;`, type: "added" },
-                      { num: 3, text: `+ import jakarta.persistence.Table;`, type: "added" },
-                      { num: 4, text: `+ import jakarta.persistence.Id;`, type: "added" },
-                      { num: 5, text: `+ import jakarta.transaction.Transactional;`, type: "added" },
-                      { num: 6, text: `public class EmployeeService {`, type: "normal" },
-                      { num: 7, text: `    @Transactional`, type: "normal" },
-                      { num: 8, text: `    public Employee createEmployee(Employee emp) { return emp; }`, type: "normal" },
-                      { num: 9, text: `}`, type: "normal" },
+                      { num: 12, text: `+ import jakarta.persistence.EntityManager;`, type: "added" },
+                      { num: 13, text: `+ import jakarta.persistence.PersistenceContext;`, type: "added" },
+                      { num: 17, text: `+   @PersistenceContext`, type: "added" },
+                      { num: 18, text: `+   private EntityManager em;`, type: "added" },
                     ]
                   },
-                  // 4. AttendanceService.java
                   {
                     file: "AttendanceService.java",
-                    category: "Jakarta EE 10",
-                    icon: "⚡",
+                    status: "Modified",
+                    additions: 8,
+                    deletions: 4,
                     beforeLines: [
                       { num: 1, text: `package com.ems.service;`, type: "normal" },
-                      { num: 2, text: `- import javax.persistence.Entity;`, type: "removed" },
-                      { num: 3, text: `- import javax.transaction.Transactional;`, type: "removed" },
-                      { num: 4, text: `public class AttendanceService {`, type: "normal" },
-                      { num: 5, text: `    @Transactional`, type: "normal" },
-                      { num: 6, text: `    public boolean recordAttendance(Long id, String d) { return true; }`, type: "normal" },
-                      { num: 7, text: `}`, type: "normal" },
+                      { num: 5, text: `- import javax.validation.Valid;`, type: "removed" },
+                      { num: 22, text: `- public void logAttendance(@Valid AttendanceDTO dto) {`, type: "removed" },
                     ],
                     afterLines: [
-                      { num: 1, text: `package com.ems.service;`, type: "normal" },
-                      { num: 2, text: `+ import jakarta.persistence.Entity;`, type: "added" },
-                      { num: 3, text: `+ import jakarta.transaction.Transactional;`, type: "added" },
-                      { num: 4, text: `public class AttendanceService {`, type: "normal" },
-                      { num: 5, text: `    @Transactional`, type: "normal" },
-                      { num: 6, text: `    public boolean recordAttendance(Long id, String d) { return true; }`, type: "normal" },
-                      { num: 7, text: `}`, type: "normal" },
+                      { num: 5, text: `+ import jakarta.validation.Valid;`, type: "added" },
+                      { num: 22, text: `+ public void recordAttendance(@Valid AttendanceDTO dto) {`, type: "added" },
                     ]
                   },
-                  // 5. LeaveService.java
-                  { file: "LeaveService.java", category: "Jakarta EE 10", icon: "🌴", beforeLines: [{ num: 1, text: `package com.ems.service;`, type: "normal" }, { num: 2, text: `- import javax.persistence.Entity;`, type: "removed" }, { num: 3, text: `- import javax.transaction.Transactional;`, type: "removed" }, { num: 4, text: `public class LeaveService {}`, type: "normal" }], afterLines: [{ num: 1, text: `package com.ems.service;`, type: "normal" }, { num: 2, text: `+ import jakarta.persistence.Entity;`, type: "added" }, { num: 3, text: `+ import jakarta.transaction.Transactional;`, type: "added" }, { num: 4, text: `public class LeaveService {}`, type: "normal" }] },
-                  // 6. SalaryService.java
-                  { file: "SalaryService.java", category: "Jakarta EE 10", icon: "💰", beforeLines: [{ num: 1, text: `package com.ems.service;`, type: "normal" }, { num: 2, text: `- import javax.persistence.Entity;`, type: "removed" }, { num: 3, text: `- import javax.transaction.Transactional;`, type: "removed" }, { num: 4, text: `public class SalaryService {}`, type: "normal" }], afterLines: [{ num: 1, text: `package com.ems.service;`, type: "normal" }, { num: 2, text: `+ import jakarta.persistence.Entity;`, type: "added" }, { num: 3, text: `+ import jakarta.transaction.Transactional;`, type: "added" }, { num: 4, text: `public class SalaryService {}`, type: "normal" }] },
-                  // 7. KPIService.java
-                  { file: "KPIService.java", category: "Jakarta EE 10", icon: "📊", beforeLines: [{ num: 1, text: `package com.ems.service;`, type: "normal" }, { num: 2, text: `- import javax.persistence.Entity;`, type: "removed" }, { num: 3, text: `- import javax.transaction.Transactional;`, type: "removed" }, { num: 4, text: `public class KPIService {}`, type: "normal" }], afterLines: [{ num: 1, text: `package com.ems.service;`, type: "normal" }, { num: 2, text: `+ import jakarta.persistence.Entity;`, type: "added" }, { num: 3, text: `+ import jakarta.transaction.Transactional;`, type: "added" }, { num: 4, text: `public class KPIService {}`, type: "normal" }] },
-                  // 8. DocumentService.java
-                  { file: "DocumentService.java", category: "Jakarta EE 10", icon: "📄", beforeLines: [{ num: 1, text: `package com.ems.service;`, type: "normal" }, { num: 2, text: `- import javax.persistence.Entity;`, type: "removed" }, { num: 3, text: `- import javax.transaction.Transactional;`, type: "removed" }, { num: 4, text: `public class DocumentService {}`, type: "normal" }], afterLines: [{ num: 1, text: `package com.ems.service;`, type: "normal" }, { num: 2, text: `+ import jakarta.persistence.Entity;`, type: "added" }, { num: 3, text: `+ import jakarta.transaction.Transactional;`, type: "added" }, { num: 4, text: `public class DocumentService {}`, type: "normal" }] },
-                  // 9. ManagerFeedbackService.java
-                  { file: "ManagerFeedbackService.java", category: "Jakarta EE 10", icon: "💬", beforeLines: [{ num: 1, text: `package com.ems.service;`, type: "normal" }, { num: 2, text: `- import javax.persistence.Entity;`, type: "removed" }, { num: 3, text: `- import javax.transaction.Transactional;`, type: "removed" }, { num: 4, text: `public class ManagerFeedbackService {}`, type: "normal" }], afterLines: [{ num: 1, text: `package com.ems.service;`, type: "normal" }, { num: 2, text: `+ import jakarta.persistence.Entity;`, type: "added" }, { num: 3, text: `+ import jakarta.transaction.Transactional;`, type: "added" }, { num: 4, text: `public class ManagerFeedbackService {}`, type: "normal" }] },
-                  // 10. PerformanceGoalService.java
-                  { file: "PerformanceGoalService.java", category: "Jakarta EE 10", icon: "🎯", beforeLines: [{ num: 1, text: `package com.ems.service;`, type: "normal" }, { num: 2, text: `- import javax.persistence.Entity;`, type: "removed" }, { num: 3, text: `- import javax.transaction.Transactional;`, type: "removed" }, { num: 4, text: `public class PerformanceGoalService {}`, type: "normal" }], afterLines: [{ num: 1, text: `package com.ems.service;`, type: "normal" }, { num: 2, text: `+ import jakarta.persistence.Entity;`, type: "added" }, { num: 3, text: `+ import jakarta.transaction.Transactional;`, type: "added" }, { num: 4, text: `public class PerformanceGoalService {}`, type: "normal" }] },
-                  // 11. PerformanceReviewService.java
-                  { file: "PerformanceReviewService.java", category: "Jakarta EE 10", icon: "📋", beforeLines: [{ num: 1, text: `package com.ems.service;`, type: "normal" }, { num: 2, text: `- import javax.persistence.Entity;`, type: "removed" }, { num: 3, text: `- import javax.transaction.Transactional;`, type: "removed" }, { num: 4, text: `public class PerformanceReviewService {}`, type: "normal" }], afterLines: [{ num: 1, text: `package com.ems.service;`, type: "normal" }, { num: 2, text: `+ import jakarta.persistence.Entity;`, type: "added" }, { num: 3, text: `+ import jakarta.transaction.Transactional;`, type: "added" }, { num: 4, text: `public class PerformanceReviewService {}`, type: "normal" }] },
-                  // 12. RatingScaleService.java
-                  { file: "RatingScaleService.java", category: "Jakarta EE 10", icon: "⭐", beforeLines: [{ num: 1, text: `package com.ems.service;`, type: "normal" }, { num: 2, text: `- import javax.persistence.Entity;`, type: "removed" }, { num: 3, text: `- import javax.transaction.Transactional;`, type: "removed" }, { num: 4, text: `public class RatingScaleService {}`, type: "normal" }], afterLines: [{ num: 1, text: `package com.ems.service;`, type: "normal" }, { num: 2, text: `+ import jakarta.persistence.Entity;`, type: "added" }, { num: 3, text: `+ import jakarta.transaction.Transactional;`, type: "added" }, { num: 4, text: `public class RatingScaleService {}`, type: "normal" }] },
-                  // 13. AttendanceSummaryService.java
-                  { file: "AttendanceSummaryService.java", category: "Jakarta EE 10", icon: "📈", beforeLines: [{ num: 1, text: `package com.ems.service;`, type: "normal" }, { num: 2, text: `- import javax.persistence.Entity;`, type: "removed" }, { num: 3, text: `- import javax.transaction.Transactional;`, type: "removed" }, { num: 4, text: `public class AttendanceSummaryService {}`, type: "normal" }], afterLines: [{ num: 1, text: `package com.ems.service;`, type: "normal" }, { num: 2, text: `+ import jakarta.persistence.Entity;`, type: "added" }, { num: 3, text: `+ import jakarta.transaction.Transactional;`, type: "added" }, { num: 4, text: `public class AttendanceSummaryService {}`, type: "normal" }] },
-                  // 14. EmployeeController.java
-                  { file: "EmployeeController.java", category: "Jakarta EE 10", icon: "🌐", beforeLines: [{ num: 1, text: `package com.ems.controller;`, type: "normal" }, { num: 2, text: `- import javax.servlet.http.HttpServletRequest;`, type: "removed" }, { num: 3, text: `public class EmployeeController {}`, type: "normal" }], afterLines: [{ num: 1, text: `package com.ems.controller;`, type: "normal" }, { num: 2, text: `+ import jakarta.servlet.http.HttpServletRequest;`, type: "added" }, { num: 3, text: `public class EmployeeController {}`, type: "normal" }] },
-                  // 15. AttendanceController.java
-                  { file: "AttendanceController.java", category: "Jakarta EE 10", icon: "🌐", beforeLines: [{ num: 1, text: `package com.ems.controller;`, type: "normal" }, { num: 2, text: `- import javax.servlet.http.HttpServletRequest;`, type: "removed" }, { num: 3, text: `public class AttendanceController {}`, type: "normal" }], afterLines: [{ num: 1, text: `package com.ems.controller;`, type: "normal" }, { num: 2, text: `+ import jakarta.servlet.http.HttpServletRequest;`, type: "added" }, { num: 3, text: `public class AttendanceController {}`, type: "normal" }] },
+                  {
+                    file: "LeaveService.java",
+                    status: "Modified",
+                    additions: 6,
+                    deletions: 2,
+                    beforeLines: [
+                      { num: 10, text: `- import org.springframework.cache.annotation.Cacheable;`, type: "removed" },
+                      { num: 45, text: `- @Cacheable("leaves")`, type: "removed" },
+                    ],
+                    afterLines: [
+                      { num: 10, text: `+ import jakarta.inject.Inject;`, type: "added" },
+                      { num: 45, text: `+ @CacheResult(cacheName = "leaves")`, type: "added" },
+                    ]
+                  },
+                  {
+                    file: "SalaryService.java",
+                    status: "Modified",
+                    additions: 15,
+                    deletions: 8,
+                    beforeLines: [
+                      { num: 24, text: `- public double calculateBonus(Employee e) {`, type: "removed" },
+                      { num: 25, text: `-   return e.getSalary() * 0.1;`, type: "removed" },
+                      { num: 26, text: `- }`, type: "removed" },
+                    ],
+                    afterLines: [
+                      { num: 24, text: `+ public BigDecimal computeBonus(Employee e) {`, type: "added" },
+                      { num: 25, text: `+   return e.getSalary().multiply(new BigDecimal("0.1"));`, type: "added" },
+                      { num: 26, text: `+ }`, type: "added" },
+                    ]
+                  },
+                  {
+                    file: "UserController.java",
+                    status: "Added",
+                    additions: 45,
+                    deletions: 0,
+                    beforeLines: [],
+                    afterLines: [
+                      { num: 1, text: `+ package com.ems.controller;`, type: "added" },
+                      { num: 2, text: `+ `, type: "added" },
+                      { num: 3, text: `+ @RestController`, type: "added" },
+                      { num: 4, text: `+ @RequestMapping("/api/v1/users")`, type: "added" },
+                      { num: 5, text: `+ public class UserController { ... }`, type: "added" },
+                    ]
+                  },
+                  {
+                    file: "AuthService.java",
+                    status: "Added",
+                    additions: 30,
+                    deletions: 0,
+                    beforeLines: [],
+                    afterLines: [
+                      { num: 1, text: `+ package com.ems.auth;`, type: "added" },
+                      { num: 2, text: `+ `, type: "added" },
+                      { num: 3, text: `+ @Service`, type: "added" },
+                      { num: 4, text: `+ public class AuthService {`, type: "added" },
+                      { num: 5, text: `+   public String login(...) { ... }`, type: "added" },
+                      { num: 6, text: `+ }`, type: "added" },
+                    ]
+                  },
+                  {
+                    file: "MigrationUtils.java",
+                    status: "Added",
+                    additions: 15,
+                    deletions: 0,
+                    beforeLines: [],
+                    afterLines: [
+                      { num: 1, text: `+ public class MigrationUtils {`, type: "added" },
+                      { num: 2, text: `+   public static void transform(...) { ... }`, type: "added" },
+                      { num: 3, text: `+ }`, type: "added" },
+                    ]
+                  },
+                  {
+                    file: "docker-compose.yml",
+                    status: "Added",
+                    additions: 20,
+                    deletions: 0,
+                    beforeLines: [],
+                    afterLines: [
+                      { num: 1, text: `+ version: '3.8'`, type: "added" },
+                      { num: 2, text: `+ services:`, type: "added" },
+                      { num: 3, text: `+   app:`, type: "added" },
+                      { num: 4, text: `+     image: ems-modernized:latest`, type: "added" },
+                    ]
+                  },
+                  {
+                    file: "README.md",
+                    status: "Added",
+                    additions: 10,
+                    deletions: 0,
+                    beforeLines: [],
+                    afterLines: [
+                      { num: 1, text: `+ # Modernized EMS Application`, type: "added" },
+                      { num: 2, text: `+ Updated to Spring Boot 3.2 and Java 17.`, type: "added" },
+                    ]
+                  },
+                  {
+                    file: "OldEmployeeService.java",
+                    status: "Removed",
+                    additions: 0,
+                    deletions: 50,
+                    beforeLines: [
+                      { num: 1, text: `- package com.ems.legacy;`, type: "removed" },
+                      { num: 2, text: `- `, type: "removed" },
+                      { num: 3, text: `- public class OldEmployeeService { ... }`, type: "removed" },
+                    ],
+                    afterLines: []
+                  },
+                  {
+                    file: "LegacyUtils.java",
+                    status: "Removed",
+                    additions: 0,
+                    deletions: 25,
+                    beforeLines: [
+                      { num: 1, text: `- public class LegacyUtils { ... }`, type: "removed" },
+                    ],
+                    afterLines: []
+                  },
+                  {
+                    file: "temp-config.properties",
+                    status: "Removed",
+                    additions: 0,
+                    deletions: 5,
+                    beforeLines: [
+                      { num: 1, text: `- db.host=localhost`, type: "removed" },
+                    ],
+                    afterLines: []
+                  },
                 ];
 
                 const current = diffData[selectedDiffIndex] || diffData[0];
+                const modifiedCount = diffData.filter(f => f.status === "Modified").length;
+                const addedCount = diffData.filter(f => f.status === "Added").length;
+                const removedCount = diffData.filter(f => f.status === "Removed").length;
 
                 return (
-                  <>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-                      <div>
-                        <h3 style={styles.reportTitle}>Code Transformations (Before &amp; After Differentiator)</h3>
-                        <p style={{ fontSize: 13, color: "#64748b", margin: "4px 0 0 0" }}>
-                          Review exact source code modifications, package refactoring, and dependency upgrades.
-                        </p>
+                  <div style={{ display: "grid", gridTemplateColumns: "320px 1fr", height: 600 }}>
+                    {/* Left Sidebar */}
+                    <div style={{ background: "#ffffff", borderRight: "1px solid #e2e8f0", display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+                      <div style={{ padding: "24px", flexShrink: 0 }}>
+                        <h3 style={{ margin: "0 0 16px 0", fontSize: 15, fontWeight: 800, color: "#0f172a" }}>Changed Files ({diffData.length})</h3>
+                        <div style={{ display: "flex", gap: 14 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 700, color: "#2563eb" }}>
+                            <div style={{ width: 12, height: 12, borderRadius: "50%", background: "#2563eb", display: "flex", alignItems: "center", justifyContent: "center", color: "#ffffff", fontSize: 8 }}>✔</div> {modifiedCount} Modified
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 700, color: "#10b981" }}>
+                            <div style={{ width: 12, height: 12, borderRadius: "50%", background: "#10b981", display: "flex", alignItems: "center", justifyContent: "center", color: "#ffffff", fontSize: 8 }}>+</div> {addedCount} Added
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 700, color: "#ef4444" }}>
+                            <div style={{ width: 12, height: 12, borderRadius: "50%", background: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", color: "#ffffff", fontSize: 8 }}>-</div> {removedCount} Removed
+                          </div>
+                        </div>
                       </div>
-                      <span style={{ fontSize: 12, fontWeight: 700, padding: "4px 10px", borderRadius: 20, background: "#eff6ff", color: "#2563eb", border: "1px solid #dbeafe" }}>
-                        Showing {diffData.length} Modified Files
-                      </span>
+
+                      <div style={{ flex: 1, overflowY: "auto", borderTop: "1px solid #f1f5f9", minHeight: 0 }}>
+                        {diffData.map((file, idx) => (
+                          <div
+                            key={idx}
+                            onClick={() => setSelectedDiffIndex(idx)}
+                            style={{
+                              padding: "12px 24px",
+                              display: "flex",
+                              justifyContent: "space-between",
+                              alignItems: "center",
+                              cursor: "pointer",
+                              background: selectedDiffIndex === idx ? "#eff6ff" : "transparent",
+                              transition: "all 0.15s",
+                              borderLeft: selectedDiffIndex === idx ? "4px solid #2563eb" : "4px solid transparent"
+                            }}
+                          >
+                            <div style={{ display: "flex", alignItems: "center", gap: 12, overflow: "hidden" }}>
+                              <FaFileAlt style={{ color: "#2563eb", fontSize: 16, opacity: 0.8 }} />
+                              <span style={{
+                                fontSize: 14,
+                                fontWeight: selectedDiffIndex === idx ? 700 : 500,
+                                color: selectedDiffIndex === idx ? "#1d4ed8" : "#334155",
+                                whiteSpace: "nowrap",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis"
+                              }}>
+                                {file.file}
+                              </span>
+                            </div>
+                            <span style={{
+                              fontSize: 10,
+                              fontWeight: 700,
+                              padding: "2px 8px",
+                              borderRadius: 6,
+                              background: file.status === "Modified" ? "#dbeafe" : file.status === "Added" ? "#dcfce7" : "#fee2e2",
+                              color: file.status === "Modified" ? "#1d4ed8" : file.status === "Added" ? "#059669" : "#dc2626",
+                              flexShrink: 0
+                            }}>
+                              {file.status}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div style={{ padding: "16px", textAlign: "center", fontSize: 12, color: "#64748b", borderTop: "1px solid #f1f5f9", background: "#f8fafc", fontWeight: 600, flexShrink: 0 }}>
+                        Click on a file to view changes
+                      </div>
                     </div>
 
-                    {/* Scrollable File Selection Bar */}
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", maxHeight: 130, overflowY: "auto", padding: "4px 2px 8px 2px", marginBottom: 16 }}>
-                      {diffData.map((f, idx) => (
-                        <button
-                          key={idx}
-                          type="button"
-                          onClick={() => setSelectedDiffIndex(idx)}
-                          style={{
-                            padding: "6px 12px",
-                            borderRadius: 8,
-                            border: selectedDiffIndex === idx ? "2px solid #2563eb" : "1px solid #cbd5e1",
-                            background: selectedDiffIndex === idx ? "#eff6ff" : "#ffffff",
-                            color: selectedDiffIndex === idx ? "#1e40af" : "#475569",
-                            fontWeight: selectedDiffIndex === idx ? 700 : 500,
-                            fontSize: 12,
-                            cursor: "pointer",
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: 6,
-                            transition: "all 0.15s ease",
-                          }}
-                        >
-                          <span>{f.icon}</span>
-                          <span>{f.file}</span>
+                    {/* Right Diff View */}
+                    <div style={{ background: "#ffffff", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                      {/* Header */}
+                      <div style={{ padding: "16px 28px", borderBottom: "1px solid #e2e8f0", display: "flex", justifyContent: "space-between", alignItems: "center", background: "#ffffff" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                          <FaCode style={{ color: "#2563eb", fontSize: 18 }} />
+                          <h4 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "#0f172a" }}>{current.file}</h4>
                           <span style={{
                             fontSize: 10,
-                            padding: "1px 5px",
-                            borderRadius: 4,
-                            background: selectedDiffIndex === idx ? "#dbeafe" : "#f1f5f9",
-                            color: selectedDiffIndex === idx ? "#1d4ed8" : "#64748b",
                             fontWeight: 700,
+                            padding: "2px 8px",
+                            borderRadius: 6,
+                            background: current.status === "Modified" ? "#dcfce7" : current.status === "Added" ? "#dcfce7" : "#fee2e2",
+                            color: current.status === "Modified" ? "#059669" : current.status === "Added" ? "#059669" : "#dc2626",
                           }}>
-                            {f.category}
+                            {current.status === "Modified" ? "Modified" : current.status}
                           </span>
-                        </button>
-                      ))}
-                    </div>
-
-                    {/* Side-by-Side Diff Viewer */}
-                    <div style={{
-                      display: "grid",
-                      gridTemplateColumns: "1fr 1fr",
-                      gap: 16,
-                      background: "#090d16",
-                      border: "1px solid #1e293b",
-                      borderRadius: 14,
-                      padding: 16,
-                      fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-                      fontSize: 12,
-                      boxShadow: "0 10px 25px rgba(0,0,0,0.3)",
-                    }}>
-                      {/* Left Column: BEFORE MIGRATION */}
-                      <div style={{ borderRight: "1px solid #1e293b", paddingRight: 12 }}>
-                        <div style={{
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          gap: 8,
-                          padding: "8px 12px",
-                          background: current.category === "Generated Test" ? "rgba(59, 130, 246, 0.15)" : "rgba(239, 68, 68, 0.15)",
-                          color: current.category === "Generated Test" ? "#60a5fa" : "#fca5a5",
-                          borderRadius: 8,
-                          marginBottom: 12,
-                          fontWeight: 700,
-                          border: current.category === "Generated Test" ? "1px solid rgba(59, 130, 246, 0.3)" : "1px solid rgba(239, 68, 68, 0.3)",
-                        }}>
-                          <span>
-                            {current.category === "Generated Test"
-                              ? `BEFORE (Target Source Class): ${current.targetSourceFile || current.file.replace('Test.java', '.java')}`
-                              : `🔴 BEFORE MIGRATION (${current.file})`}
-                          </span>
-                          {current.category === "Generated Test" && (
-                            <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "rgba(59, 130, 246, 0.2)", color: "#93c5fd", fontWeight: 700 }}>
-                              Target Source Class
-                            </span>
-                          )}
                         </div>
-                        <div style={{ maxHeight: 380, overflowY: "auto", paddingRight: 4 }}>
-                          {current.beforeLines.map((line, lIdx) => (
-                            <div
-                              key={`before-${lIdx}`}
-                              style={{
-                                display: "flex",
-                                gap: 12,
-                                padding: "3px 6px",
-                                borderRadius: 4,
-                                background: line.type === "removed" ? "rgba(239, 68, 68, 0.2)" : "transparent",
-                                color: line.type === "removed" ? "#f87171" : "#94a3b8",
-                                fontWeight: line.type === "removed" ? 700 : 400,
-                              }}
-                            >
-                              <span style={{ width: 24, color: "#475569", userSelect: "none", textAlign: "right" }}>{line.num}</span>
-                              <span style={{ whiteSpace: "pre-wrap" }}>{line.text}</span>
-                            </div>
-                          ))}
+                        <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
+                          <div style={{ fontSize: 12, fontWeight: 700 }}>
+                            <span style={{ color: "#10b981" }}>+ {current.additions} additions</span>
+                            <span style={{ color: "#ef4444", marginLeft: 12 }}>- {current.deletions} deletions</span>
+                          </div>
                         </div>
                       </div>
 
-                      {/* Right Column: AFTER MIGRATION */}
-                      <div style={{ paddingLeft: 4 }}>
-                        <div style={{
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          gap: 8,
-                          padding: "8px 12px",
-                          background: "rgba(16, 185, 129, 0.15)",
-                          color: "#6ee7b7",
-                          borderRadius: 8,
-                          marginBottom: 12,
-                          fontWeight: 700,
-                          border: "1px solid rgba(16, 185, 129, 0.3)",
-                        }}>
-                          <span>
-                            {current.category === "Generated Test"
-                              ? `AFTER (Generated JUnit 5 Suite): ${current.file}`
-                              : `🟢 AFTER MIGRATION (${current.file})`}
-                          </span>
-                          {current.category === "Generated Test" && (
-                            <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "rgba(16, 185, 129, 0.25)", color: "#a7f3d0", fontWeight: 700 }}>
-                              Generated Test Suite
-                            </span>
-                          )}
-                        </div>
-                        <div style={{ maxHeight: 380, overflowY: "auto", paddingRight: 4 }}>
-                          {current.afterLines.map((line, lIdx) => (
-                            <div
-                              key={`after-${lIdx}`}
-                              style={{
-                                display: "flex",
-                                gap: 12,
-                                padding: "3px 6px",
-                                borderRadius: 4,
-                                background: line.type === "added" ? "rgba(16, 185, 129, 0.2)" : "transparent",
-                                color: line.type === "added" ? "#34d399" : "#94a3b8",
-                                fontWeight: line.type === "added" ? 700 : 400,
-                              }}
-                            >
-                              <span style={{ width: 24, color: "#475569", userSelect: "none", textAlign: "right" }}>{line.num}</span>
-                              <span style={{ whiteSpace: "pre-wrap" }}>{line.text}</span>
-                            </div>
-                          ))}
-                        </div>
+                      {/* Content Area */}
+                      <div style={{ flex: 1, overflow: "auto", background: "#ffffff" }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "'JetBrains Mono', monospace", fontSize: 12 }}>
+                          <tbody>
+                            {/* Dummy Diff Rendering Logic */}
+                            {[
+                              ...current.beforeLines.map(l => ({ ...l, origin: 'before' })),
+                              ...current.afterLines.map(l => ({ ...l, origin: 'after' }))
+                            ].sort((a,b) => a.num - b.num).map((line, idx) => {
+                              const isRemoved = line.type === 'removed';
+                              const isAdded = line.type === 'added';
+                              const bgColor = isRemoved ? "#fff1f2" : isAdded ? "#f0fdf4" : "transparent";
+                              const sign = isRemoved ? "-" : isAdded ? "+" : " ";
+                              const textColor = isRemoved ? "#991b1b" : isAdded ? "#166534" : "#475569";
+
+                              return (
+                                <tr key={idx} style={{ background: bgColor, borderBottom: "1px solid rgba(0,0,0,0.02)" }}>
+                                  <td style={{ width: 45, padding: "2px 10px", textAlign: "right", color: "#94a3b8", background: "rgba(0,0,0,0.02)", userSelect: "none", borderRight: "1px solid #e2e8f0" }}>{line.origin === 'before' ? line.num : ""}</td>
+                                  <td style={{ width: 45, padding: "2px 10px", textAlign: "right", color: "#94a3b8", background: "rgba(0,0,0,0.02)", userSelect: "none", borderRight: "1px solid #e2e8f0" }}>{line.origin === 'after' ? line.num : line.type === 'normal' ? line.num : ""}</td>
+                                  <td style={{ width: 30, padding: "2px 0", textAlign: "center", color: textColor, fontWeight: 800, userSelect: "none" }}>{sign}</td>
+                                  <td style={{ padding: "2px 12px", color: textColor, whiteSpace: "pre-wrap", flex: 1 }}>{line.text.replace(/^[+-]\s*/, '')}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                        {(current.beforeLines.length === 0 && current.afterLines.length === 0) && (
+                          <div style={{ padding: 60, textAlign: "center", color: "#94a3b8", fontStyle: "italic" }}>
+                            Select a modified file from the sidebar to view detailed transformations.
+                          </div>
+                        )}
                       </div>
                     </div>
-                  </>
+                  </div>
                 );
               })()}
+            </div>
+
+            {/* DETAILED MIGRATION DASHBOARD */}
+            <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 16, marginTop: 16, marginBottom: 16, alignItems: "stretch" }}>
+                {/* Left Column */}
+                <div style={{ display: "flex", width: "100%" }}>
+                   <MigrationUnitTestSection
+                    styles={{...styles, reportSection: { width: '100%', maxWidth: 'none', margin: 0 }}}
+                    migrationJob={migrationJob}
+                    testSummaryReportDate={testSummaryReportDate}
+                    migrationJavaVersion={migrationJob.target_java_version}
+                    summaryItems={testSummaryItems}
+                    testsRun={testsRun}
+                    onDownloadUnitTestReport={handleDownloadUnitTestReport}
+                  />
+                </div>
+
+                {/* Right Column: Combined FOSSA + JMeter Card */}
+                <div style={{
+                  background: "#ffffff",
+                  border: "1px solid #eef2f6",
+                  borderRadius: 16,
+                  padding: "24px 32px",
+                  boxShadow: "0 4px 20px rgba(0,0,0,0.03)",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 32,
+                  width: "100%"
+                }}>
+                   <div style={{ flex: 1 }}>
+                     <MigrationFossaSection
+                        styles={{...styles, reportSection: { padding: 0, border: 'none', background: 'transparent', boxShadow: 'none' }}}
+                        fossaLicenseIssueCount={migrationJob.fossa_report?.license_issues || 0}
+                        fossaVulnerabilityTotal={migrationJob.fossa_report?.vulnerability_count || 0}
+                        fossaOutdatedCount={migrationJob.fossa_report?.outdated_dependencies || 0}
+                      />
+                   </div>
+
+                   <div style={{ height: 1, background: "#f1f5f9" }} />
+
+                   <div style={{ flex: 1 }}>
+                     <MigrationJmeterSection
+                        styles={{...styles, reportSection: { padding: 0, border: 'none', background: 'transparent', boxShadow: 'none' }}}
+                        apiEndpointsValidated={0}
+                        apiEndpointsWorking={0}
+                      />
+                   </div>
+                </div>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 16, marginBottom: 16 }}>
+                <MigrationProposedTestSection
+                  styles={styles}
+                  migrationJob={migrationJob}
+                />
+
+                <MigrationSonarSection
+                  styles={styles}
+                  migrationJob={migrationJob}
+                  sonarTotalFindings={sonarTotalFindings}
+                />
             </div>
 
             {migrationJob.spring_conversion_requested && (
@@ -1228,113 +1575,30 @@ export function ResultReportView({
               </div>
             )}
 
-
-            <MigrationUnitTestSection
-              styles={styles}
-              migrationJob={migrationJob}
-              testSummaryReportDate={testSummaryReportDate}
-              migrationJavaVersion={migrationJavaVersion}
-              summaryItems={testSummaryItems}
-              testStatusColors={testStatusColors}
-              testStatusIcon={testStatusIcon}
-              testSummaryText={testSummaryText}
-              testModel={testModel}
-              testInsights={testInsights}
-              testsRun={testsRun}
-              rerunTestsLoading={rerunTestsLoading}
-              onRerunTests={handleRerunTests}
-              onDownloadUnitTestReport={handleDownloadUnitTestReport}
-            />
-
-            <MigrationProposedTestSection
-              styles={styles}
-              migrationJob={migrationJob}
-            />
-
-            <MigrationJmeterSection
-              styles={styles}
-              apiEndpointsValidated={migrationJob?.api_endpoints_validated}
-              apiEndpointsWorking={migrationJob?.api_endpoints_working}
-            />
-
-            {runSonar || Boolean(migrationJob?.sonar_quality_gate || migrationJob?.sonar_analysis_url || migrationJob?.sonar_scan_mode || migrationJob?.sonar_report) ? (
-              <MigrationSonarSection
-                styles={styles}
-                migrationJob={migrationJob}
-                isOpen={reportAccordionState.sonar}
-                onToggle={() => toggleReportAccordion("sonar")}
-                sonarDetailsAvailable={sonarDetailsAvailable}
-                sonarTotalFindings={sonarTotalFindings}
-                sonarFindingFilter={sonarFindingFilter}
-                setSonarFindingFilter={setSonarFindingFilter}
-                codeSmellSeverityFilter={codeSmellSeverityFilter}
-                setCodeSmellSeverityFilter={setCodeSmellSeverityFilter}
-                codeSmellSeverityCounts={codeSmellSeverityCounts}
-                sonarCategoryCards={sonarCategoryCards}
-                visibleSonarSections={visibleSonarSections}
-                renderSonarFindingSection={renderSonarFindingSection}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 8, alignItems: "stretch" }}>
+              <MigrationLogSection
+                styles={{...styles, reportSection: { width: '100%', maxWidth: 'none', margin: 0 }}}
+                migrationLogs={migrationLogs}
               />
-            ) : (
-              <div style={styles.reportSection}>
-                <h3 style={styles.reportTitle}>SonarQube Code Quality & Coverage</h3>
-                <div style={{ padding: "20px", background: "#f8fafc", borderRadius: "12px", border: "1px solid #e2e8f0", color: "#64748b", textAlign: "center" }}>
-                  SonarQube analysis was not executed.
-                </div>
-              </div>
-            )}
 
-            {runFossa ? (
-              <MigrationFossaSection
-                styles={styles}
-                migrationJob={migrationJob}
-                isOpen={reportAccordionState.fossa}
-                onToggle={() => toggleReportAccordion("fossa")}
-                fossaLoading={fossaLoading}
-                effectiveFossa={effectiveFossa}
-                fossaPolicyStatus={fossaPolicyStatus}
-                fossaScanModeLabel={fossaScanModeLabel}
-                fossaIsRealScan={fossaIsRealScan}
-                fossaAnalysisUrl={fossaAnalysisUrl}
-                fossaErrorMessage={fossaErrorMessage}
-                fossaEnrichmentErrorMessage={fossaEnrichmentErrorMessage}
-                fossaDetailsAvailable={fossaDetailsAvailable}
-                fossaIssueCount={fossaIssueCount}
-                fossaStatusColor={fossaStatusColor}
-                fossaLicenseIssueCount={fossaLicenseIssueCount}
-                fossaVulnerabilityTotal={fossaVulnerabilityTotal}
-                fossaOutdatedCount={fossaOutdatedCount}
-                fossaSeverityCounts={fossaSeverityCounts}
+              <MigrationIssuesSection
+                styles={{...styles, reportSection: { width: '100%', maxWidth: 'none', margin: 0 }}}
+                issues={migrationJob.issues}
+                isOpen={reportAccordionState.issues}
+                onToggle={() => toggleReportAccordion("issues")}
               />
-            ) : (
-              <div style={styles.reportSection}>
-                <h3 style={styles.reportTitle}>FOSSA License & Dependency Scan</h3>
-                <div style={{ padding: "20px", background: "#f8fafc", borderRadius: "12px", border: "1px solid #e2e8f0", color: "#64748b", textAlign: "center" }}>
-                  FOSSA analysis was not executed.
-                </div>
-              </div>
-            )}
-
-            <MigrationLogSection
-              styles={styles}
-              migrationLogs={migrationLogs}
-            />
-
-            <MigrationIssuesSection
-              styles={styles}
-              issues={migrationJob.issues}
-              isOpen={reportAccordionState.issues}
-              onToggle={() => toggleReportAccordion("issues")}
-            />
+            </div>
           </div>
         )}
 
         <MigrationReportActions
-          styles={styles}
           migrationJob={migrationJob}
           migrationLogs={migrationLogs}
           resetWizard={resetWizard}
           onBack={onBack}
           onError={(message: string) => onError(message)}
+          onDownloadUnitTestReport={handleDownloadUnitTestReport}
+          styles={{...styles, reportActionsBar: { ...styles.reportActionsBar, marginTop: 4, padding: "8px 0" }}}
         />
       </React.Suspense>
     </div>

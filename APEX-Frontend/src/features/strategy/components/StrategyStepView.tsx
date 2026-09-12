@@ -177,14 +177,19 @@ export function StrategyStepView({
           : "Conversion Available";
 
   return (
-    <div style={styles.card}>
-      <div style={styles.stepHeader}>
-        {renderWizardIconBadge(<FaProjectDiagram />, "#f97316", "xl")}
-        <div>
-          <h2 style={styles.title}>Assessment &amp; Migration Strategy</h2>
-          <p style={styles.subtitle}>{stepSummary}</p>
+    <div className="discovery-dashboard-wrapper">
+      <div className="discovery-header-box">
+        <div className="discovery-header-left" style={{ alignItems: "center" }}>
+          <div className="discovery-header-icon-badge" style={{ background: "#fff7ed", color: "#f97316", borderColor: "#ffedd5" }}>
+            <FaProjectDiagram />
+          </div>
+          <div className="discovery-header-titles">
+            <h2 style={{ margin: 0, fontSize: 22 }}>Assessment &amp; Migration Strategy</h2>
+          </div>
         </div>
       </div>
+
+      <div style={styles.card}>
 
       {selectedRepo && repoAnalysis && (
         <>
@@ -440,9 +445,9 @@ export function StrategyStepView({
                 const pathwayBadgeStyle: React.CSSProperties | undefined =
                   isSpringBootPathway && !isDisabledPathway
                     ? isActivePathway
-                      ? { backgroundColor: "#22c55e", color: "#ffffff" }
-                      : { backgroundColor: "#fef3c7", color: "#92400e" }
-                    : undefined;
+                      ? { backgroundColor: "#22c55e", color: "#ffffff", boxShadow: "none" }
+                      : { backgroundColor: "#fef3c7", color: "#92400e", boxShadow: "none" }
+                    : { boxShadow: "none" };
 
                 return (
                   <WizardOptionCard
@@ -474,8 +479,8 @@ export function StrategyStepView({
                       </div>
                     }
                     containerStyle={{
-                      minHeight: 96,
-                      justifyContent: "center",
+                      minHeight: 140,
+                      justifyContent: "flex-start",
                     }}
                     titleStyle={{ color: isActivePathway ? pathway.color : "#1e293b" }}
                     descriptionStyle={{ color: isDisabledPathway ? "#475569" : "#334155" }}
@@ -584,9 +589,6 @@ export function StrategyStepView({
       )}
       {availableTargetVersions.length > 0 && !versionRecommendationLoading && !versionRecommendationError && versionRecommendation && (
         <div style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#1d4ed8", textTransform: "uppercase", letterSpacing: "0.4px", marginBottom: 10 }}>
-            {getJavaVersionRecommendationProviderLabel(versionRecommendation.provider_used)}
-          </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
             {versionRecommendationCards.map((card) => {
               const isSelected = selectedTargetVersion === card.version;
@@ -659,14 +661,14 @@ export function StrategyStepView({
                   style={{
                     padding: 12,
                     borderRadius: 10,
-                    border: "1px solid #bbf7d0",
-                    background: "#f0fdf4",
+                    border: "1px solid #e2e8f0",
+                    background: "#ffffff",
                   }}
                 >
                   <div style={{ fontSize: 11, fontWeight: 700, color: "#166534", textTransform: "uppercase", letterSpacing: "0.4px", marginBottom: 6 }}>
                     Upgrade Benefits
                   </div>
-                  <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12, color: "#15803d", lineHeight: 1.6 }}>
+                  <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: "#334155", lineHeight: 1.6, listStyleType: "disc" }}>
                     {versionRecommendation.benefits!.map((benefit, index) => (
                       <li key={index}>{benefit}</li>
                     ))}
@@ -678,14 +680,14 @@ export function StrategyStepView({
                   style={{
                     padding: 12,
                     borderRadius: 10,
-                    border: "1px solid #fde68a",
-                    background: "#fffbeb",
+                    border: "1px solid #e2e8f0",
+                    background: "#ffffff",
                   }}
                 >
                   <div style={{ fontSize: 11, fontWeight: 700, color: "#92400e", textTransform: "uppercase", letterSpacing: "0.4px", marginBottom: 6 }}>
                     Compatibility Considerations
                   </div>
-                  <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12, color: "#a16207", lineHeight: 1.6 }}>
+                  <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: "#334155", lineHeight: 1.6, listStyleType: "disc" }}>
                     {versionRecommendation.compatibility_considerations!.map((item, index) => (
                       <li key={index}>{item}</li>
                     ))}
@@ -702,7 +704,6 @@ export function StrategyStepView({
         style={{ marginBottom: 14, marginTop: 20 }}
       />
       <div style={styles.field}>
-        <label style={styles.label}>Destination repository setup</label>
         <div style={{
           display: "grid",
           gridTemplateColumns: `repeat(${migrationApproachOptions.length}, minmax(0, 1fr))`,
@@ -754,13 +755,16 @@ export function StrategyStepView({
             style={{
               ...styles.input,
               flex: 1,
-              backgroundColor: migrationApproach === "fork" ? "#f8fafc" : "#f0fdf4",
-              borderColor: targetRepoNameError ? "#ef4444" : "#22c55e",
+              backgroundColor: migrationApproach === "fork" ? "#f8fafc" : "#ffffff",
+              borderColor: targetRepoNameError ? "#ef4444" : "#cbd5e1",
               color: migrationApproach === "fork" ? "#64748b" : styles.input.color,
+              cursor: "default",
+              pointerEvents: "none"
             }}
             value={targetRepoName}
             onChange={(e) => handleTargetRepoNameChange(e.target.value)}
-            readOnly={migrationApproach === "fork"}
+            readOnly={true}
+            tabIndex={-1}
             placeholder={
               migrationApproach === "branch"
                 ? getAutoGeneratedTargetName("branch")
@@ -773,20 +777,6 @@ export function StrategyStepView({
         {targetRepoNameError && (
           <p style={styles.fieldErrorText}>{targetRepoNameError}</p>
         )}
-        <p style={styles.helpText}>
-          Format: <code style={{ backgroundColor: "#f1f5f9", padding: "2px 6px", borderRadius: 4, fontSize: 11 }}>
-            {migrationApproach === "branch"
-              ? <>migration/{'{source-repo}'}-Migrated{'{timestamp}'}</>
-              : migrationApproach === "local"
-                ? <>{'{source-repo}'}-Migrated or C:\Users\you\Desktop\{'{source-repo}'}-Migrated</>
-                : <>https://{targetRepositoryHost}/{targetRepositoryOwner}/{'{source-repo}'}-Migrated{'{timestamp}'}</>}
-          </code> {migrationApproach === "fork" ? "(auto-generated, read only)" : "(auto-generated, editable)"}
-        </p>
-        {migrationApproach === "fork" && (
-          <p style={styles.helpText}>
-            New repository targets are generated automatically for the configured GitHub owner.
-          </p>
-        )}
         {migrationApproach === "local" && (
           <p style={styles.helpText}>
             Enter either a folder name or a full absolute path. If only a folder name is provided, the backend migration workspace will be used.
@@ -794,6 +784,8 @@ export function StrategyStepView({
         )}
       </div>
 
+
+      </div>
 
       <div style={styles.btnRow} className="strategy-nav-btn-row">
         <button style={styles.secondaryBtn} onClick={onBack}>{renderBackButtonLabel()}</button>
