@@ -56,6 +56,7 @@ jobs:
       - name: npm dependency audit
         run: |
           set -o pipefail
+
           npm audit \
             --audit-level=moderate \
             --json \
@@ -64,12 +65,16 @@ jobs:
       - name: ESLint
         run: |
           set -o pipefail
-          npm run lint 2>&1 | tee eslint.log
+
+          npm run lint \
+            2>&1 | tee eslint.log
 
       - name: TypeScript check
         run: |
           set -o pipefail
-          npm run typecheck 2>&1 | tee typecheck.log
+
+          npm run typecheck \
+            2>&1 | tee typecheck.log
 
       - name: Frontend unit tests
         run: |
@@ -85,7 +90,9 @@ jobs:
       - name: Vite production build
         run: |
           set -o pipefail
-          npm run build 2>&1 | tee vite-build.log
+
+          npm run build \
+            2>&1 | tee vite-build.log
 
       - name: Upload frontend reports
         if: always()
@@ -146,7 +153,9 @@ jobs:
       - name: Ruff lint
         run: |
           set -o pipefail
-          ruff check . 2>&1 | tee ruff.log
+
+          ruff check . \
+            2>&1 | tee ruff.log
 
       - name: Pytest with coverage
         run: |
@@ -401,6 +410,7 @@ jobs:
                 "${{ needs.semgrep.result }}" != "success" ||
                 "${{ needs.sonar.result }}" != "success" ]]; then
 
+            echo ""
             echo "Production validation FAILED."
             echo "Docker image will NOT be built."
             echo "DigitalOcean deployment will NOT run."
@@ -408,6 +418,7 @@ jobs:
             exit 1
           fi
 
+          echo ""
           echo "Production validation PASSED."
 
 
@@ -518,28 +529,28 @@ jobs:
 
     env:
       TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+      FRONTEND_RESULT: ${{ needs.frontend.result }}
+      BACKEND_RESULT: ${{ needs.backend.result }}
+      SECURITY_RESULT: ${{ needs.security.result }}
+      SEMGREP_RESULT: ${{ needs.semgrep.result }}
+      SONAR_RESULT: ${{ needs.sonar.result }}
+      VALIDATION_RESULT: ${{ needs.production-validation.result }}
+      DOCKER_RESULT: ${{ needs.docker-image.result }}
+      DEPLOY_RESULT: ${{ needs.deploy.result }}
 
     steps:
       - name: Send Teams notification
-        if: ${{ env.TEAMS_WEBHOOK_URL != '' }}
-
-        env:
-          FRONTEND_RESULT: ${{ needs.frontend.result }}
-          BACKEND_RESULT: ${{ needs.backend.result }}
-          SECURITY_RESULT: ${{ needs.security.result }}
-          SEMGREP_RESULT: ${{ needs.semgrep.result }}
-          SONAR_RESULT: ${{ needs.sonar.result }}
-          VALIDATION_RESULT: ${{ needs.production-validation.result }}
-          DOCKER_RESULT: ${{ needs.docker-image.result }}
-          DEPLOY_RESULT: ${{ needs.deploy.result }}
-
         shell: bash
-
         run: |
+          if [[ -z "$TEAMS_WEBHOOK_URL" ]]; then
+            echo "TEAMS_WEBHOOK_URL is not available."
+            echo "Skipping Teams notification."
+            exit 0
+          fi
+
           if [[ "$VALIDATION_RESULT" == "success" ]]; then
 
             if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-
               STATUS="Passed"
               COLOR="Good"
 
@@ -550,10 +561,8 @@ jobs:
               COLOR="Good"
 
             else
-
               STATUS="Failed"
               COLOR="Attention"
-
             fi
 
           else
@@ -562,6 +571,8 @@ jobs:
             COLOR="Attention"
 
           fi
+
+          echo "Production status: $STATUS"
 
           payload=$(jq -n \
             --arg status "$STATUS" \
@@ -580,44 +591,87 @@ jobs:
             --arg run_url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             '{
               type: "message",
-              attachments: [{
-                contentType: "application/vnd.microsoft.card.adaptive",
-                content: {
-                  "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-                  type: "AdaptiveCard",
-                  version: "1.5",
-                  body: [
-                    {
-                      type: "TextBlock",
-                      text: ("JavaAPEX Production CI/CD " + $status),
-                      weight: "Bolder",
-                      size: "Medium",
-                      color: $color
-                    },
-                    {
-                      type: "FactSet",
-                      facts: [
-                        {title:"Repository", value:$repo},
-                        {title:"Branch", value:$branch},
-                        {title:"Event", value:$event},
-                        {title:"Frontend", value:$frontend},
-                        {title:"Backend", value:$backend},
-                        {title:"Security", value:$security},
-                        {title:"Semgrep", value:$semgrep},
-                        {title:"SonarCloud", value:$sonar},
-                        {title:"Production Validation", value:$validation},
-                        {title:"Docker/GHCR", value:$docker},
-                        {title:"DigitalOcean", value:$deploy},
-                        {title:"Run URL", value:$run_url}
-                      ]
-                    }
-                  ]
+              attachments: [
+                {
+                  contentType: "application/vnd.microsoft.card.adaptive",
+                  content: {
+                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                    type: "AdaptiveCard",
+                    version: "1.5",
+                    body: [
+                      {
+                        type: "TextBlock",
+                        text: ("JavaAPEX Production CI/CD " + $status),
+                        weight: "Bolder",
+                        size: "Medium",
+                        color: $color
+                      },
+                      {
+                        type: "FactSet",
+                        facts: [
+                          {
+                            title: "Repository",
+                            value: $repo
+                          },
+                          {
+                            title: "Branch",
+                            value: $branch
+                          },
+                          {
+                            title: "Event",
+                            value: $event
+                          },
+                          {
+                            title: "Frontend",
+                            value: $frontend
+                          },
+                          {
+                            title: "Backend",
+                            value: $backend
+                          },
+                          {
+                            title: "Security",
+                            value: $security
+                          },
+                          {
+                            title: "Semgrep",
+                            value: $semgrep
+                          },
+                          {
+                            title: "SonarCloud",
+                            value: $sonar
+                          },
+                          {
+                            title: "Production Validation",
+                            value: $validation
+                          },
+                          {
+                            title: "Docker / GHCR",
+                            value: $docker
+                          },
+                          {
+                            title: "DigitalOcean",
+                            value: $deploy
+                          },
+                          {
+                            title: "Run URL",
+                            value: $run_url
+                          }
+                        ]
+                      }
+                    ]
+                  }
                 }
-              }]
+              ]
             }')
 
           curl \
             --fail-with-body \
+            --silent \
+            --show-error \
             --header "Content-Type: application/json" \
             --data "$payload" \
             "$TEAMS_WEBHOOK_URL"
+
+          echo ""
+          echo "Teams notification sent successfully."
