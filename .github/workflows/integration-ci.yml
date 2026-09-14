@@ -57,7 +57,10 @@ jobs:
       - name: npm dependency audit
         run: |
           set -o pipefail
-          npm audit --audit-level=moderate --json 2>&1 | tee npm-audit-report.json
+          npm audit \
+            --audit-level=moderate \
+            --json \
+            2>&1 | tee npm-audit-report.json
 
       - name: ESLint
         run: |
@@ -127,7 +130,10 @@ jobs:
 
       - name: pip dependency audit
         run: |
-          pip-audit -r requirements.txt -f json -o pip-audit-report.json
+          pip-audit \
+            -r requirements.txt \
+            -f json \
+            -o pip-audit-report.json
 
       - name: Ruff lint
         run: |
@@ -147,7 +153,10 @@ jobs:
       - name: Bandit security scan
         run: |
           set -o pipefail
-          bandit -r app -f txt -o bandit.log
+          bandit \
+            -r app \
+            -f txt \
+            -o bandit.log
 
       - name: Upload backend reports
         if: always()
@@ -244,12 +253,14 @@ jobs:
       - security
       - integration-validation
 
+    env:
+      TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+
     steps:
       - name: Send Teams notification
-        if: ${{ secrets.TEAMS_WEBHOOK_URL != '' }}
+        if: ${{ env.TEAMS_WEBHOOK_URL != '' }}
 
         env:
-          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
           FRONTEND_RESULT: ${{ needs.frontend.result }}
           BACKEND_RESULT: ${{ needs.backend.result }}
           SECURITY_RESULT: ${{ needs.security.result }}
@@ -296,14 +307,38 @@ jobs:
                     {
                       type: "FactSet",
                       facts: [
-                        {title:"Repository",value:$repo},
-                        {title:"Branch",value:$branch},
-                        {title:"Event",value:$event},
-                        {title:"Frontend",value:$frontend},
-                        {title:"Backend",value:$backend},
-                        {title:"Security",value:$security},
-                        {title:"Integration Validation",value:$validation},
-                        {title:"Run URL",value:$run_url}
+                        {
+                          title: "Repository",
+                          value: $repo
+                        },
+                        {
+                          title: "Branch",
+                          value: $branch
+                        },
+                        {
+                          title: "Event",
+                          value: $event
+                        },
+                        {
+                          title: "Frontend",
+                          value: $frontend
+                        },
+                        {
+                          title: "Backend",
+                          value: $backend
+                        },
+                        {
+                          title: "Security",
+                          value: $security
+                        },
+                        {
+                          title: "Integration Validation",
+                          value: $validation
+                        },
+                        {
+                          title: "Run URL",
+                          value: $run_url
+                        }
                       ]
                     }
                   ]
