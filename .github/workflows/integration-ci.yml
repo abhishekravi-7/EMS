@@ -16,7 +16,6 @@ on:
       - synchronize
       - reopened
 
-  # Optional manual execution
   workflow_dispatch:
 
 permissions:
@@ -27,6 +26,9 @@ concurrency:
   group: integration-ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  NODE_VERSION: "20"
+  PYTHON_VERSION: "3.11"
 
 jobs:
 
@@ -34,23 +36,18 @@ jobs:
     name: Frontend quality gates
     runs-on: ubuntu-latest
 
-    outputs:
-      failed_checks: ${{ steps.collect_failures.outputs.checks }}
-
     defaults:
       run:
         working-directory: ./APEX-Frontend
 
     steps:
-
       - name: Checkout repository
         uses: actions/checkout@v4
-
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: APEX-Frontend/package-lock.json
 
@@ -58,71 +55,41 @@ jobs:
         run: npm ci
 
       - name: npm dependency audit
-        id: npm_audit
-        continue-on-error: true
         run: |
-          npm audit \
-            --audit-level=moderate \
-            --json \
-            > npm-audit-report.json
-
+          set -o pipefail
+          npm audit --audit-level=moderate --json 2>&1 | tee npm-audit-report.json
 
       - name: ESLint
-        id: eslint
-        continue-on-error: true
         run: |
           set -o pipefail
-
-          npm run lint \
-            2>&1 | tee eslint.log
+          npm run lint 2>&1 | tee eslint.log
 
       - name: TypeScript check
-        id: typecheck
-        continue-on-error: true
         run: |
           set -o pipefail
-
-          npm run typecheck \
-            2>&1 | tee typecheck.log
+          npm run typecheck 2>&1 | tee typecheck.log
 
       - name: Frontend unit tests
-        id: unit_tests
-        continue-on-error: true
-        run: |
-          if find . \
-            -type f \
-            \( -name "*.test.*" -o -name "*.spec.*" \) \
-            | grep -q .
-          then
-
-            set -o pipefail
-
-            npm test -- --run \
-              2>&1 | tee unit-tests.log
-
-          else
-
-            echo "No frontend unit tests detected; skipping." \
-              | tee unit-tests.log
-
-          fi
-
-
-      - name: Vite production build
-        id: vite_build
-        continue-on-error: true
         run: |
           set -o pipefail
 
-          npm run build \
-            2>&1 | tee vite-build.log
+          if find . -type f \( -name "*.test.*" -o -name "*.spec.*" \) | grep -q .; then
+            npm test -- --run 2>&1 | tee unit-tests.log
+          else
+            echo "No frontend unit tests detected."
+            exit 1
+          fi
 
+      - name: Vite production build
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee vite-build.log
 
       - name: Upload frontend reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: frontend-ci-reports
+          name: integration-frontend-reports
           path: |
             APEX-Frontend/npm-audit-report.json
             APEX-Frontend/eslint.log
@@ -130,248 +97,89 @@ jobs:
             APEX-Frontend/unit-tests.log
             APEX-Frontend/vite-build.log
           if-no-files-found: ignore
-
-      - name: Collect frontend failed checks
-        id: collect_failures
-        if: always()
-        shell: bash
-        run: |
-          failed=()
-
-          if [[ "${{ steps.npm_audit.outcome }}" == "failure" ]]; then
-            failed+=("npm audit")
-          fi
-
-          if [[ "${{ steps.eslint.outcome }}" == "failure" ]]; then
-            failed+=("ESLint")
-          fi
-
-          if [[ "${{ steps.typecheck.outcome }}" == "failure" ]]; then
-            failed+=("TypeScript check")
-          fi
-
-          if [[ "${{ steps.unit_tests.outcome }}" == "failure" ]]; then
-            failed+=("Frontend unit tests")
-          fi
-
-          if [[ "${{ steps.vite_build.outcome }}" == "failure" ]]; then
-            failed+=("Vite production build")
-          fi
-
-          checks="$(IFS=', '; echo "${failed[*]}")"
-
-          echo "checks=$checks" >> "$GITHUB_OUTPUT"
-
-          echo "=========================================="
-          echo "FRONTEND CHECK RESULTS"
-          echo "=========================================="
-
-          echo "npm audit       : ${{ steps.npm_audit.outcome }}"
-          echo "ESLint          : ${{ steps.eslint.outcome }}"
-          echo "TypeScript      : ${{ steps.typecheck.outcome }}"
-          echo "Unit Tests      : ${{ steps.unit_tests.outcome }}"
-          echo "Vite Build      : ${{ steps.vite_build.outcome }}"
-
-          echo ""
-          echo "Failed checks: ${checks:-None}"
-
-      - name: Fail frontend job if any check failed
-        if: always()
-        shell: bash
-        run: |
-          failed="${{ steps.collect_failures.outputs.checks }}"
-
-          if [[ -n "$failed" ]]; then
-
-            echo "Frontend quality gates failed:"
-            echo "$failed"
-
-            exit 1
-
-          fi
-
-          echo "Frontend quality gates passed."
+          retention-days: 30
 
 
   backend:
     name: Backend quality gates
     runs-on: ubuntu-latest
 
-    outputs:
-      failed_checks: ${{ steps.collect_failures.outputs.checks }}
-
     defaults:
       run:
         working-directory: ./APEX-Backend
 
     steps:
-
       - name: Checkout repository
         uses: actions/checkout@v4
-
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
           cache-dependency-path: APEX-Backend/requirements.txt
 
-
-  
       - name: Install backend dependencies
         run: |
           python -m pip install --upgrade pip
-
           pip install -r requirements.txt
-
-          pip install \
-            pytest \
-            pytest-asyncio \
-            respx \
-            ruff \
-            bandit \
-            pip-audit
-
+          pip install pytest pytest-asyncio pytest-cov respx ruff bandit pip-audit
 
       - name: pip dependency audit
-        id: pip_audit
-        continue-on-error: true
         run: |
-          pip-audit \
-            -r requirements.txt \
-            -f json \
-            -o pip-audit-report.json
-
+          pip-audit -r requirements.txt -f json -o pip-audit-report.json
 
       - name: Ruff lint
-        id: ruff
-        continue-on-error: true
         run: |
           set -o pipefail
+          ruff check . 2>&1 | tee ruff.log
 
-          ruff check . \
-            2>&1 | tee ruff.log
-
-
-      - name: Pytest
-        id: pytest
-        continue-on-error: true
+      - name: Pytest with coverage
         run: |
           set -o pipefail
 
           pytest -q \
+            --cov=app \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml \
             2>&1 | tee pytest.log
 
       - name: Bandit security scan
-        id: bandit
-        continue-on-error: true
         run: |
           set -o pipefail
-
-          bandit \
-            -r app \
-            -f txt \
-            -o bandit.log
-
+          bandit -r app -f txt -o bandit.log
 
       - name: Upload backend reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: backend-ci-reports
+          name: integration-backend-reports
           path: |
             APEX-Backend/pip-audit-report.json
             APEX-Backend/ruff.log
             APEX-Backend/pytest.log
             APEX-Backend/bandit.log
+            APEX-Backend/coverage.xml
           if-no-files-found: ignore
-
-
-      - name: Collect backend failed checks
-        id: collect_failures
-        if: always()
-        shell: bash
-        run: |
-          failed=()
-
-          if [[ "${{ steps.pip_audit.outcome }}" == "failure" ]]; then
-            failed+=("pip-audit")
-          fi
-
-          if [[ "${{ steps.ruff.outcome }}" == "failure" ]]; then
-            failed+=("Ruff")
-          fi
-
-          if [[ "${{ steps.pytest.outcome }}" == "failure" ]]; then
-            failed+=("Pytest")
-          fi
-
-          if [[ "${{ steps.bandit.outcome }}" == "failure" ]]; then
-            failed+=("Bandit")
-          fi
-
-          checks="$(IFS=', '; echo "${failed[*]}")"
-
-          echo "checks=$checks" >> "$GITHUB_OUTPUT"
-
-          echo "=========================================="
-          echo "BACKEND CHECK RESULTS"
-          echo "=========================================="
-
-          echo "pip-audit : ${{ steps.pip_audit.outcome }}"
-          echo "Ruff      : ${{ steps.ruff.outcome }}"
-          echo "Pytest    : ${{ steps.pytest.outcome }}"
-          echo "Bandit    : ${{ steps.bandit.outcome }}"
-
-          echo ""
-          echo "Failed checks: ${checks:-None}"
-
-      - name: Fail backend job if any check failed
-        if: always()
-        shell: bash
-        run: |
-          failed="${{ steps.collect_failures.outputs.checks }}"
-
-          if [[ -n "$failed" ]]; then
-
-            echo "Backend quality gates failed:"
-            echo "$failed"
-
-            exit 1
-
-          fi
-
-          echo "Backend quality gates passed."
+          retention-days: 30
 
 
   security:
     name: Security scans
     runs-on: ubuntu-latest
 
-    outputs:
-      failed_checks: ${{ steps.collect_failures.outputs.checks }}
-
     steps:
-
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-
-   
       - name: Gitleaks secret scan
-        id: gitleaks
-        continue-on-error: true
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-
       - name: Trivy filesystem scan
-        id: trivy
-        continue-on-error: true
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
@@ -379,79 +187,23 @@ jobs:
           format: table
           output: trivy-results.txt
           severity: MEDIUM,HIGH,CRITICAL
-          exit-code: 1
+          exit-code: "1"
           ignore-unfixed: true
           version: v0.70.0
           cache: true
 
-
-      - name: Upload security scan reports
+      - name: Upload security reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: security-scan-reports
-          path: |
-            trivy-results.txt
+          name: integration-security-reports
+          path: trivy-results.txt
           if-no-files-found: ignore
-
-      - name: Collect security failed checks
-        id: collect_failures
-        if: always()
-        shell: bash
-        run: |
-          failed=()
-
-          if [[ "${{ steps.gitleaks.outcome }}" == "failure" ]]; then
-            failed+=("Gitleaks")
-          fi
-
-          if [[ "${{ steps.trivy.outcome }}" == "failure" ]]; then
-            failed+=("Trivy")
-          fi
-
-          checks="$(IFS=', '; echo "${failed[*]}")"
-
-          echo "checks=$checks" >> "$GITHUB_OUTPUT"
-
-          echo "=========================================="
-          echo "SECURITY CHECK RESULTS"
-          echo "=========================================="
-
-          echo "Gitleaks : ${{ steps.gitleaks.outcome }}"
-          echo "Trivy    : ${{ steps.trivy.outcome }}"
-
-          echo ""
-          echo "Failed checks: ${checks:-None}"
+          retention-days: 30
 
 
-      - name: Fail security job if any check failed
-        if: always()
-        shell: bash
-        run: |
-          failed="${{ steps.collect_failures.outputs.checks }}"
-
-          echo "=========================================="
-          echo "FINAL SECURITY STATUS"
-          echo "=========================================="
-
-          if [[ -n "$failed" ]]; then
-
-            echo ""
-            echo "Security scans FAILED."
-            echo ""
-            echo "Failed checks:"
-            echo "$failed"
-
-            exit 1
-
-          fi
-
-          echo ""
-          echo "Security scans PASSED."
-
-
-  ci-status:
-    name: Integration CI status
+  integration-validation:
+    name: Integration validation
     runs-on: ubuntu-latest
 
     needs:
@@ -461,366 +213,106 @@ jobs:
 
     if: always()
 
-    outputs:
-      frontend_failed: ${{ steps.status.outputs.frontend_failed }}
-      backend_failed: ${{ steps.status.outputs.backend_failed }}
-      security_failed: ${{ steps.status.outputs.security_failed }}
-
     steps:
-
-      - name: Calculate CI status
-        id: status
+      - name: Validate integration gates
         shell: bash
         run: |
-          echo "=========================================="
-          echo "        INTEGRATION CI RESULTS"
-          echo "=========================================="
-
-          echo ""
           echo "Frontend : ${{ needs.frontend.result }}"
           echo "Backend  : ${{ needs.backend.result }}"
           echo "Security : ${{ needs.security.result }}"
 
-          echo ""
-          echo "Frontend failed checks:"
-          echo "${{ needs.frontend.outputs.failed_checks }}"
+          if [[ "${{ needs.frontend.result }}" != "success" ||
+                "${{ needs.backend.result }}" != "success" ||
+                "${{ needs.security.result }}" != "success" ]]; then
 
-          echo ""
-          echo "Backend failed checks:"
-          echo "${{ needs.backend.outputs.failed_checks }}"
-
-          echo ""
-          echo "Security failed checks:"
-          echo "${{ needs.security.outputs.failed_checks }}"
-
-          echo \
-            "frontend_failed=${{ needs.frontend.outputs.failed_checks }}" \
-            >> "$GITHUB_OUTPUT"
-
-          echo \
-            "backend_failed=${{ needs.backend.outputs.failed_checks }}" \
-            >> "$GITHUB_OUTPUT"
-
-          echo \
-            "security_failed=${{ needs.security.outputs.failed_checks }}" \
-            >> "$GITHUB_OUTPUT"
-
-
-          if [[ \
-            "${{ needs.frontend.result }}" != "success" ||
-            "${{ needs.backend.result }}" != "success" ||
-            "${{ needs.security.result }}" != "success"
-          ]]; then
-
-            echo ""
-            echo "=========================================="
-            echo "INTEGRATION CI FAILED"
-            echo "=========================================="
-
+            echo "Integration validation FAILED."
             exit 1
-
           fi
 
-          echo ""
-          echo "=========================================="
-          echo "INTEGRATION CI PASSED"
-          echo "=========================================="
+          echo "Integration validation PASSED."
+
 
   notify:
     name: Teams notification
     runs-on: ubuntu-latest
 
+    if: always()
+
     needs:
       - frontend
       - backend
       - security
-      - ci-status
-
-    if: always()
-
-    env:
-      TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+      - integration-validation
 
     steps:
-
-      - name: Download CI report artifacts
-        if: >-
-          ${{
-            needs.frontend.result == 'failure' ||
-            needs.backend.result == 'failure' ||
-            needs.security.result == 'failure'
-          }}
-        uses: actions/download-artifact@v4
-        with:
-          path: ci-error-logs
-          pattern: "*-*-reports"
-          merge-multiple: true
-
-
-      - name: Upload consolidated CI error logs
-        if: >-
-          ${{
-            needs.frontend.result == 'failure' ||
-            needs.backend.result == 'failure' ||
-            needs.security.result == 'failure'
-          }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: integration-ci-error-logs
-          path: ci-error-logs
-          if-no-files-found: ignore
-
-
-      - name: Send Microsoft Teams notification on success
-        if: >-
-          ${{
-            env.TEAMS_WEBHOOK_URL != '' &&
-            needs.frontend.result == 'success' &&
-            needs.backend.result == 'success' &&
-            needs.security.result == 'success'
-          }}
-
-        shell: bash
-
-        run: |
-          payload=$(cat <<JSON
-          {
-            "type": "message",
-            "attachments": [
-              {
-                "contentType": "application/vnd.microsoft.card.adaptive",
-                "content": {
-                  "\$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-                  "type": "AdaptiveCard",
-                  "version": "1.5",
-                  "body": [
-                    {
-                      "type": "TextBlock",
-                      "text": "Integration CI Passed",
-                      "weight": "Bolder",
-                      "size": "Medium",
-                      "color": "Good"
-                    },
-                    {
-                      "type": "FactSet",
-                      "facts": [
-                        {
-                          "title": "Repository",
-                          "value": "${{ github.repository }}"
-                        },
-                        {
-                          "title": "Branch",
-                          "value": "${{ github.ref_name }}"
-                        },
-                        {
-                          "title": "Commit",
-                          "value": "${{ github.sha }}"
-                        },
-                        {
-                          "title": "Workflow",
-                          "value": "${{ github.workflow }}"
-                        },
-                        {
-                          "title": "Frontend",
-                          "value": "Passed"
-                        },
-                        {
-                          "title": "Backend",
-                          "value": "Passed"
-                        },
-                        {
-                          "title": "Security",
-                          "value": "Passed"
-                        },
-                        {
-                          "title": "Run URL",
-                          "value": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "TextBlock",
-                      "text": "All required Integration CI checks completed successfully.",
-                      "wrap": true
-                    }
-                  ]
-                }
-              }
-            ]
-          }
-          JSON
-          )
-
-          response_file="$(mktemp)"
-
-          http_code="$(
-            curl -sS \
-              -H "Content-Type: application/json" \
-              -d "$payload" \
-              -o "$response_file" \
-              -w '%{http_code}' \
-              "$TEAMS_WEBHOOK_URL"
-          )"
-
-          if [[ "$http_code" != 2* ]]; then
-
-            echo "Teams webhook failed with HTTP status: $http_code"
-
-            echo "Response:"
-            cat "$response_file"
-
-            exit 1
-
-          fi
-
-      - name: Send Microsoft Teams notification on failure
-        if: >-
-          ${{
-            env.TEAMS_WEBHOOK_URL != '' &&
-            (
-              needs.frontend.result == 'failure' ||
-              needs.backend.result == 'failure' ||
-              needs.security.result == 'failure'
-            )
-          }}
-
-        shell: bash
+      - name: Send Teams notification
+        if: ${{ secrets.TEAMS_WEBHOOK_URL != '' }}
 
         env:
-          FRONTEND_FAILED: ${{ needs.frontend.outputs.failed_checks }}
-          BACKEND_FAILED: ${{ needs.backend.outputs.failed_checks }}
-          SECURITY_FAILED: ${{ needs.security.outputs.failed_checks }}
+          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+          FRONTEND_RESULT: ${{ needs.frontend.result }}
+          BACKEND_RESULT: ${{ needs.backend.result }}
+          SECURITY_RESULT: ${{ needs.security.result }}
+          VALIDATION_RESULT: ${{ needs.integration-validation.result }}
+
+        shell: bash
 
         run: |
-          failed_jobs=()
-
-          if [[ "${{ needs.frontend.result }}" == "failure" ]]; then
-            failed_jobs+=("Frontend quality gates")
+          if [[ "$VALIDATION_RESULT" == "success" ]]; then
+            STATUS="Passed"
+            COLOR="Good"
+          else
+            STATUS="Failed"
+            COLOR="Attention"
           fi
 
-          if [[ "${{ needs.backend.result }}" == "failure" ]]; then
-            failed_jobs+=("Backend quality gates")
-          fi
-
-          if [[ "${{ needs.security.result }}" == "failure" ]]; then
-            failed_jobs+=("Security scans")
-          fi
-
-          failed_jobs_text="$(IFS=', '; echo "${failed_jobs[*]}")"
-
-          frontend_failed="${FRONTEND_FAILED:-None}"
-          backend_failed="${BACKEND_FAILED:-None}"
-          security_failed="${SECURITY_FAILED:-None}"
-
-          echo "=========================================="
-          echo "FAILED JOBS"
-          echo "=========================================="
-
-          echo "$failed_jobs_text"
-
-          echo ""
-          echo "Frontend Failed Checks:"
-          echo "$frontend_failed"
-
-          echo ""
-          echo "Backend Failed Checks:"
-          echo "$backend_failed"
-
-          echo ""
-          echo "Security Failed Checks:"
-          echo "$security_failed"
-
-
-          payload=$(cat <<JSON
-          {
-            "type": "message",
-            "attachments": [
-              {
-                "contentType": "application/vnd.microsoft.card.adaptive",
-                "content": {
-                  "\$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-                  "type": "AdaptiveCard",
-                  "version": "1.5",
-                  "body": [
+          payload=$(jq -n \
+            --arg status "$STATUS" \
+            --arg color "$COLOR" \
+            --arg repo "${{ github.repository }}" \
+            --arg branch "${{ github.ref_name }}" \
+            --arg event "${{ github.event_name }}" \
+            --arg frontend "$FRONTEND_RESULT" \
+            --arg backend "$BACKEND_RESULT" \
+            --arg security "$SECURITY_RESULT" \
+            --arg validation "$VALIDATION_RESULT" \
+            --arg run_url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            '{
+              type: "message",
+              attachments: [{
+                contentType: "application/vnd.microsoft.card.adaptive",
+                content: {
+                  "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                  type: "AdaptiveCard",
+                  version: "1.5",
+                  body: [
                     {
-                      "type": "TextBlock",
-                      "text": "Integration CI Failed",
-                      "weight": "Bolder",
-                      "size": "Medium",
-                      "color": "Attention"
+                      type: "TextBlock",
+                      text: ("JavaAPEX Integration CI " + $status),
+                      weight: "Bolder",
+                      size: "Medium",
+                      color: $color
                     },
                     {
-                      "type": "FactSet",
-                      "facts": [
-                        {
-                          "title": "Repository",
-                          "value": "${{ github.repository }}"
-                        },
-                        {
-                          "title": "Branch",
-                          "value": "${{ github.ref_name }}"
-                        },
-                        {
-                          "title": "Commit",
-                          "value": "${{ github.sha }}"
-                        },
-                        {
-                          "title": "Workflow",
-                          "value": "${{ github.workflow }}"
-                        },
-                        {
-                          "title": "Failed Jobs",
-                          "value": "$failed_jobs_text"
-                        },
-                        {
-                          "title": "Frontend Failed Checks",
-                          "value": "$frontend_failed"
-                        },
-                        {
-                          "title": "Backend Failed Checks",
-                          "value": "$backend_failed"
-                        },
-                        {
-                          "title": "Security Failed Checks",
-                          "value": "$security_failed"
-                        },
-                        {
-                          "title": "Run URL",
-                          "value": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-                        }
+                      type: "FactSet",
+                      facts: [
+                        {title:"Repository",value:$repo},
+                        {title:"Branch",value:$branch},
+                        {title:"Event",value:$event},
+                        {title:"Frontend",value:$frontend},
+                        {title:"Backend",value:$backend},
+                        {title:"Security",value:$security},
+                        {title:"Integration Validation",value:$validation},
+                        {title:"Run URL",value:$run_url}
                       ]
-                    },
-                    {
-                      "type": "TextBlock",
-                      "text": "Download the integration-ci-error-logs artifact from this run for detailed reports.",
-                      "wrap": true
                     }
                   ]
                 }
-              }
-            ]
-          }
-          JSON
-          )
+              }]
+            }')
 
-          response_file="$(mktemp)"
-
-          http_code="$(
-            curl -sS \
-              -H "Content-Type: application/json" \
-              -d "$payload" \
-              -o "$response_file" \
-              -w '%{http_code}' \
-              "$TEAMS_WEBHOOK_URL"
-          )"
-
-          if [[ "$http_code" != 2* ]]; then
-
-            echo "Teams webhook failed with HTTP status: $http_code"
-
-            echo "Response:"
-            cat "$response_file"
-
-            exit 1
-
-          fi
+          curl \
+            --fail-with-body \
+            --header "Content-Type: application/json" \
+            --data "$payload" \
+            "$TEAMS_WEBHOOK_URL"
