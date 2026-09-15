@@ -42,8 +42,9 @@ const AttendanceList: React.FC = () => {
 
   return (
     <div>
-      <div className="page-header">
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h2>Attendance Log</h2>
+        <a href="/attendance/new" className="btn btn-primary">Mark Attendance</a>
       </div>
       
       {loading ? (

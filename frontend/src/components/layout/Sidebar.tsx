@@ -7,6 +7,7 @@ const Sidebar: React.FC = () => {
     { name: 'Dashboard', path: '/', icon: <FiHome /> },
     { name: 'Employees', path: '/employees', icon: <FiUsers /> },
     { name: 'Attendance', path: '/attendance', icon: <FiCalendar /> },
+    { name: 'Leaves', path: '/leaves', icon: <FiCalendar /> },
     { name: 'Salary', path: '/salary', icon: <FiDollarSign /> },
   ];
 

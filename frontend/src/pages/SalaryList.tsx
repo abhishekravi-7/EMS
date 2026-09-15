@@ -78,9 +78,11 @@ const SalaryList: React.FC = () => {
 
   return (
     <div>
-      <div className="page-header">
-        <h2>Salary Management</h2>
-        <div style={{ display: 'flex', gap: '10px' }}>
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <h2>Salary Records</h2>
+        <a href="/salary/new" className="btn btn-primary">Add Salary</a>
+      </div>
+      <div style={{ display: 'flex', gap: '10px' }}>
           {['ALL', 'PENDING', 'PAID'].map((f) => (
             <button
               key={f}
@@ -99,8 +101,7 @@ const SalaryList: React.FC = () => {
             </button>
           ))}
         </div>
-      </div>
-      
+
       {loading ? (
         <div>Loading salaries...</div>
       ) : (

@@ -8,6 +8,11 @@ import AttendanceList from './pages/AttendanceList';
 import SalaryList from './pages/SalaryList';
 import Login from './pages/Login';
 
+import AttendanceForm from './pages/AttendanceForm';
+import SalaryForm from './pages/SalaryForm';
+import LeaveList from './pages/LeaveList';
+import LeaveForm from './pages/LeaveForm';
+
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
 
@@ -30,7 +35,11 @@ const App: React.FC = () => {
           <Route path="employees" element={<EmployeeList />} />
           <Route path="employees/new" element={<EmployeeForm />} />
           <Route path="attendance" element={<AttendanceList />} />
+          <Route path="attendance/new" element={<AttendanceForm />} />
+          <Route path="leaves" element={<LeaveList />} />
+          <Route path="leaves/new" element={<LeaveForm />} />
           <Route path="salary" element={<SalaryList />} />
+          <Route path="salary/new" element={<SalaryForm />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
