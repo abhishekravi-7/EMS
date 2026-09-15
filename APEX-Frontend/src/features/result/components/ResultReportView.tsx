@@ -520,6 +520,7 @@ export function ResultReportView({
       newVersion?: string | null;
       status?: string | null;
     };
+    return {
       group_id: source.group_id || source.groupId || source.coordinate?.split(":")[0] || "dependency",
       artifact_id: source.artifact_id || source.artifactId || source.coordinate?.split(":")[1] || "artifact",
       current_version: source.current_version || source.old_version || source.oldVersion || source.sourceVersion || "managed version",
@@ -527,6 +528,8 @@ export function ResultReportView({
       status: source.status || "UPGRADED",
     };
   });
+  const dependencyUpgradeCount = dependencyUpdates.length;
+  const warningsRemaining = Math.max(
     (migrationJob?.total_warnings ?? 0) - (migrationJob?.warnings_fixed ?? 0),
     0,
   );
