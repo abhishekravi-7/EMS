@@ -12,7 +12,7 @@ export interface AuthContextValue {
   user: AuthUser | null;
   currentUser: FirebaseUser | null; // Firebase user object
   loading: boolean;                // Alias for isAuthLoading for Firebase convention
-  login: (user: AuthUser) => void;
+  login: (user: FirebaseUser) => void;
   logout: () => Promise<void>;
 }
 
