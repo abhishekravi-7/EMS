@@ -507,8 +507,21 @@ const shouldHideGeneratedDiffPath = (filePath: string) => {
 };
 
 const buildCodeChangesFromPreviewDiffs = (fileDiffs: PreviewFileDiff[]): CodeChangeEntry[] => {
+  if (!Array.isArray(fileDiffs)) {
+    return [];
+  }
   return fileDiffs.flatMap((fileDiff) => {
-    const diffLinesRaw = fileDiff.diff.split(/\r?\n/);
+    if (!fileDiff) return [];
+
+    const rawDiff = typeof fileDiff.diff === "string"
+      ? fileDiff.diff
+      : typeof (fileDiff as any).diff_content === "string"
+        ? (fileDiff as any).diff_content
+        : typeof (fileDiff as any).patch === "string"
+          ? (fileDiff as any).patch
+          : "";
+
+    const diffLinesRaw = rawDiff ? rawDiff.split(/\r?\n/) : [];
     const parsedDiffLines: CodeChangeEntry["diffLines"] = [];
     let oldLineNumber = 0;
     let newLineNumber = 0;
