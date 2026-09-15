@@ -16,7 +16,6 @@ export const renderWizardIconBadge = (
 
 export const renderBackButtonLabel = () => (
   <span className="wizard-button-content">
-    <FaArrowLeft />
     <span>Back</span>
   </span>
 );
@@ -24,14 +23,12 @@ export const renderBackButtonLabel = () => (
 export const renderForwardButtonLabel = (label: string) => (
   <span className="wizard-button-content">
     <span>{label}</span>
-    <FaArrowRight />
   </span>
 );
 
 export const renderForwardLinkLabel = (label: string) => (
   <span className="wizard-link-content">
     <span>{label}</span>
-    <FaArrowRight />
   </span>
 );
 

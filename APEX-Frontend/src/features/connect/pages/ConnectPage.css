@@ -11,14 +11,14 @@
 
 .page-connect {
   width: 100%;
-  max-width: 1400px;
-  margin: auto;
+  height: 100%;
+  flex: 1;
   position: relative;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  padding: clamp(6px, 1.5vh, 20px) 0;
+  padding: 24px 40px;
 }
 
 /* Background Watermarks & Decorative Patterns - Static & Non-Distracting */
@@ -60,12 +60,20 @@
   position: relative;
   z-index: 1;
   width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
 /* Hero Section */
 .connect-hero {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   text-align: center;
-  margin-bottom: clamp(16px, 3vh, 38px);
+  margin-top: -10px;
+  margin-bottom: clamp(100px, 7vh, 80px);
   animation: heroReveal 0.5s ease-out;
 }
 
@@ -99,7 +107,8 @@
   background-repeat: no-repeat;
   animation: drawCurve 1s cubic-bezier(0.4, 0, 0.2, 1) forwards;
   transform-origin: left;
-}
+
+  display: none;}
 
 .connect-hero-subtitle {
   font-size: clamp(13px, 1.1vw, 17px);
@@ -133,11 +142,11 @@
   display: flex;
   align-items: stretch;
   justify-content: center;
-  gap: 24px;
+  gap: 32px;
   position: relative;
-  max-width: 1200px;
   width: 100%;
-  margin: 0 auto clamp(14px, 2.5vh, 28px);
+  max-width: 100%;
+  margin: 0 0 clamp(16px, 3vh, 32px);
 }
 
 .connect-action-card {
@@ -145,7 +154,9 @@
   background: #ffffff;
   border: 1px solid #e2e8f0;
   border-radius: 18px;
-  padding: clamp(18px, 2.4vh, 26px) clamp(16px, 2vw, 24px);
+  padding: clamp(16px, 2.4vh, 26px) clamp(16px, 2vw, 24px);
+  min-height: clamp(270px, 34vh, 390px);
+  height: auto;
   box-shadow: 0 4px 20px rgba(15, 23, 42, 0.04);
   display: flex;
   flex-direction: column;
@@ -153,13 +164,26 @@
   text-align: center;
   position: relative;
   overflow: hidden;
-  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+  transition: opacity 0.25s ease, filter 0.25s ease, box-shadow 0.2s ease, border-color 0.2s ease;
   box-sizing: border-box;
 }
 
 .connect-action-card:hover {
   border-color: #cbd5e1;
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.07);
+}
+
+/* Greyed-out state when the other card is active */
+.connect-action-card.is-card-disabled {
+  opacity: 0.38;
+  filter: grayscale(60%);
+  pointer-events: none;
+  user-select: none;
+  transition: opacity 0.25s ease, filter 0.25s ease;
+}
+
+.connect-action-card > .connect-primary-btn {
+  margin-top: clamp(8px, 1.5vh, 16px);
 }
 
 .connect-card-accent-github {
@@ -206,6 +230,8 @@
 }
 
 .connect-card-heading {
+  width: 100%;
+  text-align: center;
   font-size: clamp(16px, 1.25vw, 18.5px);
   font-weight: 700;
   color: #0f172a;
@@ -353,9 +379,9 @@
   padding: clamp(14px, 1.8vh, 18px) clamp(16px, 2vw, 24px);
   box-shadow: 0 2px 12px rgba(15, 23, 42, 0.03);
   position: relative;
-  max-width: 1200px;
   width: 100%;
-  margin: 0 auto;
+  max-width: 1520px;
+  margin: 70px auto 0;
   box-sizing: border-box;
 }
 
