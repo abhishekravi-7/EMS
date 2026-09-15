@@ -1,7 +1,5 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { signInWithEmailAndPassword } from "firebase/auth";
-import { auth } from "../../../firebase/firebase";
 import { signInWithGoogle, signInWithGithub, resetPassword, signIn } from "../services/authService";
 import AuthLayout from "../components/AuthLayout";
 import { useAuth } from "@/shared/context/AuthContext";
@@ -47,8 +45,6 @@ const ForgotPasswordModal: React.FC<{ onClose: () => void }> = ({ onClose }) => 
       console.error("Password reset error details:", err);
       setErrorMsg(err.message || "Unable to send reset email. Please ensure the email is correct.");
       setStatus("error");
-    } finally {
-      // Just to be safe, don't leave it in loading if caught
     }
   };
 
@@ -157,11 +153,8 @@ const SignInPage: React.FC = () => {
   const { login, isAuthenticated, isAuthLoading } = useAuth();
 
   // If already authenticated, redirect to application
-  React.useEffect(() => {
-    console.log("[SignIn] Auth check:", { isAuthLoading, isAuthenticated });
+  useEffect(() => {
     if (!isAuthLoading && isAuthenticated) {
-      console.log("[SignIn] Navigating to /connect...");
-      // Using window.location.href as a fallback if navigate is being intercepted
       navigate("/connect", { replace: true });
     }
   }, [isAuthenticated, isAuthLoading, navigate]);
@@ -174,6 +167,7 @@ const SignInPage: React.FC = () => {
     try {
       const user = await signIn({ email, password });
       console.log("[SignIn] Email sign in success:", user.email);
+      login(); // Trigger auth check update in provider
     } catch (err: any) {
       console.error("[SignIn] Email sign in error:", err);
       setError(err.message);
@@ -185,9 +179,8 @@ const SignInPage: React.FC = () => {
   const handleGoogleSignIn = async () => {
     setError(null);
     try {
-      const user = await signInWithGoogle();
-      console.log("[SignIn] Google sign in success:", user.email);
-      // Navigation is handled by the useEffect above once state propagates
+      await signInWithGoogle();
+      // Redirection happens in service
     } catch (err: any) {
       console.error("[SignIn] Google sign in error:", err);
       setError(err.message);
@@ -197,9 +190,8 @@ const SignInPage: React.FC = () => {
   const handleGithubSignIn = async () => {
     setError(null);
     try {
-      const user = await signInWithGithub();
-      console.log("[SignIn] GitHub sign in success:", user.email);
-      // Navigation is handled by the useEffect above once state propagates
+      await signInWithGithub();
+      // Redirection happens in service
     } catch (err: any) {
       console.error("[SignIn] GitHub sign in error:", err);
       setError(err.message);
