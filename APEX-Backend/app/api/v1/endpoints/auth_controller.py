@@ -133,6 +133,25 @@ async def signup(payload: SignupRequest, db: Session = Depends(get_db)) -> JSONR
     are set here, matching the frontend's "redirect to Sign In after signup"
     flow. No token or session is fabricated for an unverified new account.
     """
+    if settings.auth_provider == "mongodb":
+        from app.infrastructure.persistence.mongodb import get_mongodb
+        from app.application.services.mongodb_auth_service import MongoDBAuthService
+        
+        mongo_db = await get_mongodb()
+        service = MongoDBAuthService(mongo_db)
+        try:
+            user = await service.signup(
+                full_name=payload.full_name, email=payload.email, password=payload.password
+            )
+            # Map dict to UserResponse compatible dict
+            user_data = dict(user)
+            user_data["id"] = str(user_data.pop("_id"))
+            logger.info("New user registered in MongoDB (user_id=%s).", user_data["id"])
+            body = UserResponse.model_validate(user_data).model_dump(by_alias=True, mode="json")
+            return JSONResponse(status_code=201, content=body)
+        except AuthError as exc:
+            return _auth_error_response(exc)
+
     service = AuthService(db)
     try:
         user = service.register(
@@ -151,69 +170,29 @@ async def signup(payload: SignupRequest, db: Session = Depends(get_db)) -> JSONR
     response_model=AuthResponse,
     summary="Sign in with email and password.",
 )
-async def login(payload: LoginRequest, db: Session | None = Depends(get_db_optional)) -> JSONResponse:  # noqa: B008
-    # Special-case: when the database is disabled the backend supports a
-    # single static login for convenience (no persistent users). When the
-    # DB is enabled the normal AuthService flow is used.
-    if db is None:
-        # Static credentials (non-production convenience, configured via settings/env)
-        dev_email = settings.dev_static_user_email
-        dev_pass = settings.dev_static_user_password
-        if payload.email != dev_email or payload.password != dev_pass:
-            return _auth_error_response(InvalidCredentialsError())
+async def login(payload: LoginRequest) -> JSONResponse:
+    from app.infrastructure.persistence.mongodb import get_mongodb
+    from app.application.services.mongodb_auth_service import MongoDBAuthService
 
-        # Fabricate a lightweight User-like object for the response body.
-        from datetime import datetime, timezone
+    mongo_db = await get_mongodb()
+    if mongo_db is None:
+        return JSONResponse(status_code=503, content={"detail": "Database connection unavailable."})
 
-        fake_user = User()
-        fake_user.id = 0
-        fake_user.full_name = "Java APEX"
-        fake_user.email = dev_email
-        fake_user.role = "USER"
-        fake_user.is_active = True
-        fake_user.is_email_verified = True
-        fake_user.created_at = datetime.now(timezone.utc)
-        fake_user.last_login_at = datetime.now(timezone.utc)
-
-        access_token = security.create_access_token(fake_user.id)
-
-        # In static-login (DB disabled) mode we intentionally do NOT issue a
-        # refresh token cookie. This keeps parity for a signed-in session via
-        # the access token while avoiding refresh/rotation behavior that
-        # depends on the database.
-        logger.info("Static user logged in (email=%s).", fake_user.email)
-        body = AuthResponse(user=UserResponse.model_validate(fake_user), message="Login successful.")
-        response = JSONResponse(status_code=200, content=body.model_dump(by_alias=True, mode="json"))
-
-        # Set only the access token cookie (mirror `_set_auth_cookies`'s
-        # options for consistency with production behavior).
-        common_cookie_options = {
-            "httponly": True,
-            "secure": settings.is_production,
-            "samesite": settings.cookie_samesite,
-            "path": "/",
-        }
-        response.set_cookie(
-            ACCESS_TOKEN_COOKIE,
-            access_token,
-            max_age=settings.access_token_expire_minutes * 60,
-            **common_cookie_options,
-        )
-        return response
-
-    # Normal DB-backed flow
-    service = AuthService(db)
+    service = MongoDBAuthService(mongo_db)
     try:
-        user = service.authenticate(email=payload.email, password=payload.password)
-        access_token, refresh_token = service.create_login_session(user)
+        user, access_token, refresh_token = await service.login(
+            email=payload.email, password=payload.password
+        )
+        user_data = dict(user)
+        user_data["id"] = str(user_data.pop("_id"))
+
+        logger.info("User logged in via MongoDB (user_id=%s).", user_data["id"])
+        body = AuthResponse(user=UserResponse.model_validate(user_data), message="Login successful.")
+        response = JSONResponse(status_code=200, content=body.model_dump(by_alias=True, mode="json"))
+        _set_auth_cookies(response, access_token, refresh_token)
+        return response
     except AuthError as exc:
         return _auth_error_response(exc)
-
-    logger.info("User logged in (user_id=%s).", user.id)
-    body = AuthResponse(user=UserResponse.model_validate(user), message="Login successful.")
-    response = JSONResponse(status_code=200, content=body.model_dump(by_alias=True, mode="json"))
-    _set_auth_cookies(response, access_token, refresh_token)
-    return response
 
 
 @router.get(
@@ -238,6 +217,20 @@ async def refresh(request: Request, db: Session = Depends(get_db)) -> JSONRespon
     if not raw_refresh_token:
         return JSONResponse(status_code=401, content={"detail": "Refresh token is missing."})
 
+    if settings.auth_provider == "mongodb":
+        from app.infrastructure.persistence.mongodb import get_mongodb
+        from app.application.services.mongodb_auth_service import MongoDBAuthService
+        
+        mongo_db = await get_mongodb()
+        service = MongoDBAuthService(mongo_db)
+        try:
+            access_token, new_refresh_token = await service.refresh_tokens(raw_refresh_token)
+            response = JSONResponse(status_code=200, content={"message": "Token refreshed."})
+            _set_auth_cookies(response, access_token, new_refresh_token)
+            return response
+        except AuthError as exc:
+            return _auth_error_response(exc)
+
     service = AuthService(db)
     try:
         _user, access_token, new_refresh_token = service.rotate_refresh_token(raw_refresh_token)
@@ -259,7 +252,15 @@ async def logout(request: Request, db: Session = Depends(get_db)) -> JSONRespons
     # even when the access token is already expired/missing — only the
     # refresh token cookie matters for revocation.
     raw_refresh_token = request.cookies.get(REFRESH_TOKEN_COOKIE)
-    AuthService(db).logout(raw_refresh_token)
+    
+    if settings.auth_provider == "mongodb":
+        from app.infrastructure.persistence.mongodb import get_mongodb
+        from app.application.services.mongodb_auth_service import MongoDBAuthService
+        
+        mongo_db = await get_mongodb()
+        await MongoDBAuthService(mongo_db).logout(raw_refresh_token)
+    else:
+        AuthService(db).logout(raw_refresh_token)
 
     response = JSONResponse(status_code=200, content={"message": "Logged out."})
     _clear_auth_cookies(response)
@@ -331,16 +332,34 @@ async def google_callback(request: Request, db: Session = Depends(get_db)) -> Re
 
     try:
         profile = await google_client.exchange_code_for_profile(code=code, code_verifier=code_verifier)
-        service = AuthService(db)
-        user = service.authenticate_with_oauth(
-            provider="google",
-            provider_user_id=profile.provider_user_id,
-            email=profile.email,
-            email_verified=profile.email_verified,
-            full_name=profile.full_name,
-            profile_image=profile.profile_image,
-        )
-        access_token, refresh_token = service.create_login_session(user)
+        
+        if settings.auth_provider == "mongodb":
+            from app.infrastructure.persistence.mongodb import get_mongodb
+            from app.application.services.mongodb_auth_service import MongoDBAuthService
+            mongo_db = await get_mongodb()
+            service = MongoDBAuthService(mongo_db)
+            user_data = await service.authenticate_with_oauth(
+                provider="google",
+                provider_user_id=profile.provider_user_id,
+                email=profile.email,
+                email_verified=profile.email_verified,
+                full_name=profile.full_name,
+                profile_image=profile.profile_image,
+            )
+            access_token, refresh_token = await service.create_login_session(user_data)
+            user_id_for_log = user_data["_id"]
+        else:
+            service = AuthService(db)
+            user = service.authenticate_with_oauth(
+                provider="google",
+                provider_user_id=profile.provider_user_id,
+                email=profile.email,
+                email_verified=profile.email_verified,
+                full_name=profile.full_name,
+                profile_image=profile.profile_image,
+            )
+            access_token, refresh_token = service.create_login_session(user)
+            user_id_for_log = user.id
     except AuthError as exc:
         logger.info("Google OAuth login rejected (%s).", exc.status)
         return _oauth_error_redirect(_OAUTH_ERROR_CODES.get(exc.status, "server_error"))
@@ -348,7 +367,7 @@ async def google_callback(request: Request, db: Session = Depends(get_db)) -> Re
         logger.exception("Unexpected error completing Google OAuth login.")
         return _oauth_error_redirect("server_error")
 
-    logger.info("User logged in via Google OAuth (user_id=%s).", user.id)
+    logger.info("User logged in via Google OAuth (user_id=%s).", user_id_for_log)
     response = _oauth_success_redirect(access_token, refresh_token)
     response.delete_cookie(
         OAUTH_PKCE_COOKIE,
@@ -388,16 +407,34 @@ async def github_callback(request: Request, db: Session = Depends(get_db)) -> Re
 
     try:
         profile = await github_client.exchange_code_for_profile(code=code)
-        service = AuthService(db)
-        user = service.authenticate_with_oauth(
-            provider="github",
-            provider_user_id=profile.provider_user_id,
-            email=profile.email,
-            email_verified=profile.email_verified,
-            full_name=profile.full_name,
-            profile_image=profile.profile_image,
-        )
-        access_token, refresh_token = service.create_login_session(user)
+        
+        if settings.auth_provider == "mongodb":
+            from app.infrastructure.persistence.mongodb import get_mongodb
+            from app.application.services.mongodb_auth_service import MongoDBAuthService
+            mongo_db = await get_mongodb()
+            service = MongoDBAuthService(mongo_db)
+            user_data = await service.authenticate_with_oauth(
+                provider="github",
+                provider_user_id=profile.provider_user_id,
+                email=profile.email,
+                email_verified=profile.email_verified,
+                full_name=profile.full_name,
+                profile_image=profile.profile_image,
+            )
+            access_token, refresh_token = await service.create_login_session(user_data)
+            user_id_for_log = user_data["_id"]
+        else:
+            service = AuthService(db)
+            user = service.authenticate_with_oauth(
+                provider="github",
+                provider_user_id=profile.provider_user_id,
+                email=profile.email,
+                email_verified=profile.email_verified,
+                full_name=profile.full_name,
+                profile_image=profile.profile_image,
+            )
+            access_token, refresh_token = service.create_login_session(user)
+            user_id_for_log = user.id
     except AuthError as exc:
         logger.info("GitHub OAuth login rejected (%s).", exc.status)
         return _oauth_error_redirect(_OAUTH_ERROR_CODES.get(exc.status, "server_error"))
@@ -405,5 +442,5 @@ async def github_callback(request: Request, db: Session = Depends(get_db)) -> Re
         logger.exception("Unexpected error completing GitHub OAuth login.")
         return _oauth_error_redirect("server_error")
 
-    logger.info("User logged in via GitHub OAuth (user_id=%s).", user.id)
+    logger.info("User logged in via GitHub OAuth (user_id=%s).", user_id_for_log)
     return _oauth_success_redirect(access_token, refresh_token)

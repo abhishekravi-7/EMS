@@ -78,6 +78,8 @@ export interface MigrationRequest {
   fix_business_logic: boolean;
   functional_test_method?: string[];
   functional_test_execution_mode?: string;
+  proposed_test_sources?: string[];
+  selected_test_sources?: string[];
 }
 
 export interface FunctionalTestScopePreview {

@@ -1,11 +1,9 @@
 import React, { useState, useMemo } from "react";
-import {
-  FaPlay,FaInfoCircle
-} from "react-icons/fa";
+import { FaInfoCircle, FaSpinner } from "react-icons/fa";
 import { FunctionalTestingTabs } from "./FunctionalTestingTabs";
-import { ExistingTestAnalytics } from "./ExistingTestAnalytics";
 import { ExistingTestCoverage } from "./ExistingTestCoverage";
 import { ExistingTestTable, type TestResult } from "./ExistingTestTable";
+import { classifyTestType } from "../services/existingTestService";
 
 export type TestCase = TestResult;
 
@@ -15,30 +13,22 @@ interface ExistingTestCasesPanelProps {
   framework: string;
   onRunSelected?: (selection: TestResult[]) => void;
   onRunAll?: () => void;
-  isRunning: boolean;
+  isRunning?: boolean;
+  isLoading?: boolean;
   onViewSuite?: (suiteName: string) => void;
   onSelectTest?: (test: TestResult) => void;
 }
 
 export function ExistingTestCasesPanel({
-  jobId: _jobId,
+  jobId,
   discoveredTests,
   framework,
-  onRunSelected,
-  onRunAll,
-  isRunning,
-  onViewSuite,
-  onSelectTest,
+  isRunning = false,
+  isLoading = false,
+  onViewSuite: _onViewSuite,
+  onSelectTest: _onSelectTest,
 }: ExistingTestCasesPanelProps) {
   const [activeTab, setActiveTab] = useState<"FUNCTIONAL" | "BUSINESS">("FUNCTIONAL");
-
-  const handleRun = () => {
-    if (onRunAll) {
-      onRunAll();
-    } else if (onRunSelected) {
-      onRunSelected(discoveredTests);
-    }
-  };
 
   const discoveryMetrics = {
     total: discoveredTests.length,
@@ -68,8 +58,7 @@ export function ExistingTestCasesPanel({
       if (seen.has(identity)) return;
       seen.add(identity);
 
-      const rawType = (t.test_type || t.testType || t.type || (t.category === "UI" ? "UI" : "API")).toUpperCase();
-      const displayType = rawType === "UNIT" ? "API" : rawType;
+      const displayType = classifyTestType(t);
 
       list.push({
         testId: t.test_id || t.testId || `TEST-${idx + 1}`,
@@ -94,7 +83,7 @@ export function ExistingTestCasesPanel({
     return list;
   }, [discoveredTests, framework]);
 
-  if (discoveredTests.length === 0) {
+  if (isLoading) {
     return (
       <div
         style={{
@@ -117,17 +106,55 @@ export function ExistingTestCasesPanel({
             width: 56,
             height: 56,
             borderRadius: "50%",
-            background: "#f1f5f9",
+            background: "#eff6ff",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            color: "#64748b",
+            color: "#3b82f6",
             fontSize: 22,
+          }}
+        >
+          <FaSpinner style={{ animation: "spin 1s linear infinite" }} />
+        </div>
+        <div style={{ fontSize: 16, fontWeight: 800, color: "#0f172a" }}>
+          Discovering Existing Test Cases...
+        </div>
+        <div style={{ fontSize: 13, color: "#64748b", maxWidth: 360, lineHeight: 1.5 }}>
+          Scanning repository test suites, files, and annotations.
+        </div>
+      </div>
+    );
+  }
+
+  if (discoveredTests.length === 0) {
+    return (
+      <div
+        style={{
+          textAlign: "center",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 12,
+          padding: "60px 24px",
+        }}
+      >
+        <div
+          style={{
+            width: 48,
+            height: 48,
+            borderRadius: "50%",
+            background: "#f8fafc",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: "#94a3b8",
+            fontSize: 20,
           }}
         >
           <FaInfoCircle />
         </div>
-        <div style={{ fontSize: 16, fontWeight: 800, color: "#0f172a" }}>
+        <div style={{ fontSize: 16, fontWeight: 700, color: "#1e293b" }}>
           No Test Cases Available
         </div>
         <div style={{ fontSize: 13, color: "#64748b", maxWidth: 360, lineHeight: 1.5 }}>
@@ -156,25 +183,12 @@ export function ExistingTestCasesPanel({
         activeTab={activeTab}
         onTabChange={setActiveTab}
         isRunning={isRunning}
-        statusLabel={discoveredTests.length > 0 ? "Ready to Execute" : undefined}
+        statusLabel={discoveredTests.length > 0 ? "Discovered" : undefined}
       />
 
-      {/* Top Two Cards: Dynamic Suite Composition Breakdown & Risk based Suite Coverage (BEFORE Execution) */}
-      <ExistingTestAnalytics
-        discoveredTests={discoveredTests}
-        testResults={mappedDiscoveredTests}
-        metrics={discoveryMetrics}
-        frameworkInfo={{
-          detected_framework: framework || "JUnit",
-          build_tool: "MAVEN",
-          test_source_dir: "src/test/java",
-        }}
-        onViewSuite={onViewSuite}
-        onSelectTest={onSelectTest}
-      />
-
-      {/* Existing Test Coverage 8-Cards Grid (Discovery State Before Execution) */}
+      {/* Existing Test Coverage 8-Cards Grid (Discovered State) */}
       <ExistingTestCoverage
+        jobId={jobId}
         metrics={discoveryMetrics}
         discoveredTests={discoveredTests}
         testResults={mappedDiscoveredTests}
@@ -184,52 +198,7 @@ export function ExistingTestCasesPanel({
           build_tool: "MAVEN",
           test_source_dir: "src/test/java",
         }}
-        onRunAll={handleRun}
       />
-
-      {/* Action Bar: Run All Tests */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          padding: "16px 20px",
-          background: "#f8fafc",
-          borderRadius: 14,
-          border: "1px solid #e2e8f0",
-        }}
-      >
-        <div>
-          <div style={{ fontSize: 13, fontWeight: 800, color: "#0f172a" }}>
-            Ready to execute existing test cases
-          </div>
-          <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>
-            {discoveredTests.length} test{discoveredTests.length > 1 ? "s" : ""} discovered from repository analysis (0 executed)
-          </div>
-        </div>
-
-        <button
-          onClick={handleRun}
-          disabled={isRunning || discoveredTests.length === 0}
-          style={{
-            padding: "10px 24px",
-            background: "#0f172a",
-            color: "#fff",
-            borderRadius: 10,
-            fontWeight: 800,
-            fontSize: 13,
-            border: "none",
-            cursor: isRunning || discoveredTests.length === 0 ? "not-allowed" : "pointer",
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            boxShadow: "0 2px 8px rgba(15, 23, 42, 0.15)",
-          }}
-        >
-          <FaPlay style={{ fontSize: 10, color: "#22c55e" }} />
-          Run All Tests
-        </button>
-      </div>
 
       {/* Existing Tests Validation Report Table (Showing All Discovered Tests with NOT EXECUTED Status) */}
       {mappedDiscoveredTests.length > 0 && (
@@ -243,9 +212,6 @@ export function ExistingTestCasesPanel({
           }}
           hasRun={false}
           isRunning={isRunning}
-          onSelectTest={(t) => {
-            if (onSelectTest) onSelectTest(t);
-          }}
         />
       )}
     </div>

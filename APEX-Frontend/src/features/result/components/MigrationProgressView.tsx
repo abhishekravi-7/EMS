@@ -51,7 +51,7 @@ export function MigrationProgressView({ migrationJob, migrationTimerNow, onCance
             Cancel Migration
           </button>
         )}
-        {migrationJob.status !== "cloning" && migrationJob.status !== "analyzing" && migrationJob.status !== "migrating" && migrationJob.status !== "pending" && (
+        {migrationJob.status === "completed" && (
           <button style={styles.primaryBtn} onClick={onViewReport}>{renderForwardButtonLabel("View Migration Report")}</button>
         )}
       </div>

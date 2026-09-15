@@ -251,8 +251,26 @@ export interface MigrationResult {
   recipes_executed?: string[];
   recipe_selection_reasons?: string[];
   build_modernization?: string[];
-  dependency_upgrades?: Array<{ coordinate: string; oldVersion: string | null; newVersion: string }>;
-  dependencyUpgrades?: Array<{ coordinate: string; oldVersion: string | null; newVersion: string }>;
+  dependency_upgrades?: Array<{
+    groupId: string;
+    artifactId: string;
+    scope: string;
+    sourceVersion: string | null;
+    resolvedTargetVersion: string | null;
+    status: string;
+    reason: string;
+    [key: string]: any;
+  }>;
+  dependencyUpgrades?: Array<{
+    groupId: string;
+    artifactId: string;
+    scope: string;
+    sourceVersion: string | null;
+    resolvedTargetVersion: string | null;
+    status: string;
+    reason: string;
+    [key: string]: any;
+  }>;
   used_fallback?: boolean;
   already_compatible?: boolean;
   build_status?: string | null;
@@ -380,6 +398,14 @@ export async function getMigrationLogs(jobId: string): Promise<{ job_id: string;
   );
 }
 
+export async function getMigrationFileDiff(jobId: string, path: string): Promise<any> {
+  return requestJson<any>(
+    `/v1/migration/${jobId}/diff`,
+    "Failed to get file diff",
+    { query: { path } }
+  );
+}
+
 // Get FOSSA scan results for a migration (if available)
 export async function getMigrationFossa(jobId: string): Promise<{
   job_id: string;
@@ -400,38 +426,38 @@ export async function getMigrationFossa(jobId: string): Promise<{
 
 // Download migrated project as ZIP
 export async function downloadMigratedProject(jobId: string): Promise<Blob> {
-  return requestBlob(`/migration/${jobId}/download-zip`, "Failed to download migrated project");
+  return requestBlob(`/v1/migration/${jobId}/download-zip`, "Failed to download migrated project");
 }
 
 // Download migration report
 export async function downloadMigrationReport(jobId: string): Promise<Blob> {
-  return requestBlob(`/migration/${jobId}/report`, "Failed to download migration report");
+  return requestBlob(`/v1/migration/${jobId}/report`, "Failed to download migration report");
 }
 
 // Download testcase + change report (Markdown)
 export async function downloadTestcaseDoc(jobId: string): Promise<Blob> {
-  return requestBlob(`/migration/${jobId}/testcase-doc`, "Failed to download testcase doc");
+  return requestBlob(`/v1/migration/${jobId}/testcase-doc`, "Failed to download testcase doc");
 }
 
 export async function downloadTestcaseDocx(jobId: string): Promise<Blob> {
-  return requestBlob(`/migration/${jobId}/testcase-docx`, "Failed to download testcase docx");
+  return requestBlob(`/v1/migration/${jobId}/testcase-docx`, "Failed to download testcase docx");
 }
 
 // Download testcase + change report (HTML)
 export async function downloadTestcaseReport(jobId: string): Promise<Blob> {
-  return requestBlob(`/migration/${jobId}/testcase-report`, "Failed to download testcase report");
+  return requestBlob(`/v1/migration/${jobId}/testcase-report`, "Failed to download testcase report");
 }
 
 export async function downloadUnitTestReport(jobId: string): Promise<Blob> {
-  return requestBlob(`/migration/${jobId}/unit-test-report`, "Failed to download unit test report");
+  return requestBlob(`/v1/migration/${jobId}/unit-test-report`, "Failed to download unit test report");
 }
 
 export async function downloadSonarReportPdf(jobId: string): Promise<Blob> {
-  return requestBlob(`/migration/${jobId}/sonar-report-pdf`, "Failed to download Sonar PDF report");
+  return requestBlob(`/v1/migration/${jobId}/sonar-report-pdf`, "Failed to download Sonar PDF report");
 }
 
 export async function downloadJMeterPlan(jobId: string, baseUrl: string): Promise<Blob> {
-  return requestBlob(`/migration/${jobId}/jmeter`, "Failed to download JMeter plan", {
+  return requestBlob(`/v1/migration/${jobId}/jmeter`, "Failed to download JMeter plan", {
     query: { base_url: baseUrl },
   });
 }
@@ -457,7 +483,7 @@ export async function rerunMigrationTests(
     test_summary?: string | null;
     test_insights?: string[];
     test_llm_model?: string | null;
-  }>(`/migration/${jobId}/rerun-tests`, "Failed to re-run tests", {
+  }>(`/v1/migration/${jobId}/rerun-tests`, "Failed to re-run tests", {
     method: "POST",
     query: {
       llm_provider: llmProvider,
@@ -659,4 +685,12 @@ export async function downloadFunctionalTestFile(jobId: string, path: string): P
 // Build the URL for a Playwright/Selenium HTML report (opened in a new tab)
 export function getFunctionalTestReportUrl(jobId: string, tool: string): string {
   return `${API_BASE_URL}/migration/${jobId}/functional-test-report/${tool.toLowerCase()}`;
+}
+
+// Download the full Proposed Test Report as JSON
+export async function downloadProposedTestReport(jobId: string): Promise<Blob> {
+  return requestBlob(
+    `/v1/migration/${encodeURIComponent(jobId)}/proposed-tests/report/download`,
+    "Failed to download proposed tests report."
+  );
 }

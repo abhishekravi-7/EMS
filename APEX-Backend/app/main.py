@@ -22,8 +22,8 @@ from app.core import watch_exclusions as _watch_exclusions  # noqa: F401
 from app.core.config import settings
 from app.core.context import job_id_ctx, repository_url_ctx, user_id_ctx
 from app.core.logging_config import configure_logging
-from app.infrastructure.auth.firebase_auth import init_firebase
 from app.infrastructure.java_runtime import log_java_runtime_diagnostics
+from app.infrastructure.persistence.mongodb import mongodb_manager
 
 # Import every ORM model module here so `Base.metadata` knows about all
 # tables before `create_all()` runs below — SQLAlchemy only creates tables
@@ -65,20 +65,17 @@ async def lifespan(_app: FastAPI):
     logger.info("[DATABASE] PostgreSQL configuration loaded: %s", bool(settings.database_url))
     logger.info("[CONNECT] Database-independent mode: %s", "enabled" if not settings.database_enabled else "disabled")
 
-    if settings.database_enabled:
+    # PostgreSQL initialization (skipped if MongoDB is the active persistence backend)
+    if settings.database_enabled and settings.persistence_backend != "mongodb":
         if not settings.is_production:
             ensure_database_exists()
         verify_database_connection()
-        # Creates any tables that don't exist yet. Never drops or alters an
-        # existing table, and never touches existing rows — safe to run on every
-        # startup. Alembic is intentionally not used yet (see requirements.txt).
         Base.metadata.create_all(bind=engine)  # type: ignore[arg-type]
-        logger.info("Database tables verified/created.")
-
+        logger.info("PostgreSQL database tables verified/created.")
+        
         # Load dynamic settings overrides from database
         try:
             from sqlalchemy.orm import Session
-
             from app.infrastructure.persistence.system_settings_repository import SystemSettingsRepository
             with Session(engine) as db:
                 repo = SystemSettingsRepository(db)
@@ -90,27 +87,26 @@ async def lifespan(_app: FastAPI):
                             setattr(settings, key, bool_val)
                         else:
                             setattr(settings, key, value)
-                logger.info("Applied %d dynamic setting overrides from database", len(overrides))
+                logger.info("Applied %d dynamic setting overrides from PostgreSQL", len(overrides))
         except Exception as e:  # noqa: BLE001
-            logger.error("Failed to load dynamic settings from database: %s", str(e))
+            logger.error("Failed to load dynamic settings from PostgreSQL: %s", str(e))
+    elif settings.persistence_backend == "mongodb":
+        logger.info("PostgreSQL runtime initialization skipped (Active Persistence: MongoDB).")
     else:
         logger.info("Database disabled by configuration — skipping DB startup tasks.")
 
-    # Initialize Firebase Admin SDK
-    if settings.firebase_auth_enabled:
-        init_firebase()
-
-
-    else:
-        logger.info("Firebase Auth disabled by configuration — skipping Firebase initialization.")
+    logger.info("Authentication Provider: MongoDB")
 
 
     # Initialize LLM Token Tracing
     from app.application.services.llm_token_tracing_service import ChainedTraceSink
     sinks = [tt.JsonlTraceSink("logs/llm_usage.jsonl")]
-    if settings.database_enabled:
+    
+    if settings.persistence_backend == "mongodb":
+        from app.application.services.llm_token_tracing_service import MongoDBTraceSink
+        sinks.append(MongoDBTraceSink())
+    elif settings.database_enabled:
         from app.application.services.llm_token_tracing_service import DatabaseTraceSink
-
         sinks.append(DatabaseTraceSink())
 
     tt.init_token_tracing(
@@ -120,8 +116,12 @@ async def lifespan(_app: FastAPI):
     )
     logger.info("LLM Token Tracing initialized (sinks: JSONL + Database)")
 
+    # Initialize MongoDB
+    await mongodb_manager.connect()
+
     yield
     # (nothing to clean up on shutdown today)
+    mongodb_manager.close()
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)

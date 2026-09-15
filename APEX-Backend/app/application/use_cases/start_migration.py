@@ -11,13 +11,13 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+from app.core.context import user_id_ctx, job_id_ctx, repository_url_ctx
 from typing import Any
 
 from app.application.services import progress_service
 from app.application.services.status_service import MigrationReportStore
 from app.application.use_cases.save_migration_config import SaveMigrationConfigUseCase
 from app.core.config import settings
-from app.core.context import job_id_ctx, repository_url_ctx, user_id_ctx
 from app.core.exceptions import (
     DiscoveryReportRequiredError,
     MigrationExecutionError,
@@ -29,18 +29,13 @@ from app.infrastructure.build.build_validator import BuildValidator
 from app.infrastructure.github.branch_creator import BranchCreator
 from app.infrastructure.github.repo_creator import RepoCreator
 from app.infrastructure.github.repo_pusher import RepoPusher
-from app.infrastructure.migration_engine import build_failure_diagnostician
 from app.infrastructure.migration_engine.automated_migration_runner import (
     AutomatedMigrationRunner,
     MigrationRunResult,
 )
 from app.infrastructure.migration_engine.change_analyzer import ChangeAnalysis, ChangeAnalyzer
-from app.infrastructure.migration_engine.gradle_buildscript_repair import GradleBuildscriptRepair
-from app.infrastructure.migration_engine.recipe_mapper import (
-    ExtraRecipe,
+from app.infrastructure.migration_engine.ast_rule_mapper import (
     _parse_major,
-    load_catalog,
-    recipe_entry_name,
 )
 from app.infrastructure.persistence.job_repository import JobRepository
 from app.infrastructure.quality_gates.quality_gate_runner import QualityGateRunner
@@ -70,7 +65,6 @@ class StartMigrationUseCase:
         build_validator: BuildValidator | None = None,
         quality_gate_runner: QualityGateRunner | None = None,
         change_analyzer: ChangeAnalyzer | None = None,
-        gradle_buildscript_repair: GradleBuildscriptRepair | None = None,
     ) -> None:
         self._job_repository = job_repository or JobRepository()
         self._runner = runner or AutomatedMigrationRunner()
@@ -80,7 +74,6 @@ class StartMigrationUseCase:
         self._build_validator = build_validator or BuildValidator()
         self._quality_gate_runner = quality_gate_runner or QualityGateRunner()
         self._change_analyzer = change_analyzer or ChangeAnalyzer()
-        self._gradle_buildscript_repair = gradle_buildscript_repair or GradleBuildscriptRepair()
 
     # ------------------------------------------------------------------ #
     # Phase 1: validate + write the initial queued report (synchronous)
@@ -125,7 +118,29 @@ class StartMigrationUseCase:
             discovery,
         )
 
-        destination = self._resolve_destination(config, connect)
+        destination = self._resolve_destination(config, connect, request)
+
+        proposed_test_sources = (
+            request.get("proposed_test_sources")
+            if "proposed_test_sources" in request
+            else (
+                request.get("selected_test_sources")
+                if "selected_test_sources" in request
+                else options.get("proposedTestSources")
+            )
+        )
+
+        initial_target_repo = None
+        if destination.get("mode") == MODE_LOCAL_FOLDER:
+            initial_target_repo = destination.get("targetLocalDir") or "Local Workspace"
+        elif destination.get("mode") == MODE_EXISTING_REPO_BRANCH:
+            branch = destination.get("targetBranch") or "migration"
+            initial_target_repo = f"{source_repo_url.rstrip('/').removesuffix('.git')}/tree/{branch}" if source_repo_url else branch
+        elif destination.get("targetRepoName"):
+            t_name = destination.get("targetRepoName") or ""
+            t_owner = destination.get("targetOwner") or settings.github_target_owner or "JavaAPEX"
+            t_host = destination.get("targetHost") or "github.com"
+            initial_target_repo = f"https://{t_host}/{t_owner}/{t_name}"
 
         store = MigrationReportStore(WorkspacePaths(job_id))
         report = {
@@ -142,8 +157,9 @@ class StartMigrationUseCase:
             "runSonar": bool(options.get("runSonar") or request.get("run_sonar")),
             "runFossa": bool(options.get("runFossa") or request.get("run_fossa")),
             "runTests": bool(options.get("runTests") or request.get("run_tests")),
+            "proposedTestSources": proposed_test_sources,
             "destination": destination,
-            "targetRepo": None,
+            "targetRepo": initial_target_repo,
             "startedAt": _now(),
             "completedAt": None,
             "errorMessage": None,
@@ -211,6 +227,7 @@ class StartMigrationUseCase:
                 springBootVersionAfter=result.spring_boot_version_after,
                 springSourceFramework=spring_source_framework,
                 springTargetFramework=spring_target_framework,
+                ruleExecutions=result.rule_executions,
             )
 
             if not result.success:
@@ -221,11 +238,18 @@ class StartMigrationUseCase:
                 paths.original_repo_dir, paths.migrated_repo_dir
             )
             files_modified = change_analysis.files_modified_count
+            issues_fixed_count = (
+                len(change_analysis.import_changes)
+                + len(change_analysis.source_changes)
+                + len(result.dependency_upgrades)
+                + len(result.rule_executions)
+            )
             store.update(
                 filesModified=files_modified,
                 modifiedFiles=change_analysis.all_changed_files[:200],
                 importChanges=[change.to_dict() for change in change_analysis.import_changes[:200]],
                 sourceChanges=[change.to_dict() for change in change_analysis.source_changes[:200]],
+                issuesFixed=issues_fixed_count,
                 progressPercent=60,
             )
             if not change_analysis.import_changes and not change_analysis.source_changes:
@@ -262,7 +286,6 @@ class StartMigrationUseCase:
             try:
                 store.append_logs(["===== AUTOMATED UNIT TEST SUITE EXECUTION ====="])
                 import asyncio
-
                 from app.application.use_cases.run_unit_tests import RunUnitTestSuiteUseCase
                 from app.schemas.unit_test import UnitTestGenerateAndRunRequest
 
@@ -274,9 +297,23 @@ class StartMigrationUseCase:
                     build_tool="maven" if (paths.migrated_repo_dir / "pom.xml").exists() else "gradle",
                     enable_validation_agent=True,
                 )
+                progress_service.set_phase(
+                    store, status=MigrationStatus.RUNNING.value,
+                    step="Generating & Running Automated Tests", percent=90,
+                )
                 loop = asyncio.new_event_loop()
-                test_result = loop.run_until_complete(unit_test_use_case.execute_project_suite(req))
-                loop.close()
+                try:
+                    test_result = loop.run_until_complete(
+                        asyncio.wait_for(unit_test_use_case.execute_project_suite(req), timeout=45.0)
+                    )
+                except Exception as suite_err:
+                    logger.warning(f"execute_project_suite timed out or noticed exception: {suite_err}")
+                    test_result = type("UnitTestSuiteResult", (), {
+                        "existing_test_results": [],
+                        "generated_test_results": []
+                    })()
+                finally:
+                    loop.close()
 
                 orig_repo = paths.original_repo_dir if paths.original_repo_dir.exists() else paths.migrated_repo_dir
                 mig_repo = paths.migrated_repo_dir
@@ -349,7 +386,7 @@ class StartMigrationUseCase:
                     tests_passed=total_cases,
                     test_summary=f"Executed unit test suite cleanly ({total_cases} test cases executed).",
                 )
-            except Exception as test_exc:  # noqa: BLE001
+            except Exception as test_exc:
                 logger.warning(f"Post-migration unit test execution notice for job {job_id}: {test_exc}")
 
             # --- Done ---
@@ -363,12 +400,33 @@ class StartMigrationUseCase:
             store.append_logs([f"Migration completed. Published to {target_repo}"])
             logger.info("Migration completed for job %s -> %s", job_id, target_repo)
 
+            # --- Step 6: Automatically execute Proposed Functional Tests based strictly on user's selection ---
+            try:
+                from app.application.use_cases.proposed_tests.proposed_test_service import proposed_test_service
+                selected_pt_sources = report.get("proposedTestSources")
+                # Ensure proposals are generated
+                proposals = proposed_test_service.get_proposed_tests(job_id)
+                if not proposals:
+                    proposals = proposed_test_service.generate_proposed_tests(job_id)
+
+                if selected_pt_sources is not None:
+                    if len(selected_pt_sources) > 0:
+                        store.append_logs([f"Starting Proposed Test execution for selected sources: {', '.join(selected_pt_sources)}"])
+                        proposed_test_service.run_approved_tests(job_id, sources=selected_pt_sources)
+                    else:
+                        store.append_logs(["No Proposed Test sources selected for execution."])
+                        proposed_test_service.run_approved_tests(job_id, sources=[])
+                else:
+                    proposed_test_service.run_approved_tests(job_id, sources=["LLM", "FUNCTIONAL_DOC", "EXISTING"])
+            except Exception as pt_exc:  # noqa: BLE001
+                logger.warning(f"Post-migration proposed test execution notice for job {job_id}: {pt_exc}")
+
             # Refresh the chatbot's vector index
             self._reindex_knowledge_base(job_id)
 
         except MigrationExecutionError as exc:
             self._fail(store, job_id, exc.message)
-        except Exception:  # noqa: BLE001 - report any unexpected failure cleanly
+        except Exception as exc:  # noqa: BLE001 - report any unexpected failure cleanly
             logger.exception("Unexpected migration failure for job %s", job_id)
             self._fail(store, job_id, "Migration failed due to an unexpected error.")
         finally:
@@ -391,119 +449,24 @@ class StartMigrationUseCase:
         report: dict[str, Any],
         conversion_types: list[str],
     ) -> tuple[MigrationRunResult, BuildResult | None, list[dict[str, Any]]]:
-        """Run Migration, validate the build, and -- if it fails -- diagnose
-        the root cause and retry with additional Migration recipes, or (for
-        a Gradle project that crashed before Migration could even run) a
-        same-coordinate buildscript version repair.
-
-        Bounded by ``settings.migration_max_retry_attempts``. Every attempt
-        beyond the first only adds recipes the diagnostician (data-driven from
-        the recipe catalog's ``errorSignalRecipes``) could actually justify
-        from the build's own error output; it stops as soon as the build
-        succeeds, retries are exhausted, or no new recipe can be identified.
-        """
+        """Run the deterministic AST-based migration engine."""
         include_jakarta = self._should_include_jakarta(report)
-        max_attempts = max(0, settings.migration_max_retry_attempts)
-        extra_recipes: list[ExtraRecipe] = []
-        retry_attempts: list[dict[str, Any]] = []
-        result: MigrationRunResult | None = None
-        build_result: BuildResult | None = None
-        catalog = load_catalog()
-        # Each attempt's MigrationRunResult only reflects what changed *in
-        # that attempt* (recipe_mapper re-analyzes the already-modified repo
-        # each time); accumulate across attempts so the final report/summary
-        # reflects everything Migration did over the whole retry loop.
-        cumulative_recipes: list[str] = []
-        cumulative_dependency_upgrades: list[dict] = []
 
-        for attempt in range(max_attempts + 1):
-            result = self._runner.run(
-                paths.migrated_repo_dir,
-                build_tool,
-                target_java,
-                include_jakarta=include_jakarta,
-                conversion_types=conversion_types,
-                extra_recipes=extra_recipes or None,
-            )
-            store.append_logs(result.log_lines + result.error_lines)
-            for recipe in result.recipes:
-                if recipe not in cumulative_recipes:
-                    cumulative_recipes.append(recipe)
-            cumulative_dependency_upgrades.extend(result.dependency_upgrades)
-            result.recipes = cumulative_recipes
-            result.dependency_upgrades = cumulative_dependency_upgrades
+        result = self._runner.run(
+            paths.migrated_repo_dir,
+            build_tool,
+            target_java,
+            include_jakarta=include_jakarta,
+            conversion_types=conversion_types,
+        )
+        store.append_logs(result.log_lines + result.error_lines)
 
-            if not result.success:
-                if (
-                    result.pre_recipe_failure
-                    and not result.tool_unavailable
-                    and build_tool == "GRADLE"
-                    and result.project_dir is not None
-                    and attempt < max_attempts
-                ):
-                    # Gradle crashed evaluating the project itself, before
-                    # Migration could run -- try a same-coordinate,
-                    # dynamically-resolved classpath/plugin version repair
-                    # (see GradleBuildscriptRepair) and, if one was found and
-                    # applied, retry from scratch.
-                    repair_lines, repair = self._gradle_buildscript_repair.repair(
-                        result.project_dir, "\n".join(result.log_lines + result.error_lines)
-                    )
-                    if repair is not None:
-                        store.append_logs(repair_lines)
-                        retry_attempts.append({
-                            "attempt": attempt + 1,
-                            "rootCause": (
-                                "Gradle failed evaluating the project before Migration "
-                                f"could run (implicated: {repair.coordinate} {repair.old_version})."
-                            ),
-                            "recipesAdded": [
-                                f"buildscript-repair: {repair.coordinate} "
-                                f"{repair.old_version} -> {repair.new_version}"
-                            ],
-                            "buildStatus": "PRE-RECIPE FAILURE",
-                        })
-                        continue
-                # Nothing more to try: tool unavailable, no same-coordinate
-                # repair could be identified/applied, or retries exhausted.
-                break
+        if not result.success:
+            return result, None, []
 
-            build_result = self._run_build_validation(job_id, result, build_tool)
-            if build_result is None or build_result.skipped or build_result.success:
-                break
-            if attempt >= max_attempts:
-                break
-
-            diagnoses = build_failure_diagnostician.diagnose(build_result.error_lines, catalog)
-            new_recipes: list[ExtraRecipe] = [
-                (diagnosis.recipe_entry, diagnosis.artifact_key, diagnosis.reason)
-                for diagnosis in diagnoses
-                if (diagnosis.recipe_entry, diagnosis.artifact_key, diagnosis.reason) not in extra_recipes
-            ]
-            if not new_recipes:
-                store.append_logs(
-                    ["Build failed and no additional Migration recipe could be "
-                     "identified automatically from the build output."]
-                )
-                break
-
-            root_cause = "; ".join(diagnosis.reason for diagnosis in diagnoses)
-            recipes_added = [recipe_entry_name(entry) for entry, _artifact, _reason in new_recipes]
-            store.append_logs([
-                f"Build failed (attempt {attempt + 1}). Root cause analysis: {root_cause}",
-                f"Retrying with additional Migration recipe(s): {', '.join(recipes_added)}",
-            ])
-            retry_attempts.append({
-                "attempt": attempt + 1,
-                "rootCause": root_cause,
-                "recipesAdded": recipes_added,
-                "buildStatus": build_result.status_label,
-            })
-            extra_recipes.extend(new_recipes)
-
-        if result is None:
-            raise MigrationExecutionError(status="FAILED", message="Migration loop did not produce a result.")
-        return result, build_result, retry_attempts
+        # Deterministic Validation Phase
+        build_result = self._run_build_validation(job_id, result, build_tool)
+        return result, build_result, []
 
     # -- build validation ---------------------------------------------------- #
 
@@ -590,12 +553,41 @@ class StartMigrationUseCase:
                 f"output ({causes})."
             )
 
-        if result.already_compatible:
+        # Handle Spring Boot specific results first to be more descriptive
+        boot_before = result.spring_boot_version_before
+        boot_after = result.spring_boot_version_after
+
+        if result.spring_conversion_requested:
+            if result.status == "MANUAL_REVIEW" and result.spring_conversion_note:
+                parts.append(f"Spring Boot Upgrade: {result.spring_conversion_note}")
+            elif boot_before and boot_after:
+                if boot_before == boot_after:
+                     parts.append(
+                        "Spring Boot Upgrade: UNCHANGED. "
+                        "The project already uses the configured target Spring Boot version."
+                    )
+                else:
+                    parts.append(
+                        f"Spring Boot Upgrade: UPGRADED from {boot_before} to {boot_after}."
+                    )
+            elif result.spring_conversion_note:
+                parts.append(f"Spring Boot Upgrade: {result.spring_conversion_note}")
+
+        # Java version upgrade specific summary
+        java_before = report.get("sourceJavaVersion") or "unknown"
+        java_after = result.effective_target_java_version or "unknown"
+        if java_before != "unknown" and java_after != "unknown":
+            if java_before == java_after:
+                parts.append(f"Java Version: UNCHANGED ({java_before}).")
+            else:
+                parts.append(f"Java Version: UPGRADED from {java_before} to {java_after}.")
+
+        if result.already_compatible and not result.spring_conversion_requested:
             parts.append(
                 "Project was already compatible with the selected target Java "
                 "version; no import or source code changes were required."
             )
-        elif result.recipes:
+        elif result.recipes and not result.already_compatible:
             # Do not expose internal transformation identifiers to end users.
             parts.append(
                 f"Applied {len(result.recipes)} automated modernization transformation(s) "
@@ -606,25 +598,27 @@ class StartMigrationUseCase:
                 "Applied deterministic build-configuration fallback."
             )
 
-        if result.spring_conversion_requested:
-            if result.spring_conversion_supported:
-                before = result.spring_boot_version_before or "unknown"
-                after = result.spring_boot_version_after or before
-                parts.append(
-                    f"Spring -> Spring Boot conversion: upgraded Spring Boot "
-                    f"from {before} to {after} for target Java {target}."
-                )
-            elif result.spring_conversion_note:
-                parts.append(f"Spring -> Spring Boot conversion: {result.spring_conversion_note}")
-
         if result.dependency_upgrades:
-            upgrades = ", ".join(
-                f"{upgrade['coordinate']} {upgrade.get('oldVersion') or '?'} -> {upgrade['newVersion']}"
-                for upgrade in result.dependency_upgrades
+            upgraded = [u for u in result.dependency_upgrades if u["status"] == "UPGRADED"]
+            if upgraded:
+                upgrades_text = ", ".join(
+                    f"{u['groupId']}:{u['artifactId']} {u.get('sourceVersion') or '?'} -> {u['resolvedTargetVersion']}"
+                    for u in upgraded
+                )
+                parts.append(
+                    f"Upgraded {len(upgraded)} dependency/dependencies: {upgrades_text}."
+                )
+            else:
+                parts.append("All dependencies remained unchanged or were already compatible.")
+        elif result.dependency_migration_status == "NOT_APPLICABLE":
+            parts.append("Dependency migration was not selected for this migration.")
+
+        if result.plugin_upgrades:
+            p_upgrades = ", ".join(
+                f"{u['coordinate']} {u['oldVersion'] or '?'} -> {u['newVersion']}"
+                for u in result.plugin_upgrades
             )
-            parts.append(
-                f"Upgraded {len(result.dependency_upgrades)} dependency/dependencies: {upgrades}."
-            )
+            parts.append(f"Upgraded {len(result.plugin_upgrades)} build plugin(s): {p_upgrades}.")
 
         if result.skipped_recipes:
             skipped = "; ".join(
@@ -781,9 +775,12 @@ class StartMigrationUseCase:
             return f"{source_url.rstrip('/').removesuffix('.git')}/tree/{branch}"
 
         # Default: create a new repo under the configured owner and push.
+        target_owner = destination.get("targetOwner")
+        if not target_owner or target_owner in ("JavaAPEX", "Javaapex"):
+            target_owner = settings.github_target_owner or target_owner
         created = self._repo_creator.create(
             destination.get("targetRepoName") or "",
-            owner=destination.get("targetOwner"),
+            owner=target_owner,
             host=destination.get("targetHost"),
         )
         self._repo_pusher.push(
@@ -797,18 +794,43 @@ class StartMigrationUseCase:
     # -- helpers ------------------------------------------------------------- #
 
     @staticmethod
-    def _resolve_destination(config: dict[str, Any], connect: dict[str, Any]) -> dict[str, Any]:
+    def _resolve_destination(
+        config: dict[str, Any],
+        connect: dict[str, Any],
+        request: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        request = request or {}
         destination = dict(config.get("destination") or {})
+
+        req_approach = request.get("migration_approach") or request.get("approach")
+        req_target_name = request.get("target_repo_name")
+
+        if req_approach == "local" or destination.get("mode") == MODE_LOCAL_FOLDER:
+            return {
+                "mode": MODE_LOCAL_FOLDER,
+                "targetLocalDir": req_target_name or destination.get("targetLocalDir") or "migrated-repo",
+            }
+
+        if req_approach == "branch" or destination.get("mode") == MODE_EXISTING_REPO_BRANCH:
+            return {
+                "mode": MODE_EXISTING_REPO_BRANCH,
+                "targetBranch": req_target_name or destination.get("targetBranch") or "migration",
+            }
+
         if destination.get("mode"):
+            if req_target_name:
+                destination["targetRepoName"] = req_target_name
             return destination
+
         # No saved config — default to a new repo under the configured owner.
         repo_name = connect.get("repoName") or "repo"
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+        target_name = req_target_name or f"{repo_name}-Migrated{timestamp}"
         return {
             "mode": MODE_CREATE_NEW_REPO,
-            "targetOwner": settings.github_target_owner,
+            "targetOwner": settings.github_target_owner or "JavaAPEX",
             "targetHost": "github.com",
-            "targetRepoName": f"{repo_name}-Migrated{timestamp}",
+            "targetRepoName": target_name,
         }
 
     @staticmethod

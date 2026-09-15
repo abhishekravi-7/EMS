@@ -6,6 +6,7 @@ modifies the cloned repository.
 
 from __future__ import annotations
 
+import os
 import shutil
 import stat
 import sys
@@ -28,6 +29,22 @@ def _long_path(path: Path) -> Path:
     if resolved.startswith("\\\\"):
         return Path("\\\\?\\UNC\\" + resolved.lstrip("\\"))
     return Path("\\\\?\\" + resolved)
+
+
+def to_plain_path_str(path: Path | str) -> str:
+    """Return a plain string representation of ``path`` without the long-path prefix.
+
+    Used for external tools or libraries (like Java's Jackson) that might not
+    support the Win32 extended-length path prefix (``\\\\?\\``).
+    """
+    s = str(path)
+    if s.startswith("\\\\?\\"):
+        if s.startswith("\\\\?\\UNC\\"):
+            # \\\\?\\UNC\\server\\share -> \\\\server\\share
+            return "\\\\" + s[8:]
+        # \\\\?\\C:\\path -> C:\\path
+        return s[4:]
+    return s
 
 
 def read_text(path: Path) -> str:
@@ -65,9 +82,11 @@ def find_files(root: Path, suffix: str, *, limit: int = 2000) -> list[str]:
     """Return repo-relative paths of files ending with ``suffix`` (case-insensitive)."""
     matches: list[str] = []
     lowered = suffix.lower()
+    # Normalize root to match the long-path format used in _iter_files
+    normalized_root = _long_path(root)
     for path in _iter_files(root):
         if path.name.lower().endswith(lowered):
-            matches.append(path.relative_to(root).as_posix())
+            matches.append(path.relative_to(normalized_root).as_posix())
             if len(matches) >= limit:
                 break
     return matches
@@ -89,13 +108,22 @@ _SKIP_DIRS = {
 
 def _iter_files(root: Path):
     """Yield files under ``root`` skipping noise directories."""
-    for path in root.rglob("*"):
-        if path.is_dir():
-            continue
-        # Skip anything inside a noise directory.
-        if any(part in _SKIP_DIRS for part in path.relative_to(root).parts[:-1]):
-            continue
-        yield path
+    # Using os.walk allows us to prune directories (like node_modules) BEFORE
+    # descending into them, avoiding deep-path issues (WinError 3) and saving time.
+    #
+    # We use _long_path for Windows robustness, ensuring we can traverse deeply
+    # nested structures without hitting the 260-character limit.
+    root_str = str(_long_path(root))
+    try:
+        for dirpath, dirnames, filenames in os.walk(root_str):
+            # Prune noise directories in-place so os.walk doesn't visit them.
+            dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
+
+            for name in filenames:
+                yield Path(dirpath) / name
+    except OSError:
+        # Best-effort traversal; skip branches we can't access
+        pass
 
 
 def find_shallowest_dir_with(
@@ -109,28 +137,45 @@ def find_shallowest_dir_with(
 
     Used to locate a Java project when its build file lives in a subfolder
     (e.g. ``backend/pom.xml``) rather than the repo root. Noise directories are
-    skipped and the search is depth-bounded. Ties at the same depth prefer the
-    first match in a stable, sorted order.
+    skipped and the search is depth-bounded.
     """
     targets = {name.lower() for name in filenames}
-    best_dir: Path | None = None
-    best_depth: int | None = None
+    root_str = str(_long_path(root))
 
-    for path in sorted(root.rglob("*")):
-        if not path.is_file() or path.name.lower() not in targets:
-            continue
-        relative_parts = path.relative_to(root).parts
-        if any(part in _SKIP_DIRS for part in relative_parts[:-1]):
-            continue
-        depth = len(relative_parts) - 1  # number of directories above the file
-        if depth > max_depth:
-            continue
-        if best_depth is None or depth < best_depth:
-            best_dir = path.parent
-            best_depth = depth
-            if depth == 0:
-                break  # can't get shallower than the root itself
-    return best_dir
+    matches: list[tuple[int, Path]] = []
+
+    for dirpath, dirnames, files in os.walk(root_str):
+        # Calculate current depth relative to root
+        try:
+            rel_path = os.path.relpath(dirpath, root_str)
+            depth = 0 if rel_path == "." else len(Path(rel_path).parts)
+        except ValueError:
+            # Can happen on Windows with mixed long/short path references
+            depth = 100
+
+        # Stop descending if we reached max_depth
+        if depth >= max_depth:
+            dirnames[:] = []
+
+        # Prune noise directories
+        dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
+
+        for name in files:
+            if name.lower() in targets:
+                match_dir = Path(dirpath)
+                matches.append((depth, match_dir))
+                if depth == 0:
+                    return match_dir
+                # Optimization: don't look deeper in this branch if we found a build file
+                dirnames[:] = []
+                break
+
+    if not matches:
+        return None
+
+    # Pick the one with minimum depth
+    matches.sort(key=lambda x: (x[0], str(x[1])))
+    return matches[0][1]
 
 
 def remove_tree(path: Path) -> None:
@@ -160,7 +205,8 @@ def remove_tree(path: Path) -> None:
 
 def _relative_files(root: Path) -> dict[str, Path]:
     """Map of repo-relative posix path -> absolute path (noise dirs skipped)."""
-    return {path.relative_to(root).as_posix(): path for path in _iter_files(root)}
+    normalized_root = _long_path(root)
+    return {path.relative_to(normalized_root).as_posix(): path for path in _iter_files(root)}
 
 
 def count_changed_files(original: Path, migrated: Path) -> int:

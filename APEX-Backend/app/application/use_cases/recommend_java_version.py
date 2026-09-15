@@ -12,12 +12,21 @@ option rather than trusted blindly.
 
 from __future__ import annotations
 
+import json
+
+
+import logging
 import re
 
 from sqlalchemy.orm import Session
 
 from app.core.context import user_id_ctx
-from app.core.exceptions import InvalidJavaVersionError, LLMResponseInvalidError
+from app.core.exceptions import (
+    InvalidJavaVersionError,
+    LLMResponseInvalidError,
+    LLMServiceError,
+)
+from app.infrastructure.llm.chat_llm import ChatLLM
 from app.infrastructure.llm.huggingface_client import HuggingFaceClient
 from app.infrastructure.llm.prompt_templates import (
     JAVA_VERSION_RECOMMENDATION_SYSTEM_PROMPT,
@@ -25,6 +34,8 @@ from app.infrastructure.llm.prompt_templates import (
 )
 from app.infrastructure.persistence.models import User
 from app.schemas.java_version_schema import JavaVersionRecommendationRequest
+
+logger = logging.getLogger(__name__)
 
 # Canonical, LTS-first release ladder. Matches the frontend's dropdown/LTS set
 # so every recommended version can actually be selected and rendered.
@@ -50,8 +61,13 @@ def _allowed_targets(source_major: int) -> tuple[list[str], bool]:
 
 
 class RecommendJavaVersionUseCase:
-    def __init__(self, llm_client: HuggingFaceClient | None = None) -> None:
+    def __init__(
+        self,
+        llm_client: HuggingFaceClient | None = None,
+        chat_llm: ChatLLM | None = None,
+    ) -> None:
         self._llm = llm_client or HuggingFaceClient()
+        self._chat_llm = chat_llm or ChatLLM()
 
     async def execute(
         self,
@@ -79,11 +95,101 @@ class RecommendJavaVersionUseCase:
             user_token = user_id_ctx.set(current_user.id)
 
         try:
-            raw = await self._llm.chat_json(system_prompt, user_prompt)
-            return self._sanitize(raw, allowed_targets, already_at_latest)
+            try:
+                logger.info("[JavaRecommendation] Attempting Hugging Face (primary)")
+                raw = await self._llm.chat_json(system_prompt, user_prompt)
+                return self._sanitize(raw, allowed_targets, already_at_latest)
+            except (LLMServiceError, Exception) as exc:
+                logger.warning(
+                    "[JavaRecommendation] Hugging Face failed, falling back to Strategy Chat LLM (Groq/Ollama). Reason: %s",
+                    exc,
+                )
+                # Fallback to the same LLM logic used by the chatbot (Groq -> Ollama)
+                response_text = ""
+                async for chunk in self._chat_llm.stream_chat(
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    endpoint="java_version_recommendation_fallback",
+                ):
+                    response_text += chunk
+
+                raw = self._extract_json(response_text)
+                result = self._sanitize(raw, allowed_targets, already_at_latest)
+                result["provider_used"] = self._chat_llm.last_provider or "fallback"
+                return result
+        except Exception as exc:  # noqa: BLE001
+            logger.info("LLM Java version recommendation failed (%s); using rule-based fallback.", exc)
+            return self._fallback(source_major, allowed_targets, already_at_latest)
+
         finally:
             if user_token:
                 user_id_ctx.reset(user_token)
+
+    @staticmethod
+
+    def _extract_json(content: str) -> dict:
+        text = (content or "").strip()
+        # Some models wrap JSON in ```json ... ``` fences
+        if text.startswith("```"):
+            text = text.strip("`")
+            if text[:4].lower() == "json":
+                text = text[4:]
+
+        start = text.find("{")
+        end = text.rfind("}")
+        if start == -1 or end == -1 or end < start:
+            raise LLMResponseInvalidError("Fallback model response did not contain JSON.")
+
+        try:
+            return json.loads(text[start : end + 1])
+        except json.JSONDecodeError as exc:
+            raise LLMResponseInvalidError("Fallback model response was not valid JSON.") from exc
+
+    def _fallback(source_major: int, allowed_targets: list[str], already_at_latest: bool) -> dict:
+        if already_at_latest:
+            recommended = str(source_major)
+        elif "17" in allowed_targets and source_major < 17:
+            recommended = "17"
+        elif "21" in allowed_targets:
+            recommended = "21"
+        else:
+            recommended = allowed_targets[0]
+
+        alternative_versions = [v for v in allowed_targets if v != recommended]
+        alternative_options = [
+            {
+                "version": v,
+                "risk": "Medium" if int(v) > int(recommended) else "Low",
+                "reason": f"Alternative LTS target migration path to Java {v}.",
+            }
+            for v in alternative_versions
+        ]
+
+        return {
+            "recommended_target_version": recommended,
+            "recommended_versions": [recommended, *alternative_versions],
+            "confidence": "High",
+            "rationale": [
+                f"Java {recommended} is a widely-adopted Long-Term Support (LTS) release offering industry-standard stability and extensive framework compatibility.",
+                f"Upgrading from Java {source_major} to Java {recommended} provides critical performance, security enhancements, and modern runtime capabilities.",
+            ],
+            "benefits": [
+                "Long-Term Support (LTS) industry standard runtime",
+                "JVM performance and garbage collection optimizations",
+                "Broad enterprise library and build tooling compatibility",
+            ],
+            "compatibility_considerations": [
+                "Review third-party library dependencies for target Java runtime compatibility",
+                "Update build tooling configuration and compiler release flags",
+            ],
+            "alternatives": alternative_versions,
+            "alternative_options": alternative_options,
+            "risk_explanation": f"Recommended LTS upgrade path from Java {source_major} to Java {recommended}.",
+            "provider_used": "rule_based_fallback",
+            "already_at_latest_supported_version": already_at_latest,
+            "raw_recommendation": {},
+        }
+
 
     @staticmethod
     def _sanitize(raw: dict, allowed_targets: list[str], already_at_latest: bool) -> dict:
@@ -130,6 +236,8 @@ class RecommendJavaVersionUseCase:
             for version in alternative_versions
         ]
 
+        risk_explanation = str(raw.get("risk_explanation") or "").strip() or None
+
         return {
             "recommended_target_version": recommended,
             "recommended_versions": [recommended, *alternative_versions],
@@ -139,7 +247,9 @@ class RecommendJavaVersionUseCase:
             "compatibility_considerations": compatibility_considerations,
             "alternatives": alternative_versions,
             "alternative_options": alternative_options,
+            "risk_explanation": risk_explanation,
             "provider_used": "huggingface",
             "already_at_latest_supported_version": already_at_latest,
             "raw_recommendation": raw,
         }
+

@@ -76,6 +76,16 @@ interface TechnicalSpecificationCardProps {
   onGenerate: () => void;
 }
 
+interface BrdUploadCardProps {
+  styles: StyleMap;
+  status: "IDLE" | "FILE_SELECTED" | "UPLOADING" | "UPLOAD_SUCCESS" | "UPLOAD_FAILED" | "EXISTING_ATTACHMENT";
+  metadata: { filename: string; size: number; uploadedAt: string } | null;
+  error: string | null;
+  selectedFile: File | null;
+  onFileSelect: (file: File | null) => void;
+  onUpload: () => void;
+}
+
 interface DiscoveryFileExplorerProps {
   styles: StyleMap;
   repositoryName: string;
@@ -907,27 +917,126 @@ export function DiscoveryTechnicalSpecificationCard({
   onGenerate,
 }: TechnicalSpecificationCardProps) {
   return (
-    <div id="discovery-technical-spec-section" style={{ ...styles.documentCard, marginTop: 20 }}>
+    <div
+      id="discovery-technical-spec-section"
+      style={{
+        ...styles.documentCard,
+        marginTop: 0,
+        marginBottom: 0,
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "space-between",
+        boxSizing: "border-box",
+        flex: 1,
+        minWidth: 0,
+      }}
+    >
+      <div>
+        <div style={styles.documentCardHeader}>
+          <div style={styles.documentCardTitleRow}>
+            <span
+              className="wizard-icon-badge wizard-icon-badge-sm"
+              style={buildWizardAccentVars("#2563eb")}
+            >
+              <FaFileAlt />
+            </span>
+            <div style={styles.documentCardTitle}>Technical Specification Document</div>
+          </div>
+          <div style={styles.documentCardSubtitle}>
+            Generate a repository-grounded technical specification document and download it as PDF-ready HTML.
+          </div>
+        </div>
+      </div>
+      <div>
+        <div style={styles.documentActionRow}>
+          <button style={styles.primaryBtn} disabled={disabled} onClick={onGenerate}>
+            {buttonLabel}
+          </button>
+        </div>
+        <div style={styles.documentHelperText}>{helperText}</div>
+      </div>
+    </div>
+  );
+}
+
+export function DiscoveryBrdUploadCard({
+  styles,
+  status,
+  metadata,
+  error,
+  selectedFile,
+  onFileSelect,
+  onUpload,
+}: BrdUploadCardProps) {
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const getStatusMessage = () => {
+    if (status === "UPLOADING") return "Uploading document...";
+    if (status === "UPLOAD_SUCCESS") return "Upload successful.";
+    if (status === "UPLOAD_FAILED") return error || "Upload failed.";
+    if (status === "EXISTING_ATTACHMENT" && metadata) {
+      return `Previously uploaded: ${metadata.filename}`;
+    }
+    if (status === "FILE_SELECTED" && selectedFile) {
+      return `Selected: ${selectedFile.name} (${(selectedFile.size / 1024).toFixed(1)} KB)`;
+    }
+    return "No file selected.";
+  };
+
+  const isSuccess = status === "UPLOAD_SUCCESS" || status === "EXISTING_ATTACHMENT";
+  const isError = status === "UPLOAD_FAILED";
+
+  return (
+    <div id="discovery-brd-upload-section" style={{ ...styles.documentCard, flex: 1, minWidth: 0 }}>
       <div style={styles.documentCardHeader}>
         <div style={styles.documentCardTitleRow}>
           <span
             className="wizard-icon-badge wizard-icon-badge-sm"
-            style={buildWizardAccentVars("#2563eb")}
+            style={buildWizardAccentVars("#10b981")}
           >
-            <FaFileAlt />
+            <FaArrowUp />
           </span>
-          <div style={styles.documentCardTitle}>Technical Specification Document</div>
+          <div style={styles.documentCardTitle}>BRD Attachment Upload</div>
         </div>
         <div style={styles.documentCardSubtitle}>
-          Generate a repository-grounded technical specification document and download it as PDF-ready HTML.
+          Upload the Business Requirements Document associated with this repository (PDF only, max 10MB).
         </div>
       </div>
-      <div style={styles.documentActionRow}>
-        <button style={styles.primaryBtn} disabled={disabled} onClick={onGenerate}>
-          {buttonLabel}
+
+      <input
+        type="file"
+        accept=".pdf"
+        style={{ display: "none" }}
+        ref={fileInputRef}
+        onChange={(e) => onFileSelect(e.target.files?.[0] || null)}
+      />
+
+      <div style={{ ...styles.documentActionRow, gap: 10 }}>
+        <button
+          style={styles.secondaryBtn}
+          onClick={() => fileInputRef.current?.click()}
+          disabled={status === "UPLOADING"}
+        >
+          Select File
+        </button>
+        <button
+          style={styles.primaryBtn}
+          disabled={status !== "FILE_SELECTED" || status === "UPLOADING"}
+          onClick={onUpload}
+        >
+          Upload
         </button>
       </div>
-      <div style={styles.documentHelperText}>{helperText}</div>
+
+      <div
+        style={{
+          ...styles.documentHelperText,
+          color: isSuccess ? "#10b981" : isError ? "#ef4444" : "#64748b",
+          fontWeight: isSuccess || isError ? 600 : 400,
+        }}
+      >
+        {getStatusMessage()}
+      </div>
     </div>
   );
 }

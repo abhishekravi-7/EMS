@@ -52,39 +52,42 @@ class SpringBootDetector:
     # -- Maven --------------------------------------------------------------- #
 
     def _from_maven(self, pom_root: Element) -> str | None:
-        # <parent> spring-boot-starter-parent
+        properties = self._extract_properties(pom_root)
+
+        # 1. <parent> spring-boot-starter-parent
         parent = pom_root.find("parent")
         if parent is not None:
             artifact = parent.find("artifactId")
             if artifact is not None and artifact.text == "spring-boot-starter-parent":
-                version = parent.find("version")
-                if version is not None and version.text:
-                    return version.text.strip()
+                version_node = parent.find("version")
+                if version_node is not None and version_node.text:
+                    return self._resolve_property(version_node.text.strip(), properties)
 
-        # <properties>spring-boot.version</properties>
-        properties = pom_root.find("properties")
-        if properties is not None:
-            for key in ("spring-boot.version", "spring.boot.version"):
-                node = properties.find(key)
-                if node is not None and node.text:
-                    return node.text.strip()
+        # 2. Specific Spring Boot properties
+        for key in ("spring-boot.version", "spring.boot.version"):
+            if key in properties:
+                return properties[key]
 
-        # A spring-boot dependency / plugin with an explicit version.
+        # 3. A spring-boot dependency / plugin with an explicit version.
         for dependency in pom_root.iter("dependency"):
             group = dependency.find("groupId")
             if group is not None and group.text == "org.springframework.boot":
-                version = dependency.find("version")
-                if version is not None and version.text and "$" not in version.text:
-                    return version.text.strip()
+                version_node = dependency.find("version")
+                if version_node is not None and version_node.text:
+                    resolved = self._resolve_property(version_node.text.strip(), properties)
+                    if resolved and "$" not in resolved:
+                        return resolved
 
         for plugin in pom_root.iter("plugin"):
             artifact = plugin.find("artifactId")
             if artifact is not None and artifact.text == "spring-boot-maven-plugin":
-                version = plugin.find("version")
-                if version is not None and version.text and "$" not in version.text:
-                    return version.text.strip()
+                version_node = plugin.find("version")
+                if version_node is not None and version_node.text:
+                    resolved = self._resolve_property(version_node.text.strip(), properties)
+                    if resolved and "$" not in resolved:
+                        return resolved
 
-        # <dependencyManagement> import of the spring-boot-dependencies BOM.
+        # 4. <dependencyManagement> import of the spring-boot-dependencies BOM.
         dependency_management = pom_root.find("dependencyManagement")
         if dependency_management is not None:
             deps_block = dependency_management.find("dependencies")
@@ -100,10 +103,31 @@ class SpringBootDetector:
                         and dep_type is not None and dep_type.text == "pom"
                         and scope is not None and scope.text == "import"
                     ):
-                        version = dependency.find("version")
-                        if version is not None and version.text and "$" not in version.text:
-                            return version.text.strip()
+                        version_node = dependency.find("version")
+                        if version_node is not None and version_node.text:
+                            resolved = self._resolve_property(version_node.text.strip(), properties)
+                            if resolved and "$" not in resolved:
+                                return resolved
         return None
+
+    def _extract_properties(self, pom_root: Element) -> dict[str, str]:
+        properties = {}
+        props_block = pom_root.find("properties")
+        if props_block is not None:
+            for child in props_block:
+                if child.text:
+                    properties[child.tag] = child.text.strip()
+        return properties
+
+    def _resolve_property(self, text: str, properties: dict[str, str]) -> str:
+        if not text or "$" not in text:
+            return text
+        match = re.search(r"\$\{(.+?)\}", text)
+        if match:
+            prop_name = match.group(1)
+            if prop_name in properties:
+                return text.replace(match.group(0), properties[prop_name])
+        return text
 
     def _maven_signal(self, pom_root: Element) -> bool:
         """Presence-only checks: BOM import or plugin declared, regardless of

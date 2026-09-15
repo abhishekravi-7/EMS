@@ -70,6 +70,33 @@
   border-color: #cbd5e1 !important;
 }
 
+.app-shell-brand-group {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.app-shell-brand-logo-wrap {
+  width: 280px; /* Match sidebar width exactly */
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.app-shell-brand-divider {
+  width: 1px;
+  height: 28px;
+  background-color: #e2e8f0;
+  margin: 0 24px 0 8px;
+  flex-shrink: 0;
+}
+
+.app-shell-brand-text-col {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
 .app-shell-brand {
   display: flex;
   align-items: center;

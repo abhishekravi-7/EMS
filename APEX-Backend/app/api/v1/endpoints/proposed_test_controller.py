@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, verify_job_ownership
 from app.application.use_cases.proposed_tests.proposed_test_service import proposed_test_service
-from app.domain.models.proposed_test_models import BulkStatusUpdateRequest, ProposedTestStatus
+from app.domain.models.proposed_test_models import BulkStatusUpdateRequest, ProposedTestStatus, RunProposedTestsRequest
 from app.infrastructure.persistence.database import get_db
 from app.infrastructure.persistence.models import User
 from app.infrastructure.workspace.workspace_paths import WorkspacePaths
@@ -27,7 +27,7 @@ async def generate_proposed_tests_endpoint(
     db: Session = Depends(get_db),  # noqa: B008
 ):
     """Analyzes the migrated repository and generates proposed functional tests."""
-    verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(db, job_id, current_user)
     try:
         proposals = await asyncio.to_thread(proposed_test_service.generate_proposed_tests, job_id)
         return JSONResponse(content=[p.model_dump() for p in proposals])
@@ -42,7 +42,7 @@ async def get_proposed_tests_status_endpoint(
     db: Session = Depends(get_db),  # noqa: B008
 ):
     """Returns generation & execution status, progress, live logs, and metrics for a migration job."""
-    verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(db, job_id, current_user)
     res = proposed_test_service.get_status(job_id)
     return JSONResponse(content=res)
 
@@ -54,9 +54,42 @@ async def get_proposed_tests_results_endpoint(
     db: Session = Depends(get_db),  # noqa: B008
 ):
     """Returns final execution results and report metrics."""
-    verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(db, job_id, current_user)
     res = proposed_test_service.get_results(job_id)
     return JSONResponse(content=res)
+
+
+@router.get("/{job_id}/proposed-tests/validation")
+async def get_proposed_tests_validation_endpoint(
+    job_id: str,
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
+):
+    """Returns the LLM proposed test validation summary and per-test evidence analysis."""
+    await verify_job_ownership(db, job_id, current_user)
+    summary = proposed_test_service.get_validation_summary(job_id)
+    proposals = proposed_test_service.get_proposed_tests(job_id)
+    return JSONResponse(content={
+        "job_id": job_id,
+        "summary": summary,
+        "validated_tests": [p.model_dump() for p in proposals],
+    })
+
+
+@router.post("/{job_id}/proposed-tests/validate")
+async def run_proposed_tests_validation_endpoint(
+    job_id: str,
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
+):
+    """Runs repository source-code validation on all proposed tests."""
+    await verify_job_ownership(db, job_id, current_user)
+    proposals, summary = await asyncio.to_thread(proposed_test_service.validate_proposed_tests, job_id)
+    return JSONResponse(content={
+        "job_id": job_id,
+        "summary": summary,
+        "validated_tests": [p.model_dump() for p in proposals],
+    })
 
 
 @router.get("/{job_id}/proposed-tests/report/download")
@@ -66,7 +99,7 @@ async def download_proposed_test_report_endpoint(
     db: Session = Depends(get_db),  # noqa: B008
 ):
     """Generates and downloads the full Proposed Functional Test Report as JSON."""
-    verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(db, job_id, current_user)
     res = proposed_test_service.get_results(job_id)
     return Response(
         content=json.dumps(res, indent=2),
@@ -83,7 +116,7 @@ async def bulk_status_update_endpoint(
     db: Session = Depends(get_db),  # noqa: B008
 ):
     """Bulk updates test statuses (e.g. approve multiple or reject multiple)."""
-    verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(db, job_id, current_user)
     updated = proposed_test_service.bulk_set_status(job_id, payload.test_ids, payload.status)
     return JSONResponse(content=[p.model_dump() for p in updated])
 
@@ -91,14 +124,25 @@ async def bulk_status_update_endpoint(
 @router.post("/{job_id}/proposed-tests/run")
 async def run_approved_tests_endpoint(
     job_id: str,
+    payload: RunProposedTestsRequest | None = Body(default=None),  # noqa: B008
     current_user: User = Depends(get_current_user),  # noqa: B008
     db: Session = Depends(get_db),  # noqa: B008
 ):
-    """Starts background execution for all APPROVED proposed test cases."""
-    verify_job_ownership(db, job_id, current_user)
+    """Starts background execution for proposed and/or existing test cases matching selected sources."""
+    await verify_job_ownership(db, job_id, current_user)
+    framework = (payload.framework if payload else "PLAYWRIGHT").upper()
+    if framework in ["SELENIUM", "SELENIUM_WEBDRIVER"]:
+        raise HTTPException(status_code=400, detail="Selenium support is coming soon.")
+    if framework in ["CYPRESS"]:
+        raise HTTPException(status_code=400, detail="Cypress support is coming soon.")
+
     try:
-        res = proposed_test_service.run_approved_tests(job_id)
+        sources = payload.sources if payload else None
+        test_ids = payload.test_ids if payload else None
+        res = proposed_test_service.run_approved_tests(job_id, sources=sources, test_ids=test_ids, framework=framework)
         return JSONResponse(status_code=202, content=res)
+    except HTTPException:
+        raise
     except Exception as e:  # noqa: BLE001
         return JSONResponse(status_code=500, content={"error": str(e)})
 
@@ -110,7 +154,7 @@ async def get_proposed_tests_endpoint(
     db: Session = Depends(get_db),  # noqa: B008
 ):
     """Retrieves all proposed test cases for a migration job."""
-    verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(db, job_id, current_user)
     try:
         proposals = await asyncio.to_thread(proposed_test_service.get_proposed_tests, job_id)
         return JSONResponse(content=[p.model_dump() for p in proposals])
@@ -127,7 +171,7 @@ async def get_proposed_test_evidence_endpoint(
     db: Session = Depends(get_db),  # noqa: B008
 ):
     """Serves Playwright screenshot, video, or log artifact."""
-    verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(db, job_id, current_user)
     paths = WorkspacePaths(job_id)
     evidence_file = paths.job_dir / "proposed-tests" / "evidence" / test_id / filename
 
@@ -144,6 +188,65 @@ async def get_proposed_test_evidence_endpoint(
     return FileResponse(str(evidence_file))
 
 
+@router.get("/{job_id}/proposed-tests/allure-report")
+@router.get("/{job_id}/proposed-tests/allure-report/index.html")
+async def get_proposed_test_allure_report_endpoint(
+    job_id: str,
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
+):
+    """Serves the generated standalone Allure HTML Report for the proposed test execution."""
+    await verify_job_ownership(db, job_id, current_user)
+    paths = WorkspacePaths(job_id)
+    report_file = paths.job_dir / "proposed-tests" / "allure-report" / "index.html"
+
+    if not report_file.is_file():
+        raise HTTPException(status_code=404, detail="Allure report not found for this migration job")
+
+    return Response(content=report_file.read_text(encoding="utf-8"), media_type="text/html")
+
+
+@router.get("/{job_id}/proposed-tests/allure-report/{file_path:path}")
+async def get_proposed_test_allure_asset_endpoint(
+    job_id: str,
+    file_path: str,
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
+):
+    """Serves static assets and evidence attachments for the Allure report."""
+    await verify_job_ownership(db, job_id, current_user)
+    paths = WorkspacePaths(job_id)
+    target_file = (paths.job_dir / "proposed-tests" / "allure-report" / file_path).resolve()
+
+    # Prevent directory traversal
+    base_report_dir = (paths.job_dir / "proposed-tests" / "allure-report").resolve()
+    if not str(target_file).startswith(str(base_report_dir)) or not target_file.is_file():
+        # Also check in allure-results
+        alt_file = (paths.job_dir / "proposed-tests" / "allure-results" / file_path).resolve()
+        base_results_dir = (paths.job_dir / "proposed-tests" / "allure-results").resolve()
+        if str(alt_file).startswith(str(base_results_dir)) and alt_file.is_file():
+            target_file = alt_file
+        else:
+            raise HTTPException(status_code=404, detail="Allure report asset not found")
+
+    if target_file.name.endswith(".html"):
+        return Response(content=target_file.read_text(encoding="utf-8"), media_type="text/html")
+    if target_file.name.endswith(".css"):
+        return Response(content=target_file.read_text(encoding="utf-8"), media_type="text/css")
+    if target_file.name.endswith(".js"):
+        return Response(content=target_file.read_text(encoding="utf-8"), media_type="application/javascript")
+    if target_file.name.endswith(".json"):
+        return Response(content=target_file.read_text(encoding="utf-8"), media_type="application/json")
+    if target_file.name.endswith(".svg"):
+        return Response(content=target_file.read_bytes(), media_type="image/svg+xml")
+    if target_file.name.endswith(".png"):
+        return FileResponse(str(target_file), media_type="image/png")
+    if target_file.name.endswith((".webm", ".mp4")):
+        return FileResponse(str(target_file), media_type="video/webm")
+
+    return FileResponse(str(target_file))
+
+
 # ── 2. Parameterized Test ID Endpoints (Registered AFTER static subpaths) ────
 
 @router.post("/{job_id}/proposed-tests/{test_id}/approve")
@@ -154,7 +257,7 @@ async def approve_proposed_test_endpoint(
     db: Session = Depends(get_db),  # noqa: B008
 ):
     """Marks a proposed test as APPROVED."""
-    verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(db, job_id, current_user)
     updated = proposed_test_service.set_status(job_id, test_id, ProposedTestStatus.APPROVED)
     if not updated:
         raise HTTPException(status_code=404, detail="Proposed test not found")
@@ -169,7 +272,7 @@ async def reject_proposed_test_endpoint(
     db: Session = Depends(get_db),  # noqa: B008
 ):
     """Marks a proposed test as REJECTED."""
-    verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(db, job_id, current_user)
     updated = proposed_test_service.set_status(job_id, test_id, ProposedTestStatus.REJECTED)
     if not updated:
         raise HTTPException(status_code=404, detail="Proposed test not found")
@@ -185,7 +288,7 @@ async def update_proposed_test_endpoint(
     db: Session = Depends(get_db),  # noqa: B008
 ):
     """Updates a proposed test case definition."""
-    verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(db, job_id, current_user)
     updated = proposed_test_service.update_proposed_test(job_id, test_id, updates)
     if not updated:
         raise HTTPException(status_code=404, detail="Proposed test not found")
@@ -200,7 +303,7 @@ async def get_proposed_test_detail_endpoint(
     db: Session = Depends(get_db),  # noqa: B008
 ):
     """Retrieves a single proposed test case by ID."""
-    verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(db, job_id, current_user)
     test = proposed_test_service.get_proposed_test(job_id, test_id)
     if not test:
         raise HTTPException(status_code=404, detail="Proposed test not found")

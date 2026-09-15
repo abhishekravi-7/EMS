@@ -46,6 +46,7 @@ class ApiTestSpec(BaseModel):
     headers: dict[str, str] = Field(default_factory=dict)
     request_body: Any | None = None
     expected_status: int = 200
+    actual_status: int | None = None
     expected_response: Any | None = None
     assertions: list[str] = Field(default_factory=list)
 
@@ -84,13 +85,43 @@ class ExecutionResult(BaseModel):
     stdout: str | None = None
     stderr: str | None = None
     error: str | None = None
+    error_type: str | None = None  # "FUNCTIONAL_FAILURE" | "INFRASTRUCTURE_FAILURE"
     stack_trace: str | None = None
     actual_status_code: int | None = None
+    response_time_ms: int | None = None
     actual_response: Any | None = None
     evidence: ExecutionEvidence = Field(default_factory=ExecutionEvidence)
     assertions_passed: int = 0
     assertions_failed: int = 0
     steps_execution: list[StepExecutionRecord] = Field(default_factory=list)
+
+
+class ValidationStatus(str, Enum):
+    VALID = "VALID"
+    PARTIALLY_VALID = "PARTIALLY_VALID"
+    INVALID = "INVALID"
+    HALLUCINATED = "HALLUCINATED"
+    DUPLICATE = "DUPLICATE"
+    UNSUPPORTED = "UNSUPPORTED"
+
+
+class ProposedTestValidationResult(BaseModel):
+    status: ValidationStatus = ValidationStatus.VALID
+    repository_evidence: str | None = None
+    issue: str | None = None
+    playwright_executable: bool = True
+    functional_area: str = "General"
+
+
+class ValidationSummary(BaseModel):
+    total_llm_generated: int = 0
+    valid: int = 0
+    partially_valid: int = 0
+    invalid: int = 0
+    hallucinated: int = 0
+    duplicate: int = 0
+    unsupported: int = 0
+    functional_coverage: dict[str, str] = Field(default_factory=dict)
 
 
 class ProposedTestCase(BaseModel):
@@ -102,14 +133,16 @@ class ProposedTestCase(BaseModel):
     source: str
     reason: str
     preconditions: list[str] = Field(default_factory=list)
+    test_data: dict[str, Any] | None = None
     steps: list[str] = Field(default_factory=list)
     expected_result: str
     status: ProposedTestStatus = ProposedTestStatus.PROPOSED
-    generation_source: str = "STATIC_ANALYSIS"
+    generation_source: str = "AI_GENERATED"
     api_spec: ApiTestSpec | None = None
     unit_spec: UnitTestSpec | None = None
     ui_spec: UiTestSpec | None = None
     execution_result: ExecutionResult | None = None
+    validation: ProposedTestValidationResult | None = None
 
 
 class ProposedTestTypeBreakdown(BaseModel):
@@ -135,6 +168,12 @@ class ProposedTestMetrics(BaseModel):
     skipped: int = 0
     not_executed: int = 0
     gaps_count: int = 0
+    ai_generated_count: int = 0
+    brd_generated_count: int = 0
+    llm_generated_count: int = 0
+    functional_doc_generated_count: int = 0
+    existing_generated_count: int = 0
+    existing_count: int = 0
     duration: str = "0.0s"
     pass_percentage: str = "0%"
     unit_metrics: ProposedTestTypeBreakdown = Field(default_factory=ProposedTestTypeBreakdown)
@@ -146,3 +185,9 @@ class ProposedTestMetrics(BaseModel):
 class BulkStatusUpdateRequest(BaseModel):
     test_ids: list[str]
     status: ProposedTestStatus
+
+
+class RunProposedTestsRequest(BaseModel):
+    sources: list[str] | None = None
+    test_ids: list[str] | None = None
+    framework: str = "PLAYWRIGHT"

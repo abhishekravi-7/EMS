@@ -35,8 +35,8 @@ _UUID = re.compile(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{
 _WINDOWS_PATH = re.compile(r"[A-Za-z]:\\[^\s\"'<>]+")
 _UNIX_PATH = re.compile(r"(?<![\w/])/(?:[\w.\-]+/)+[\w.\-]+")
 
-_RECIPE_FQN = re.compile(r"\borg\.openrewrite\.[\w$]+(?:\.[\w$]+)*")
-_MIGRATION_TOOL_WORD = re.compile(r"\bopen\s*rewrite\b", re.IGNORECASE)
+_RECIPE_FQN = re.compile(r"\b(?:org\.openrewrite|com\.javaapex\.migration)\.[\w$]+(?:\.[\w$]+)*")
+_MIGRATION_TOOL_WORD = re.compile(r"\b(?:Java\s*APEX|OpenRewrite)\b", re.IGNORECASE)
 
 
 def _redact(line: str) -> str:
@@ -55,12 +55,13 @@ def _redact(line: str) -> str:
 # --------------------------------------------------------------------------- #
 
 _RECIPE_CLASS_LABELS: dict[str, str] = {
-    "UpgradeJavaVersion": "Java version configuration",
+    "MAVEN-JAVA-RELEASE-11": "Java 11 configuration",
+    "MAVEN-JAVA-RELEASE-17": "Java 17 configuration",
+    "MAVEN-JAVA-RELEASE-21": "Java 21 configuration",
+    "JAVAX-TO-JAKARTA": "Jakarta namespace migration",
     "JavaxMigrationToJakarta": "Jakarta namespace migration",
-    "UpgradeDependencyVersion": "Dependency version upgrade",
-    "RemoveUnusedImports": "Removed unused imports",
-    "OrderImports": "Organized imports",
-    "JUnit5BestPractices": "JUnit 5 test framework upgrade",
+    "UpgradeJavaVersion": "Java version configuration",
+    "IMPORT-CLEANUP": "Import optimization",
 }
 
 
@@ -166,7 +167,8 @@ _STAGE_RULES: list[tuple[re.Pattern, "object"]] = [
         re.compile(r"^={3,}\s*build skipped\s*\((\w+)\)\s*={3,}$", re.IGNORECASE),
         _stage("Build verification skipped for this environment"),
     ),
-    (re.compile(r"using active recipe|:rewriterun\b", re.IGNORECASE), _stage("Applying source-code changes")),
+    (re.compile(r"using active visitor|:visit\b", re.IGNORECASE), _stage("Applying source-code changes")),
+    (re.compile(r"migration status: SUCCESS", re.IGNORECASE), _stage("Code transformations applied successfully")),
     (re.compile(r"^build successful\b", re.IGNORECASE), _stage("Build verification succeeded")),
     (re.compile(r"^build failed\b", re.IGNORECASE), _stage("Build verification found issues")),
     (
@@ -187,7 +189,7 @@ _NOISE_PATTERNS = [
     re.compile(r"^\[INFO]\s*-{3,}\s*$"),
     re.compile(r"^\[INFO]\s*---\s", re.IGNORECASE),  # maven plugin-goal banner
     re.compile(r"^>\s*task\s+:[\w:\-]+\s*$", re.IGNORECASE),  # gradle task line, not a failure
-    re.compile(r"^org\.openrewrite\.recipe:[\w.\-]+:[\w.\-]+$"),  # bare artifact coordinate
+    re.compile(r"^(?:org\.openrewrite|com\.javaapex)\.recipe:", re.IGNORECASE),
     re.compile(r"^downloading from|^downloaded from|^progress \(|^uploading", re.IGNORECASE),
 ]
 

@@ -1,9 +1,18 @@
 import { useState } from "react";
-import { readSessionJson, type PersistedWizardFormState, WIZARD_REPO_ANALYSIS_KEY } from "@/shared/utils/migrationWizardStorage";
+import {
+  readPersistedValue,
+  readSessionJson,
+  type PersistedWizardFormState,
+  WIZARD_REPO_ANALYSIS_KEY,
+  WIZARD_SELECTED_REPO_KEY,
+  WIZARD_JOB_ID_KEY,
+  getScopedRepoAnalysisKey,
+} from "@/shared/utils/migrationWizardStorage";
 import type {
   MicroserviceEligibilityResult,
   RepoAnalysis,
   RepoFile,
+  RepoInfo,
 } from "@/shared/types/domain";
 
 type MicroserviceAccordionKey =
@@ -14,13 +23,60 @@ type MicroserviceAccordionKey =
   | "strategy"
   | "observations";
 
+export type DiscoveryStageId =
+  | "repository_map"
+  | "dependency_graph"
+  | "preview_signals"
+  | "service_fit";
+
+export interface DiscoveryStageState {
+  id: DiscoveryStageId;
+  label: string;
+  detail: string;
+  status: "queued" | "in_progress" | "complete" | "failed";
+  summary?: string;
+  error?: string;
+}
+
+export const INITIAL_DISCOVERY_STAGES: DiscoveryStageState[] = [
+  {
+    id: "repository_map",
+    label: "Repository Map",
+    detail: "Scanning folders, modules, packages, and source file structure",
+    status: "in_progress",
+  },
+  {
+    id: "dependency_graph",
+    label: "Dependency Graph",
+    detail: "Reading declared libraries, Maven/Gradle dependencies, and build plugins",
+    status: "queued",
+  },
+  {
+    id: "preview_signals",
+    label: "Preview Signals",
+    detail: "Detecting Java version, frameworks, test suites, and project signals",
+    status: "queued",
+  },
+  {
+    id: "service_fit",
+    label: "Service Fit",
+    detail: "Evaluating architecture boundaries, Spring Boot fit, and service readiness",
+    status: "queued",
+  },
+];
+
 export function useDiscoveryState(
   persistedFormState: PersistedWizardFormState | null,
   createDefaultMicroserviceAccordionState: () => Record<MicroserviceAccordionKey, boolean>
 ) {
-  const [repoAnalysis, setRepoAnalysis] = useState<RepoAnalysis | null>(() =>
-    readSessionJson<RepoAnalysis>(WIZARD_REPO_ANALYSIS_KEY)
-  );
+  const [repoAnalysis, setRepoAnalysis] = useState<RepoAnalysis | null>(() => {
+    const activeRepo = readSessionJson<RepoInfo>(WIZARD_SELECTED_REPO_KEY);
+    if (!activeRepo || !activeRepo.url) return null;
+    const activeJobId = readPersistedValue(WIZARD_JOB_ID_KEY);
+    const scopedKey = getScopedRepoAnalysisKey(activeJobId || activeRepo.url);
+    return readSessionJson<RepoAnalysis>(scopedKey) || readSessionJson<RepoAnalysis>(WIZARD_REPO_ANALYSIS_KEY);
+  });
+  const [discoveryStages, setDiscoveryStages] = useState<DiscoveryStageState[]>(INITIAL_DISCOVERY_STAGES);
   const [repoFiles, setRepoFiles] = useState<RepoFile[]>([]);
   const [repoFilesLoading, setRepoFilesLoading] = useState(false);
   const [repoFilesError, setRepoFilesError] = useState("");
@@ -76,6 +132,7 @@ export function useDiscoveryState(
 
   function resetDiscoverySelectionState() {
     setRepoAnalysis(null);
+    setDiscoveryStages(INITIAL_DISCOVERY_STAGES);
     setRepoFiles([]);
     setRepoFilesLoading(false);
     setRepoFilesError("");
@@ -101,6 +158,8 @@ export function useDiscoveryState(
   return {
     repoAnalysis,
     setRepoAnalysis,
+    discoveryStages,
+    setDiscoveryStages,
     repoFiles,
     setRepoFiles,
     repoFilesLoading,

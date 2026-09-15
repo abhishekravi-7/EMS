@@ -9,10 +9,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 from xml.etree.ElementTree import Element, ParseError  # nosec B405
 
 from defusedxml.ElementTree import fromstring  # nosec B405
 
+from app.infrastructure.analyzers.api_endpoint_detector import ApiEndpointDetector
 from app.infrastructure.analyzers.build_metadata_analyzer import (
     BomVersion,
     BuildMetadataAnalyzer,
@@ -55,7 +57,11 @@ class ProjectAnalysis:
     has_src_main: bool
     has_src_test: bool
     has_tests: bool
+    project_root: Path
+    api_endpoints: list[dict[str, Any]] = field(default_factory=list)
     java_files: list[str] = field(default_factory=list)
+    config_files: list[str] = field(default_factory=list)
+    other_files: list[str] = field(default_factory=list)
     total_file_count: int = 0
 
     @property
@@ -81,6 +87,7 @@ class ProjectAnalyzer:
         self._modules = ModuleDetector()
         self._project_type = ProjectTypeDetector()
         self._frontend = FrontendDetector()
+        self._api_endpoints = ApiEndpointDetector()
 
     def analyze(self, root: Path) -> ProjectAnalysis:
         # The Java project may live in a subfolder (e.g. backend/pom.xml) rather
@@ -105,7 +112,30 @@ class ProjectAnalyzer:
         spring_boot_version = self._spring_boot.detect(pom_root, build_gradle_text)
         spring_boot_signal = self._spring_boot.has_signal(pom_root, build_gradle_text)
         spring_framework_version = self._spring_framework.detect(pom_root, build_gradle_text)
-        java_files = file_utils.find_files(project_root, ".java")
+        all_files = file_utils.find_files(root, "")
+        java_files = [f for f in all_files if f.lower().endswith(".java")]
+        config_exts = (
+            ".xml",
+            ".yml",
+            ".yaml",
+            ".properties",
+            ".gradle",
+            ".gradle.kts",
+            ".json",
+            ".conf",
+            ".config",
+            ".toml",
+            ".ini",
+            ".cfg",
+            ".env",
+            ".inf",
+            ".policy",
+        )
+        config_files = [
+            f for f in all_files if f not in java_files and any(f.lower().endswith(ext) for ext in config_exts)
+        ]
+        other_files = [f for f in all_files if f not in java_files and f not in config_files]
+        total_file_count = len(all_files)
 
         spring_entry_class: str | None = None
         if not spring_boot_version and not spring_boot_signal:
@@ -117,7 +147,7 @@ class ProjectAnalyzer:
                 spring_boot_signal = True
                 spring_entry_class = entrypoint.entry_class
 
-        dependencies = self._dependencies.analyze(pom_root, build_gradle_text)
+        dependencies = self._dependencies.analyze(pom_root, build_gradle_text, project_root)
         build_plugins = self._metadata.detect_plugins(pom_root, build_gradle_text)
         bom_versions = self._metadata.detect_boms(pom_root, build_gradle_text)
         frameworks = self._metadata.detect_frameworks(
@@ -137,7 +167,8 @@ class ProjectAnalyzer:
         # Scan the whole repo for a frontend (it commonly sits beside the backend,
         # e.g. repo/frontend + repo/backend).
         frontend = self._frontend.detect(root)
-        total_file_count = file_utils.count_files(root, "")
+
+        api_endpoints = self._api_endpoints.detect(project_root)
 
         has_src_main = file_utils.exists(project_root, "src", "main")
         has_src_test = file_utils.exists(project_root, "src", "test")
@@ -166,7 +197,11 @@ class ProjectAnalyzer:
             has_src_main=has_src_main,
             has_src_test=has_src_test,
             has_tests=has_src_test,
+            project_root=project_root,
+            api_endpoints=api_endpoints,
             java_files=java_files,
+            config_files=config_files,
+            other_files=other_files,
             total_file_count=total_file_count,
         )
 

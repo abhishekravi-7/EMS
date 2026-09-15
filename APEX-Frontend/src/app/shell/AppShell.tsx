@@ -5,6 +5,7 @@ import { DocsPanel } from "@/features/docs";
 // import { SupportPanel } from "@/features/support";
 import { Button } from "@/shared/components/ui";
 import { useAuth } from "@/shared/context/AuthContext";
+import { useSidebar } from "@/shared/context/SidebarContext";
 import FloatingChatbot from "@/shared/components/chatbot/FloatingChatbot";
 import { FaCog } from "react-icons/fa";
 import "./AppShell.css";
@@ -22,7 +23,7 @@ const shellStyles: { [key: string]: React.CSSProperties } = {
   header: {
     background: "rgba(255, 255, 255, 0.92)",
     borderBottom: "1px solid #e2e8f0",
-    padding: "14px 28px 14px 100px",
+    padding: "0 28px 0 24px",
     width: "100%",
     boxSizing: "border-box",
     display: "flex",
@@ -32,9 +33,10 @@ const shellStyles: { [key: string]: React.CSSProperties } = {
     rowGap: 10,
     position: "sticky",
     top: 0,
-    zIndex: 20,
+    zIndex: 1100,
     backdropFilter: "blur(12px)",
     boxShadow: "0 10px 30px rgba(15, 23, 42, 0.04)",
+    height: 67,
   },
   main: {
     flex: 1,
@@ -71,11 +73,43 @@ const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const { isAuthenticated, isAuthLoading, user, logout } = useAuth();
+  const { isSidebarExpanded, toggleSidebar } = useSidebar();
 
+  const normalizedPath = location.pathname.replace(/\/+$/, "");
   const isStandalonePage =
-    // location.pathname === "/" ||
-    location.pathname === "/signin" ||
-    location.pathname === "/signup";
+    normalizedPath === "/signin" ||
+    normalizedPath === "/signup";
+
+  const isWizardPage =
+    !isStandalonePage &&
+    !["/admin", "/usage"].includes(normalizedPath);
+
+  const rootStyle: React.CSSProperties = isWizardPage
+    ? {
+        ...shellStyles.root,
+        height: "100vh",
+        maxHeight: "100vh",
+        overflow: "hidden",
+      }
+    : shellStyles.root;
+
+  const mainStyle: React.CSSProperties = isWizardPage
+    ? {
+        ...shellStyles.main,
+        height: "calc(100vh - 67px)",
+        maxHeight: "calc(100vh - 67px)",
+        overflow: "hidden",
+      }
+    : shellStyles.main;
+
+  const contentStyle: React.CSSProperties = isWizardPage
+    ? {
+        ...shellStyles.content,
+        height: "100%",
+        maxHeight: "100%",
+        overflow: "hidden",
+      }
+    : shellStyles.content;
 
   // Auth guard: once the real /api/auth/me check completes (isAuthLoading
   // becomes false), redirect unauthenticated users away from protected pages.
@@ -110,22 +144,49 @@ const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   }
 
   return (
-    <div style={shellStyles.root} className="app-shell-root">
+    <div style={rootStyle} className="app-shell-root">
       <header style={shellStyles.header} className="app-shell-header">
-        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-          <img
-            src={apexLogo}
-            alt="APEX Logo"
-            className="app-shell-logo-image"
-            style={{ width: 60, height: 40, objectFit: "contain", borderRadius: 8, cursor: "pointer" }}
-            onClick={() => navigate("/")}
-          />
-          <div style={{ display: "flex", flexDirection: "column" }}>
+        <div style={{ display: "flex", alignItems: "center" }} className="app-shell-brand-group">
+          {/* Logo — always visible in header. On wizard pages it toggles the sidebar; elsewhere it navigates home */}
+          <div
+            className={`app-shell-brand-logo-wrap${isWizardPage ? " is-sidebar-toggle" : ""}`}
+            style={{
+              width: isWizardPage ? (isSidebarExpanded ? 256 : 256) : "auto",
+              transition: "width 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+              overflow: "visible"
+            }}
+          >
+            <img
+              src={apexLogo}
+              alt="Java APEX"
+              className="app-shell-logo-image"
+              style={{
+                height: 44,
+                width: "auto",
+                objectFit: "contain",
+                borderRadius: 8,
+                cursor: "pointer",
+                transition: "transform 0.2s ease, opacity 0.2s ease",
+              }}
+              onClick={() => {
+                if (isWizardPage) {
+                  toggleSidebar();
+                } else {
+                  navigate("/");
+                }
+              }}
+              title={isWizardPage ? (isSidebarExpanded ? "Collapse sidebar" : "Expand sidebar") : "Home"}
+            />
+          </div>
+
+          {!isWizardPage && <div className="app-shell-brand-divider" />}
+
+          <div style={{ display: "flex", flexDirection: "column" }} className="app-shell-brand-text-col">
             <span style={{ fontSize: 16, fontWeight: 700, color: "#1e293b", letterSpacing: "-0.01em" }}>
-              Java Migration Accelerator
+              {/* Java Migration Accelerator */}
             </span>
             <span style={{ fontSize: 11, color: "#64748b", fontWeight: 500 }}>
-              Enterprise Application Modernization
+              {/* Enterprise Application Modernization */}
             </span>
           </div>
         </div>
@@ -294,20 +355,22 @@ const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         </nav>
       </header>
 
-      <main style={shellStyles.main}>
-        <div style={shellStyles.content}>
+      <main style={mainStyle}>
+        <div style={contentStyle}>
           {children}
         </div>
       </main>
 
-      <footer style={shellStyles.footer}>
-        <div style={shellStyles.footerContent} className="app-shell-footer-content">
-          <span className="app-shell-footer-meta" data-year={new Date().getFullYear()}>
-            © {new Date().getFullYear()} Powered by <a href="https://sorim.ai/" target="_blank" rel="noreferrer">Sorim.ai</a>
-          </span>
-          <span>© {new Date().getFullYear()} <a href="https://sorim.ai/">Sorim.ai</a></span>
-        </div>
-      </footer>
+      {!isWizardPage && (
+        <footer style={shellStyles.footer}>
+          <div style={shellStyles.footerContent} className="app-shell-footer-content">
+            <span className="app-shell-footer-meta" data-year={new Date().getFullYear()}>
+              © {new Date().getFullYear()} Powered by <a href="https://sorim.ai/" target="_blank" rel="noreferrer">Sorim.ai</a>
+            </span>
+            <span>© {new Date().getFullYear()} <a href="https://sorim.ai/">Sorim.ai</a></span>
+          </div>
+        </footer>
+      )}
 
       <DocsPanel
         open={activePanel === "docs"}
@@ -319,7 +382,9 @@ const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         onClose={() => setActivePanel(null)}
         onNavigateToDocs={() => setActivePanel("docs")}
       /> */}
-      <FloatingChatbot />
+      {location.pathname !== "/" && location.pathname !== "/connect" && location.pathname !== "/signin" && location.pathname !== "/signup" && (
+        <FloatingChatbot />
+      )}
     </div>
   );
 };

@@ -62,7 +62,7 @@ def verify_password(plain_password: str, password_hash: str) -> bool:
 # --------------------------------------------------------------------------- #
 
 
-def _create_token(user_id: int, token_type: TokenType, expires_delta: timedelta) -> str:
+def _create_token(user_id: str | int, token_type: TokenType, expires_delta: timedelta) -> str:
     """Build and sign a JWT.
 
     `sub` (subject) is the standard JWT claim for "who this token is about" —
@@ -85,17 +85,17 @@ def _create_token(user_id: int, token_type: TokenType, expires_delta: timedelta)
     return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
-def create_access_token(user_id: int) -> str:
+def create_access_token(user_id: str | int) -> str:
     """Short-lived token proving the caller is logged in (sent on every request)."""
     return _create_token(user_id, "access", timedelta(minutes=settings.access_token_expire_minutes))
 
 
-def create_refresh_token(user_id: int) -> str:
+def create_refresh_token(user_id: str | int) -> str:
     """Long-lived token used only to obtain a new access token (see /api/auth/refresh)."""
     return _create_token(user_id, "refresh", timedelta(days=settings.refresh_token_expire_days))
 
 
-def decode_token(token: str, expected_type: TokenType) -> int:
+def decode_token(token: str, expected_type: TokenType) -> str:
     """Decode and validate a JWT, returning the user id encoded in ``sub``.
 
     Raises InvalidTokenError for anything that isn't a currently-valid token
@@ -120,10 +120,7 @@ def decode_token(token: str, expected_type: TokenType) -> int:
     if subject is None:
         raise InvalidTokenError("Token is missing its subject.")
 
-    try:
-        return int(subject)
-    except (TypeError, ValueError) as exc:
-        raise InvalidTokenError("Token subject is not a valid user id.") from exc
+    return str(subject)
 
 
 # --------------------------------------------------------------------------- #

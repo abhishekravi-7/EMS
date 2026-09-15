@@ -18,5 +18,10 @@ class DiscoveryPipeline:
     def __init__(self, run_discovery: RunDiscoveryUseCase | None = None) -> None:
         self._run_discovery = run_discovery or RunDiscoveryUseCase()
 
-    def run(self, job_id: str, github_token: str | None = None) -> DiscoveryOutcome:
-        return self._run_discovery.execute(job_id, github_token)
+    def run(
+        self,
+        job_id: str,
+        github_token: str | None = None,
+        force_refresh: bool = False,
+    ) -> DiscoveryOutcome:
+        return self._run_discovery.execute(job_id, github_token, force_refresh)

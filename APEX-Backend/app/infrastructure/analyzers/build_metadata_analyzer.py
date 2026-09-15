@@ -11,11 +11,16 @@ from app.infrastructure.analyzers.dependency_analyzer import Dependency
 
 @dataclass(frozen=True)
 class BuildPlugin:
-    id: str
+    group_id: str
+    artifact_id: str
     version: str | None = None
 
     def to_dict(self) -> dict[str, str | None]:
-        return {"id": self.id, "version": self.version}
+        return {
+            "groupId": self.group_id,
+            "artifactId": self.artifact_id,
+            "version": self.version
+        }
 
 
 @dataclass(frozen=True)
@@ -68,14 +73,32 @@ class BuildMetadataAnalyzer:
             frameworks.add("spring-framework")
         if any("spring-security" in item for item in coordinates):
             frameworks.add("spring-security")
-        if any(item.startswith("org.hibernate") for item in groups):
+        if any(item.startswith("org.springframework.cloud:") for item in coordinates):
+            frameworks.add("spring-cloud")
+        if any("spring-data" in item for item in coordinates):
+            frameworks.add("spring-data")
+        if any(item.startswith("org.hibernate") for item in groups) or any("hibernate" in item for item in coordinates):
             frameworks.add("hibernate")
         if any(item.startswith("jakarta.") for item in groups):
             frameworks.add("jakarta-ee")
         if any(item.startswith("javax.") for item in groups):
             frameworks.add("javax-ee")
-        if "org.junit.jupiter:junit-jupiter" in coordinates or "junit:junit" in coordinates:
+        if any("junit" in item for item in coordinates):
             frameworks.add("junit")
+        if any("mockito" in item for item in coordinates):
+            frameworks.add("mockito")
+        if any("lombok" in item for item in coordinates):
+            frameworks.add("lombok")
+        if any("liquibase" in item for item in coordinates):
+            frameworks.add("liquibase")
+        if any("flyway" in item for item in coordinates):
+            frameworks.add("flyway")
+        if any("springdoc" in item or "swagger" in item for item in coordinates):
+            frameworks.add("springdoc-openapi")
+        if any(item.startswith("org.apache.struts") for item in groups):
+            frameworks.add("struts")
+        if any("mybatis" in item for item in coordinates):
+            frameworks.add("mybatis")
         if "org.springframework.boot" in build_gradle_text:
             frameworks.add("spring-boot")
 
@@ -97,7 +120,7 @@ class BuildMetadataAnalyzer:
             if plugin_id in seen:
                 continue
             seen.add(plugin_id)
-            plugins.append(BuildPlugin(plugin_id, version))
+            plugins.append(BuildPlugin(group, artifact, version))
         return plugins
 
     @staticmethod
@@ -128,16 +151,27 @@ class BuildMetadataAnalyzer:
         seen: set[str] = set()
         patterns = [
             r"id\s*[( ]\s*['\"]([^'\"]+)['\"]\)?\s*(?:version\s*['\"]([^'\"]+)['\"])?",
-            r"classpath\s*[( ]\s*['\"][^:'\"]+:([^:'\"]+):([^'\"]+)['\"]",
+            r"classpath\s*[( ]\s*['\"]([^:'\"]+):([^:'\"]+):([^'\"]+)['\"]",
         ]
         for pattern in patterns:
             for match in re.finditer(pattern, build_text):
-                plugin_id = match.group(1)
-                version = match.group(2) if match.lastindex and match.lastindex >= 2 else None
+                if match.lastindex and match.lastindex >= 2 and ":" in match.group(1):
+                    # classpath case or complex id
+                    parts = match.group(1).split(":")
+                    group = parts[0]
+                    artifact = parts[1]
+                    version = parts[2] if len(parts) >= 3 else match.group(2)
+                else:
+                    # simple id case
+                    group = ""
+                    artifact = match.group(1)
+                    version = match.group(2) if match.lastindex and match.lastindex >= 2 else None
+                
+                plugin_id = f"{group}:{artifact}"
                 if plugin_id in seen:
                     continue
                 seen.add(plugin_id)
-                plugins.append(BuildPlugin(plugin_id, version))
+                plugins.append(BuildPlugin(group, artifact, version))
         return plugins
 
     @staticmethod
