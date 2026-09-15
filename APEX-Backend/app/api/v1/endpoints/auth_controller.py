@@ -170,92 +170,29 @@ async def signup(payload: SignupRequest, db: Session = Depends(get_db)) -> JSONR
     response_model=AuthResponse,
     summary="Sign in with email and password.",
 )
-async def login(payload: LoginRequest, db: Session | None = Depends(get_db_optional)) -> JSONResponse:  # noqa: B008
-    # 1. MongoDB Provider
-    if settings.auth_provider == "mongodb":
-        from app.infrastructure.persistence.mongodb import get_mongodb
-        from app.application.services.mongodb_auth_service import MongoDBAuthService
-        
-        mongo_db = await get_mongodb()
-        service = MongoDBAuthService(mongo_db)
-        try:
-            user, access_token, refresh_token = await service.login(
-                email=payload.email, password=payload.password
-            )
-            # Map dict to UserResponse compatible dict
-            user_data = dict(user)
-            user_data["id"] = str(user_data.pop("_id"))
-            
-            logger.info("User logged in via MongoDB (user_id=%s).", user_data["id"])
-            body = AuthResponse(user=UserResponse.model_validate(user_data), message="Login successful.")
-            response = JSONResponse(status_code=200, content=body.model_dump(by_alias=True, mode="json"))
-            _set_auth_cookies(response, access_token, refresh_token)
-            return response
-        except AuthError as exc:
-            return _auth_error_response(exc)
+async def login(payload: LoginRequest) -> JSONResponse:
+    from app.infrastructure.persistence.mongodb import get_mongodb
+    from app.application.services.mongodb_auth_service import MongoDBAuthService
 
-    # 2. Legacy / Special-case: when the database is disabled the backend supports a
-    # single static login for convenience (no persistent users). When the
-    # DB is enabled the normal AuthService flow is used.
-    if db is None:
-        # Static credentials (non-production convenience, configured via settings/env)
-        dev_email = settings.dev_static_user_email
-        dev_pass = settings.dev_static_user_password
-        if payload.email != dev_email or payload.password != dev_pass:
-            return _auth_error_response(InvalidCredentialsError())
+    mongo_db = await get_mongodb()
+    if mongo_db is None:
+        return JSONResponse(status_code=503, content={"detail": "Database connection unavailable."})
 
-        # Fabricate a lightweight User-like object for the response body.
-        from datetime import datetime, timezone
-
-        fake_user = User()
-        fake_user.id = 0
-        fake_user.full_name = "Java APEX"
-        fake_user.email = dev_email
-        fake_user.role = "USER"
-        fake_user.is_active = True
-        fake_user.is_email_verified = True
-        fake_user.created_at = datetime.now(timezone.utc)
-        fake_user.last_login_at = datetime.now(timezone.utc)
-
-        access_token = security.create_access_token(fake_user.id)
-
-        # In static-login (DB disabled) mode we intentionally do NOT issue a
-        # refresh token cookie. This keeps parity for a signed-in session via
-        # the access token while avoiding refresh/rotation behavior that
-        # depends on the database.
-        logger.info("Static user logged in (email=%s).", fake_user.email)
-        body = AuthResponse(user=UserResponse.model_validate(fake_user), message="Login successful.")
-        response = JSONResponse(status_code=200, content=body.model_dump(by_alias=True, mode="json"))
-
-        # Set only the access token cookie (mirror `_set_auth_cookies`'s
-        # options for consistency with production behavior).
-        common_cookie_options = {
-            "httponly": True,
-            "secure": settings.is_production,
-            "samesite": settings.cookie_samesite,
-            "path": "/",
-        }
-        response.set_cookie(
-            ACCESS_TOKEN_COOKIE,
-            access_token,
-            max_age=settings.access_token_expire_minutes * 60,
-            **common_cookie_options,
-        )
-        return response
-
-    # Normal DB-backed flow
-    service = AuthService(db)
+    service = MongoDBAuthService(mongo_db)
     try:
-        user = service.authenticate(email=payload.email, password=payload.password)
-        access_token, refresh_token = service.create_login_session(user)
+        user, access_token, refresh_token = await service.login(
+            email=payload.email, password=payload.password
+        )
+        user_data = dict(user)
+        user_data["id"] = str(user_data.pop("_id"))
+
+        logger.info("User logged in via MongoDB (user_id=%s).", user_data["id"])
+        body = AuthResponse(user=UserResponse.model_validate(user_data), message="Login successful.")
+        response = JSONResponse(status_code=200, content=body.model_dump(by_alias=True, mode="json"))
+        _set_auth_cookies(response, access_token, refresh_token)
+        return response
     except AuthError as exc:
         return _auth_error_response(exc)
-
-    logger.info("User logged in (user_id=%s).", user.id)
-    body = AuthResponse(user=UserResponse.model_validate(user), message="Login successful.")
-    response = JSONResponse(status_code=200, content=body.model_dump(by_alias=True, mode="json"))
-    _set_auth_cookies(response, access_token, refresh_token)
-    return response
 
 
 @router.get(

@@ -507,9 +507,7 @@ const shouldHideGeneratedDiffPath = (filePath: string) => {
 };
 
 const buildCodeChangesFromPreviewDiffs = (fileDiffs: PreviewFileDiff[]): CodeChangeEntry[] => {
-  if (!Array.isArray(fileDiffs)) {
-    return [];
-  }
+  if (!Array.isArray(fileDiffs)) return [];
   return fileDiffs.flatMap((fileDiff) => {
     if (!fileDiff) return [];
 
