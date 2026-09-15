@@ -3635,7 +3635,6 @@ export function useWizardController() {
       return targetVersionNumber !== null && targetVersionNumber > detectedSourceVersionNumber;
     });
   }, [detectedSourceVersionNumber, targetVersions]);
-  const effectiveTargetVersion = selectedTargetVersion;
   const defaultRecommendedTargetVersion = useMemo(() => {
     const ltsJavaVersions = new Set(["8", "11", "17", "21", "25"]);
     return (
