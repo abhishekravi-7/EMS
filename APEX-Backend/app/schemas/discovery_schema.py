@@ -5,7 +5,7 @@ with no body; ``githubToken`` is an optional override used for private repos whe
 it is not already stored in the connect report.
 """
 
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
