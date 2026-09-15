@@ -70,7 +70,7 @@ def test_inventory_preservation_after_subset_execution(tmp_path: Path, monkeypat
     assert len(initial_status["proposals"]) == 3
     assert initial_status["metrics"]["total"] == 3
     assert initial_status["metrics"]["executed"] == 0
-    assert initial_status["metrics"]["not_executed"] == 3
+    assert initial_status["metrics"]["not_executed"] == 0
     assert initial_status["metrics"]["brd_generated_count"] == 1
     assert initial_status["metrics"]["llm_generated_count"] == 2
 
@@ -95,7 +95,7 @@ def test_inventory_preservation_after_subset_execution(tmp_path: Path, monkeypat
     assert results["metrics"]["total"] == 3
     assert results["metrics"]["executed"] == 1
     assert results["metrics"]["passed"] == 1
-    assert results["metrics"]["not_executed"] == 2
+    assert results["metrics"]["not_executed"] == 0
     assert results["metrics"]["brd_generated_count"] == 1
     assert results["metrics"]["llm_generated_count"] == 2
     
@@ -105,4 +105,4 @@ def test_inventory_preservation_after_subset_execution(tmp_path: Path, monkeypat
     assert status["metrics"]["total"] == 3
     assert status["metrics"]["executed"] == 1
     assert status["metrics"]["passed"] == 1
-    assert status["metrics"]["not_executed"] == 2
+    assert status["metrics"]["not_executed"] == 0
