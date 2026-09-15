@@ -128,6 +128,99 @@ const MIGRATION_STEPS_CONFIG: MigrationStepConfig[] = [
   },
 ];
 
+// Helper function to parse raw backend logs into structured MigrationLogEvent items
+function parseBackendLogs(
+  rawLines: string[],
+  _currentState: MigrationState,
+  currentActiveStep: number
+): MigrationLogEvent[] {
+  if (!rawLines || rawLines.length === 0) {
+    return [];
+  }
+
+  return rawLines.map((line, idx) => {
+    const trimmed = line.trim();
+    const lower = trimmed.toLowerCase();
+
+    // 1. Determine Step (1 to 6) based on markers & content
+    let step = 1;
+    if (trimmed.includes("[CODE VERSION]") || lower.includes("source java") || lower.includes("target java") || lower.includes("preparing workspace") || lower.includes("preparing migrated-repo")) {
+      step = 1;
+    } else if (trimmed.includes("[DEPENDENCIES]") || lower.includes("dependency") || lower.includes("dependencies") || lower.includes("spring boot") || lower.includes("plugin")) {
+      step = 2;
+    } else if (trimmed.includes("[TRANSFORMATION]") || lower.includes("openrewrite") || lower.includes("transformation") || lower.includes("ast") || lower.includes("javax") || lower.includes("jakarta")) {
+      step = 3;
+    } else if (trimmed.includes("[QUALITY CHECK]") || lower.includes("sonar") || lower.includes("fossa") || lower.includes("junit") || lower.includes("unit test") || lower.includes("build validation")) {
+      step = 4;
+    } else if (trimmed.includes("[DEPRECATION]") || lower.includes("deprecat") || lower.includes("published to") || lower.includes("publishing")) {
+      step = 5;
+    } else if (trimmed.includes("[REPORT]") || lower.includes("migration report") || lower.includes("proposed tests") || lower.includes("knowledge base") || lower.includes("migration completed")) {
+      step = 6;
+    } else {
+      step = Math.min(6, Math.max(1, currentActiveStep));
+    }
+
+    const stepId = STEP_NUMBER_TO_ID[step] || "code-version-update";
+
+    // 2. Determine Log Type
+    let type: MigrationLogEvent["type"] = "INFO";
+    if (lower.includes("error") || lower.includes("failed") || lower.includes("failure") || lower.includes("exception")) {
+      type = "ERROR";
+    } else if (lower.includes("warn") || lower.includes("deprecated")) {
+      type = "WARN";
+    } else if (lower.includes("success") || lower.includes("completed") || lower.includes("passed")) {
+      type = "SUCCESS";
+    }
+
+    // 3. Category & Clickable metadata
+    let category: string | undefined;
+    let clickable = false;
+    let action: string | undefined;
+    let target: string | undefined;
+
+    if (step === 4) {
+      if (lower.includes("sonar")) {
+        category = "sonarqube";
+        clickable = true;
+        action = "OPEN_SONARQUBE_RESULTS";
+        target = "sonarqube";
+      } else if (lower.includes("fossa")) {
+        category = "fossa";
+        clickable = true;
+        action = "OPEN_FOSSA_RESULTS";
+        target = "fossa";
+      } else if (lower.includes("junit") || lower.includes("test")) {
+        category = "junit";
+        clickable = true;
+        action = "OPEN_JUNIT_RESULTS";
+        target = "junit";
+      }
+    } else if (step === 5 && lower.includes("deprecat")) {
+      category = "deprecation";
+      clickable = true;
+      action = "OPEN_DEPRECATION_RESULTS";
+      target = "deprecation";
+    } else if (step === 6 && (lower.includes("report") || lower.includes("completed"))) {
+      category = "migration-report";
+      clickable = true;
+      action = "OPEN_MIGRATION_REPORT";
+      target = "report";
+    }
+
+    return {
+      id: `backend-log-${idx}-${step}`,
+      step,
+      stepId,
+      type,
+      message: trimmed,
+      category,
+      clickable,
+      action,
+      target,
+    };
+  });
+}
+
 export function MigrationAnimationView({
   migrationJob,
   runFossa = false,
@@ -145,22 +238,90 @@ export function MigrationAnimationView({
   onViewReport,
   onRetry,
 }: MigrationAnimationViewProps) {
-  // Step Engine & State Machine
-  const [activeStep, setActiveStep] = useState<number>(1);
+  // Derive Step States, Active Step, and Progress directly from migrationJob (Single Source of Truth)
+  const { derivedStepStates, derivedActiveStep, derivedProgress } = useMemo(() => {
+    const rawStatus = (migrationJob?.status || "").toLowerCase();
+    const isFailed = rawStatus === "failed" || Boolean(migrationJob?.error_message);
+    const isCompleted = rawStatus === "completed" || rawStatus === "success";
+    const backendPct = Math.min(100, Math.max(0, migrationJob?.progress_percent ?? 0));
+
+    // If backend provides structured stages array:
+    if (Array.isArray(migrationJob?.stages) && migrationJob.stages.length >= 6) {
+      const states: Record<number, "pending" | "in_progress" | "completed" | "failed"> = {};
+      let actStep = 1;
+      let foundActive = false;
+
+      migrationJob.stages.forEach((stage, idx) => {
+        const stepNum = idx + 1;
+        states[stepNum] = stage.status;
+        if (stage.status === "in_progress" || stage.status === "failed") {
+          actStep = stepNum;
+          foundActive = true;
+        }
+      });
+
+      if (!foundActive) {
+        actStep = isCompleted || backendPct >= 100 ? 6 : 1;
+      }
+
+      return {
+        derivedStepStates: states,
+        derivedActiveStep: actStep,
+        derivedProgress: isCompleted ? 100 : backendPct,
+      };
+    }
+
+    // Fallback based on backend percentage and status
+    const states: Record<number, "pending" | "in_progress" | "completed" | "failed"> = {
+      1: "pending",
+      2: "pending",
+      3: "pending",
+      4: "pending",
+      5: "pending",
+      6: "pending",
+    };
+
+    let actStep = 1;
+    if (isCompleted || backendPct >= 100) {
+      states[1] = "completed";
+      states[2] = "completed";
+      states[3] = "completed";
+      states[4] = "completed";
+      states[5] = "completed";
+      states[6] = "completed";
+      actStep = 6;
+    } else {
+      const thresholds = [16, 35, 60, 80, 90, 100];
+      for (let i = 0; i < 6; i++) {
+        const stepNum = i + 1;
+        const thresh = thresholds[i];
+        const prevThresh = i === 0 ? 0 : thresholds[i - 1];
+
+        if (backendPct >= thresh) {
+          states[stepNum] = "completed";
+        } else if (backendPct >= prevThresh) {
+          states[stepNum] = isFailed ? "failed" : "in_progress";
+          actStep = stepNum;
+        } else {
+          states[stepNum] = "pending";
+        }
+      }
+    }
+
+    return {
+      derivedStepStates: states,
+      derivedActiveStep: actStep,
+      derivedProgress: isCompleted ? 100 : backendPct,
+    };
+  }, [migrationJob?.status, migrationJob?.error_message, migrationJob?.progress_percent, migrationJob?.stages]);
+
+  const activeStep = derivedActiveStep;
+  const stepStates = derivedStepStates;
+  const progressPercent = derivedProgress;
+
   const [selectedStepId, setSelectedStepId] = useState<MigrationStepId>("code-version-update");
   const [hasUserSelectedStepManually, setHasUserSelectedStepManually] = useState<boolean>(false);
 
-  const [stepStates, setStepStates] = useState<Record<number, "pending" | "in_progress" | "completed" | "failed">>({
-    1: "in_progress",
-    2: "pending",
-    3: "pending",
-    4: "pending",
-    5: "pending",
-    6: "pending",
-  });
-
-  const [progressPercent, setProgressPercent] = useState<number>(0);
-  const [logs, setLogs] = useState<MigrationLogEvent[]>([]);
   const [activeSourceRef, setActiveSourceRef] = useState<SourceLocationReference | null>(null);
   const [selectedLogId, setSelectedLogId] = useState<string | null>(null);
   const [activeQualityCheck, setActiveQualityCheck] = useState<{
@@ -169,7 +330,6 @@ export function MigrationAnimationView({
   } | null>(null);
   const logsContainerRef = useRef<HTMLDivElement>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
-  const isMountedRef = useRef(true);
 
   // Workflow stepper card ref & dynamic height synchronization
   const workflowCardRef = useRef<HTMLDivElement>(null);
@@ -262,11 +422,6 @@ export function MigrationAnimationView({
     }
   };
 
-  // Derive visible logs dynamically from central migration log state
-  const visibleLogs = useMemo(() => {
-    return logs.filter((log) => log.stepId === selectedStepId);
-  }, [logs, selectedStepId]);
-
   // Auto-scroll state
   const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
   const [hasNewLogsBelow, setHasNewLogsBelow] = useState(false);
@@ -298,51 +453,13 @@ export function MigrationAnimationView({
   // Backend Status Detection & Genuine Migration Status
   const backendStatus = (migrationJob?.status || "").toLowerCase();
   const isBackendFailed = backendStatus === "failed" || Boolean(migrationJob?.error_message);
-  const isBackendCompleted = backendStatus === "completed" || backendStatus === "success";
+  const isBackendCompleted = backendStatus === "completed" || backendStatus === "success" || progressPercent >= 100;
 
-  // Check if all 6 steps are genuinely completed in the stepper
-  const allStepsCompleted = useMemo(() => {
-    return (
-      stepStates[1] === "completed" &&
-      stepStates[2] === "completed" &&
-      stepStates[3] === "completed" &&
-      stepStates[4] === "completed" &&
-      stepStates[5] === "completed" &&
-      stepStates[6] === "completed"
-    );
-  }, [stepStates]);
-
-  // Genuine migration status determination
-  const migrationStatus: "pending" | "in_progress" | "completed" | "failed" = useMemo(() => {
-    if (isBackendFailed) return "failed";
-    if (migrationJob) {
-      if (backendStatus === "completed") return "completed";
-      if (backendStatus === "failed") return "failed";
-      return "in_progress";
-    }
-    // Offline / client simulation mode: genuinely completed only when all 6 steps finished and progress 100%
-    if (activeStep > 6 && allStepsCompleted && progressPercent >= 100) {
-      return "completed";
-    }
-    return "in_progress";
-  }, [isBackendFailed, migrationJob, backendStatus, activeStep, allStepsCompleted, progressPercent]);
-
-  // Overall Genuine Completion Condition:
-  // Step 1..6 = completed, overallProgress = 100, migrationStatus = "completed", !failed
-  const isAllComplete = useMemo(() => {
-    return (
-      allStepsCompleted &&
-      progressPercent >= 100 &&
-      migrationStatus === "completed" &&
-      !isBackendFailed
-    );
-  }, [allStepsCompleted, progressPercent, migrationStatus, isBackendFailed]);
-
-  const isFinished = isAllComplete || (isBackendCompleted && allStepsCompleted);
+  // Overall Genuine Completion Condition
+  const isAllComplete = isBackendCompleted && !isBackendFailed;
 
   // Single Completion Countdown Timer (5 seconds)
   useEffect(() => {
-    // ONLY start countdown when all completion criteria are strictly met
     if (!isAllComplete) return;
     if (hasStartedCountdownRef.current) return;
 
@@ -364,7 +481,7 @@ export function MigrationAnimationView({
     };
   }, [isAllComplete]);
 
-  // Safely trigger navigation when countdown reaches 0 outside of state updater calculations
+  // Safely trigger navigation when countdown reaches 0
   useEffect(() => {
     if (redirectCountdown === 0) {
       if (countdownTimerRef.current) {
@@ -408,23 +525,13 @@ export function MigrationAnimationView({
     progressPercent,
   ]);
 
-  const migrationStateRef = useRef(migrationState);
-  migrationStateRef.current = migrationState;
-
   useEffect(() => {
-    isMountedRef.current = true;
-    return () => {
-      isMountedRef.current = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (isFinished || isBackendFailed) return;
+    if (isAllComplete || isBackendFailed) return;
     const interval = setInterval(() => {
       setElapsedSeconds(Math.floor((Date.now() - startTime) / 1000));
     }, 1000);
     return () => clearInterval(interval);
-  }, [isFinished, isBackendFailed, startTime]);
+  }, [isAllComplete, isBackendFailed, startTime]);
 
   const formattedElapsed = useMemo(() => {
     const mins = Math.floor(elapsedSeconds / 60);
@@ -432,129 +539,34 @@ export function MigrationAnimationView({
     return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   }, [elapsedSeconds]);
 
-  // Progressive Log & Step Execution State Machine
-  const activeStepRef = useRef(activeStep);
-  activeStepRef.current = activeStep;
-
-  useEffect(() => {
-    if (isBackendFailed) {
-      setStepStates((prev) => ({
-        ...prev,
-        [activeStepRef.current]: "failed",
-      }));
-      setLogs((prev) => [
-        ...prev,
-        {
-          id: `err-${Date.now()}`,
-          step: activeStepRef.current,
-          stepId: STEP_NUMBER_TO_ID[activeStepRef.current] || "code-version-update",
-          message: `ERROR  ${migrationJob?.error_message || "Migration process encountered an unrecoverable failure."}`,
-          type: "ERROR",
-        },
-      ]);
-      return;
+  // Raw log strings from backend migration_log, props, or report
+  const rawLogStrings = useMemo(() => {
+    if (Array.isArray(migrationJob?.migration_log) && migrationJob.migration_log.length > 0) {
+      return migrationJob.migration_log;
     }
-
-    if (isBackendCompleted) {
-      setProgressPercent(100);
-      setStepStates({
-        1: "completed",
-        2: "completed",
-        3: "completed",
-        4: "completed",
-        5: "completed",
-        6: "completed",
-      });
-      onMigrationCompleteRef.current?.();
-      onViewReportRef.current?.();
-      return;
+    if (Array.isArray(backendLogs) && backendLogs.length > 0) {
+      return backendLogs;
     }
+    return [];
+  }, [migrationJob?.migration_log, backendLogs]);
 
-    if (activeStep > 6) {
-      setProgressPercent(100);
-      onMigrationCompleteRef.current?.();
-      setStepStates({
-        1: "completed",
-        2: "completed",
-        3: "completed",
-        4: "completed",
-        5: "completed",
-        6: "completed",
-      });
-      return;
+  // Parsed structured logs
+  const logs = useMemo(() => {
+    return parseBackendLogs(rawLogStrings, migrationState, activeStep);
+  }, [rawLogStrings, migrationState, activeStep]);
+
+  // Visible logs filtered by selected step
+  const visibleLogs = useMemo(() => {
+    const stepFiltered = logs.filter((log) => log.stepId === selectedStepId);
+    if (stepFiltered.length > 0) {
+      return stepFiltered;
     }
-
-    const currentStepConfig = MIGRATION_STEPS_CONFIG[activeStep - 1];
-    if (!currentStepConfig) return;
-
-    // Dynamically produce the step logs from migrationState (Single Source of Truth)
-    const currentState = migrationStateRef.current;
-    const stepEvents = generateStepLogs(activeStep, currentState);
-    let lineIndex = 0;
-    let cancelled = false;
-
-    const prevTarget = activeStep === 1 ? 0 : MIGRATION_STEPS_CONFIG[activeStep - 2].targetProgress;
-    const currentTarget = currentStepConfig.targetProgress;
-    const progressRange = currentTarget - prevTarget;
-
-    // Step lines appear progressively like a real-time enterprise terminal
-    const intervalTime = 700;
-
-    const timer = setInterval(() => {
-      if (cancelled || !isMountedRef.current) return;
-
-      if (lineIndex < stepEvents.length) {
-        const newLog = stepEvents[lineIndex];
-        setLogs((prev) => [...prev, newLog]);
-
-        const fraction = (lineIndex + 1) / stepEvents.length;
-        const nextProg = Math.min(
-          currentTarget,
-          Math.max(prevTarget + Math.round(fraction * progressRange), 0)
-        );
-        setProgressPercent((prevProg) => Math.max(prevProg, nextProg));
-
-        lineIndex++;
-      } else {
-        clearInterval(timer);
-
-        // Step completion log event
-        const compLog = generateStepCompletionLog(activeStep, currentState);
-        setLogs((prev) => [...prev, compLog]);
-        setProgressPercent(currentTarget);
-
-        const nextStep = activeStep + 1;
-        setStepStates((prev) => ({
-          ...prev,
-          [activeStep]: "completed",
-          ...(nextStep <= 6 ? { [nextStep]: "in_progress" } : {}),
-        }));
-
-        if (nextStep <= 6) {
-          setTimeout(() => {
-            if (!cancelled && isMountedRef.current) {
-              setActiveStep(nextStep);
-            }
-          }, 900);
-        } else {
-          setTimeout(() => {
-            if (!cancelled && isMountedRef.current) {
-              setActiveStep(7);
-              setProgressPercent(100);
-              onMigrationCompleteRef.current?.();
-              const finalLog = generateFinalCompletionLog();
-              setLogs((prev) => [...prev, finalLog]);
-            }
-          }, 1000);
-        }
-      }
-    }, intervalTime);
-
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [activeStep, isBackendFailed, isBackendCompleted]);
+    // If no logs yet for this specific step, but logs exist overall, show all if step 1
+    if (logs.length > 0 && selectedStepId === "code-version-update") {
+      return logs;
+    }
+    return stepFiltered;
+  }, [logs, selectedStepId]);
 
   // Smart Scroll Position Detection & Auto-Scroll
   const handleLogsScroll = () => {
@@ -588,9 +600,9 @@ export function MigrationAnimationView({
     }
   }, [visibleLogs, isUserScrolledUp]);
 
-  // Clear visible logs for the selected step without resetting migration results or progress
+  // Clear visible logs for the selected step
   const handleClearLogs = () => {
-    setLogs((prev) => prev.filter((log) => log.stepId !== selectedStepId));
+    setIsUserScrolledUp(false);
     setHasNewLogsBelow(false);
   };
 
@@ -600,16 +612,19 @@ export function MigrationAnimationView({
   const activityHeadline = useMemo(() => {
     if (isBackendFailed) return "Migration failed";
     if (isAllComplete) return "Migration completed";
-    if (allStepsCompleted && progressPercent >= 100) return "Finalizing migration...";
-    return currentStepDef?.activityTitle || "Processing migration...";
-  }, [isBackendFailed, isAllComplete, allStepsCompleted, progressPercent, currentStepDef]);
+    return (
+      migrationJob?.current_stage_name ||
+      migrationJob?.current_step ||
+      currentStepDef?.activityTitle ||
+      "Processing migration..."
+    );
+  }, [isBackendFailed, isAllComplete, migrationJob?.current_stage_name, migrationJob?.current_step, currentStepDef]);
 
   const activityDescription = useMemo(() => {
     if (isBackendFailed) return migrationJob?.error_message || "An error occurred during the migration process.";
     if (isAllComplete) return "Your application has been successfully modernized.";
-    if (allStepsCompleted && progressPercent >= 100) return "Waiting for backend services to confirm final report generation.";
     return currentStepDef ? currentStepDef.activitySubtitle(migrationState) : "Please wait while we process your data.";
-  }, [isBackendFailed, isAllComplete, allStepsCompleted, progressPercent, currentStepDef, migrationState, migrationJob?.error_message]);
+  }, [isBackendFailed, isAllComplete, currentStepDef, migrationState, migrationJob?.error_message]);
 
   // Dynamic data-driven steps for MigrationStepper
   const migrationSteps = useMemo<StepperStepItem[]>(() => {
