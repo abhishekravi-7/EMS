@@ -60,7 +60,7 @@ async def save_migration_config(
     Only stores the config (destination + options). Repo creation and push are
     deferred to the Start Migration stage.
     """
-    verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(db, job_id, current_user)
     config = payload.model_dump(by_alias=True)
     try:
         outcome = _pipeline.run(job_id, config)

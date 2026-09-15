@@ -990,9 +990,9 @@ export function useWizardController() {
   const buildTargetRepoUrl = (
     repoName: string,
     timestamp: string,
-    owner: string = "owner",
-    host: string = "github.com"
-  ) => `https://${host}/${owner}/${repoName || "repo"}-Migrated${timestamp}`;
+    owner?: string,
+    host?: string
+  ) => `${repoName || "repo"}-Migrated${timestamp}`;
 
   const buildTargetBranchName = (repoName: string, timestamp: string) =>
     `migration/${repoName || "repo"}-Migrated${timestamp}`;
@@ -1210,6 +1210,14 @@ export function useWizardController() {
     resetTargetRepoNaming,
     applyDetectedSourceVersion,
   } = strategyState;
+
+
+  const fetchedVersionRecommendationKeyRef = useRef<string>("");
+
+  const effectiveTargetVersion = selectedTargetVersion;
+
+
+
   const fetchedRiskExplanationKeyRef = useRef<string>("");
   const fetchedDependencyAnalysisKeyRef = useRef<string>("");
   const modernizationState = useModernizationState(persistedFormState);
@@ -3652,7 +3660,6 @@ export function useWizardController() {
       return targetVersionNumber !== null && targetVersionNumber > detectedSourceVersionNumber;
     });
   }, [detectedSourceVersionNumber, targetVersions]);
-  const effectiveTargetVersion = selectedTargetVersion;
   const defaultRecommendedTargetVersion = useMemo(() => {
     const ltsJavaVersions = new Set(["8", "11", "17", "21", "25"]);
     return (
@@ -4370,7 +4377,13 @@ export function useWizardController() {
       return;
     }
 
+    const recommendationKey = `${repoAnalysis.java_version || repoAnalysis.java_version_from_build || ""}_${repoAnalysis.build_tool || ""}_${detectedSourceVersionForTargets}_${repoAnalysis.dependencies?.length || 0}_${repoAnalysis.has_tests}_${riskLevel || "unknown"}`;
+    if (fetchedVersionRecommendationKeyRef.current === recommendationKey && versionRecommendation) {
+      return;
+    }
+
     let cancelled = false;
+    fetchedVersionRecommendationKeyRef.current = recommendationKey;
     setVersionRecommendationLoading(true);
     setVersionRecommendationError("");
 

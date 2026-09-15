@@ -55,31 +55,88 @@ class HuggingFaceClient:
         }
         headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
+        import asyncio
+
+        max_retries = 3
         start_time = time.time()
         error = None
         body = None
         self.last_usage = None
+
         try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
-                response = await client.post(
-                    f"{self._base_url}/chat/completions", headers=headers, json=payload
-                )
+            for attempt in range(max_retries):
+                try:
+                    async with httpx.AsyncClient(timeout=self._timeout) as client:
+                        logger.info(
+                            "[HuggingFace] Sending request to %s/chat/completions (attempt %s/%s)",
+                            self._base_url,
+                            attempt + 1,
+                            max_retries,
+                        )
+                        response = await client.post(
+                            f"{self._base_url}/chat/completions", headers=headers, json=payload
+                        )
 
-            if response.status_code != 200:
-                error = f"HTTP {response.status_code}"
-                raise LLMServiceError(f"Hugging Face API returned HTTP {response.status_code}.")
+                    if response.status_code == 429 and attempt < max_retries - 1:
+                        retry_after = int(response.headers.get("Retry-After", 2**attempt))
+                        logger.warning(
+                            "[HuggingFace] Rate limited (429). Retrying in %ss (attempt %s/%s)",
+                            retry_after,
+                            attempt + 1,
+                            max_retries,
+                        )
+                        await asyncio.sleep(retry_after)
+                        continue
 
-            body = response.json()
-            self.last_usage = tt.extract_usage(body)
-            content = body["choices"][0]["message"]["content"]
-            return self._extract_json(content)
+                    if response.status_code != 200:
+                        error = f"HTTP {response.status_code}"
+                        logger.error("[HuggingFace] API failed with HTTP %s", response.status_code)
+                        raise LLMServiceError(f"Hugging Face API returned HTTP {response.status_code}.")
 
-        except httpx.HTTPError as exc:
-            error = str(exc)
-            raise LLMServiceError() from exc
-        except (KeyError, IndexError, ValueError, TypeError) as exc:
-            error = f"Invalid payload: {type(exc).__name__}"
-            raise LLMServiceError("Hugging Face API returned an unexpected payload shape.") from exc
+                    try:
+                        body = response.json()
+                    except json.JSONDecodeError as exc:
+                        error = "Malformed JSON response"
+                        logger.error("[HuggingFace] Malformed JSON response from API")
+                        raise LLMServiceError("Hugging Face API returned a malformed JSON response.") from exc
+
+                    self.last_usage = tt.extract_usage(body)
+                    try:
+                        content = body["choices"][0]["message"]["content"]
+                    except (KeyError, IndexError, TypeError) as exc:
+                        error = "Unexpected payload shape"
+                        logger.error("[HuggingFace] Unexpected payload shape: %s", body)
+                        raise LLMServiceError("Hugging Face API returned an unexpected payload shape.") from exc
+
+                    return self._extract_json(content)
+
+                except httpx.TimeoutException as exc:
+                    error = "Timeout"
+                    logger.error("[HuggingFace] Request timed out after %ss", self._timeout)
+                    if attempt < max_retries - 1:
+                        continue
+                    raise LLMServiceError("Hugging Face API request timed out.") from exc
+                except httpx.ConnectError as exc:
+                    error = "Connection Error"
+                    logger.error("[HuggingFace] Failed to connect to %s", self._base_url)
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(1)
+                        continue
+                    raise LLMServiceError("Could not connect to Hugging Face API.") from exc
+                except httpx.HTTPError as exc:
+                    error = f"HTTP error: {type(exc).__name__}"
+                    logger.error("[HuggingFace] HTTP transport error: %s", str(exc))
+                    if attempt < max_retries - 1:
+                        continue
+                    raise LLMServiceError(f"Hugging Face API transport error: {type(exc).__name__}") from exc
+                except Exception as exc:
+                    if isinstance(exc, LLMServiceError):
+                        raise
+                    error = f"Unexpected error: {type(exc).__name__}"
+                    logger.error("[HuggingFace] Unexpected error during call: %s", str(exc), exc_info=True)
+                    raise LLMServiceError(f"An unexpected error occurred during LLM call: {type(exc).__name__}") from exc
+            
+            raise LLMServiceError("Hugging Face API request failed after all retry attempts.")
         finally:
             duration_ms = (time.time() - start_time) * 1000
             try:
