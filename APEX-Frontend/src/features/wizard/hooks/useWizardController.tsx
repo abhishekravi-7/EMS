@@ -501,8 +501,11 @@ const shouldHideGeneratedDiffPath = (filePath: string) => {
 };
 
 const buildCodeChangesFromPreviewDiffs = (fileDiffs: PreviewFileDiff[]): CodeChangeEntry[] => {
+  if (!Array.isArray(fileDiffs)) return [];
   return fileDiffs.flatMap((fileDiff) => {
-    const diffLinesRaw = fileDiff.diff.split(/\r?\n/);
+    if (!fileDiff) return [];
+    const diffString = typeof fileDiff.diff === "string" ? fileDiff.diff : "";
+    const diffLinesRaw = diffString.split(/\r?\n/);
     const parsedDiffLines: CodeChangeEntry["diffLines"] = [];
     let oldLineNumber = 0;
     let newLineNumber = 0;
@@ -982,9 +985,9 @@ export function useWizardController() {
   const buildTargetRepoUrl = (
     repoName: string,
     timestamp: string,
-    owner: string = "owner",
-    host: string = "github.com"
-  ) => `https://${host}/${owner}/${repoName || "repo"}-Migrated${timestamp}`;
+    owner?: string,
+    host?: string
+  ) => `${repoName || "repo"}-Migrated${timestamp}`;
 
   const buildTargetBranchName = (repoName: string, timestamp: string) =>
     `migration/${repoName || "repo"}-Migrated${timestamp}`;
