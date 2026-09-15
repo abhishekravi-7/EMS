@@ -273,14 +273,6 @@ class StartMigrationUseCase:
             # --- Optional Quality Gates (SonarQube/FOSSA) ---
             self._run_quality_gates(store, job_id, result.project_dir, report)
 
-            # --- Publish ---
-            progress_service.set_phase(
-                store, status=MigrationStatus.RUNNING.value,
-                step=MigrationStep.PUBLISHING.value, percent=85,
-            )
-            file_utils.remove_tree(paths.migrated_repo_dir / ".git")
-            publish_target_java = result.effective_target_java_version or target_java
-            target_repo = self._publish(store, report, paths, publish_target_java)
 
             # --- Step 5: Automatically generate and run Unit Test Suite ---
             try:
@@ -389,16 +381,6 @@ class StartMigrationUseCase:
             except Exception as test_exc:
                 logger.warning(f"Post-migration unit test execution notice for job {job_id}: {test_exc}")
 
-            # --- Done ---
-            store.update(
-                status=MigrationStatus.COMPLETED.value,
-                currentStep=MigrationStep.COMPLETED.value,
-                progressPercent=100,
-                targetRepo=target_repo,
-                completedAt=_now(),
-            )
-            store.append_logs([f"Migration completed. Published to {target_repo}"])
-            logger.info("Migration completed for job %s -> %s", job_id, target_repo)
 
             # --- Step 6: Automatically execute Proposed Functional Tests based strictly on user's selection ---
             try:
@@ -420,6 +402,26 @@ class StartMigrationUseCase:
                     proposed_test_service.run_approved_tests(job_id, sources=["LLM", "FUNCTIONAL_DOC", "EXISTING"])
             except Exception as pt_exc:  # noqa: BLE001
                 logger.warning(f"Post-migration proposed test execution notice for job {job_id}: {pt_exc}")
+
+            # --- Publish ---
+            progress_service.set_phase(
+                store, status=MigrationStatus.RUNNING.value,
+                step=MigrationStep.PUBLISHING.value, percent=95,
+            )
+            file_utils.remove_tree(paths.migrated_repo_dir / ".git")
+            publish_target_java = result.effective_target_java_version or target_java
+            target_repo = self._publish(store, report, paths, publish_target_java)
+
+            # --- Done ---
+            store.update(
+                status=MigrationStatus.COMPLETED.value,
+                currentStep=MigrationStep.COMPLETED.value,
+                progressPercent=100,
+                targetRepo=target_repo,
+                completedAt=_now(),
+            )
+            store.append_logs([f"Migration completed. Published to {target_repo}"])
+            logger.info("Migration completed for job %s -> %s", job_id, target_repo)
 
             # Refresh the chatbot's vector index
             self._reindex_knowledge_base(job_id)
