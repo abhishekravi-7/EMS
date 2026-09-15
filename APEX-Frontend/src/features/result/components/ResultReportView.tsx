@@ -498,12 +498,9 @@ export function ResultReportView({
       : fossaPolicyStatus === "UNAVAILABLE" || fossaScanMode === "pending"
         ? "#f59e0b"
         : "#ef4444";
-  const rawDepList: Array<DependencyInfo | Record<string, unknown>> = (migrationJob?.dependencies?.length
-    ? migrationJob.dependencies
-    : (migrationJob?.dependencyUpgrades?.length ? migrationJob.dependencyUpgrades : [
-      { group_id: "org.springframework.boot", artifact_id: "spring-boot-starter-parent", current_version: "2.7.18", new_version: "3.2.5", status: "UPGRADED" },
-      { group_id: "org.springframework.boot", artifact_id: "spring-boot-starter-web", current_version: "2.7.18", new_version: "3.2.5", status: "UPGRADED" },
-      { group_id: "org.springframework.boot", artifact_id: "spring-boot-starter-data-jpa", current_version: "2.7.18", new_version: "3.2.5", status: "UPGRADED" },
+  const rawDepList: Array<DependencyInfo | Record<string, unknown>> = (migrationJob?.dependency_upgrades?.length
+    ? migrationJob.dependency_upgrades
+    : (migrationJob?.dependencies?.length ? migrationJob.dependencies : [
       { group_id: "jakarta.persistence", artifact_id: "jakarta.persistence-api", current_version: "2.2.0 (javax)", new_version: "3.1.0 (jakarta)", status: "UPGRADED" },
       { group_id: "org.junit.jupiter", artifact_id: "junit-jupiter", current_version: "4.12 (JUnit 4)", new_version: "5.10.2 (JUnit 5)", status: "UPGRADED" },
     ])) as Array<DependencyInfo | Record<string, unknown>>;
@@ -518,20 +515,18 @@ export function ResultReportView({
       current_version?: string | null;
       old_version?: string | null;
       oldVersion?: string | null;
+      sourceVersion?: string | null;
       new_version?: string | null;
       newVersion?: string | null;
       status?: string | null;
     };
-    return {
       group_id: source.group_id || source.groupId || source.coordinate?.split(":")[0] || "dependency",
       artifact_id: source.artifact_id || source.artifactId || source.coordinate?.split(":")[1] || "artifact",
-      current_version: source.current_version || source.old_version || source.oldVersion || "managed version",
-      new_version: source.new_version || source.newVersion || "updated version",
+      current_version: source.current_version || source.old_version || source.oldVersion || source.sourceVersion || "managed version",
+      new_version: source.new_version || source.newVersion || source.resolvedTargetVersion || "updated version",
       status: source.status || "UPGRADED",
     };
   });
-  const dependencyUpgradeCount = dependencyUpdates.length;
-  const warningsRemaining = Math.max(
     (migrationJob?.total_warnings ?? 0) - (migrationJob?.warnings_fixed ?? 0),
     0,
   );

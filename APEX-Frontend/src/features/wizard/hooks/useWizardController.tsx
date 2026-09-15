@@ -985,9 +985,9 @@ export function useWizardController() {
   const buildTargetRepoUrl = (
     repoName: string,
     timestamp: string,
-    owner: string = "owner",
-    host: string = "github.com"
-  ) => `https://${host}/${owner}/${repoName || "repo"}-Migrated${timestamp}`;
+    owner?: string,
+    host?: string
+  ) => `${repoName || "repo"}-Migrated${timestamp}`;
 
   const buildTargetBranchName = (repoName: string, timestamp: string) =>
     `migration/${repoName || "repo"}-Migrated${timestamp}`;
