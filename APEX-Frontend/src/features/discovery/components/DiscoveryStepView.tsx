@@ -25,7 +25,12 @@ import {
   FaWrench,
   FaVial,
 } from "react-icons/fa";
-import { Button } from "@/shared/components/ui";
+import {
+  renderWizardIconBadge,
+  renderBackButtonLabel,
+  renderForwardButtonLabel,
+} from "@/shared/components/wizard";
+import { wizardStyles as styles } from "@/shared/components/wizard/wizardStyles";
 import type { RepoAnalysis, RepoFile, RepoInfo } from "@/shared/types/domain";
 import { getFileContent, getDiscoveryFileContent } from "../services/discoveryService";
 import { getLocalProjectFileContent } from "@/features/connect/services/connectService";
@@ -595,10 +600,14 @@ export function DiscoveryStepView({
     (repoFiles || []).forEach((f) => {
       if (f.path) pathSet.add(f.path);
     });
-    return Array.from(pathSet)
+    if (pathSet.size === 0) {
+      [...javaFileList, ...configFileList, ...otherFileList].forEach((f) => pathSet.add(f));
+    }
+     const normalizedPaths = Array.from(pathSet)
       .map((p) => p.replace(/\\/g, "/").replace(/^\/+/, ""))
       .filter(Boolean);
-  }, [repoAnalysis, repoFiles]);
+       return Array.from(new Set(normalizedPaths));
+  }, [repoAnalysis, repoFiles, javaFileList, configFileList, otherFileList]);
 
   interface DynamicTreeNode {
     id: string;
@@ -614,15 +623,18 @@ export function DiscoveryStepView({
     const rootNodes: DynamicTreeNode[] = [];
 
     const findOrCreateDir = (list: DynamicTreeNode[], name: string, currentPath: string): DynamicTreeNode => {
-      let existing = list.find((item) => item.name === name);
-      if (existing) {
-        if (!existing.isDir) {
-          existing.isDir = true;
-          existing.children = existing.children || [];
+      let dir = list.find((item) => item.name === name);
+      if (dir) {
+        if (!dir.isDir) {
+          // If it exists as a file, convert it to a directory to avoid collisions
+          dir.isDir = true;
+          dir.children = [];
+          dir.itemCount = 0;
         }
-        return existing;
+        return dir;
       }
-      const dir: DynamicTreeNode = {
+
+      dir = {
         id: currentPath,
         name,
         path: currentPath,
@@ -647,8 +659,8 @@ export function DiscoveryStepView({
         const isLast = i === parts.length - 1;
 
         if (isLast) {
-          const existing = currentList.find((item) => item.name === part);
-          if (!existing) {
+          // Check if already exists to prevent duplicate keys/nodes
+          if (!currentList.some((item) => item.name === part)) {
             currentList.push({
               id: accumulatedPath,
               name: part,
@@ -943,13 +955,12 @@ export function DiscoveryStepView({
 
       {/* Main Header */}
       <div className="discovery-header-box">
-        <div className="discovery-header-left">
+        <div className="discovery-header-left" style={{ alignItems: "center" }}>
           <div className="discovery-header-icon-badge">
             <FaSearch />
           </div>
           <div className="discovery-header-titles">
-            <h2>Repository Discovery &amp; Dependencies</h2>
-            <p>Explore the repository structure, dependencies, and frameworks detected.</p>
+             <h2 style={{ margin: 0, fontSize: 22 }}>Repository Discovery &amp; Dependencies</h2>
           </div>
         </div>
 
@@ -1096,7 +1107,7 @@ export function DiscoveryStepView({
                         const badge = getFileBadge(name);
                         return (
                           <div
-                            key={`kpi-total-${file}-${idx}`}
+                            key={`${file}-${idx}`}
                             className="discovery-kpi-file-item"
                             onClick={(e) => handleSelectPopoverFile(file, e)}
                             title={`Click to preview ${name}`}
@@ -1190,7 +1201,7 @@ export function DiscoveryStepView({
                       const name = extractFileName(file);
                       return (
                         <div
-                          key={`kpi-java-${file}-${idx}`}
+                          key={`${file}-${idx}`}
                           className="discovery-kpi-file-item"
                           onClick={(e) => handleSelectPopoverFile(file, e)}
                           title={`Click to preview ${name}`}
@@ -1277,12 +1288,12 @@ export function DiscoveryStepView({
                   </div>
 
                   <div className="discovery-kpi-file-list">
-                    {configFileList.map((file) => {
+                    {configFileList.map((file, idx) => {
                       const name = extractFileName(file);
                       const badge = getFileBadge(name);
                       return (
                         <div
-                          key={file}
+                          key={`${file}-${idx}`}
                           className="discovery-kpi-file-item"
                           onClick={(e) => handleSelectPopoverFile(file, e)}
                           title={`Click to preview ${name}`}
@@ -1372,12 +1383,12 @@ export function DiscoveryStepView({
                   </div>
 
                   <div className="discovery-kpi-file-list">
-                    {otherFileList.map((file) => {
+                    {otherFileList.map((file, idx) => {
                       const name = extractFileName(file);
                       const badge = getFileBadge(name);
                       return (
                         <div
-                          key={file}
+                          key={`${file}-${idx}`}
                           className="discovery-kpi-file-item"
                           onClick={(e) => handleSelectPopoverFile(file, e)}
                           title={`Click to preview ${name}`}
@@ -1732,27 +1743,19 @@ export function DiscoveryStepView({
         </>
       )}
 
-      {/* Bottom Bar: Pro Tip & Navigation Buttons (hidden while analysis is in progress) */}
+      {/* Bottom Bar: Navigation Buttons (hidden while analysis is in progress) */}
       {!isDiscoveryPending && (
-        <div className="discovery-bottom-bar">
-          <div className="discovery-protip">
-            {/* <FaLightbulb color="#eab308" size={16} /> */}
-            {/* <span className="discovery-protip-tag">Pro Tip</span> */}
-            {/* <span>Use JavaApex Assistant to ask questions about your repository, dependencies, or migration readiness.</span> */}
-          </div>
-
-          <div className="discovery-nav-btns">
-            <button className="discovery-btn-back" onClick={onBack}>
-              <FaArrowLeft size={11} style={{ marginRight: 6 }} /> Back
-            </button>
-            <button
-              className="discovery-btn-continue"
-              onClick={onContinueToStrategy}
-              disabled={isDiscoveryPending}
-            >
-              Continue to Strategy <FaArrowRight size={11} style={{ marginLeft: 6 }} />
-            </button>
-          </div>
+        <div style={styles.btnRow} className="discovery-nav-btn-row">
+                 <button style={styles.secondaryBtn} onClick={onBack}>
+                   {renderBackButtonLabel()}
+                 </button>
+                 <button
+                   style={styles.primaryBtn}
+                   onClick={onContinueToStrategy}
+                   disabled={isDiscoveryPending}
+                 >
+                   {renderForwardButtonLabel("Continue to Strategy")}
+                 </button>
         </div>
       )}
 

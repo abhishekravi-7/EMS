@@ -1,0 +1,40 @@
+ APEX-Frontend/public/migration_journey.jpg         |  Bin [31m592507[m -> [32m0[m bytes
+ APEX-Frontend/src/App.css                          |    5 [32m+[m[31m-[m
+ APEX-Frontend/src/App.tsx                          |   68 [32m+[m[31m-[m
+ APEX-Frontend/src/app/shell/AppShell.css           |    2 [32m+[m[31m-[m
+ APEX-Frontend/src/app/shell/AppShell.tsx           |   42 [32m+[m[31m-[m
+ APEX-Frontend/src/assets/migration-diagram.png     |  Bin [31m192608[m -> [32m0[m bytes
+ .../src/features/auth/components/JavaApexLogo.tsx  |   76 [31m-[m
+ .../src/features/auth/pages/SignInPage.tsx         |   47 [32m+[m[31m-[m
+ .../src/features/auth/pages/SignUpPage.tsx         |   12 [32m+[m[31m-[m
+ .../src/features/auth/services/authService.ts      |   59 [32m+[m[31m-[m
+ .../connect/components/ConnectStepView.tsx         |   29 [32m+[m[31m-[m
+ .../src/features/connect/pages/ConnectPage.css     |   50 [32m+[m[31m-[m
+ .../discovery/components/DiscoveryDashboard.css    |   37 [32m+[m[31m-[m
+ .../discovery/components/DiscoveryLoader.tsx       |    2 [32m+[m[31m-[m
+ .../discovery/components/DiscoveryStepView.tsx     |  174 [32m+[m[31m-[m
+ .../components/ExistingTestCasesPanel.tsx          |   19 [32m+[m[31m-[m
+ .../components/ModernizationStepView.tsx           |   12 [32m+[m[31m-[m
+ .../modernization/pages/ModernizationPage.css      |    6 [32m+[m[31m-[m
+ .../result/components/MigrationAnimationView.css   |    8 [32m+[m[31m-[m
+ .../result/components/MigrationAnimationView.tsx   |    1 [31m-[m
+ .../result/components/MigrationProgressView.tsx    |    2 [32m+[m[31m-[m
+ .../components/MigrationProposedTestSection.tsx    |  499 [32m+[m[31m--[m
+ .../result/components/MigrationReportSections.tsx  | 3287 [32m++++[m[31m----------------[m
+ .../result/components/ResultReportView.tsx         |  734 [32m++[m[31m---[m
+ .../src/features/result/services/resultService.ts  |   20 [32m+[m[31m-[m
+ .../strategy/components/StrategyStepView.tsx       |   68 [32m+[m[31m-[m
+ .../src/features/strategy/pages/StrategyPage.css   |    9 [32m+[m[31m-[m
+ .../features/wizard/hooks/useWizardController.tsx  |  980 [32m++[m[31m----[m
+ .../features/wizard/pages/MigrationWizardPage.css  |   22 [32m+[m[31m-[m
+ .../features/wizard/pages/MigrationWizardPage.tsx  |   59 [32m+[m[31m-[m
+ .../components/wizard/WizardSectionHeading.tsx     |    6 [32m+[m[31m-[m
+ .../src/shared/components/wizard/wizardChrome.tsx  |    3 [31m-[m
+ .../src/shared/components/wizard/wizardStyles.ts   |   12 [32m+[m[31m-[m
+ APEX-Frontend/src/shared/context/AuthContext.ts    |    2 [32m+[m[31m-[m
+ APEX-Frontend/src/shared/context/AuthProvider.tsx  |   14 [32m+[m[31m-[m
+ .../src/shared/context/SidebarContext.tsx          |   31 [32m+[m
+ APEX-Frontend/test-results/.last-run.json          |    4 [32m+[m
+ calc.py                                            |   15 [31m-[m
+ exit                                               |   13 [31m-[m
+ 39 files changed, 1579 insertions(+), 4850 deletions(-)

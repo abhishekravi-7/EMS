@@ -18,7 +18,6 @@ from app.application.use_cases.explain_risk import ExplainRiskUseCase
 from app.application.use_cases.recommend_java_version import RecommendJavaVersionUseCase
 from app.core.exceptions import JavaVersionRecommendationError
 from app.infrastructure.persistence.database import get_db_optional
-from app.infrastructure.persistence.models import User
 from app.schemas.dependency_analysis_schema import (
     DependencyAnalysisRequest,
     DependencyAnalysisResponse,
@@ -69,7 +68,6 @@ async def explain_risk(
     db: Session | None = Depends(get_db_optional),  # noqa: B008
 ) -> JSONResponse:
     result = await _explain_risk_use_case.execute(payload, db=db, current_user=current_user)
-    return JSONResponse(status_code=200, content=result.model_dump())
 
 
 @router.post(
