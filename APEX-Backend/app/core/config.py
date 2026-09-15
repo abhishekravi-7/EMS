@@ -34,6 +34,12 @@ class Settings(BaseSettings):
     app_name: str = "Java Migration Platform API"
     api_v1_prefix: str = "/api/v1"
 
+    # --- Feature Flags / Providers -------------------------------------------
+    # "firebase" (default) or "mongodb"
+    auth_provider: str = Field(default="firebase", alias="AUTH_PROVIDER")
+    # "postgres" (default) or "mongodb"
+    persistence_backend: str = Field(default="postgres", alias="PERSISTENCE_BACKEND")
+
     # --- GitHub --------------------------------------------------------------
     github_api_base_url: str = "https://api.github.com"
     # Source-read token: fallback used when the caller doesn't supply one (raises
@@ -88,6 +94,11 @@ class Settings(BaseSettings):
         default=True,
         validation_alias=AliasChoices("ENABLE_DATABASE", "DATABASE_ENABLED", "database_enabled"),
     )
+    # Master switch for MongoDB usage.
+    mongodb_enabled: bool = Field(default=True, alias="ENABLE_MONGODB")
+    mongodb_uri: str = Field(default="", alias="MONGODB_URI")
+    mongodb_database: str = Field(default="java_apex", alias="MONGODB_DATABASE")
+
     # Number of knowledge chunks retrieved per question.
     rag_top_k: int = 4
     # Timeout (seconds) for a single chat-LLM request (GROQ or Ollama).
@@ -343,9 +354,19 @@ class Settings(BaseSettings):
         nothing secret reaches the startup log.
         """
         missing = []
-        if self.database_enabled:
-            missing.append("DATABASE_URL") if not self.database_url else None
-        missing.append("JWT_SECRET_KEY") if not self.jwt_secret_key else None
+        # PostgreSQL is required if database is enabled and it's the active backend
+        if self.database_enabled and self.persistence_backend == "postgres":
+            if not self.database_url:
+                missing.append("DATABASE_URL")
+
+        # MongoDB is required if it's the active provider or backend
+        if self.auth_provider == "mongodb" or self.persistence_backend == "mongodb":
+            if not self.mongodb_uri:
+                missing.append("MONGODB_URI")
+
+        if not self.jwt_secret_key:
+            missing.append("JWT_SECRET_KEY")
+
         if missing:
             raise RuntimeError(
                 "Missing required environment variable(s): "

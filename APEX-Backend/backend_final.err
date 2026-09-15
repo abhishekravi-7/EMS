@@ -1,0 +1,16 @@
+21:45:46 | INFO    | app.main | Frontend bundle not found at C:\Users\ST-SUBRAMANI\OneDrive - SORIM TECHNOLOGIES\Documents\JAVA_APEX\JavaAPEX\APEX-Backend\frontend-dist; API-only mode.
+INFO:     Started server process [13428]
+INFO:     Waiting for application startup.
+21:45:46 | INFO    | app.infrastructure.java_runtime | [JAVA RUNTIME] OS=nt Java=25 JAVA_HOME=none Executable=C:\Program Files\Common Files\Oracle\Java\javapath\java.EXE (Valid=True)
+21:45:46 | INFO    | app.main | [DATABASE] PostgreSQL enabled: True
+21:45:46 | INFO    | app.main | [DATABASE] PostgreSQL configuration loaded: True
+21:45:46 | INFO    | app.main | [CONNECT] Database-independent mode: disabled
+21:45:46 | INFO    | app.main | PostgreSQL runtime initialization skipped (Active Persistence: MongoDB).
+21:45:46 | INFO    | app.main | Firebase Auth initialization skipped (Active Provider: MongoDB).
+21:45:46 | INFO    | app.main | LLM Token Tracing initialized (sinks: JSONL + Database)
+21:45:52 | ERROR   | app.infrastructure.persistence.mongodb | Failed to initialize MongoDB client: SSL handshake failed: ac-6uidyzo-shard-00-01.nskqgcl.mongodb.net:27017: [SSL: TLSV1_ALERT_INTERNAL_ERROR] tlsv1 alert internal error (_ssl.c:1006) (configured timeouts: socketTimeoutMS: 10000.0ms, connectTimeoutMS: 10000.0ms),SSL handshake failed: ac-6uidyzo-shard-00-02.nskqgcl.mongodb.net:27017: [SSL: TLSV1_ALERT_INTERNAL_ERROR] tlsv1 alert internal error (_ssl.c:1006) (configured timeouts: socketTimeoutMS: 10000.0ms, connectTimeoutMS: 10000.0ms),SSL handshake failed: ac-6uidyzo-shard-00-00.nskqgcl.mongodb.net:27017: [SSL: TLSV1_ALERT_INTERNAL_ERROR] tlsv1 alert internal error (_ssl.c:1006) (configured timeouts: socketTimeoutMS: 10000.0ms, connectTimeoutMS: 10000.0ms), Timeout: 5.0s, Topology Description: <TopologyDescription id: 6aa2d7b218203ce27750c56e, topology_type: ReplicaSetNoPrimary, servers: [<ServerDescription ('ac-6uidyzo-shard-00-00.nskqgcl.mongodb.net', 27017) server_type: Unknown, rtt: None, error=AutoReconnect('SSL handshake failed: ac-6uidyzo-shard-00-00.nskqgcl.mongodb.net:27017: [SSL: TLSV1_ALERT_INTERNAL_ERROR] tlsv1 alert internal error (_ssl.c:1006) (configured timeouts: socketTimeoutMS: 10000.0ms, connectTimeoutMS: 10000.0ms)')>, <ServerDescription ('ac-6uidyzo-shard-00-01.nskqgcl.mongodb.net', 27017) server_type: Unknown, rtt: None, error=AutoReconnect('SSL handshake failed: ac-6uidyzo-shard-00-01.nskqgcl.mongodb.net:27017: [SSL: TLSV1_ALERT_INTERNAL_ERROR] tlsv1 alert internal error (_ssl.c:1006) (configured timeouts: socketTimeoutMS: 10000.0ms, connectTimeoutMS: 10000.0ms)')>, <ServerDescription ('ac-6uidyzo-shard-00-02.nskqgcl.mongodb.net', 27017) server_type: Unknown, rtt: None, error=AutoReconnect('SSL handshake failed: ac-6uidyzo-shard-00-02.nskqgcl.mongodb.net:27017: [SSL: TLSV1_ALERT_INTERNAL_ERROR] tlsv1 alert internal error (_ssl.c:1006) (configured timeouts: socketTimeoutMS: 10000.0ms, connectTimeoutMS: 10000.0ms)')>]>
+INFO:     Application startup complete.
+ERROR:    [Errno 10048] error while attempting to bind on address ('127.0.0.1', 8000): only one usage of each socket address (protocol/network address/port) is normally permitted
+INFO:     Waiting for application shutdown.
+21:45:52 | INFO    | app.infrastructure.persistence.mongodb | MongoDB connection closed.
+INFO:     Application shutdown complete.

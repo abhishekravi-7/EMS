@@ -69,7 +69,7 @@ async def get_dashboard_stats(
     db: Session | None = Depends(get_db_optional),  # noqa: B008
 ) -> Any:
     try:
-        verify_job_ownership(db, job_id, current_user)
+        await verify_job_ownership(db, job_id, current_user)
     except HTTPException as exc:
         # If the job is not found or access is denied, return null to avoid console errors.
         if exc.status_code in (403, 404):
@@ -98,7 +98,7 @@ async def run_discovery(
 
     Read-only after cloning — no migration, build, or file modification happens.
     """
-    verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(db, job_id, current_user)
     token = payload.github_token if payload else None
     force_refresh = payload.force_refresh if payload else False
     try:
@@ -132,7 +132,7 @@ async def list_discovery_files(
     clone Discovery already made, so it works for large repos without extra
     round trips (only the currently expanded folder is listed).
     """
-    verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(db, job_id, current_user)
     try:
         entries = await run_in_threadpool(_file_browser.list_directory, job_id, path)
     except RepositoryBrowseError as exc:
@@ -164,7 +164,7 @@ async def get_discovery_file_content(
     current_user: User = Depends(get_current_user),  # noqa: B008
     db: Session | None = Depends(get_db_optional),  # noqa: B008
 ) -> JSONResponse:
-    verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(db, job_id, current_user)
     try:
         result = await run_in_threadpool(_file_browser.read_file, job_id, path)
     except RepositoryBrowseError as exc:
@@ -213,7 +213,7 @@ async def get_microservice_eligibility(
     scores each chunk. No re-cloning, no GitHub API calls, no mock data.
     """
     try:
-        verify_job_ownership(db, job_id, current_user)
+        await verify_job_ownership(db, job_id, current_user)
     except HTTPException as exc:
         # If the job is not found or access is denied, return null to avoid console errors.
         if exc.status_code in (403, 404):
@@ -251,7 +251,7 @@ async def upload_brd_document(
     current_user: User = Depends(get_current_user),  # noqa: B008
     db: Session | None = Depends(get_db_optional),  # noqa: B008
 ) -> JSONResponse:
-    verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(db, job_id, current_user)
 
     if not file or not file.filename:
         raise HTTPException(status_code=400, detail="No file provided")
@@ -350,7 +350,7 @@ async def get_brd_document_metadata(
     db: Session | None = Depends(get_db_optional),  # noqa: B008
 ) -> JSONResponse:
     try:
-        verify_job_ownership(db, job_id, current_user)
+        await verify_job_ownership(db, job_id, current_user)
     except HTTPException as exc:
         if exc.status_code in (403, 404):
             return JSONResponse(status_code=200, content={"status": "NONE", "job_id": job_id})
@@ -382,7 +382,7 @@ async def delete_brd_document(
     current_user: User = Depends(get_current_user),  # noqa: B008
     db: Session | None = Depends(get_db_optional),  # noqa: B008
 ) -> JSONResponse:
-    verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(db, job_id, current_user)
     paths = WorkspacePaths(job_id)
 
     if paths.brd_dir.exists():
@@ -411,7 +411,7 @@ async def view_brd_document(
     current_user: User = Depends(get_current_user),  # noqa: B008
     db: Session | None = Depends(get_db_optional),  # noqa: B008
 ) -> Response:
-    verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(db, job_id, current_user)
     paths = WorkspacePaths(job_id)
 
     if not paths.brd_metadata_path.exists():
@@ -474,7 +474,7 @@ async def download_brd(
     current_user: User = Depends(get_current_user),  # noqa: B008
     db: Session | None = Depends(get_db_optional),  # noqa: B008
 ) -> FileResponse:
-    verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(db, job_id, current_user)
     paths = WorkspacePaths(job_id)
 
     if paths.brd_metadata_path.exists():

@@ -347,7 +347,7 @@ async def serve_individual_test_report(
     db: Session = Depends(get_db)  # noqa: B008
 ):
     """Download individual test report JSON / metadata."""
-    verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(db, job_id, current_user)
     paths = WorkspacePaths(job_id)
     evidence_dir = paths.reports_dir / "test-evidence"
     
@@ -375,7 +375,7 @@ async def serve_individual_test_logs(
     db: Session | None = Depends(get_db_optional)  # noqa: B008
 ):
     """Download test execution logs."""
-    await asyncio.to_thread(verify_job_ownership, db, job_id, current_user)
+    await verify_job_ownership(db, job_id, current_user)
     from app.application.use_cases.existing_test_runner_service import existing_test_runner_service
     
     clean_test_id = urllib.parse.unquote(test_id).replace("\\", "/")
@@ -459,7 +459,7 @@ async def download_full_test_report(
     db: Session = Depends(get_db)  # noqa: B008
 ):
     """Download full test report HTML or JSON summary."""
-    verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(db, job_id, current_user)
     from app.application.use_cases.existing_test_runner_service import existing_test_runner_service
     status_data = existing_test_runner_service.get_status(job_id)
     
@@ -524,7 +524,7 @@ async def serve_existing_test_report_file(
     This ensures both Playwright and JUnit/Surefire reports are accessible
     regardless of which ran first or whether test-evidence/ exists.
     """
-    verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(db, job_id, current_user)
 
     paths = WorkspacePaths(job_id)
 

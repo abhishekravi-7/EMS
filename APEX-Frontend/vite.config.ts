@@ -70,6 +70,8 @@ export default defineConfig({
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
         secure: false,
+        timeout: 120000, // 120 seconds to allow for LLM fallback chain
+        proxyTimeout: 120000,
       }
     }
   }

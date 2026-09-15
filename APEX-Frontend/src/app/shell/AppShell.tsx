@@ -75,14 +75,14 @@ const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isAuthenticated, isAuthLoading, user, logout } = useAuth();
   const { isSidebarExpanded, toggleSidebar } = useSidebar();
 
+  const normalizedPath = location.pathname.replace(/\/+$/, "");
   const isStandalonePage =
-    // location.pathname === "/" ||
-    location.pathname === "/signin" ||
-    location.pathname === "/signup";
+    normalizedPath === "/signin" ||
+    normalizedPath === "/signup";
 
   const isWizardPage =
     !isStandalonePage &&
-    !["/admin", "/usage"].includes(location.pathname);
+    !["/admin", "/usage"].includes(normalizedPath);
 
   const rootStyle: React.CSSProperties = isWizardPage
     ? {
