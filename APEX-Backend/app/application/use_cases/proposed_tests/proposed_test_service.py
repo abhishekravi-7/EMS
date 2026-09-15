@@ -469,8 +469,8 @@ class ProposedTestService:
             except Exception as a_err:  # noqa: BLE001
                 self._log(job_id, f"Failed to generate Allure Report: {a_err}", "WARN")
 
-            # Compute and persist final results & metrics strictly for the executed tests
-            metrics = self._compute_metrics(tests_to_run)
+            # Compute and persist final results & metrics for ALL proposals (master inventory)
+            metrics = self._compute_metrics(proposals)
             allure_url = f"/api/v1/migration/{job_id}/proposed-tests/allure-report/index.html"
             result_payload = {
                 "job_id": job_id,
@@ -480,7 +480,7 @@ class ProposedTestService:
                 "metrics": metrics.model_dump(),
                 "allure_report_available": True,
                 "allure_report_url": allure_url,
-                "test_cases": [p.model_dump() for p in tests_to_run],
+                "test_cases": [p.model_dump() for p in proposals],
             }
             self._get_results_file(job_id).write_text(json.dumps(result_payload, indent=2), encoding="utf-8")
 
@@ -494,7 +494,7 @@ class ProposedTestService:
                 }
             self._save_status(job_id, "COMPLETED", {
                 "selected_sources": norm_sources,
-                "total": len(tests_to_run),
+                "total": len(proposals),
                 "executed": metrics.executed,
                 "passed": metrics.passed,
                 "failed": metrics.failed,
@@ -502,7 +502,7 @@ class ProposedTestService:
                 "allure_report_url": allure_url,
                 "metrics": metrics.model_dump(),
             })
-            self._log(job_id, f"Playwright execution completed. Total: {len(tests_to_run)}, Passed: {metrics.passed}, Failed: {metrics.failed}")
+            self._log(job_id, f"Playwright execution completed. Executed: {len(tests_to_run)}/{len(proposals)}, Passed: {metrics.passed}, Failed: {metrics.failed}")
 
         thread = threading.Thread(target=_run_bg, daemon=True)
         thread.start()
@@ -536,39 +536,27 @@ class ProposedTestService:
         with self._lock:
             logs = list(self._live_logs.get(job_id, []))
 
-        res_file = self._get_results_file(job_id)
-        if res_file.exists():
-            try:
-                rdata = json.loads(res_file.read_text(encoding="utf-8"))
-                return {
-                    "job_id": job_id,
-                    "status": mem_state.get("status") if mem_state else rdata.get("status", "COMPLETED"),
-                    "progress": {
-                        "total": rdata.get("metrics", {}).get("total", len(rdata.get("test_cases", []))),
-                        "completed": rdata.get("metrics", {}).get("executed", len(rdata.get("test_cases", []))),
-                    },
-                    "selected_sources": rdata.get("selected_sources", persisted_sources),
-                    "allure_report_available": allure_available,
-                    "allure_report_url": allure_url,
-                    "metrics": rdata.get("metrics", {}),
-                    "logs": logs,
-                    "proposals": rdata.get("test_cases", []),
-                }
-            except Exception:  # noqa: BLE001
-                pass
-
         proposals = self.get_proposed_tests(job_id)
         metrics = self._compute_metrics(proposals)
         current_status = mem_state.get("status") if mem_state else persisted_status
         if not proposals and current_status != "GENERATING":
             current_status = "IDLE"
 
+        res_file = self._get_results_file(job_id)
+        if res_file.exists():
+            try:
+                rdata = json.loads(res_file.read_text(encoding="utf-8"))
+                current_status = mem_state.get("status") if mem_state else rdata.get("status", "COMPLETED")
+                persisted_sources = rdata.get("selected_sources", persisted_sources)
+            except Exception:  # noqa: BLE001
+                pass
+
         return {
             "job_id": job_id,
             "status": current_status,
             "progress": {
                 "total": mem_state.get("total", len(proposals)) if mem_state else len(proposals),
-                "completed": mem_state.get("completed", 0) if mem_state else 0,
+                "completed": mem_state.get("completed", 0) if mem_state else metrics.executed,
             },
             "selected_sources": mem_state.get("selected_sources") if mem_state else persisted_sources,
             "allure_report_available": allure_available,
@@ -584,21 +572,27 @@ class ProposedTestService:
         allure_available = allure_index.is_file()
         allure_url = f"/api/v1/migration/{job_id}/proposed-tests/allure-report/index.html" if allure_available else None
 
+        proposals = self.get_proposed_tests(job_id)
+        metrics = self._compute_metrics(proposals)
+
         res_file = self._get_results_file(job_id)
+        status = "IDLE"
+        selected_sources = None
+        executed_at = None
         if res_file.exists():
             try:
                 data = json.loads(res_file.read_text(encoding="utf-8"))
-                data["allure_report_available"] = allure_available
-                data["allure_report_url"] = allure_url
-                return data
+                status = data.get("status", "COMPLETED")
+                selected_sources = data.get("selected_sources")
+                executed_at = data.get("executed_at")
             except Exception:  # noqa: BLE001, S110
                 pass  # nosec B110
 
-        proposals = self.get_proposed_tests(job_id)
-        metrics = self._compute_metrics(proposals)
         return {
             "job_id": job_id,
-            "status": "IDLE",
+            "status": status,
+            "executed_at": executed_at,
+            "selected_sources": selected_sources,
             "allure_report_available": allure_available,
             "allure_report_url": allure_url,
             "metrics": metrics.model_dump(),
