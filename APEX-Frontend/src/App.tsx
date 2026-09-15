@@ -17,39 +17,39 @@ export default function App() {
   return (
     <AuthProvider>
       <SidebarProvider>
-        <ChatbotProvider>
-          <BrowserRouter>
-            <AppShell>
-            <Suspense
-              fallback={
-                <div
-                  style={{
-                    minHeight: "60vh",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    color: "#475569",
-                    fontSize: 16,
-                    fontWeight: 600,
-                  }}
-                >
-                  Loading migration workspace...
-                </div>
-              }
-            >
-              <Routes>
-                {/* <Route path="/" element={<LandingPage />} /> */}
-                <Route path="/signup" element={<SignUpPage />} />
-                <Route path="/signin" element={<SignInPage />} />
-                <Route path="/admin" element={<AdminConsolePage />} />
-                <Route path="/usage" element={<UsageDashboardPage />} />
-                <Route path="/*" element={<MigrationWizardPage />} />
-              </Routes>
-            </Suspense>
-            </AppShell>
-          </BrowserRouter>
-        </ChatbotProvider>
-      </SidebarProvider>
-    </AuthProvider>
-  );
-}
+              <ChatbotProvider>
+                <BrowserRouter>
+                  <AppShell>
+                  <Suspense
+                    fallback={
+                      <div
+                        style={{
+                          minHeight: "60vh",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          color: "#475569",
+                          fontSize: 16,
+                          fontWeight: 600,
+                        }}
+                      >
+                        Loading migration workspace...
+                      </div>
+                    }
+                  >
+                    <Routes>
+                      {/* <Route path="/" element={<LandingPage />} /> */}
+                      <Route path="/signup" element={<SignUpPage />} />
+                      <Route path="/signin" element={<SignInPage />} />
+                      <Route path="/admin" element={<AdminConsolePage />} />
+                      <Route path="/usage" element={<UsageDashboardPage />} />
+                      <Route path="/*" element={<MigrationWizardPage />} />
+                    </Routes>
+                  </Suspense>
+                   </AppShell>
+                 </BrowserRouter>
+                          </ChatbotProvider>
+                        </SidebarProvider>
+                      </AuthProvider>
+                    );
+                  }
