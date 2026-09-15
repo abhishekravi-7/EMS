@@ -23,7 +23,7 @@ import { ProposedTestCasesPanel } from "./ProposedTestCasesPanel";
 import { runApprovedProposedTests } from "../services/proposedTestService";
 import { TestReportsModal, type TestReportData } from "./TestReportsModal";
 import { wizardStyles as styles } from "@/shared/components/wizard/wizardStyles";
-import { renderWizardIconBadge, renderBackButtonLabel } from "@/shared/components/wizard";
+import { renderWizardIconBadge, renderBackButtonLabel, renderForwardButtonLabel } from "@/shared/components/wizard";
 import type { RepoAnalysis, RepoInfo } from "@/shared/types/domain";
 import type { FunctionalTestScopePreview } from "../services/modernizationService";
 import { getLocalProjectFileContent } from "@/features/connect/services/connectService";
@@ -605,12 +605,12 @@ export function ModernizationStepView({
   void apiEndpointCount;
 
   return (
-    <div style={styles.card}>
+    <>
+      <div style={styles.card}>
       <div style={styles.stepHeader}>
         {renderWizardIconBadge(<FaRocket />, "#f59e0b", "xl")}
         <div>
           <h2 style={styles.title}>Build Modernization &amp; Migration</h2>
-          <p style={styles.subtitle}>Execute the upgrade using automation tools and refactor legacy components</p>
         </div>
       </div>
 
@@ -1028,6 +1028,8 @@ export function ModernizationStepView({
         document.body
       )}
 
+      </div>
+
       <div style={styles.btnRow} className="modernization-nav-btn-row">
         <button style={styles.secondaryBtn} onClick={onBack}>{renderBackButtonLabel()}</button>
         <button
@@ -1035,9 +1037,9 @@ export function ModernizationStepView({
           onClick={handleStartMigrationClick}
           disabled={loading}
         >
-          {loading ? "Starting..." : "Start Migration"}
+          {renderForwardButtonLabel(loading ? "Starting..." : "Start Migration")}
         </button>
       </div>
-    </div>
+    </>
   );
 }

@@ -513,12 +513,7 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
               <button
                 type="button"
                 className="connect-upload-pill"
-                onClick={() => {
-                  if (folderInputRef.current) {
-                    folderInputRef.current.value = "";
-                    folderInputRef.current.click();
-                  }
-                }}
+                onClick={() => folderInputRef.current?.click()}
               >
                 <FaFolderOpen />
                 <span>Select Folder</span>
@@ -526,12 +521,7 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
               <button
                 type="button"
                 className="connect-upload-pill"
-                onClick={() => {
-                  if (zipInputRef.current) {
-                    zipInputRef.current.value = "";
-                    zipInputRef.current.click();
-                  }
-                }}
+                onClick={() => zipInputRef.current?.click()}
               >
                 <FaFileAlt />
                 <span>Select ZIP</span>
@@ -540,15 +530,7 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
 
             {localProjectUploadFiles.length > 0 && (
               <div style={{ fontSize: 12, color: "#166534", marginBottom: 10, fontWeight: 600 }}>
-                {localProjectUploadFiles.length === 1 && localProjectUploadFiles[0].name.toLowerCase().endsWith(".zip") ? (
-                  <span>
-                    ✓ Selected ZIP: {localProjectUploadFiles[0].name} ({(localProjectUploadFiles[0].size / (1024 * 1024)).toFixed(1)} MB)
-                  </span>
-                ) : (
-                  <span>
-                    ✓ Selected Folder: {localProjectUploadFiles[0]?.webkitRelativePath?.split("/")[0] || localProjectUploadFiles[0]?.name || "Project"} ({localProjectUploadFiles.length} files, {(localProjectUploadFiles.reduce((s, f) => s + f.size, 0) / (1024 * 1024)).toFixed(1)} MB)
-                  </span>
-                )}
+                ✓ Selected {localProjectUploadFiles.length} file{localProjectUploadFiles.length === 1 ? "" : "s"}
               </div>
             )}
             {localProjectUploadWarning && (
@@ -566,7 +548,6 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
               className="connect-primary-btn is-green"
               disabled={
                 localProjectUploadLoading ||
-                localProjectUploadFiles.length === 0 ||
                 localProjectCapabilities?.enabled === false
               }
               onClick={() => {
@@ -580,7 +561,9 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
               <span>
                 {localProjectUploadLoading
                   ? "Uploading..."
-                  : "Upload Project"}
+                  : localProjectUploadFiles.length > 0
+                    ? "Upload Project"
+                    : "Upload Project"}
               </span>
               <span style={{ fontSize: 16 }}>→</span>
             </button>

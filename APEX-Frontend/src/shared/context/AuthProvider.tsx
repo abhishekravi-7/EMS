@@ -12,6 +12,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [currentUser, setCurrentUser] = useState<UserResponse | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
 
+
   const checkAuth = useCallback(async () => {
     setIsAuthLoading(true);
     try {
@@ -21,6 +22,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // 401 or network error - user is not logged in
       setCurrentUser(null);
     } finally {
+
+  useEffect(() => {
+    // Fix: BFCache (Back-Forward Cache) causes the page to be restored from cache
+    // after a signInWithRedirect flow, which drops the Vite WebSocket and prevents
+    // getRedirectResult from being called. Force a reload if the page is restored
+    // from BFCache so the auth redirect result is always processed on a fresh load.
+    const handlePageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) {
+        // Page was restored from BFCache — reload to re-run redirect result handling
+        window.location.reload();
+      }
+    };
+    window.addEventListener('pageshow', handlePageShow);
+
+    // Listen for authentication state changes from Firebase
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      console.log("[Auth] State changed:", user ? user.email : "Logged out");
+      setCurrentUser(user);
+
       setIsAuthLoading(false);
     }
   }, []);
@@ -51,9 +71,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       loading: isAuthLoading,
       user,
       currentUser,
+
       login: () => {
           // Trigger a re-check after login
           void checkAuth();
+
+      login: (newUser: FirebaseUser) => {
+        setCurrentUser(newUser);
+        setIsAuthLoading(false);
+      },
+      logout: async () => {
+        await signOut(auth);
+
       },
       logout: handleLogout,
     }),

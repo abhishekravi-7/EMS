@@ -29,6 +29,7 @@
   gap: 14px;
   box-shadow: 0 4px 14px rgba(15, 23, 42, 0.04);
   cursor: default;
+  user-select: none;
   animation: stratCardBounceIn 0.48s cubic-bezier(0.34, 1.56, 0.64, 1) both;
   transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
               box-shadow 0.3s ease,
@@ -143,6 +144,7 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  user-select: none;
 }
 
 .strat-assessment-card:hover .strat-assessment-value {
@@ -274,13 +276,13 @@
    ================================================================ */
 .page-strategy {
   animation: stratPageReveal 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
-  padding-bottom: 96px;
+  padding-bottom: 0px;
+  width: 100%;
 }
 
 .strategy-nav-btn-row {
   margin-top: 32px !important;
-  padding-bottom: 16px;
-  padding-right: 92px !important;
+  padding: 0 !important;
 }
 
 @media (max-width: 768px) {
@@ -446,6 +448,7 @@
 
 .page-strategy input[type="text"] {
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  cursor: default;
 }
 
 .page-strategy input[type="text"]:focus {

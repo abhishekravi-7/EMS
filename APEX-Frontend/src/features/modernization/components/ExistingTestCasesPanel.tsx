@@ -130,36 +130,31 @@ export function ExistingTestCasesPanel({
     return (
       <div
         style={{
-          background: "#fff",
-          borderRadius: 20,
-          border: "1px solid #e2e8f0",
-          padding: "48px 24px",
-          marginTop: 24,
-          boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.05)",
           textAlign: "center",
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
           justifyContent: "center",
           gap: 12,
+          padding: "60px 24px",
         }}
       >
         <div
           style={{
-            width: 56,
-            height: 56,
+            width: 48,
+            height: 48,
             borderRadius: "50%",
-            background: "#f1f5f9",
+            background: "#f8fafc",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            color: "#64748b",
-            fontSize: 22,
+            color: "#94a3b8",
+            fontSize: 20,
           }}
         >
           <FaInfoCircle />
         </div>
-        <div style={{ fontSize: 16, fontWeight: 800, color: "#0f172a" }}>
+        <div style={{ fontSize: 16, fontWeight: 700, color: "#1e293b" }}>
           No Test Cases Available
         </div>
         <div style={{ fontSize: 13, color: "#64748b", maxWidth: 360, lineHeight: 1.5 }}>
