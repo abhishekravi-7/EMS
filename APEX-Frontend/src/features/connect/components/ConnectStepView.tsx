@@ -73,7 +73,22 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
         ? <FaExclamationTriangle />
         : <FaInfoCircle />;
 
+ // Track which card is active so the other one dims
+  const [activeCard, setActiveCard] = React.useState<"github" | "upload" | null>(null);
 
+  // Update active card based on inputs
+  React.useEffect(() => {
+    if (repoUrl.trim()) {
+      setActiveCard("github");
+    } else if (localProjectUploadFiles.length > 0) {
+      setActiveCard("upload");
+    } else {
+      setActiveCard(null);
+    }
+  }, [repoUrl, localProjectUploadFiles]);
+
+  const isGithubDisabled = activeCard === "upload";
+  const isUploadDisabled = activeCard === "github";
   return (
     <div className="page-connect" data-step="connect">
       {/* Background Watermarks & Decorative Patterns */}
@@ -136,15 +151,15 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
           <h1 className="connect-hero-title">
             Start Your <span className="connect-hero-emphasized">Migration</span> Journey
           </h1>
-          <p className="connect-hero-subtitle">
-            Analyze your Java project with <span className="connect-hero-highlight">APEX intelligence</span> and modernize with confidence.
-          </p>
         </div>
 
         {/* Action Cards: GitHub Repository & Upload Local Project */}
         <div className="connect-cards-container">
           {/* Card 1: Connect GitHub Repository */}
-          <div className="connect-action-card">
+          <div
+                      className={`connect-action-card${isGithubDisabled ? " is-card-disabled" : ""}`}
+                      style={{ opacity: isGithubDisabled ? 0.6 : 1, pointerEvents: isGithubDisabled ? "none" : "auto", filter: isGithubDisabled ? "grayscale(100%)" : "none" }}
+                    >
             <div className="connect-card-accent-github" />
             <div className="connect-card-icon-badge is-blue">
               <FaGithub size={30} />
@@ -168,6 +183,7 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
                   setPatToken("");
                   resetAccessTokenValidationState();
                   onError("");
+                  setActiveCard(e.target.value.trim() ? "github" : null);
                 }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && urlValidation.valid) {
@@ -463,7 +479,6 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
               onClick={() => void handleRepositoryContinue()}
             >
               <span>{connecting ? "Verifying repository..." : "Connect Repository"}</span>
-              <span style={{ fontSize: 16 }}>→</span>
             </button>
           </div>
 
@@ -473,7 +488,10 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
           </div>
 
           {/* Card 2: Upload Local Project */}
-          <div className="connect-action-card">
+          <div
+                      className={`connect-action-card${isUploadDisabled ? " is-card-disabled" : ""}`}
+                      style={{ opacity: isUploadDisabled ? 0.6 : 1, pointerEvents: isUploadDisabled ? "none" : "auto", filter: isUploadDisabled ? "grayscale(100%)" : "none" }}
+                    >
             <div className="connect-card-accent-upload" />
             <div className="connect-card-icon-badge is-green">
               <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -499,33 +517,36 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
               type="file"
               multiple
               style={{ display: "none" }}
-              onChange={(e) => handleLocalProjectFilesChange(e.target.files)}
+               onChange={(e) => { handleLocalProjectFilesChange(e.target.files); }}
             />
             <input
               ref={zipInputRef}
               type="file"
               accept=".zip"
               style={{ display: "none" }}
-              onChange={(e) => handleLocalProjectFilesChange(e.target.files)}
+             onChange={(e) => { handleLocalProjectFilesChange(e.target.files); }}
             />
 
-            <div className="connect-upload-options">
-              <button
-                type="button"
-                className="connect-upload-pill"
-                onClick={() => folderInputRef.current?.click()}
-              >
-                <FaFolderOpen />
-                <span>Select Folder</span>
-              </button>
-              <button
-                type="button"
-                className="connect-upload-pill"
-                onClick={() => zipInputRef.current?.click()}
-              >
-                <FaFileAlt />
-                <span>Select ZIP</span>
-              </button>
+           {/* Wrapped in same class as GitHub URL input box for vertical alignment */}
+                       <div className="connect-card-input-box" style={{ marginBottom: 43 }}>
+                         <div className="connect-upload-options" style={{ marginBottom: 0 }}>
+                           <button
+                             type="button"
+                             className="connect-upload-pill"
+                             onClick={() => folderInputRef.current?.click()}
+                           >
+                             <FaFolderOpen />
+                             <span>Select Folder</span>
+                           </button>
+                           <button
+                             type="button"
+                             className="connect-upload-pill"
+                             onClick={() => zipInputRef.current?.click()}
+                           >
+                             <FaFileAlt />
+                             <span>Select ZIP</span>
+                           </button>
+                         </div>
             </div>
 
             {localProjectUploadFiles.length > 0 && (
@@ -565,7 +586,6 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
                     ? "Upload Project"
                     : "Upload Project"}
               </span>
-              <span style={{ fontSize: 16 }}>→</span>
             </button>
           </div>
         </div>
