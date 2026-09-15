@@ -24,4 +24,4 @@ class DiscoveryPipeline:
         github_token: str | None = None,
         force_refresh: bool = False,
     ) -> DiscoveryOutcome:
-        return self._run_discovery.execute(job_id, github_token, force_refresh=force_refresh)
+        return self._run_discovery.execute(job_id, github_token, force_refresh)

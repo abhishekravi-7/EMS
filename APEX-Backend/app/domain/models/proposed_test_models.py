@@ -85,8 +85,10 @@ class ExecutionResult(BaseModel):
     stdout: str | None = None
     stderr: str | None = None
     error: str | None = None
+    error_type: str | None = None  # "FUNCTIONAL_FAILURE" | "INFRASTRUCTURE_FAILURE"
     stack_trace: str | None = None
     actual_status_code: int | None = None
+    response_time_ms: int | None = None
     actual_response: Any | None = None
     evidence: ExecutionEvidence = Field(default_factory=ExecutionEvidence)
     assertions_passed: int = 0
@@ -131,6 +133,7 @@ class ProposedTestCase(BaseModel):
     source: str
     reason: str
     preconditions: list[str] = Field(default_factory=list)
+    test_data: dict[str, Any] | None = None
     steps: list[str] = Field(default_factory=list)
     expected_result: str
     status: ProposedTestStatus = ProposedTestStatus.PROPOSED
@@ -167,6 +170,8 @@ class ProposedTestMetrics(BaseModel):
     gaps_count: int = 0
     ai_generated_count: int = 0
     brd_generated_count: int = 0
+    llm_generated_count: int = 0
+    functional_doc_generated_count: int = 0
     existing_generated_count: int = 0
     existing_count: int = 0
     duration: str = "0.0s"

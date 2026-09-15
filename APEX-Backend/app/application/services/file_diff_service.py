@@ -34,9 +34,12 @@ class FileDiffService:
         original_root = paths.original_repo_dir
         migrated_root = paths.migrated_repo_dir
         
-        all_changed = report.get("modifiedFiles") or []
+        all_changed = list(report.get("modifiedFiles") or [])
+        if not all_changed and original_root.exists() and migrated_root.exists():
+            added, removed, modified = file_utils.diff_relative_files(original_root, migrated_root)
+            all_changed = sorted({*added, *removed, *modified})
+
         results = []
-        
         for rel_path in all_changed:
             orig_path = original_root / rel_path
             mig_path = migrated_root / rel_path
@@ -132,18 +135,34 @@ class FileDiffService:
 
     def _get_label(self, rel_path: str, report: dict[str, Any]) -> str:
         """Determine a transformation label based on evidence."""
-        if rel_path.endswith("pom.xml"):
+        lower_rel = rel_path.lower().replace("\\", "/")
+        if lower_rel.endswith("pom.xml") or lower_rel.endswith("build.gradle") or lower_rel.endswith("build.gradle.kts"):
             return "Build Config"
             
         # Check rule executions
         rule_executions = report.get("ruleExecutions") or []
         for exec_report in rule_executions:
             msg = exec_report.get("message", "")
-            if rel_path in msg:
-                rid = exec_report.get("ruleId", "")
+            if rel_path in msg or rel_path in exec_report.get("filePath", ""):
+                rid = exec_report.get("ruleId", "").upper()
                 if "JUNIT" in rid:
                     return "JUnit 4 -> 5"
                 if "JAKARTA" in rid or "JAVAX" in rid:
-                    return "Jakarta EE 10"
-                    
+                    return "Jakarta EE"
+                if "SPRING" in rid or "BOOT" in rid:
+                    return "Spring Boot"
+                if "SYNTAX" in rid or "JAVA" in rid:
+                    return "Java Modernization"
+
+        import_changes = report.get("importChanges") or []
+        for ic in import_changes:
+            if ic.get("file") == rel_path:
+                added = ic.get("added") or []
+                if any("jakarta" in str(a) for a in added):
+                    return "Jakarta EE"
+                return "Package Refactoring"
+
+        if lower_rel.endswith(".java"):
+            return "Source Migration"
+
         return "Modified"

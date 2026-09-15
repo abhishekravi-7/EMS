@@ -1,180 +1,351 @@
-import React, { useEffect, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { FaEnvelope, FaArrowRight } from "react-icons/fa";
+import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { signInWithEmailAndPassword } from "firebase/auth";
+import { auth } from "../../../firebase/firebase";
+import { signInWithGoogle, signInWithGithub, resetPassword, signIn } from "../services/authService";
 import AuthLayout from "../components/AuthLayout";
-import SocialAuthButtons from "../components/SocialAuthButtons";
-import PasswordInput from "../components/PasswordInput";
-import { signIn, resetPassword } from "../services/authService";
-import { useAuthForm, type FormErrors } from "../hooks/useAuthForm";
-import { getOAuthErrorMessage } from "../oauthErrorMessages";
-import "../auth.css";
+import { FaUser, FaRegEnvelope, FaLock, FaEye, FaEyeSlash, FaGithub } from "react-icons/fa";
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const GoogleIcon: React.FC = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" style={{ display: "block" }}>
+    <path
+      fill="#4285F4"
+      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+    />
+    <path
+      fill="#34A853"
+      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+    />
+    <path
+      fill="#FBBC05"
+      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+    />
+    <path
+      fill="#EA4335"
+      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+    />
+  </svg>
+);
 
-interface SignInValues {
-  email: string;
-  password: string;
-}
+// ── Forgot Password Modal ─────────────────────────────────────────────────────
+const ForgotPasswordModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  const [email, setEmail] = useState("");
+  const [status, setStatus] = useState<"idle" | "loading" | "sent" | "error">("idle");
+  const [errorMsg, setErrorMsg] = useState("");
 
-function validateSignIn(values: SignInValues): FormErrors<SignInValues> {
-  const errors: FormErrors<SignInValues> = {};
-
-  if (!values.email.trim()) {
-    errors.email = "Email is required.";
-  } else if (!EMAIL_PATTERN.test(values.email.trim())) {
-    errors.email = "Enter a valid email address.";
-  }
-
-  if (!values.password) {
-    errors.password = "Password is required.";
-  }
-
-  return errors;
-}
-
-const SignInPage: React.FC = () => {
-  const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isResetting, setIsResetting] = useState(false);
-  const [apiError, setApiError] = useState<string | null>(null);
-  const [infoMessage, setInfoMessage] = useState<string | null>(null);
-
-  useEffect(() => {
-    const oauthErrorCode = searchParams.get("oauth_error");
-    if (oauthErrorCode) {
-      setApiError(getOAuthErrorMessage(oauthErrorCode));
-      navigate("/signin", { replace: true });
-    }
-  }, [searchParams, navigate]);
-
-  const { values, errors, setField, handleSubmit } = useAuthForm<SignInValues>({
-    initialValues: { email: "", password: "" },
-    validate: validateSignIn,
-    onValid: async (formValues) => {
-      if (isSubmitting) return;
-
-      setApiError(null);
-      setInfoMessage(null);
-      setIsSubmitting(true);
-      try {
-        await signIn({
-          email: formValues.email.trim(),
-          password: formValues.password,
-        });
-        navigate("/connect");
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "Sign in failed. Please try again.";
-        setApiError(message);
-      } finally {
-        setIsSubmitting(false);
-      }
-    },
-  });
-
-  const handleForgotPassword = async () => {
-    if (isResetting || isSubmitting) return;
-    const email = values.email.trim();
-    if (!email) {
-      setApiError("Please enter your email address above to receive a password reset link.");
-      return;
-    }
-    if (!EMAIL_PATTERN.test(email)) {
-      setApiError("Please enter a valid email address.");
-      return;
-    }
-
-    setApiError(null);
-    setInfoMessage(null);
-    setIsResetting(true);
+  const handleReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email.trim()) return;
+    setStatus("loading");
+    setErrorMsg("");
     try {
-      await resetPassword(email);
-      setInfoMessage("Password reset email sent! Open the link in your inbox to set or reset your password, then sign in.");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to send password reset email.";
-      setApiError(message);
+      const cleanEmail = email.trim().toLowerCase();
+      await resetPassword(cleanEmail);
+      setStatus("sent");
+    } catch (err: any) {
+      console.error("Password reset error details:", err);
+      setErrorMsg(err.message || "Unable to send reset email. Please ensure the email is correct.");
+      setStatus("error");
     } finally {
-      setIsResetting(false);
+      // Just to be safe, don't leave it in loading if caught
     }
   };
 
   return (
-    <AuthLayout mode="signin">
-      <div className="apex-form-header">
-        <h2 className="apex-form-title">Sign in to your account</h2>
-        <p className="apex-form-subtitle">Enter your credentials to access your account</p>
-      </div>
+    <div
+      style={{
+        position: "fixed", inset: 0, background: "rgba(15,23,42,0.45)",
+        display: "flex", alignItems: "center", justifyContent: "center", zIndex: 999,
+        backdropFilter: "blur(4px)",
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          background: "#fff", borderRadius: 20, padding: "36px 32px", width: 380,
+          boxShadow: "0 24px 60px rgba(79,70,229,0.15)", position: "relative",
+          userSelect: "none", cursor: "default"
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          onClick={onClose}
+          style={{
+            position: "absolute", top: 14, right: 16, background: "none",
+            border: "none", fontSize: 20, cursor: "pointer", color: "#94a3b8",
+          }}
+        >×</button>
 
-      {apiError && <div className="auth-notice auth-notice--error">{apiError}</div>}
-      {infoMessage && <div className="auth-notice auth-notice--success">{infoMessage}</div>}
-
-      <form className="auth-form" onSubmit={handleSubmit} noValidate>
-        {/* Email Field */}
-        <div className="auth-field">
-          <label className="auth-label" htmlFor="email">
-            Email address
-          </label>
-          <div className="auth-input-wrap">
-            <span className="auth-input-left-icon">
-              <FaEnvelope size={14} style={{ color: "#94a3b8" }} />
-            </span>
-            <input
-              id="email"
-              name="email"
-              type="email"
-              className={`auth-input has-left-icon ${errors.email ? "auth-input--error" : ""}`}
-              placeholder="Enter your email"
-              value={values.email}
-              onChange={(e) => setField("email", e.target.value)}
-              autoComplete="email"
-              disabled={isSubmitting || isResetting}
-            />
+        {status === "sent" ? (
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>📧</div>
+            <h3 style={{ margin: "0 0 8px", fontSize: 20, fontWeight: 800, color: "#0f172a" }}>
+              Check your inbox
+            </h3>
+            <p style={{ color: "#64748b", fontSize: 14, lineHeight: 1.5 }}>
+              We sent a password reset link to <strong>{email}</strong>. Check your email and follow the link to reset your password.
+            </p>
+            <button
+              onClick={onClose}
+              style={{
+                marginTop: 20, width: "100%", height: 44, borderRadius: 11,
+                background: "#4F46E5", border: "none", color: "#fff",
+                fontWeight: 700, fontSize: 15, cursor: "pointer",
+              }}
+            >
+              Done
+            </button>
           </div>
-          {errors.email && <span className="auth-error-text">{errors.email}</span>}
+        ) : (
+          <>
+            <h3 style={{ margin: "0 0 6px", fontSize: 20, fontWeight: 800, color: "#0f172a" }}>
+              Reset your password
+            </h3>
+            <p style={{ color: "#64748b", fontSize: 13.5, marginBottom: 20 }}>
+              Enter your email address and we'll send you a link to reset your password.
+            </p>
+
+            {status === "error" && (
+              <div style={{
+                padding: "8px 12px", borderRadius: 8, background: "#fef2f2",
+                border: "1px solid #fecaca", color: "#b91c1c", fontSize: 12, marginBottom: 12,
+              }}>
+                {errorMsg}
+              </div>
+            )}
+
+            <form onSubmit={handleReset}>
+              <div className="apex-exact-input-wrap" style={{ marginBottom: 16 }}>
+                <FaRegEnvelope className="apex-exact-input-icon" />
+                <input
+                  id="reset-email"
+                  type="email"
+                  placeholder="Enter your email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  className="apex-exact-input"
+                  autoFocus
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={status === "loading"}
+                className="apex-login-primary-btn"
+              >
+                {status === "loading" ? "Sending..." : "Send Reset Link"}
+              </button>
+            </form>
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ── SignInPage ────────────────────────────────────────────────────────────────
+const SignInPage: React.FC = () => {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showForgotModal, setShowForgotModal] = useState(false);
+
+  const navigate = useNavigate();
+
+  const handleSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+
+    try {
+      await signIn({ email, password, rememberMe });
+      navigate("/connect");
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    setError(null);
+    try {
+      // This redirects the page — no return value until handleRedirectResult() fires on reload
+      await signInWithGoogle();
+    } catch (err: any) {
+      setError(err.message || "Google Sign-In failed.");
+    }
+  };
+
+  const handleGithubSignIn = async () => {
+    setError(null);
+    try {
+      await signInWithGithub();
+    } catch (err: any) {
+      setError(err.message || "GitHub Sign-In failed.");
+    }
+  };
+
+  return (
+    <>
+      {showForgotModal && <ForgotPasswordModal onClose={() => setShowForgotModal(false)} />}
+
+      <AuthLayout mode="signin">
+        {/* Animated Human Avatar Icon at Top with Glowing Halo */}
+        <div className="apex-card-avatar-wrapper">
+          <div className="apex-avatar-glow-halo" />
+          <div className="apex-card-avatar-circle">
+            <div className="apex-avatar-pulse-ring" />
+            <FaUser className="apex-card-avatar-icon" />
+          </div>
         </div>
 
-        {/* Password Field */}
-        <PasswordInput
-          label="Password"
-          name="password"
-          value={values.password}
-          onChange={(v) => setField("password", v)}
-          placeholder="Enter your password"
-          error={errors.password}
-          autoComplete="current-password"
-          disabled={isSubmitting || isResetting}
-        />
+        {/* Header */}
+        <div className="apex-exact-card-header">
+          <h2 className="apex-exact-card-title">Welcome Back!</h2>
+          <p className="apex-exact-card-subtitle">
+            Login to access your migration projects
+          </p>
+        </div>
 
-        {/* Forgot Password Link */}
-        <div className="auth-forgot-row">
+        {error && (
+          <div
+            style={{
+              padding: "8px 12px",
+              borderRadius: 10,
+              background: "#FEF2F2",
+              border: "1px solid #FECACA",
+              color: "#B91C1C",
+              fontSize: 12,
+              marginBottom: 12,
+            }}
+          >
+            {error}
+          </div>
+        )}
+
+        <form className="apex-exact-form" onSubmit={handleSignIn}>
+          {/* Email Address */}
+          <div className="apex-exact-field">
+            <label htmlFor="email" className="apex-exact-label">
+              Email Address
+            </label>
+            <div className="apex-exact-input-wrap">
+              <FaRegEnvelope className="apex-exact-input-icon" />
+              <input
+                id="email"
+                type="email"
+                placeholder="Enter your email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                className="apex-exact-input"
+              />
+            </div>
+          </div>
+
+          {/* Password */}
+          <div className="apex-exact-field">
+            <label htmlFor="password" className="apex-exact-label">
+              Password
+            </label>
+            <div className="apex-exact-input-wrap">
+              <FaLock className="apex-exact-input-icon" />
+              <input
+                id="password"
+                type={showPassword ? "text" : "password"}
+                placeholder="Enter your password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                className="apex-exact-input apex-exact-input-pass"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                aria-label="Toggle password visibility"
+                className="apex-exact-eye-btn"
+              >
+                {showPassword ? <FaEyeSlash size={15} /> : <FaEye size={15} />}
+              </button>
+            </div>
+          </div>
+
+          {/* Remember me & Forgot Password */}
+          <div className="apex-remember-forgot-row">
+            <label className="apex-remember-label">
+              <input
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+                className="apex-remember-checkbox"
+              />
+              <span>Remember me</span>
+            </label>
+
+            <button
+              type="button"
+              onClick={() => setShowForgotModal(true)}
+              className="apex-exact-forgot-link"
+              style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}
+            >
+              Forgot Password?
+            </button>
+          </div>
+
+          {/* Primary Login Button */}
+          <button
+            type="submit"
+            disabled={loading}
+            className="apex-login-primary-btn"
+          >
+            {loading ? "Logging in..." : "Login"}
+          </button>
+        </form>
+
+        {/* or Divider */}
+        <div className="apex-exact-divider-row">
+          <div className="apex-exact-divider-line" />
+          <span className="apex-exact-divider-text">or</span>
+          <div className="apex-exact-divider-line" />
+        </div>
+
+        {/* Social Login Buttons */}
+        <div className="apex-exact-social-group">
           <button
             type="button"
-            className="auth-link-forgot"
-            onClick={handleForgotPassword}
-            disabled={isSubmitting || isResetting}
+            onClick={handleGoogleSignIn}
+            className="apex-exact-social-btn"
           >
-            {isResetting ? "Sending reset link..." : "Forgot password?"}
+            <GoogleIcon />
+            <span>Login with Google</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleGithubSignIn}
+            className="apex-exact-social-btn"
+          >
+            <FaGithub color="#181717" size={17} />
+            <span>Login with GitHub</span>
           </button>
         </div>
 
-        {/* Primary CTA */}
-        <button
-          type="submit"
-          className="apex-btn-auth-primary"
-          disabled={isSubmitting || isResetting}
-        >
-          <span>{isSubmitting ? "Signing in..." : "Sign In"}</span>
-          {!isSubmitting && <FaArrowRight style={{ fontSize: 13 }} />}
-        </button>
-      </form>
-
-      <div className="auth-divider">or continue with</div>
-      <SocialAuthButtons mode="signin" />
-
-      <p className="auth-footer-note">
-        Don&apos;t have an account? <Link to="/signup" className="apex-auth-switch-link">Sign up</Link>
-      </p>
-    </AuthLayout>
+        {/* Card Footer */}
+        <div className="apex-exact-card-footer">
+          Don&apos;t have an account?{" "}
+          <span
+            onClick={() => navigate("/signup")}
+            className="apex-exact-signup-link"
+          >
+            Sign Up
+          </span>
+        </div>
+      </AuthLayout>
+    </>
   );
 };
 

@@ -10,6 +10,7 @@ export const STEP_ROUTES: Record<number, string> = {
 
 export const getStepFromPath = (pathname: string) => {
   const normalizedPath = pathname.replace(/\/+$/, "") || "/";
+  if (normalizedPath === "/results") return 7;
   const entry = Object.entries(STEP_ROUTES).find(([, route]) => route === normalizedPath);
   return entry ? Number(entry[0]) : 1;
 };

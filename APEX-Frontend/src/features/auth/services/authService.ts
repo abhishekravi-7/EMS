@@ -1,3 +1,4 @@
+
 import { requestJson } from "@/services/http/client";
 import { GITHUB_AUTH_LOGIN_URL, GOOGLE_AUTH_LOGIN_URL } from "@/services/config/env";
 import type { UserResponse } from "@/shared/types/domain";
@@ -12,6 +13,7 @@ export interface SignUpRequest {
 export interface SignInRequest {
   email: string;
   password: string;
+  rememberMe?: boolean;
 }
 
 /**

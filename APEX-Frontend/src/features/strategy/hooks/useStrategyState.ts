@@ -8,6 +8,8 @@ export interface JavaVersionOption {
   label: string;
 }
 
+export type DependencyAnalysisStatus = "idle" | "loading" | "success" | "fallback";
+
 export function useStrategyState(
   persistedFormState: PersistedWizardFormState | null,
   generateRepoTimestamp: () => string
@@ -73,6 +75,7 @@ export function useStrategyState(
   const [riskExplanationLoading, setRiskExplanationLoading] = useState(false);
   const [dependencyAnalysis, setDependencyAnalysis] = useState<import("../services/strategyService").DependencyAnalysisResponse | null>(null);
   const [dependencyAnalysisLoading, setDependencyAnalysisLoading] = useState(false);
+  const [dependencyAnalysisStatus, setDependencyAnalysisStatus] = useState<DependencyAnalysisStatus>("idle");
 
   function applyDetectedSourceVersion(version: string, status: "detected" | "unknown") {
     setSelectedSourceVersion(version);
@@ -119,6 +122,8 @@ export function useStrategyState(
     setDependencyAnalysis,
     dependencyAnalysisLoading,
     setDependencyAnalysisLoading,
+    dependencyAnalysisStatus,
+    setDependencyAnalysisStatus,
     applyDetectedSourceVersion,
     resetTargetRepoNaming,
   };

@@ -125,7 +125,7 @@ const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
   if (isStandalonePage) {
     return (
-      <div style={{ minHeight: "100vh", width: "100%", background: "#f8fafc" }}>
+      <div style={{ minHeight: "100vh", width: "100%", background: "transparent" }}>
         {children}
         <DocsPanel
           open={activePanel === "docs"}

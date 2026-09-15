@@ -20,7 +20,6 @@ import {
   FaArrowRight,
   FaArrowLeft,
   FaTimes,
-  FaSave,
   FaDatabase,
   FaShieldAlt,
   FaWrench,
@@ -62,6 +61,9 @@ function renderFrameworkIcon(category: string) {
 }
 
 function extractDetectedFrameworks(repoAnalysis: RepoAnalysis | null): DetectedFrameworkDetail[] {
+  if (!repoAnalysis) {
+    return [];
+  }
   const items: DetectedFrameworkDetail[] = [];
   const seen = new Set<string>();
 
@@ -520,43 +522,15 @@ export function DiscoveryStepView({
   // File lists categorized for popovers
   const javaFileList = (repoAnalysis?.java_files && repoAnalysis.java_files.length > 0)
     ? repoAnalysis.java_files
-    : [
-        "src/main/java/com/mewebstudio/javaspringbootboilerplate/MainApplication.java",
-        "src/main/java/com/mewebstudio/javaspringbootboilerplate/config/AppConfig.java",
-        "src/main/java/com/mewebstudio/javaspringbootboilerplate/config/WebMvcConfig.java",
-        "src/main/java/com/mewebstudio/javaspringbootboilerplate/config/WebSecurityConfig.java",
-        "src/main/java/com/mewebstudio/javaspringbootboilerplate/controller/AuthController.java",
-        "src/main/java/com/mewebstudio/javaspringbootboilerplate/controller/AccountController.java",
-        "src/main/java/com/mewebstudio/javaspringbootboilerplate/controller/DashboardController.java",
-        "src/main/java/com/mewebstudio/javaspringbootboilerplate/entity/User.java",
-        "src/main/java/com/mewebstudio/javaspringbootboilerplate/entity/Role.java",
-        "src/main/java/com/mewebstudio/javaspringbootboilerplate/entity/JwtToken.java",
-        "src/main/java/com/mewebstudio/javaspringbootboilerplate/repository/UserRepository.java",
-        "src/main/java/com/mewebstudio/javaspringbootboilerplate/repository/RoleRepository.java",
-      ];
+    : [];
 
   const configFileList = (repoAnalysis?.config_files && repoAnalysis.config_files.length > 0)
     ? repoAnalysis.config_files
-    : [
-        "pom.xml",
-        "src/main/resources/application.yml",
-        "checkstyle.xml",
-        "checkstyle-exclude.xml",
-        "docker-compose.yaml",
-        "src/main/resources/locales/messages.properties",
-        "src/main/resources/db/changelog/master.xml",
-      ];
+    : [];
 
   const otherFileList = (repoAnalysis?.other_files && repoAnalysis.other_files.length > 0)
     ? repoAnalysis.other_files
-    : [
-        "README.md",
-        ".gitignore",
-        "Dockerfile",
-        "mvnw",
-        "mvnw.cmd",
-        "src/main/resources/Java Spring Boot Boilerplate.postman_collection.json",
-      ];
+    : [];
 
   // Dynamic calculations from repoAnalysis
   const javaFiles = repoAnalysis?.java_file_count ?? repoAnalysis?.java_files?.length ?? javaFileList.length;
@@ -592,7 +566,7 @@ export function DiscoveryStepView({
   };
 
   const detectedJavaVersion =
-    repoAnalysis?.java_version || repoAnalysis?.java_version_from_build || "17";
+    repoAnalysis?.java_version || repoAnalysis?.java_version_from_build || "";
 
   const buildFileName =
     configFileList.find((f) => f === "pom.xml" || f.endsWith("/pom.xml") || f === "build.gradle" || f.endsWith("/build.gradle"))
@@ -601,7 +575,9 @@ export function DiscoveryStepView({
         )
       : repoAnalysis?.structure?.has_build_gradle || repoAnalysis?.build_tool?.toLowerCase().includes("gradle")
       ? "build.gradle"
-      : "pom.xml";
+      : repoAnalysis?.structure?.has_pom_xml || repoAnalysis?.build_tool?.toLowerCase().includes("maven")
+      ? "pom.xml"
+      : "";
 
   const detectedFrameworks = extractDetectedFrameworks(repoAnalysis);
   const [showFrameworksModal, setShowFrameworksModal] = useState(false);
@@ -609,15 +585,14 @@ export function DiscoveryStepView({
   // File tree construction matching repository structure
   const rootRepoName = selectedRepo?.name || "Repository";
 
-  // Aggregate all discovered repository file paths
   const allDiscoveredPaths: string[] = useMemo(() => {
     const pathSet = new Set<string>();
-    const addPath = (p: string | { path?: string } | undefined) => {
+
+    const addPath = (p: any) => {
       if (!p) return;
       const raw = typeof p === "string" ? p : p.path;
       if (raw) {
-        const normalized = raw.replace(/\\/g, "/").replace(/^\/+/, "");
-        if (normalized) pathSet.add(normalized);
+        pathSet.add(raw.replace(/\\/g, "/").replace(/^\/+/, ""));
       }
     };
 
@@ -630,8 +605,9 @@ export function DiscoveryStepView({
     if (pathSet.size === 0) {
       [...javaFileList, ...configFileList, ...otherFileList].forEach(addPath);
     }
-    return Array.from(pathSet);
+    return Array.from(pathSet).filter(Boolean);
   }, [repoAnalysis, repoFiles, javaFileList, configFileList, otherFileList]);
+
 
   interface DynamicTreeNode {
     id: string;
@@ -647,15 +623,13 @@ export function DiscoveryStepView({
     const rootNodes: DynamicTreeNode[] = [];
 
     const findOrCreateDir = (list: DynamicTreeNode[], name: string, currentPath: string): DynamicTreeNode => {
-      const node = list.find((item) => item.name === name);
-      if (node) {
-        if (!node.isDir) {
-          // Collision: file exists where we need a directory.
-          // In a valid repo this shouldn't happen, but we handle it by promoting to dir.
-          node.isDir = true;
-          node.children = node.children || [];
+      const existing = list.find((item) => item.name === name);
+      if (existing) {
+        if (!existing.isDir) {
+          existing.isDir = true;
+          existing.children = existing.children || [];
         }
-        return node;
+        return existing;
       }
       const dir: DynamicTreeNode = {
         id: currentPath,
@@ -682,7 +656,6 @@ export function DiscoveryStepView({
         const isLast = i === parts.length - 1;
 
         if (isLast) {
-          // Check if this node already exists (as either file or dir)
           if (!currentList.some((item) => item.name === part)) {
             currentList.push({
               id: accumulatedPath,
@@ -845,10 +818,11 @@ export function DiscoveryStepView({
   const renderTreeNode = (node: DynamicTreeNode, depth = 0) => {
     const open = isFolderOpen(node.id);
     const paddingLeft = 12 + depth * 18;
+    const nodeKey = `${node.isDir ? "dir" : "file"}-${node.id || node.name}-${depth}`;
 
     if (node.isDir) {
       return (
-        <React.Fragment key={node.id}>
+        <React.Fragment key={nodeKey}>
           <div
             className="discovery-tree-row"
             style={{ paddingLeft }}
@@ -878,7 +852,7 @@ export function DiscoveryStepView({
 
     return (
       <div
-        key={node.id}
+        key={nodeKey}
         className={`discovery-tree-row ${isSelected ? "is-active" : ""}`}
         style={{ paddingLeft }}
         onClick={() => void handleSelectFile({ name: node.name, path: node.path })}
@@ -907,6 +881,70 @@ export function DiscoveryStepView({
       </div>
     );
   };
+
+  if (!selectedRepo || !selectedRepo.url) {
+    return (
+      <div className="discovery-dashboard-wrapper">
+        <div className="discovery-header-box">
+          <div className="discovery-header-left">
+            <div className="discovery-header-icon-badge">
+              <FaSearch />
+            </div>
+            <div className="discovery-header-titles">
+              <h2>Repository Discovery &amp; Dependencies</h2>
+              <p>Explore the repository structure, dependencies, and frameworks detected.</p>
+            </div>
+          </div>
+        </div>
+
+        <div
+          className="discovery-empty-state-card"
+          style={{
+            background: "#ffffff",
+            borderRadius: "16px",
+            border: "1px dashed #cbd5e1",
+            padding: "56px 24px",
+            textAlign: "center",
+            margin: "32px auto",
+            maxWidth: "600px",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: "16px",
+          }}
+        >
+          <div
+            style={{
+              width: "60px",
+              height: "60px",
+              borderRadius: "50%",
+              background: "#eff6ff",
+              color: "#2563eb",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: "24px",
+            }}
+          >
+            <FaFolderOpen />
+          </div>
+          <h3 style={{ margin: 0, fontSize: "18px", fontWeight: 700, color: "#0f172a" }}>
+            No Repository Connected
+          </h3>
+          <p style={{ margin: 0, fontSize: "13px", color: "#64748b", maxWidth: "420px", lineHeight: 1.5 }}>
+            No repository has been provided. Please connect and validate a repository on the Connect page to run discovery analysis.
+          </p>
+          <button
+            onClick={onChooseDifferentRepository || onBack}
+            className="discovery-btn-continue"
+            style={{ marginTop: "8px", display: "inline-flex", alignItems: "center", gap: "8px" }}
+          >
+            <FaArrowLeft size={11} /> Go to Connect Page
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="discovery-dashboard-wrapper">
@@ -1061,12 +1099,12 @@ export function DiscoveryStepView({
                       .slice(0, 2)
                       .concat(javaFileList.slice(0, 2))
                       .concat(otherFileList.slice(0, 2))
-                      .map((file) => {
+                      .map((file, idx) => {
                         const name = extractFileName(file);
                         const badge = getFileBadge(name);
                         return (
                           <div
-                            key={file}
+                            key={`kpi-total-${file}-${idx}`}
                             className="discovery-kpi-file-item"
                             onClick={(e) => handleSelectPopoverFile(file, e)}
                             title={`Click to preview ${name}`}
@@ -1156,11 +1194,11 @@ export function DiscoveryStepView({
                   </div>
 
                   <div className="discovery-kpi-file-list">
-                    {javaFileList.map((file) => {
+                    {javaFileList.map((file, idx) => {
                       const name = extractFileName(file);
                       return (
                         <div
-                          key={file}
+                          key={`kpi-java-${file}-${idx}`}
                           className="discovery-kpi-file-item"
                           onClick={(e) => handleSelectPopoverFile(file, e)}
                           title={`Click to preview ${name}`}
@@ -1591,25 +1629,6 @@ export function DiscoveryStepView({
                       <div className="discovery-preview-actions">
                         <button
                           type="button"
-                          className="discovery-preview-btn-secondary"
-                          onClick={() => setIsEditing(!isEditing)}
-                        >
-                          {isEditing ? "Cancel Edit" : "Edit File"}
-                        </button>
-                        {isEditing && (
-                          <button
-                            type="button"
-                            className="discovery-preview-btn-primary"
-                            onClick={() => {
-                              setFileContent(editedContent);
-                              setIsEditing(false);
-                            }}
-                          >
-                            <FaSave size={11} /> Save Changes
-                          </button>
-                        )}
-                        <button
-                          type="button"
                           className="discovery-preview-close-btn"
                           onClick={() => {
                             setSelectedFile(null);
@@ -1630,13 +1649,6 @@ export function DiscoveryStepView({
                           <div className="discovery-preview-spinner" />
                           <span>Loading file content...</span>
                         </div>
-                      ) : isEditing ? (
-                        <textarea
-                          className="discovery-preview-textarea"
-                          value={editedContent}
-                          onChange={(e) => setEditedContent(e.target.value)}
-                          spellCheck={false}
-                        />
                       ) : (
                         <pre className="discovery-preview-code">
                           <code>{fileContent || "// No content available"}</code>

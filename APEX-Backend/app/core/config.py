@@ -113,7 +113,7 @@ class Settings(BaseSettings):
     git_clone_depth: int = 1
 
     # --- Migration engine ---------------------------------------------------
-    java_migration_engine_jar: Path = WORKSPACE_ROOT.parent / "migration-engine" / "target" / "migration-engine-1.0.0-SNAPSHOT.jar"
+    java_migration_engine_jar: Path = WORKSPACE_ROOT / "migration-engine" / "target" / "migration-engine-1.0.0-SNAPSHOT.jar"
     migration_recipe_catalog_path: Path = BACKEND_ROOT / "app" / "config" / "migration_pack_catalog.json"
     # Timeout (seconds) for a single migration-engine run.
     migration_timeout_seconds: float = 1800.0

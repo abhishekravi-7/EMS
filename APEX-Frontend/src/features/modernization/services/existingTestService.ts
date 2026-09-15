@@ -190,11 +190,68 @@ export interface ExistingTestRunResponse {
   [key: string]: unknown;
 }
 
-export async function scanExistingTests(jobId: string): Promise<ExistingTestScanResponse> {
-  return requestJson<ExistingTestScanResponse>(
+const scanCache = new Map<string, ExistingTestScanResponse>();
+const scanInFlight = new Map<string, Promise<ExistingTestScanResponse>>();
+
+export function getCachedExistingTests(jobId: string): ExistingTestScanResponse | null {
+  if (!jobId) return null;
+  const cached = scanCache.get(jobId);
+  if (cached && (cached.total > 0 || (cached.test_cases && cached.test_cases.length > 0))) {
+    return cached;
+  }
+  return null;
+}
+
+export function clearCachedExistingTests(jobId?: string): void {
+  if (jobId) {
+    scanCache.delete(jobId);
+    scanInFlight.delete(jobId);
+  } else {
+    scanCache.clear();
+    scanInFlight.clear();
+  }
+}
+
+export async function scanExistingTests(jobId: string, forceRefresh = false): Promise<ExistingTestScanResponse> {
+  if (!jobId) {
+    return { total: 0, framework: "JUnit", test_cases: [] };
+  }
+  if (!forceRefresh) {
+    const cached = scanCache.get(jobId);
+    if (cached && (cached.total > 0 || (cached.test_cases && cached.test_cases.length > 0))) {
+      return cached;
+    }
+  }
+  const inFlight = scanInFlight.get(jobId);
+  if (inFlight && !forceRefresh) {
+    return inFlight;
+  }
+
+  const promise = requestJson<ExistingTestScanResponse>(
     `/v1/existing-tests/scan/${encodeURIComponent(jobId)}`,
     "Failed to scan existing tests"
-  );
+  )
+    .then((res) => {
+      const tests = res.test_cases || res.tests || [];
+      const total = res.total ?? res.testCasesFound ?? tests.length;
+      const normalizedRes: ExistingTestScanResponse = {
+        ...res,
+        total,
+        test_cases: tests,
+        tests,
+        framework: res.framework || "JUnit",
+      };
+      scanCache.set(jobId, normalizedRes);
+      scanInFlight.delete(jobId);
+      return normalizedRes;
+    })
+    .catch((err) => {
+      scanInFlight.delete(jobId);
+      throw err;
+    });
+
+  scanInFlight.set(jobId, promise);
+  return promise;
 }
 
 export async function runExistingTests(
@@ -226,6 +283,10 @@ export async function getExistingTestsStatus(jobId: string): Promise<ExistingTes
 }
 
 export async function resetExistingTests(jobId: string): Promise<{ reset: boolean }> {
+  if (jobId) {
+    scanCache.delete(jobId);
+    scanInFlight.delete(jobId);
+  }
   return requestJson<{ reset: boolean }>(
     `/v1/existing-tests/reset/${encodeURIComponent(jobId)}`,
     "Failed to reset existing tests",

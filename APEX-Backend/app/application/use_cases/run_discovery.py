@@ -56,12 +56,7 @@ class RunDiscoveryUseCase:
         self._cloner = cloner or RepositoryCloner()
         self._analyzer = analyzer or ProjectAnalyzer()
 
-    def execute(
-        self,
-        job_id: str,
-        request_token: str | None = None,
-        force_refresh: bool = False,
-    ) -> DiscoveryOutcome:
+    def execute(self, job_id: str, request_token: str | None = None, force_refresh: bool = False) -> DiscoveryOutcome:
         # 1. Connect report must exist.
         connect = self._job_repository.read_connect_report(job_id)
         if not connect:
@@ -71,22 +66,22 @@ class RunDiscoveryUseCase:
         owner = connect.get("owner", "")
         repo_name = connect.get("repoName", "")
         visibility = connect.get("repoVisibility", "PUBLIC")
+        storage_dir = getattr(self._job_repository, "_storage_dir", None)
+        paths = WorkspacePaths(job_id, storage_dir=storage_dir)
 
-        paths = WorkspacePaths(job_id)
-
-        # Check if discovery was already completed and the cloned workspace is intact (unless force_refresh is requested)
-        existing_report = self._job_repository.read_discovery_report(job_id)
-        if (
-            not force_refresh
-            and existing_report
-            and existing_report.get("status") == STATUS_COMPLETED
-            and paths.original_repo_dir.is_dir()
-        ):
-            logger.info("Reusing existing discovery report for job %s (%s)", job_id, repo_url)
-            response = self._reconstruct_response_from_report(
-                job_id, repo_url, owner, repo_name, visibility, existing_report
-            )
-            return DiscoveryOutcome(response=response, report=existing_report)
+        # Check if discovery was already completed and the cloned workspace is intact
+        if not force_refresh:
+            existing_report = self._job_repository.read_discovery_report(job_id)
+            if (
+                existing_report
+                and existing_report.get("status") == STATUS_COMPLETED
+                and paths.original_repo_dir.is_dir()
+            ):
+                logger.info("Reusing existing discovery report for job %s (%s)", job_id, repo_url)
+                response = self._reconstruct_response_from_report(
+                    job_id, repo_url, owner, repo_name, visibility, existing_report
+                )
+                return DiscoveryOutcome(response=response, report=existing_report)
 
         # The PAT is never persisted with the connect report (secret at rest);
         # it comes from the client on this request, falling back to the env token.
@@ -96,12 +91,20 @@ class RunDiscoveryUseCase:
             or None
         )
 
-        logger.info("Discovery started for job %s (%s) [force_refresh=%s]", job_id, repo_url, force_refresh)
+        logger.info("Discovery started for job %s (%s)", job_id, repo_url)
 
-        # 2. Prepare workspace + clone into original-repo if needed.
+        # 2. Prepare workspace + clone into original-repo (or verify local project).
         workspace = WorkspaceManager(paths)
         workspace.ensure_job_dirs()
-        if not paths.original_repo_dir.is_dir() or not any(paths.original_repo_dir.iterdir()):
+
+        is_local_project = bool(connect.get("isLocalProject")) or repo_url.startswith("local://")
+
+        if is_local_project:
+            logger.info("Local project detected for job %s. Using existing files in original-repo ...", job_id)
+            if not paths.original_repo_dir.is_dir() or not any(paths.original_repo_dir.iterdir()):
+                logger.error("Local project workspace is empty or missing for job %s: %s", job_id, paths.original_repo_dir)
+                raise UnsupportedProjectError()
+        else:
             workspace.prepare_original_repo_target()
             logger.info("Cloning repository into workspace for job %s ...", job_id)
             self._cloner.clone(
@@ -111,12 +114,6 @@ class RunDiscoveryUseCase:
                 log_path=paths.discovery_log_path,
             )
             logger.info("Clone finished for job %s. Analyzing project ...", job_id)
-        else:
-            logger.info(
-                "Workspace original-repo already present for job %s. Re-analyzing project (force_refresh=%s)...",
-                job_id,
-                force_refresh,
-            )
 
         # 3. Analyze the cloned project (read-only).
         analysis = self._analyzer.analyze(paths.original_repo_dir)
@@ -153,11 +150,10 @@ class RunDiscoveryUseCase:
         )
 
         created_at = datetime.now(timezone.utc).isoformat()
-        stages = self._build_stages(analysis, eligibility)
 
         # 4. Save discovery-report.json.
         report = self._build_report(
-            job_id, repo_url, owner, repo_name, analysis, eligibility, created_at, stages=stages
+            job_id, repo_url, owner, repo_name, analysis, eligibility, created_at
         )
         self._job_repository.save_discovery_report(job_id, report)
 
@@ -168,7 +164,7 @@ class RunDiscoveryUseCase:
 
         # 5. Build the clean summary response.
         response = self._build_response(
-            job_id, repo_url, owner, repo_name, visibility, analysis, eligibility, stages=stages
+            job_id, repo_url, owner, repo_name, visibility, analysis, eligibility
         )
         return DiscoveryOutcome(response=response, report=report)
 
@@ -189,8 +185,6 @@ class RunDiscoveryUseCase:
             logger.warning(
                 "Chatbot indexing skipped for job %s (non-fatal).", job_id, exc_info=True
             )
-
-    # -- builders ------------------------------------------------------------ #
 
     # -- builders ------------------------------------------------------------ #
 
@@ -261,9 +255,8 @@ class RunDiscoveryUseCase:
             },
         }
 
-    @classmethod
+    @staticmethod
     def _build_report(
-        cls,
         job_id: str,
         repo_url: str,
         owner: str,
@@ -271,7 +264,6 @@ class RunDiscoveryUseCase:
         analysis: ProjectAnalysis,
         eligibility: SpringBootEligibility,
         created_at: str,
-        stages: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         return {
             "jobId": job_id,
@@ -322,7 +314,6 @@ class RunDiscoveryUseCase:
                 "packageJson": analysis.has_package_json,
             },
             "springBootConversion": eligibility.to_dict(),
-            "discoveryStages": stages or cls._build_stages(analysis, eligibility),
             "createdAt": created_at,
         }
 
@@ -344,20 +335,6 @@ class RunDiscoveryUseCase:
         source_layout = report.get("sourceLayout") or {
             "hasSrcMain": bool(detected_files.get("pomXml") or detected_files.get("buildGradle")),
             "hasSrcTest": bool(report.get("hasTests", False)),
-        }
-
-        spring_boot_conv = report.get("springBootConversion") or {
-            "repositoryAnalyzed": True,
-            "javaMigrationEligible": report.get("javaMigrationEligible", True),
-            "javaMigrationReason": report.get("javaMigrationReason", ""),
-            "springDetected": bool(report.get("springDetected", False)),
-            "springBootDetected": bool(report.get("springBootDetected", False)),
-            "springVersion": report.get("springFrameworkVersion"),
-            "springBootVersion": report.get("springBootVersion"),
-            "buildTool": report.get("buildTool") or "MAVEN",
-            "springBootConversionEligible": bool(report.get("springBootConversionEligible", False)),
-            "springBootUpgradeEligible": bool(report.get("springBootUpgradeEligible", False)),
-            "eligibilityReason": report.get("eligibilityReason", ""),
         }
 
         paths = WorkspacePaths(job_id)
@@ -430,15 +407,25 @@ class RunDiscoveryUseCase:
                 "springBootConversionEligible": bool(report.get("springBootConversionEligible", False)),
                 "springBootUpgradeEligible": bool(report.get("springBootUpgradeEligible", False)),
                 "eligibilityReason": report.get("eligibilityReason", ""),
-                "springBootConversion": spring_boot_conv,
-                "discoveryStages": report.get("discoveryStages"),
+                "springBootConversion": report.get("springBootConversion") or {
+                    "repositoryAnalyzed": True,
+                    "javaMigrationEligible": bool(report.get("javaMigrationEligible", True)),
+                    "javaMigrationReason": report.get("javaMigrationReason", ""),
+                    "springDetected": bool(report.get("springDetected", False)),
+                    "springBootDetected": bool(report.get("springBootDetected", False)),
+                    "springVersion": report.get("springFrameworkVersion"),
+                    "springBootVersion": report.get("springBootVersion"),
+                    "buildTool": report.get("buildTool"),
+                    "springBootConversionEligible": bool(report.get("springBootConversionEligible", False)),
+                    "springBootUpgradeEligible": bool(report.get("springBootUpgradeEligible", False)),
+                    "eligibilityReason": report.get("eligibilityReason", ""),
+                },
             },
             "nextStep": NEXT_STEP,
         }
 
-    @classmethod
+    @staticmethod
     def _build_response(
-        cls,
         job_id: str,
         repo_url: str,
         owner: str,
@@ -446,7 +433,6 @@ class RunDiscoveryUseCase:
         visibility: str,
         analysis: ProjectAnalysis,
         eligibility: SpringBootEligibility,
-        stages: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         return {
             "jobId": job_id,
@@ -505,7 +491,6 @@ class RunDiscoveryUseCase:
                 "springBootUpgradeEligible": eligibility.spring_boot_upgrade_eligible,
                 "eligibilityReason": eligibility.eligibility_reason,
                 "springBootConversion": eligibility.to_dict(),
-                "discoveryStages": stages or cls._build_stages(analysis, eligibility),
             },
             "nextStep": NEXT_STEP,
         }

@@ -457,3 +457,96 @@ def test_proposed_test_source_counting_scenarios():
     assert m4.total == 0
     assert m4.ai_generated_count == 0
     assert m4.brd_generated_count == 0
+
+
+@pytest.mark.asyncio
+async def test_brd_upload_validation_rejects_spoofed_or_exe_content():
+    from fastapi import HTTPException
+    from app.application.services.status_service import _REPORT_CACHE
+    mock_user = User(id=1, email="test@example.com")
+    job_id = "job_test_security"
+    _REPORT_CACHE[job_id] = {"status": "DISCOVERY_COMPLETED"}
+
+    with TemporaryDirectory() as tmpdir:
+        import app.api.v1.endpoints.discovery_controller as dc
+        original_wp = dc.WorkspacePaths
+
+        class TempWorkspacePaths(original_wp):
+            def __init__(self, j_id: str, storage_dir: Path | None = None) -> None:
+                super().__init__(j_id, storage_dir=Path(tmpdir))
+
+        dc.WorkspacePaths = TempWorkspacePaths
+
+        try:
+            # 1. Executable with MZ header rejected
+            exe_file = UploadFile(
+                file=io.BytesIO(b"MZ\x90\x00\x03\x00\x00\x00"),
+                size=8,
+                filename="payload.exe",
+                headers={"content-type": "application/x-msdownload"},
+            )
+            with pytest.raises(HTTPException) as exc_info:
+                await upload_brd_document(job_id=job_id, file=exe_file, current_user=mock_user, db=None)
+            assert exc_info.value.status_code == 400
+
+            # 2. Spoofed PDF with text content rejected
+            spoofed_pdf = UploadFile(
+                file=io.BytesIO(b"This is just plain text, not a PDF!"),
+                size=35,
+                filename="fake.pdf",
+                headers={"content-type": "application/pdf"},
+            )
+            with pytest.raises(HTTPException) as exc_info:
+                await upload_brd_document(job_id=job_id, file=spoofed_pdf, current_user=mock_user, db=None)
+            assert exc_info.value.status_code == 400
+            assert "Invalid PDF" in str(exc_info.value.detail)
+
+            # 3. Spoofed DOCX with non-ZIP content rejected
+            spoofed_docx = UploadFile(
+                file=io.BytesIO(b"Not a zip archive"),
+                size=17,
+                filename="fake.docx",
+                headers={"content-type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"},
+            )
+            with pytest.raises(HTTPException) as exc_info:
+                await upload_brd_document(job_id=job_id, file=spoofed_docx, current_user=mock_user, db=None)
+            assert exc_info.value.status_code == 400
+            assert "Invalid .docx" in str(exc_info.value.detail)
+
+            # 4. Spoofed XLSX with non-ZIP content rejected
+            spoofed_xlsx = UploadFile(
+                file=io.BytesIO(b"Not a zip spreadsheet"),
+                size=22,
+                filename="fake.xlsx",
+                headers={"content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
+            )
+            with pytest.raises(HTTPException) as exc_info:
+                await upload_brd_document(job_id=job_id, file=spoofed_xlsx, current_user=mock_user, db=None)
+            assert exc_info.value.status_code == 400
+            assert "Invalid .xlsx" in str(exc_info.value.detail)
+
+            # 5. Unsupported file type rejected
+            unsupported = UploadFile(
+                file=io.BytesIO(b"col1,col2\n1,2"),
+                size=13,
+                filename="data.csv",
+                headers={"content-type": "text/csv"},
+            )
+            with pytest.raises(HTTPException) as exc_info:
+                await upload_brd_document(job_id=job_id, file=unsupported, current_user=mock_user, db=None)
+            assert exc_info.value.status_code == 400
+            assert "Unsupported file format" in str(exc_info.value.detail)
+
+            # 6. Valid PDF accepted
+            valid_pdf = UploadFile(
+                file=io.BytesIO(b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF"),
+                size=45,
+                filename="valid.pdf",
+                headers={"content-type": "application/pdf"},
+            )
+            res = await upload_brd_document(job_id=job_id, file=valid_pdf, current_user=mock_user, db=None)
+            assert res.status_code == 200
+
+        finally:
+            dc.WorkspacePaths = original_wp
+

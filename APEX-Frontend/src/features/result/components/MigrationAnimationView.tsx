@@ -298,7 +298,7 @@ export function MigrationAnimationView({
   // Backend Status Detection & Genuine Migration Status
   const backendStatus = (migrationJob?.status || "").toLowerCase();
   const isBackendFailed = backendStatus === "failed" || Boolean(migrationJob?.error_message);
-  const isBackendCompleted = backendStatus === "completed";
+  const isBackendCompleted = backendStatus === "completed" || backendStatus === "success";
 
   // Check if all 6 steps are genuinely completed in the stepper
   const allStepsCompleted = useMemo(() => {
@@ -351,15 +351,7 @@ export function MigrationAnimationView({
 
     countdownTimerRef.current = setInterval(() => {
       setRedirectCountdown((prev) => {
-        if (prev === null) return null;
-        if (prev <= 1) {
-          if (countdownTimerRef.current) {
-            clearInterval(countdownTimerRef.current);
-            countdownTimerRef.current = null;
-          }
-          navigateToResults();
-          return 0;
-        }
+        if (prev === null || prev <= 1) return 0;
         return prev - 1;
       });
     }, 1000);
@@ -371,6 +363,17 @@ export function MigrationAnimationView({
       }
     };
   }, [isAllComplete]);
+
+  // Safely trigger navigation when countdown reaches 0 outside of state updater calculations
+  useEffect(() => {
+    if (redirectCountdown === 0) {
+      if (countdownTimerRef.current) {
+        clearInterval(countdownTimerRef.current);
+        countdownTimerRef.current = null;
+      }
+      navigateToResults();
+    }
+  }, [redirectCountdown]);
 
   // Single Source of Truth MigrationState
   const migrationState = useMemo<MigrationState>(() => {
@@ -449,6 +452,21 @@ export function MigrationAnimationView({
           type: "ERROR",
         },
       ]);
+      return;
+    }
+
+    if (isBackendCompleted) {
+      setProgressPercent(100);
+      setStepStates({
+        1: "completed",
+        2: "completed",
+        3: "completed",
+        4: "completed",
+        5: "completed",
+        6: "completed",
+      });
+      onMigrationCompleteRef.current?.();
+      onViewReportRef.current?.();
       return;
     }
 
@@ -536,7 +554,7 @@ export function MigrationAnimationView({
       cancelled = true;
       clearInterval(timer);
     };
-  }, [activeStep, isBackendFailed]);
+  }, [activeStep, isBackendFailed, isBackendCompleted]);
 
   // Smart Scroll Position Detection & Auto-Scroll
   const handleLogsScroll = () => {

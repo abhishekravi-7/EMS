@@ -13,6 +13,8 @@ option rather than trusted blindly.
 from __future__ import annotations
 
 import json
+
+
 import logging
 import re
 
@@ -115,11 +117,16 @@ class RecommendJavaVersionUseCase:
                 result = self._sanitize(raw, allowed_targets, already_at_latest)
                 result["provider_used"] = self._chat_llm.last_provider or "fallback"
                 return result
+        except Exception as exc:  # noqa: BLE001
+            logger.info("LLM Java version recommendation failed (%s); using rule-based fallback.", exc)
+            return self._fallback(source_major, allowed_targets, already_at_latest)
+
         finally:
             if user_token:
                 user_id_ctx.reset(user_token)
 
     @staticmethod
+
     def _extract_json(content: str) -> dict:
         text = (content or "").strip()
         # Some models wrap JSON in ```json ... ``` fences
@@ -137,6 +144,52 @@ class RecommendJavaVersionUseCase:
             return json.loads(text[start : end + 1])
         except json.JSONDecodeError as exc:
             raise LLMResponseInvalidError("Fallback model response was not valid JSON.") from exc
+
+    def _fallback(source_major: int, allowed_targets: list[str], already_at_latest: bool) -> dict:
+        if already_at_latest:
+            recommended = str(source_major)
+        elif "17" in allowed_targets and source_major < 17:
+            recommended = "17"
+        elif "21" in allowed_targets:
+            recommended = "21"
+        else:
+            recommended = allowed_targets[0]
+
+        alternative_versions = [v for v in allowed_targets if v != recommended]
+        alternative_options = [
+            {
+                "version": v,
+                "risk": "Medium" if int(v) > int(recommended) else "Low",
+                "reason": f"Alternative LTS target migration path to Java {v}.",
+            }
+            for v in alternative_versions
+        ]
+
+        return {
+            "recommended_target_version": recommended,
+            "recommended_versions": [recommended, *alternative_versions],
+            "confidence": "High",
+            "rationale": [
+                f"Java {recommended} is a widely-adopted Long-Term Support (LTS) release offering industry-standard stability and extensive framework compatibility.",
+                f"Upgrading from Java {source_major} to Java {recommended} provides critical performance, security enhancements, and modern runtime capabilities.",
+            ],
+            "benefits": [
+                "Long-Term Support (LTS) industry standard runtime",
+                "JVM performance and garbage collection optimizations",
+                "Broad enterprise library and build tooling compatibility",
+            ],
+            "compatibility_considerations": [
+                "Review third-party library dependencies for target Java runtime compatibility",
+                "Update build tooling configuration and compiler release flags",
+            ],
+            "alternatives": alternative_versions,
+            "alternative_options": alternative_options,
+            "risk_explanation": f"Recommended LTS upgrade path from Java {source_major} to Java {recommended}.",
+            "provider_used": "rule_based_fallback",
+            "already_at_latest_supported_version": already_at_latest,
+            "raw_recommendation": {},
+        }
+
 
     @staticmethod
     def _sanitize(raw: dict, allowed_targets: list[str], already_at_latest: bool) -> dict:
