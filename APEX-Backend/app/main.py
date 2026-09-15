@@ -22,7 +22,6 @@ from app.core import watch_exclusions as _watch_exclusions  # noqa: F401
 from app.core.config import settings
 from app.core.context import job_id_ctx, repository_url_ctx, user_id_ctx
 from app.core.logging_config import configure_logging
-from app.infrastructure.auth.firebase_auth import init_firebase
 from app.infrastructure.java_runtime import log_java_runtime_diagnostics
 from app.infrastructure.persistence.mongodb import mongodb_manager
 
@@ -96,13 +95,7 @@ async def lifespan(_app: FastAPI):
     else:
         logger.info("Database disabled by configuration — skipping DB startup tasks.")
 
-    # Initialize Firebase Admin SDK (skipped if MongoDB is the active auth provider)
-    if settings.firebase_auth_enabled and settings.auth_provider != "mongodb":
-        init_firebase()
-    elif settings.auth_provider == "mongodb":
-        logger.info("Firebase Auth initialization skipped (Active Provider: MongoDB).")
-    else:
-        logger.info("Firebase Auth disabled by configuration — skipping Firebase initialization.")
+    logger.info("Authentication Provider: MongoDB")
 
 
     # Initialize LLM Token Tracing

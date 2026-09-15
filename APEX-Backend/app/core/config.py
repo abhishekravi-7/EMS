@@ -35,10 +35,9 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
 
     # --- Feature Flags / Providers -------------------------------------------
-    # "firebase" (default) or "mongodb"
-    auth_provider: str = Field(default="firebase", alias="AUTH_PROVIDER")
-    # "postgres" (default) or "mongodb"
-    persistence_backend: str = Field(default="postgres", alias="PERSISTENCE_BACKEND")
+    # "mongodb" (primary auth & persistence backend)
+    auth_provider: str = Field(default="mongodb", alias="AUTH_PROVIDER")
+    persistence_backend: str = Field(default="mongodb", alias="PERSISTENCE_BACKEND")
 
     # --- GitHub --------------------------------------------------------------
     github_api_base_url: str = "https://api.github.com"
