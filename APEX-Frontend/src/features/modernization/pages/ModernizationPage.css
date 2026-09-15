@@ -5,13 +5,13 @@
 /* ── Page entry & Bottom Navigation Clearance ────────────────────── */
 .page-modernization {
   animation: modPageIn 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
-  padding-bottom: 96px;
+  padding-bottom: 0px;
+  width: 100%;
 }
 
 .modernization-nav-btn-row {
   margin-top: 32px !important;
-  padding-bottom: 16px;
-  padding-right: 92px !important;
+  padding: 0 !important;
 }
 
 @media (max-width: 768px) {

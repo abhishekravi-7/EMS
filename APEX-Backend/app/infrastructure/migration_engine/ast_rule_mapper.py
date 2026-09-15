@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 from app.core.config import settings
+from app.shared import file_utils
 
 logger = logging.getLogger(__name__)
 
@@ -167,7 +168,8 @@ class AstRuleMapper:
 
         return AstMigrationPlan(
             planId=f"PLAN-{project_root.name}",
-            projectRoot=str(project_root),
+            projectRoot=file_utils.to_plain_path_str(project_root),
+
             sourceJavaVersion=source_major,
             targetJavaVersion=target_major,
             buildSystem=normalized_build_tool,

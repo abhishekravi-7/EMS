@@ -189,6 +189,73 @@ class RunDiscoveryUseCase:
     # -- builders ------------------------------------------------------------ #
 
     @staticmethod
+    def _build_stages(analysis: ProjectAnalysis, eligibility: SpringBootEligibility) -> dict[str, Any]:
+        module_text = (
+            f" across {len(analysis.modules)} modules."
+            if analysis.multi_module
+            else " in single-module layout."
+        )
+        fw_text = f", {', '.join(analysis.frameworks[:3])}" if analysis.frameworks else ""
+        test_text = "automated tests present" if analysis.has_tests else "no automated tests"
+        api_text = f", {len(analysis.api_endpoints)} endpoints" if analysis.api_endpoints else ""
+
+        arch_type = (
+            "Microservices"
+            if (analysis.multi_module and len(analysis.modules) > 1)
+            else "Modular Monolith"
+        )
+        if eligibility.spring_boot_conversion_eligible:
+            fit_text = "Eligible for automated Spring Boot conversion & modern Java baseline."
+        elif eligibility.spring_boot_upgrade_eligible:
+            fit_text = f"Spring Boot {analysis.spring_boot_version or ''} eligible for Spring Boot 3 & Java 17+ upgrade."
+        else:
+            fit_text = "Ready for direct Java platform and dependency modernization."
+
+        return {
+            "repositoryMap": {
+                "status": "COMPLETE",
+                "totalFileCount": analysis.total_file_count,
+                "javaFileCount": len(analysis.java_files),
+                "configFileCount": len(analysis.config_files),
+                "otherFileCount": len(analysis.other_files),
+                "multiModule": analysis.multi_module,
+                "modules": analysis.modules,
+                "hasSrcMain": analysis.has_src_main,
+                "hasSrcTest": analysis.has_src_test,
+                "hasPomXml": analysis.has_pom_xml,
+                "hasBuildGradle": analysis.has_build_gradle or analysis.has_build_gradle_kts,
+                "summary": f"Mapped {analysis.total_file_count} files ({len(analysis.java_files)} Java, {len(analysis.config_files)} Config, {len(analysis.other_files)} Other){module_text}",
+            },
+            "dependencyGraph": {
+                "status": "COMPLETE",
+                "buildTool": analysis.build_tool,
+                "dependencyCount": analysis.dependency_count,
+                "buildPluginsCount": len(analysis.build_plugins),
+                "bomsCount": len(analysis.bom_versions),
+                "summary": f"Extracted {analysis.dependency_count} dependencies and {len(analysis.build_plugins)} build plugins from {analysis.build_tool.lower()} configuration.",
+            },
+            "previewSignals": {
+                "status": "COMPLETE",
+                "currentJavaVersion": analysis.current_java_version,
+                "buildTool": analysis.build_tool,
+                "frameworks": analysis.frameworks,
+                "springBootVersion": analysis.spring_boot_version,
+                "springFrameworkVersion": analysis.spring_framework_version,
+                "hasTests": analysis.has_tests,
+                "apiEndpointCount": len(analysis.api_endpoints),
+                "frontendDetected": analysis.frontend.detected,
+                "summary": f"Identified Java {analysis.current_java_version}, {analysis.build_tool}{fw_text}, {test_text}{api_text}.",
+            },
+            "serviceFit": {
+                "status": "COMPLETE",
+                "recommendedArchitecture": arch_type,
+                "springBootConversionEligible": eligibility.spring_boot_conversion_eligible,
+                "springBootUpgradeEligible": eligibility.spring_boot_upgrade_eligible,
+                "summary": f"{arch_type} architecture. {fit_text}",
+            },
+        }
+
+    @staticmethod
     def _build_report(
         job_id: str,
         repo_url: str,
@@ -218,6 +285,7 @@ class RunDiscoveryUseCase:
             "hasTests": analysis.has_tests,
             "javaFileCount": len(analysis.java_files),
             "javaFiles": list(analysis.java_files)[:200],
+            "apiEndpoints": analysis.api_endpoints,
             "configFileCount": len(analysis.config_files),
             "configFiles": list(analysis.config_files)[:100],
             "otherFileCount": len(analysis.other_files),
@@ -311,6 +379,7 @@ class RunDiscoveryUseCase:
                 "buildPlugins": report.get("buildPlugins", []),
                 "bomVersions": report.get("bomVersions", []),
                 "frameworks": report.get("frameworks", []),
+                "apiEndpoints": report.get("apiEndpoints", []),
                 "hasTests": bool(report.get("hasTests", False)),
                 "javaFileCount": report.get("javaFileCount") or len(java_files),
                 "javaFiles": java_files,
@@ -390,6 +459,7 @@ class RunDiscoveryUseCase:
                 "buildPlugins": [plugin.to_dict() for plugin in analysis.build_plugins],
                 "bomVersions": [bom.to_dict() for bom in analysis.bom_versions],
                 "frameworks": analysis.frameworks,
+                "apiEndpoints": analysis.api_endpoints,
                 "hasTests": analysis.has_tests,
                 "javaFileCount": len(analysis.java_files),
                 "javaFiles": list(analysis.java_files)[:200],

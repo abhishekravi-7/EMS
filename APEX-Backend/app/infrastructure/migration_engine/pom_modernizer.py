@@ -1,10 +1,10 @@
 """XML AST-based pom.xml Modernizer Engine.
 
 Performs deterministic build manifest modernizations:
-1. Spring Boot parent version upgrades (e.g. 2.7.x -> 3.2.5 when target Java is >= 17/21).
+1. Dynamic Spring Boot parent version upgrades (via real-time Maven Central resolver).
 2. Java compiler version properties (<java.version>, <maven.compiler.source>, <maven.compiler.target>).
 3. maven-compiler-plugin configuration alignment (<source>, <target>, <release>).
-4. Legacy javax.* to jakarta.* artifact dependency modernizations.
+4. Legacy javax.* to jakarta.* artifact dependency modernizations with dynamic version resolution.
 5. Multi-module Maven monorepo traversal and parent-child dependency inheritance synchronization.
 6. Extraction of structured dependency upgrade records for migration reporting.
 """
@@ -16,16 +16,20 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from app.infrastructure.migration_engine.maven_version_resolver import get_version_resolver
+
 logger = logging.getLogger(__name__)
 
-_JAVAX_TO_JAKARTA_ARTIFACTS = {
-    "javax.persistence": ("jakarta.persistence", "jakarta.persistence-api", "3.1.0"),
-    "javax.persistence-api": ("jakarta.persistence", "jakarta.persistence-api", "3.1.0"),
-    "javax.servlet-api": ("jakarta.servlet", "jakarta.servlet-api", "6.0.0"),
-    "javax.annotation-api": ("jakarta.annotation", "jakarta.annotation-api", "2.1.1"),
-    "validation-api": ("jakarta.validation", "jakarta.validation-api", "3.0.2"),
-    "javax.validation-api": ("jakarta.validation", "jakarta.validation-api", "3.0.2"),
-}
+_LEGACY_JAVAX_ARTIFACTS = [
+    "javax.persistence",
+    "javax.persistence-api",
+    "javax.servlet-api",
+    "javax.annotation-api",
+    "validation-api",
+    "javax.validation-api",
+    "javax.transaction-api",
+    "javax.ws.rs-api",
+]
 
 _IGNORED_DIRS = {"target", "build", ".git", ".idea", ".settings", "node_modules", ".gradle", "bin", "out"}
 
@@ -131,17 +135,18 @@ class PomModernizer:
         except ValueError:
             target_major = 17
 
+        resolver = get_version_resolver()
         spring_boot_before: str | None = None
         spring_boot_after: str | None = None
 
         module_prefix = f"[{rel_path}] " if not is_root else ""
 
-        # 1. Update Spring Boot Parent Version if target Java requires Spring Boot 3
+        # 1. Update Spring Boot Parent Version dynamically if target Java requires Spring Boot 3
         parent_match = re.search(r"<parent>.*?<artifactId>spring-boot-starter-parent</artifactId>.*?<version>(.*?)</version>.*?</parent>", content, re.DOTALL)
         if parent_match:
             spring_boot_before = parent_match.group(1).strip()
             if target_major >= 17 and (spring_boot_before.startswith("1.") or spring_boot_before.startswith("2.")):
-                target_boot_version = "3.2.5"
+                target_boot_version = resolver.get_latest_spring_boot_version(target_java_version=target_java)
                 content = re.sub(
                     r"(<artifactId>spring-boot-starter-parent</artifactId>\s*<version>)(.*?)(</version>)",
                     rf"\g<1>{target_boot_version}\g<3>",
@@ -192,9 +197,10 @@ class PomModernizer:
             )
             logs.append(f"{module_prefix}Aligned maven-compiler-plugin <source>, <target>, and <release> configurations to {target_java}.")
 
-        # 4. Modernize Javax to Jakarta Dependencies in pom.xml
-        for legacy_art, (new_group, new_art, new_ver) in _JAVAX_TO_JAKARTA_ARTIFACTS.items():
+        # 4. Modernize Javax to Jakarta Dependencies dynamically in pom.xml
+        for legacy_art in _LEGACY_JAVAX_ARTIFACTS:
             if legacy_art in content:
+                new_group, new_art, new_ver = resolver.get_jakarta_artifact_coordinates(legacy_art)
                 content = re.sub(
                     rf"<artifactId>{re.escape(legacy_art)}</artifactId>",
                     f"<artifactId>{new_art}</artifactId>",

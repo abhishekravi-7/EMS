@@ -58,7 +58,7 @@ async def start_migration(
     current_user: User = Depends(get_current_user),  # noqa: B008
     db: Session = Depends(get_db),  # noqa: B008
 ) -> JSONResponse:
-    await asyncio.to_thread(verify_job_ownership, db, job_id, current_user)
+    await verify_job_ownership(db, job_id, current_user)
     request = payload.model_dump() if payload else None
     try:
         result = await asyncio.to_thread(_pipeline.start, job_id, request, current_user_id=current_user.id)
@@ -86,7 +86,7 @@ async def migration_summary(
     current_user: User = Depends(get_current_user),  # noqa: B008
     db: Session = Depends(get_db),  # noqa: B008
 ) -> JSONResponse:
-    await asyncio.to_thread(verify_job_ownership, db, job_id, current_user)
+    await verify_job_ownership(db, job_id, current_user)
     try:
         summary = await asyncio.to_thread(_pipeline.get_summary, job_id)
         logger.debug("[MIGRATION SUMMARY] job_id=%s found=true storage=available", job_id)
@@ -107,7 +107,7 @@ async def migration_detail(
     current_user: User = Depends(get_current_user),  # noqa: B008
     db: Session = Depends(get_db),  # noqa: B008
 ) -> JSONResponse:
-    await asyncio.to_thread(verify_job_ownership, db, job_id, current_user)
+    await verify_job_ownership(db, job_id, current_user)
     try:
         detail = await asyncio.to_thread(_pipeline.get_detail, job_id)
         logger.debug("[MIGRATION DETAIL] job_id=%s found=true", job_id)
@@ -128,7 +128,7 @@ async def migration_logs(
     current_user: User = Depends(get_current_user),  # noqa: B008
     db: Session = Depends(get_db),  # noqa: B008
 ) -> JSONResponse:
-    await asyncio.to_thread(verify_job_ownership, db, job_id, current_user)
+    await verify_job_ownership(db, job_id, current_user)
     try:
         logs = await asyncio.to_thread(_pipeline.get_logs, job_id)
         logger.debug("[MIGRATION LOGS] job_id=%s found=true", job_id)
@@ -152,7 +152,7 @@ async def migration_fossa(
     current_user: User = Depends(get_current_user),  # noqa: B008
     db: Session = Depends(get_db),  # noqa: B008
 ) -> JSONResponse:
-    await asyncio.to_thread(verify_job_ownership, db, job_id, current_user)
+    await verify_job_ownership(db, job_id, current_user)
     try:
         fossa_data = await asyncio.to_thread(_pipeline.get_fossa, job_id)
         return JSONResponse(status_code=200, content=fossa_data)
@@ -173,7 +173,7 @@ async def rerun_migration_tests(
     current_user: User = Depends(get_current_user),  # noqa: B008
     db: Session = Depends(get_db),  # noqa: B008
 ) -> JSONResponse:
-    verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(db, job_id, current_user)
     paths = WorkspacePaths(job_id)
     project_dir = paths.migrated_repo_dir if paths.migrated_repo_dir.exists() else paths.original_repo_dir
 
@@ -366,7 +366,7 @@ async def get_file_diff(
     current_user: User = Depends(get_current_user),  # noqa: B008
     db: Session = Depends(get_db),  # noqa: B008
 ) -> JSONResponse:
-    verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(db, job_id, current_user)
     try:
         diff = _diff_service.get_file_diff(job_id, path)
         if not diff:
@@ -388,7 +388,7 @@ async def download_unit_test_report(
     current_user: User = Depends(get_current_user),  # noqa: B008
     db: Session = Depends(get_db),  # noqa: B008
 ) -> HTMLResponse:
-    await asyncio.to_thread(verify_job_ownership, db, job_id, current_user)
+    await verify_job_ownership(db, job_id, current_user)
     html_content = await asyncio.to_thread(_unit_test_report_gen.generate_html_report, job_id)
     return HTMLResponse(
         content=html_content,
@@ -404,7 +404,7 @@ async def download_testcase_report(
     current_user: User = Depends(get_current_user),  # noqa: B008
     db: Session = Depends(get_db),  # noqa: B008
 ) -> HTMLResponse:
-    await asyncio.to_thread(verify_job_ownership, db, job_id, current_user)
+    await verify_job_ownership(db, job_id, current_user)
     html_content = await asyncio.to_thread(_unit_test_report_gen.generate_html_report, job_id)
     return HTMLResponse(
         content=html_content,

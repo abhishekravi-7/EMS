@@ -9,10 +9,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 from xml.etree.ElementTree import Element, ParseError  # nosec B405
 
 from defusedxml.ElementTree import fromstring  # nosec B405
 
+from app.infrastructure.analyzers.api_endpoint_detector import ApiEndpointDetector
 from app.infrastructure.analyzers.build_metadata_analyzer import (
     BomVersion,
     BuildMetadataAnalyzer,
@@ -56,6 +58,7 @@ class ProjectAnalysis:
     has_src_test: bool
     has_tests: bool
     project_root: Path
+    api_endpoints: list[dict[str, Any]] = field(default_factory=list)
     java_files: list[str] = field(default_factory=list)
     config_files: list[str] = field(default_factory=list)
     other_files: list[str] = field(default_factory=list)
@@ -84,6 +87,7 @@ class ProjectAnalyzer:
         self._modules = ModuleDetector()
         self._project_type = ProjectTypeDetector()
         self._frontend = FrontendDetector()
+        self._api_endpoints = ApiEndpointDetector()
 
     def analyze(self, root: Path) -> ProjectAnalysis:
         # The Java project may live in a subfolder (e.g. backend/pom.xml) rather
@@ -164,6 +168,8 @@ class ProjectAnalyzer:
         # e.g. repo/frontend + repo/backend).
         frontend = self._frontend.detect(root)
 
+        api_endpoints = self._api_endpoints.detect(project_root)
+
         has_src_main = file_utils.exists(project_root, "src", "main")
         has_src_test = file_utils.exists(project_root, "src", "test")
 
@@ -192,6 +198,7 @@ class ProjectAnalyzer:
             has_src_test=has_src_test,
             has_tests=has_src_test,
             project_root=project_root,
+            api_endpoints=api_endpoints,
             java_files=java_files,
             config_files=config_files,
             other_files=other_files,

@@ -39,6 +39,17 @@ export interface DiscoveryProject {
   // extras used to faithfully populate the existing UI
   dependencies?: DiscoveryDependency[];
   hasTests?: boolean;
+  apiEndpoints?: {
+    id: string;
+    httpMethod: string;
+    path: string;
+    controller: string;
+    handlerMethod: string;
+    sourceFile: string;
+    module: string;
+    framework: string;
+    detectionStatus: string;
+  }[];
   javaFileCount?: number;
   javaFiles?: string[];
   configFileCount?: number;
@@ -203,7 +214,7 @@ export function mapDiscoveryToRepoAnalysis(response: DiscoveryResponse): RepoAna
     total_file_count: project.totalFileCount,
     has_tests: Boolean(project.hasTests),
     dependencies,
-    api_endpoints: [],
+    api_endpoints: project.apiEndpoints ?? [],
     detected_frameworks: (project.frameworks ?? []).map((f) => ({
       name: f,
       path: project.detectedFiles?.pomXml ? "pom.xml" : "build.gradle",

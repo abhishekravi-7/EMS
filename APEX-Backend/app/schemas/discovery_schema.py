@@ -5,7 +5,7 @@ with no body; ``githubToken`` is an optional override used for private repos whe
 it is not already stored in the connect report.
 """
 
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
@@ -98,6 +98,7 @@ class DiscoveryProject(BaseModel):
     spring_boot_conversion_eligible: bool = Field(..., alias="springBootConversionEligible")
     spring_boot_upgrade_eligible: bool = Field(..., alias="springBootUpgradeEligible")
     eligibility_reason: str = Field(..., alias="eligibilityReason")
+    api_endpoints: list[dict[str, Any]] = Field(default_factory=list, alias="apiEndpoints")
     spring_boot_conversion: Optional[DiscoverySpringBootConversion] = Field(
         None, alias="springBootConversion"
     )

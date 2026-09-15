@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from datetime import datetime, timezone
 from collections.abc import AsyncIterator
 
 from sqlalchemy.orm import Session
@@ -175,3 +176,44 @@ class DatabaseTraceSink:
         finally:
             if should_close and db:
                 db.close()
+
+
+class MongoDBTraceSink:
+    """Implements token_tracing.TraceSink to store records in MongoDB."""
+
+    def __init__(self):
+        from app.infrastructure.persistence.mongodb import mongodb_manager
+        self._manager = mongodb_manager
+
+    def write(self, record: tt.LLMCallRecord) -> None:
+        """Write a token usage record to MongoDB (synchronously)."""
+        db = self._manager.get_sync_db()
+        if db is None:
+            return
+
+        try:
+            doc = {
+                "request_id": f"tt_{uuid.uuid4().hex[:12]}",
+                "user_id": user_id_ctx.get(),
+                "job_id": job_id_ctx.get(),
+                "provider": record.provider or "unknown",
+                "model": record.model,
+                "input_tokens": record.input_tokens,
+                "output_tokens": record.output_tokens,
+                "total_tokens": record.total_tokens,
+                "cached_tokens": record.cached_tokens,
+                "role": record.role,
+                "endpoint": record.endpoint,
+                "call_type": record.call_type,
+                "duration_ms": record.duration_ms,
+                "estimated_cost_usd": record.estimated_cost_usd,
+                "status": "success" if record.error is None else "failure",
+                "error_message": record.error,
+                "attempt": record.attempt,
+                "is_retry": record.is_retry,
+                "repository_url": repository_url_ctx.get(),
+                "created_at": datetime.now(timezone.utc)
+            }
+            db.llm_token_usage.insert_one(doc)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[MongoDBTraceSink] Failed to write record: %s", exc)

@@ -110,8 +110,15 @@ async def test_analyze_dependencies_with_mock_llm():
 async def test_analyze_dependencies_fallback_when_llm_unconfigured():
     mock_llm_client = MagicMock()
     mock_llm_client.is_configured.return_value = False
+    mock_llm_client.chat_json = AsyncMock(side_effect=RuntimeError("LLM unconfigured"))
+    
+    mock_chat = MagicMock()
+    async def mock_stream(*args, **kwargs):
+        raise RuntimeError("Fallback LLM unavailable")
+        yield ""
+    mock_chat.stream_chat = mock_stream
 
-    use_case = AnalyzeDependenciesUseCase(llm_client=mock_llm_client)
+    use_case = AnalyzeDependenciesUseCase(llm_client=mock_llm_client, chat_llm=mock_chat)
 
     request = DependencyAnalysisRequest(
         source_java_version="8",
