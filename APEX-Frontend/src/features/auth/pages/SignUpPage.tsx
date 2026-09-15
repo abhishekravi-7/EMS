@@ -6,6 +6,7 @@ import AuthLayout from "../components/AuthLayout";
 import SocialAuthButtons from "../components/SocialAuthButtons";
 import PasswordInput from "../components/PasswordInput";
 import { signUp } from "../services/authService";
+import { useAuth } from "@/shared/context/AuthContext";
 import { useAuthForm, type FormErrors } from "../hooks/useAuthForm";
 import { getOAuthErrorMessage } from "../oauthErrorMessages";
 import "../auth.css";
@@ -76,11 +77,19 @@ function getPasswordStrength(password: string): { label: string; score: number; 
 
 const SignUpPage: React.FC = () => {
   const navigate = useNavigate();
+  const { login, isAuthenticated, isAuthLoading } = useAuth();
   const [searchParams] = useSearchParams();
   const [submitted, setSubmitted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [agreeTerms, setAgreeTerms] = useState(true);
   const [apiError, setApiError] = useState<string | null>(null);
+
+  // If already authenticated, redirect to application
+  useEffect(() => {
+    if (!isAuthLoading && isAuthenticated) {
+      navigate("/connect", { replace: true });
+    }
+  }, [isAuthenticated, isAuthLoading, navigate]);
 
   useEffect(() => {
     const oauthErrorCode = searchParams.get("oauth_error");
@@ -104,12 +113,13 @@ const SignUpPage: React.FC = () => {
       setApiError(null);
       setIsSubmitting(true);
       try {
-        await signUp({
+        const user = await signUp({
           fullName: formValues.fullName.trim(),
           email: formValues.email.trim(),
           password: formValues.password,
           confirmPassword: formValues.confirmPassword,
         });
+        login(user);
         setSubmitted(true);
       } catch (err) {
         const message = err instanceof Error ? err.message : "Sign up failed. Please try again.";

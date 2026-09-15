@@ -103,7 +103,7 @@ class LoginRequest(BaseModel):
 class UserResponse(BaseModel):
     """Safe, public view of a user. NEVER includes password_hash."""
 
-    id: int
+    id: str | int
     full_name: str = Field(..., alias="fullName")
     email: str
     role: str

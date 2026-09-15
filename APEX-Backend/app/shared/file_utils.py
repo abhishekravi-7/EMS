@@ -31,6 +31,22 @@ def _long_path(path: Path) -> Path:
     return Path("\\\\?\\" + resolved)
 
 
+def to_plain_path_str(path: Path | str) -> str:
+    """Return a plain string representation of ``path`` without the long-path prefix.
+
+    Used for external tools or libraries (like Java's Jackson) that might not
+    support the Win32 extended-length path prefix (``\\\\?\\``).
+    """
+    s = str(path)
+    if s.startswith("\\\\?\\"):
+        if s.startswith("\\\\?\\UNC\\"):
+            # \\\\?\\UNC\\server\\share -> \\\\server\\share
+            return "\\\\" + s[8:]
+        # \\\\?\\C:\\path -> C:\\path
+        return s[4:]
+    return s
+
+
 def read_text(path: Path) -> str:
     """Read a text file, tolerating odd encodings. Returns "" if unreadable."""
     try:

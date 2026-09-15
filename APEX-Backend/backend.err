@@ -1,0 +1,13 @@
+10:47:16 | INFO    | app.main | Frontend bundle not found at C:\Users\ST-SUBRAMANI\OneDrive - SORIM TECHNOLOGIES\Documents\JAVA_APEX\JavaAPEX\APEX-Backend\frontend-dist; API-only mode.
+INFO:     Started server process [15356]
+INFO:     Waiting for application startup.
+10:47:16 | INFO    | app.infrastructure.java_runtime | [JAVA RUNTIME] OS=nt Java=25 JAVA_HOME=none Executable=C:\Program Files\Common Files\Oracle\Java\javapath\java.EXE (Valid=True)
+10:47:16 | INFO    | app.main | [DATABASE] PostgreSQL enabled: True
+10:47:16 | INFO    | app.main | [DATABASE] PostgreSQL configuration loaded: True
+10:47:16 | INFO    | app.main | [CONNECT] Database-independent mode: disabled
+10:47:16 | INFO    | app.main | Database tables verified/created.
+10:47:16 | INFO    | app.main | Applied 0 dynamic setting overrides from database
+10:47:16 | INFO    | app.main | Firebase Auth disabled by configuration — skipping Firebase initialization.
+10:47:16 | INFO    | app.main | LLM Token Tracing initialized (sinks: JSONL + Database)
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)

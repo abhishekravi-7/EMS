@@ -6,8 +6,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 from app.core.config import settings
+
+
 from app.infrastructure.migration_engine.gradle_modernizer import GradleModernizer
 from app.infrastructure.migration_engine.pom_modernizer import PomModernizer
+
 from app.shared import file_utils
 
 logger = logging.getLogger(__name__)
@@ -75,29 +78,56 @@ class AstMigrationRunner:
         process = None
 
         try:
-            logger.info("Invoking Java Migration Engine for project: %s", project_dir)
+            logger.info("Invoking Java Migration Engine for project: %s", file_utils.to_plain_path_str(project_dir))
             process = subprocess.Popen(
-                ["java", "-jar", str(self._jar_path)],
+                ["java", "-jar", file_utils.to_plain_path_str(self._jar_path)],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
                 encoding="utf-8",
+
+                cwd=str(project_dir)
+
             )
 
             stdout, stderr = process.communicate(input=plan_json, timeout=settings.migration_timeout_seconds)
 
+            
+            # Combine stdout and stderr for logging/reporting
+            full_output = []
+            if stdout and not stdout.strip().startswith("{"):
+                full_output.append(stdout)
+
+
+
             if stderr:
-                logger.warning("Migration Engine Stderr: %s", stderr)
+                full_output.append(stderr)
+                logger.warning("Migration Engine Output (Stderr/Non-JSON Stdout): %s", stderr)
 
             if process.returncode != 0:
+
+                return AstMigrationRunResult(
+                    success=False,
+                    status="FAILED",
+                    error_lines=[f"Java process exited with code {process.returncode}"] + full_output
+                )
+                
+
                 logger.warning("Java process exited with code %s. Falling back to in-process rules.", process.returncode)
                 fallback_res = self._run_python_fallback_rules(project_dir, plan)
                 fallback_res.log_lines.insert(0, f"Java process exited with code {process.returncode}; executed Python fallback AST engine.")
                 return fallback_res
 
+
             try:
-                result_data = json.loads(stdout)
+                # Find the JSON block in stdout (in case of garbage output)
+                json_start = stdout.find("{")
+                if json_start == -1:
+                    raise json.JSONDecodeError("No JSON object found", stdout, 0)
+                
+                json_text = stdout[json_start:]
+                result_data = json.loads(json_text)
             except json.JSONDecodeError:
                 fallback_res = self._run_python_fallback_rules(project_dir, plan)
                 fallback_res.log_lines.insert(0, "Failed to parse Java engine JSON; executed Python fallback AST engine.")
@@ -112,7 +142,7 @@ class AstMigrationRunner:
                 changed_files=changed,
                 rule_executions=result_data.get("ruleExecutions", []),
                 fallback_requests=result_data.get("fallbackRequests", []),
-                log_lines=[f"Migration Engine finished with status: {status}, changed {len(changed)} files."],
+                log_lines=[f"Migration Engine finished with status: {status}, changed {len(changed)} files."] + full_output,
             )
 
         except subprocess.TimeoutExpired:

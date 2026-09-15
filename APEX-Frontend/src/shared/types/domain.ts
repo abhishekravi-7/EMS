@@ -19,6 +19,17 @@ export interface RepoFile {
   url: string;
 }
 
+export interface UserResponse {
+  id: string;
+  fullName: string;
+  email: string;
+  role: string;
+  isActive: boolean;
+  isEmailVerified: boolean;
+  createdAt: string;
+  lastLoginAt: string | null;
+}
+
 export interface DependencyInfo {
   group_id: string;
   artifact_id: string;
@@ -96,7 +107,17 @@ export interface RepoAnalysis {
   }[];
   test_file_list?: { path: string; tool: string }[];
   dependencies: DependencyInfo[];
-  api_endpoints: { path: string; method: string; file: string; controller?: string; source_file?: string }[];
+  api_endpoints: {
+    id: string;
+    httpMethod: string;
+    path: string;
+    controller: string;
+    handlerMethod: string;
+    sourceFile: string;
+    module: string;
+    framework: string;
+    detectionStatus: string;
+  }[];
   // Optional extras consumed by the wizard/modernization views (populated by
   // some analysis paths, absent in others).
   all_files?: Array<string | { path?: string }>;

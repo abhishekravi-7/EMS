@@ -35,7 +35,7 @@ async def get_docs(
     current_user: User = Depends(get_current_user),  # noqa: B008
     db: Session | None = Depends(get_db_optional),  # noqa: B008
 ) -> JSONResponse:
-    verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(db, job_id, current_user)
     try:
         result = await run_in_threadpool(_use_case.get_structured, job_id)
     except MigrationJobNotFoundError:
@@ -49,7 +49,7 @@ async def get_docs_html(
     current_user: User = Depends(get_current_user),  # noqa: B008
     db: Session | None = Depends(get_db_optional),  # noqa: B008
 ) -> JSONResponse:
-    verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(db, job_id, current_user)
     try:
         result = await run_in_threadpool(_use_case.get_html, job_id)
     except MigrationJobNotFoundError:

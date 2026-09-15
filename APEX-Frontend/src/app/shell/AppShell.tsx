@@ -5,6 +5,7 @@ import { DocsPanel } from "@/features/docs";
 // import { SupportPanel } from "@/features/support";
 import { Button } from "@/shared/components/ui";
 import { useAuth } from "@/shared/context/AuthContext";
+import { useSidebar } from "@/shared/context/SidebarContext";
 import FloatingChatbot from "@/shared/components/chatbot/FloatingChatbot";
 import { FaCog } from "react-icons/fa";
 import "./AppShell.css";
@@ -72,15 +73,16 @@ const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const { isAuthenticated, isAuthLoading, user, logout } = useAuth();
+  const { isSidebarExpanded, toggleSidebar } = useSidebar();
 
+  const normalizedPath = location.pathname.replace(/\/+$/, "");
   const isStandalonePage =
-    // location.pathname === "/" ||
-    location.pathname === "/signin" ||
-    location.pathname === "/signup";
+    normalizedPath === "/signin" ||
+    normalizedPath === "/signup";
 
   const isWizardPage =
     !isStandalonePage &&
-    !["/admin", "/usage"].includes(location.pathname);
+    !["/admin", "/usage"].includes(normalizedPath);
 
   const rootStyle: React.CSSProperties = isWizardPage
     ? {
@@ -125,7 +127,7 @@ const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
   if (isStandalonePage) {
     return (
-      <div style={{ minHeight: "100vh", width: "100%", background: "transparent" }}>
+      <div style={{ minHeight: "100vh", width: "100%", background: "#f8fafc" }}>
         {children}
         <DocsPanel
           open={activePanel === "docs"}
@@ -145,24 +147,46 @@ const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     <div style={rootStyle} className="app-shell-root">
       <header style={shellStyles.header} className="app-shell-header">
         <div style={{ display: "flex", alignItems: "center" }} className="app-shell-brand-group">
-          <div className="app-shell-brand-logo-wrap">
+          {/* Logo — always visible in header. On wizard pages it toggles the sidebar; elsewhere it navigates home */}
+          <div
+            className={`app-shell-brand-logo-wrap${isWizardPage ? " is-sidebar-toggle" : ""}`}
+            style={{
+              width: isWizardPage ? (isSidebarExpanded ? 256 : 256) : "auto",
+              transition: "width 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+              overflow: "visible"
+            }}
+          >
             <img
               src={apexLogo}
               alt="Java APEX"
               className="app-shell-logo-image"
-              style={{ height: 44, width: "auto", objectFit: "contain", borderRadius: 8, cursor: "pointer" }}
-              onClick={() => navigate("/")}
+              style={{
+                height: 44,
+                width: "auto",
+                objectFit: "contain",
+                borderRadius: 8,
+                cursor: "pointer",
+                transition: "transform 0.2s ease, opacity 0.2s ease",
+              }}
+              onClick={() => {
+                if (isWizardPage) {
+                  toggleSidebar();
+                } else {
+                  navigate("/");
+                }
+              }}
+              title={isWizardPage ? (isSidebarExpanded ? "Collapse sidebar" : "Expand sidebar") : "Home"}
             />
           </div>
 
-          <div className="app-shell-brand-divider" />
+          {!isWizardPage && <div className="app-shell-brand-divider" />}
 
           <div style={{ display: "flex", flexDirection: "column" }} className="app-shell-brand-text-col">
             <span style={{ fontSize: 16, fontWeight: 700, color: "#1e293b", letterSpacing: "-0.01em" }}>
-              Java Migration Accelerator
+              {/* Java Migration Accelerator */}
             </span>
             <span style={{ fontSize: 11, color: "#64748b", fontWeight: 500 }}>
-              Enterprise Application Modernization
+              {/* Enterprise Application Modernization */}
             </span>
           </div>
         </div>
@@ -358,7 +382,9 @@ const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         onClose={() => setActivePanel(null)}
         onNavigateToDocs={() => setActivePanel("docs")}
       /> */}
-      <FloatingChatbot />
+      {location.pathname !== "/" && location.pathname !== "/connect" && location.pathname !== "/signin" && location.pathname !== "/signup" && (
+        <FloatingChatbot />
+      )}
     </div>
   );
 };

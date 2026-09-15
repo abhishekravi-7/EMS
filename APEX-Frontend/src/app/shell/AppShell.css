@@ -77,7 +77,7 @@
 }
 
 .app-shell-brand-logo-wrap {
-  width: 256px; /* 24px header padding + 256px = 280px, exactly matching 280px sidebar width */
+  width: 280px; /* Match sidebar width exactly */
   display: flex;
   align-items: center;
   flex-shrink: 0;

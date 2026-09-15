@@ -12,13 +12,21 @@ option rather than trusted blindly.
 
 from __future__ import annotations
 
+import json
+
+
 import logging
 import re
 
 from sqlalchemy.orm import Session
 
 from app.core.context import user_id_ctx
-from app.core.exceptions import InvalidJavaVersionError, LLMResponseInvalidError
+from app.core.exceptions import (
+    InvalidJavaVersionError,
+    LLMResponseInvalidError,
+    LLMServiceError,
+)
+from app.infrastructure.llm.chat_llm import ChatLLM
 from app.infrastructure.llm.huggingface_client import HuggingFaceClient
 from app.infrastructure.llm.prompt_templates import (
     JAVA_VERSION_RECOMMENDATION_SYSTEM_PROMPT,
@@ -53,8 +61,13 @@ def _allowed_targets(source_major: int) -> tuple[list[str], bool]:
 
 
 class RecommendJavaVersionUseCase:
-    def __init__(self, llm_client: HuggingFaceClient | None = None) -> None:
+    def __init__(
+        self,
+        llm_client: HuggingFaceClient | None = None,
+        chat_llm: ChatLLM | None = None,
+    ) -> None:
         self._llm = llm_client or HuggingFaceClient()
+        self._chat_llm = chat_llm or ChatLLM()
 
     async def execute(
         self,
@@ -82,16 +95,56 @@ class RecommendJavaVersionUseCase:
             user_token = user_id_ctx.set(current_user.id)
 
         try:
-            raw = await self._llm.chat_json(system_prompt, user_prompt)
-            return self._sanitize(raw, allowed_targets, already_at_latest)
+            try:
+                logger.info("[JavaRecommendation] Attempting Hugging Face (primary)")
+                raw = await self._llm.chat_json(system_prompt, user_prompt)
+                return self._sanitize(raw, allowed_targets, already_at_latest)
+            except (LLMServiceError, Exception) as exc:
+                logger.warning(
+                    "[JavaRecommendation] Hugging Face failed, falling back to Strategy Chat LLM (Groq/Ollama). Reason: %s",
+                    exc,
+                )
+                # Fallback to the same LLM logic used by the chatbot (Groq -> Ollama)
+                response_text = ""
+                async for chunk in self._chat_llm.stream_chat(
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    endpoint="java_version_recommendation_fallback",
+                ):
+                    response_text += chunk
+
+                raw = self._extract_json(response_text)
+                result = self._sanitize(raw, allowed_targets, already_at_latest)
+                result["provider_used"] = self._chat_llm.last_provider or "fallback"
+                return result
         except Exception as exc:  # noqa: BLE001
             logger.info("LLM Java version recommendation failed (%s); using rule-based fallback.", exc)
             return self._fallback(source_major, allowed_targets, already_at_latest)
+
         finally:
             if user_token:
                 user_id_ctx.reset(user_token)
 
     @staticmethod
+
+    def _extract_json(content: str) -> dict:
+        text = (content or "").strip()
+        # Some models wrap JSON in ```json ... ``` fences
+        if text.startswith("```"):
+            text = text.strip("`")
+            if text[:4].lower() == "json":
+                text = text[4:]
+
+        start = text.find("{")
+        end = text.rfind("}")
+        if start == -1 or end == -1 or end < start:
+            raise LLMResponseInvalidError("Fallback model response did not contain JSON.")
+
+        try:
+            return json.loads(text[start : end + 1])
+        except json.JSONDecodeError as exc:
+            raise LLMResponseInvalidError("Fallback model response was not valid JSON.") from exc
+
     def _fallback(source_major: int, allowed_targets: list[str], already_at_latest: bool) -> dict:
         if already_at_latest:
             recommended = str(source_major)
@@ -136,6 +189,7 @@ class RecommendJavaVersionUseCase:
             "already_at_latest_supported_version": already_at_latest,
             "raw_recommendation": {},
         }
+
 
     @staticmethod
     def _sanitize(raw: dict, allowed_targets: list[str], already_at_latest: bool) -> dict:

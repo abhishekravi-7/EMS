@@ -48,8 +48,9 @@ async def get_current_user(request: Request, db: Session | None = Depends(get_db
     1. Firebase ID token from `Authorization: Bearer <token>` (RS256 / Google JWKS).
     2. Legacy `access_token` HttpOnly cookie.
     3. Legacy HMAC access token from `Authorization: Bearer <token>`.
-    4. PostgreSQL-enabled database user lookup / shadow record creation.
-    5. PostgreSQL-disabled JWT signature validation & shadow user context.
+    4. MongoDB-backed FastAPI authentication.
+    5. PostgreSQL-enabled database user lookup / shadow record creation.
+    6. PostgreSQL-disabled JWT signature validation & shadow user context.
     """
     auth_header = request.headers.get("Authorization", "")
     bearer_token = ""  # nosec B105
@@ -57,20 +58,57 @@ async def get_current_user(request: Request, db: Session | None = Depends(get_db
         bearer_token = auth_header[len(_BEARER_PREFIX):].strip()
 
     cookie_token = request.cookies.get(ACCESS_TOKEN_COOKIE_NAME, "").strip()
+    raw_token = cookie_token or bearer_token
 
-    # 1. If bearer token is provided and matches Firebase ID token format or Firebase Auth is forced
+    # 1. MongoDB Provider
+    if settings.auth_provider == "mongodb":
+        from app.infrastructure.persistence.mongodb import get_mongodb
+        from app.application.services.mongodb_auth_service import MongoDBAuthService
+        
+        if not raw_token:
+            if not settings.is_production and not settings.firebase_auth_enabled:
+                return _get_mock_user()
+            raise HTTPException(status_code=401, detail="Missing access token.")
+
+        mongo_db = await get_mongodb()
+        if mongo_db is None:
+            logger.error("MongoDB is not initialized (mongo_db is None)")
+            raise HTTPException(status_code=503, detail="Database connection unavailable.")
+
+        auth_service = MongoDBAuthService(mongo_db)
+        try:
+            user_data = await auth_service.get_user_from_access_token(raw_token)
+            
+            # Map dict to an object that behaves like a SQLAlchemy User model
+            class MongoUser:
+                def __init__(self, data):
+                    self.id = str(data["_id"])
+                    self.email = data["email"]
+                    self.full_name = data.get("full_name", "")
+                    self.role = data.get("role", "USER")
+                    self.is_active = data.get("is_active", True)
+                    self.is_email_verified = data.get("is_email_verified", False)
+                    # Fallback for created_at to avoid Pydantic validation error if missing
+                    self.created_at = data.get("created_at") or datetime.now(timezone.utc)
+                    self.last_login_at = data.get("last_login_at")
+            
+            user = MongoUser(user_data)
+            user_id_ctx.set(user.id)
+            return user # type: ignore
+        except NotAuthenticatedError as exc:
+            raise HTTPException(status_code=401, detail=exc.message) from exc
+
+    # 2. Firebase Provider (Legacy)
     if bearer_token and (settings.firebase_auth_enabled or is_firebase_token(bearer_token)):
         if db is None and settings.firebase_auth_enabled and not is_firebase_token(bearer_token):
              raise HTTPException(status_code=503, detail="Database required for Firebase authentication.")
         return await verify_firebase_token(db, bearer_token)
 
-    # 2. Development Bypass (when Firebase is disabled and not in production)
+    # 3. Development Bypass (when Firebase is disabled and not in production)
     if not settings.firebase_auth_enabled and not settings.is_production:
         return _get_mock_user()
 
-    # 3. Legacy Extract access token from cookie or bearer header
-    raw_token = cookie_token or bearer_token
-
+    # 4. Legacy Extract access token from cookie or bearer header
     if not raw_token:
         raise HTTPException(status_code=401, detail="Missing access token.")
 
@@ -84,11 +122,50 @@ async def get_current_user(request: Request, db: Session | None = Depends(get_db
         raise HTTPException(status_code=401, detail=exc.message) from exc
 
 
-def verify_job_ownership(db: Session | None, job_id: str, current_user: User) -> None:
+async def verify_job_ownership(db: Session | None, job_id: str, current_user: User) -> None:
     """Raise 403/404 unless `current_user` is the recorded owner of `job_id`.
 
     When PostgreSQL is disabled, verifies that the job exists on filesystem storage, in report cache, or in active existing-test runner.
     """
+    if settings.persistence_backend == "mongodb":
+        from app.infrastructure.persistence.mongodb import get_mongodb
+        from app.infrastructure.persistence.mongodb_ownership_repository import get_job_owner_user_id as get_mongo_owner
+        
+        mongo_db = await get_mongodb()
+        owner_user_id = await get_mongo_owner(mongo_db, job_id)
+        
+        if owner_user_id is None:
+             # Logic for first-time owner recording if job exists in cache/filesystem
+             from app.application.services.status_service import _REPORT_CACHE
+             from app.application.use_cases.existing_test_runner_service import existing_test_runner_service
+             from app.infrastructure.persistence.job_repository import JobRepository
+             
+             if (
+                JobRepository().job_exists(job_id)
+                or job_id in _REPORT_CACHE
+                or existing_test_runner_service.has_job(job_id)
+             ):
+                 from app.infrastructure.persistence.mongodb_ownership_repository import record_job_owner as record_mongo_owner
+                 try:
+                     await record_mongo_owner(mongo_db, job_id=job_id, user_id=current_user.id)
+                     owner_user_id = current_user.id
+                 except Exception as exc: # noqa: BLE001
+                     logger.debug("Could not record job owner for job %s: %s", job_id, exc)
+
+        if owner_user_id is None:
+            raise HTTPException(
+                status_code=404,
+                detail={"code": "JOB_NOT_FOUND", "message": "No migration job found for this id."},
+            )
+            
+        if owner_user_id != current_user.id and current_user.id != 1:
+            raise HTTPException(
+                status_code=403,
+                detail={"code": "FORBIDDEN", "message": "You do not have access to this migration job."},
+            )
+        job_id_ctx.set(job_id)
+        return
+
     if db is None or not settings.database_enabled:
         from app.application.services.status_service import _REPORT_CACHE
         from app.application.use_cases.existing_test_runner_service import existing_test_runner_service

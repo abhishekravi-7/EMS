@@ -1,9 +1,8 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { signInWithEmailAndPassword } from "firebase/auth";
-import { auth } from "../../../firebase/firebase";
 import { signInWithGoogle, signInWithGithub, resetPassword, signIn } from "../services/authService";
 import AuthLayout from "../components/AuthLayout";
+import { useAuth } from "@/shared/context/AuthContext";
 import { FaUser, FaRegEnvelope, FaLock, FaEye, FaEyeSlash, FaGithub } from "react-icons/fa";
 
 const GoogleIcon: React.FC = () => (
@@ -46,8 +45,6 @@ const ForgotPasswordModal: React.FC<{ onClose: () => void }> = ({ onClose }) => 
       console.error("Password reset error details:", err);
       setErrorMsg(err.message || "Unable to send reset email. Please ensure the email is correct.");
       setStatus("error");
-    } finally {
-      // Just to be safe, don't leave it in loading if caught
     }
   };
 
@@ -147,13 +144,20 @@ const ForgotPasswordModal: React.FC<{ onClose: () => void }> = ({ onClose }) => 
 const SignInPage: React.FC = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showForgotModal, setShowForgotModal] = useState(false);
 
   const navigate = useNavigate();
+  const { login, isAuthenticated, isAuthLoading } = useAuth();
+
+  // If already authenticated, redirect to application
+  useEffect(() => {
+    if (!isAuthLoading && isAuthenticated) {
+      navigate("/connect", { replace: true });
+    }
+  }, [isAuthenticated, isAuthLoading, navigate]);
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -161,9 +165,11 @@ const SignInPage: React.FC = () => {
     setLoading(true);
 
     try {
-      await signIn({ email, password, rememberMe });
-      navigate("/connect");
+      const user = await signIn({ email, password });
+      console.log("[SignIn] Email sign in success:", user.email);
+      login(); // Trigger auth check update in provider
     } catch (err: any) {
+      console.error("[SignIn] Email sign in error:", err);
       setError(err.message);
     } finally {
       setLoading(false);
@@ -173,10 +179,11 @@ const SignInPage: React.FC = () => {
   const handleGoogleSignIn = async () => {
     setError(null);
     try {
-      // This redirects the page — no return value until handleRedirectResult() fires on reload
       await signInWithGoogle();
+      // Redirection happens in service
     } catch (err: any) {
-      setError(err.message || "Google Sign-In failed.");
+      console.error("[SignIn] Google sign in error:", err);
+      setError(err.message);
     }
   };
 
@@ -184,8 +191,10 @@ const SignInPage: React.FC = () => {
     setError(null);
     try {
       await signInWithGithub();
+      // Redirection happens in service
     } catch (err: any) {
-      setError(err.message || "GitHub Sign-In failed.");
+      console.error("[SignIn] GitHub sign in error:", err);
+      setError(err.message);
     }
   };
 
@@ -274,18 +283,8 @@ const SignInPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Remember me & Forgot Password */}
-          <div className="apex-remember-forgot-row">
-            <label className="apex-remember-label">
-              <input
-                type="checkbox"
-                checked={rememberMe}
-                onChange={(e) => setRememberMe(e.target.checked)}
-                className="apex-remember-checkbox"
-              />
-              <span>Remember me</span>
-            </label>
-
+          {/* Forgot Password */}
+          <div className="apex-remember-forgot-row" style={{ justifyContent: "flex-end" }}>
             <button
               type="button"
               onClick={() => setShowForgotModal(true)}

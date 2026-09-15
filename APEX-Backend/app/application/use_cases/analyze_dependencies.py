@@ -7,12 +7,15 @@ categories, contextual explanations, and actionable migration recommendations.
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
 from sqlalchemy.orm import Session
 
 from app.core.context import user_id_ctx
+from app.core.exceptions import LLMResponseInvalidError
+from app.infrastructure.llm.chat_llm import ChatLLM
 from app.infrastructure.llm.huggingface_client import HuggingFaceClient
 from app.infrastructure.llm.prompt_templates import (
     DEPENDENCY_ANALYSIS_SYSTEM_PROMPT,
@@ -167,8 +170,13 @@ def _build_fallback_analysis(
 
 
 class AnalyzeDependenciesUseCase:
-    def __init__(self, llm_client: HuggingFaceClient | None = None) -> None:
+    def __init__(
+        self,
+        llm_client: HuggingFaceClient | None = None,
+        chat_llm: ChatLLM | None = None,
+    ) -> None:
         self._llm = llm_client or HuggingFaceClient()
+        self._chat_llm = chat_llm or ChatLLM()
 
     async def execute(
         self,
@@ -201,6 +209,7 @@ class AnalyzeDependenciesUseCase:
             complexity_candidates: list[str] = []
             overall_explanations: list[str] = []
             complexity_explanations: list[str] = []
+            providers_used: set[str] = set()
 
             for batch in batches:
                 dep_dicts = [
@@ -225,7 +234,25 @@ class AnalyzeDependenciesUseCase:
                     api_endpoint_count=request.api_endpoint_count,
                 )
 
-                raw_json = await self._llm.chat_json(DEPENDENCY_ANALYSIS_SYSTEM_PROMPT, user_prompt)
+                try:
+                    logger.info("[DependencyAnalysis] Attempting Hugging Face (primary)")
+                    raw_json = await self._llm.chat_json(DEPENDENCY_ANALYSIS_SYSTEM_PROMPT, user_prompt)
+                    providers_used.add("huggingface")
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "[DependencyAnalysis] Hugging Face failed, falling back to Strategy Chat LLM. Reason: %s",
+                        exc,
+                    )
+                    response_text = ""
+                    async for chunk in self._chat_llm.stream_chat(
+                        system_prompt=DEPENDENCY_ANALYSIS_SYSTEM_PROMPT,
+                        user_prompt=user_prompt,
+                        endpoint="dependency_analysis_fallback",
+                    ):
+                        response_text += chunk
+                    raw_json = self._extract_json(response_text)
+                    providers_used.add(self._chat_llm.last_provider or "fallback")
+
                 raw_deps = raw_json.get("dependencies") or []
 
                 if raw_json.get("overall_risk"):
@@ -327,7 +354,7 @@ class AnalyzeDependenciesUseCase:
                 complexity_explanation=complexity_explanation,
                 counts=counts,
                 dependencies=final_dependencies,
-                provider_used="huggingface",
+                provider_used=", ".join(sorted(providers_used)) or "huggingface",
             )
 
         except Exception as exc:  # noqa: BLE001
@@ -336,3 +363,22 @@ class AnalyzeDependenciesUseCase:
         finally:
             if user_token:
                 user_id_ctx.reset(user_token)
+
+    @staticmethod
+    def _extract_json(content: str) -> dict:
+        text = (content or "").strip()
+        # Some models wrap JSON in ```json ... ``` fences
+        if text.startswith("```"):
+            text = text.strip("`")
+            if text[:4].lower() == "json":
+                text = text[4:]
+
+        start = text.find("{")
+        end = text.rfind("}")
+        if start == -1 or end == -1 or end < start:
+            raise LLMResponseInvalidError("Fallback model response did not contain JSON.")
+
+        try:
+            return json.loads(text[start : end + 1])
+        except json.JSONDecodeError as exc:
+            raise LLMResponseInvalidError("Fallback model response was not valid JSON.") from exc

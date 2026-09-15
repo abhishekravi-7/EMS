@@ -90,7 +90,22 @@ async def connect_repository(
         )
 
     t_db = time.perf_counter()
-    await run_in_threadpool(record_job_owner, db, job_id=result.job_id, user_id=current_user.id)
+    from app.core.config import settings
+
+    if settings.persistence_backend == "mongodb":
+        from app.infrastructure.persistence.mongodb import get_mongodb
+        from app.infrastructure.persistence.mongodb_ownership_repository import (
+            record_job_owner as record_mongo_owner,
+        )
+
+        mongo_db = await get_mongodb()
+        if mongo_db is not None:
+            await record_mongo_owner(mongo_db, job_id=result.job_id, user_id=str(current_user.id))
+        else:
+            logger.warning("[CONNECT] MongoDB enabled but unavailable - skipping ownership record.")
+    else:
+        await run_in_threadpool(record_job_owner, db, job_id=result.job_id, user_id=current_user.id)
+
     logger.info(
         "[CONNECT DB RECORD DONE] elapsed=%.3fs job_id=%s",
         time.perf_counter() - t_db,
