@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 from app.application.services.file_diff_service import FileDiffService
+from app.infrastructure.github.repo_creator import RepoCreator
 
 _diff_service = FileDiffService()
 
@@ -28,7 +29,8 @@ def _resolve_target_repo(report: dict[str, Any]) -> str | None:
     if dest.get("targetRepoName"):
         target_owner = dest.get("targetOwner") or "JavaAPEX"
         target_host = dest.get("targetHost") or "github.com"
-        return f"https://{target_host}/{target_owner}/{dest.get('targetRepoName')}"
+        clean_name = RepoCreator.clean_repo_name(dest.get("targetRepoName"))
+        return f"https://{target_host}/{target_owner}/{clean_name}"
     return None
 
 
@@ -144,6 +146,118 @@ def _build_issues(report: dict[str, Any]) -> list[dict[str, Any]]:
     return issues
 
 
+CANONICAL_STAGES = [
+    {
+        "id": "code-version-update",
+        "name": "1. Code version update",
+        "description": "Analyzing and updating source code to target version",
+        "progress": 16,
+    },
+    {
+        "id": "dependency-updates",
+        "name": "2. Dependencies updates",
+        "description": "Updating libraries and third-party dependencies",
+        "progress": 35,
+    },
+    {
+        "id": "code-transformation",
+        "name": "3. Code fix & code transformation",
+        "description": "Applying automated fixes and transforming code",
+        "progress": 60,
+    },
+    {
+        "id": "quality-check",
+        "name": "4. Quality check (Sonar, FOSSA, Unit check - JUnit)",
+        "description": "Running static analysis and unit tests",
+        "progress": 80,
+    },
+    {
+        "id": "code-depreciation",
+        "name": "5. Code Deprecation",
+        "description": "Analyzing and reporting deprecated code",
+        "progress": 90,
+    },
+    {
+        "id": "migration-report",
+        "name": "6. Generating migration report",
+        "description": "Compiling results and generating final report",
+        "progress": 100,
+    },
+]
+
+
+def _build_stages(report: dict[str, Any]) -> tuple[str, str, list[dict[str, Any]]]:
+    raw_status = (report.get("status") or "queued").lower()
+    raw_stage = (report.get("currentStage") or "").lower()
+    raw_step = report.get("currentStep") or ""
+    progress_pct = int(report.get("progressPercent") or report.get("progress_percent") or 0)
+
+    # Determine active stage id
+    active_stage_id = "code-version-update"
+    if raw_stage:
+        active_stage_id = raw_stage
+    elif progress_pct >= 92 or "report" in raw_step.lower() or raw_status in ("completed", "success"):
+        active_stage_id = "migration-report"
+    elif progress_pct >= 82 or "deprecat" in raw_step.lower() or "publish" in raw_step.lower():
+        active_stage_id = "code-depreciation"
+    elif progress_pct >= 62 or "validat" in raw_step.lower() or "quality" in raw_step.lower() or "test" in raw_step.lower():
+        active_stage_id = "quality-check"
+    elif progress_pct >= 38 or "migrat" in raw_step.lower() or "transform" in raw_step.lower():
+        active_stage_id = "code-transformation"
+    elif progress_pct >= 18 or "depend" in raw_step.lower():
+        active_stage_id = "dependency-updates"
+    else:
+        active_stage_id = "code-version-update"
+
+    stage_ids = [s["id"] for s in CANONICAL_STAGES]
+    active_idx = stage_ids.index(active_stage_id) if active_stage_id in stage_ids else 0
+
+    stages: list[dict[str, Any]] = []
+    for idx, stage in enumerate(CANONICAL_STAGES):
+        sid = stage["id"]
+        sname = stage["name"]
+        tprog = stage["progress"]
+
+        if raw_status in ("completed", "success") or progress_pct >= 100:
+            stage_status = "completed"
+            stage_prog = tprog
+        elif raw_status in ("failed", "error"):
+            if idx < active_idx:
+                stage_status = "completed"
+                stage_prog = tprog
+            elif idx == active_idx:
+                stage_status = "failed"
+                stage_prog = max(progress_pct, 1)
+            else:
+                stage_status = "pending"
+                stage_prog = 0
+        elif raw_status == "queued":
+            stage_status = "pending"
+            stage_prog = 0
+        else:
+            # Running / in-progress
+            if idx < active_idx:
+                stage_status = "completed"
+                stage_prog = tprog
+            elif idx == active_idx:
+                stage_status = "in_progress"
+                stage_prog = progress_pct
+            else:
+                stage_status = "pending"
+                stage_prog = 0
+
+        stages.append({
+            "id": sid,
+            "name": sname,
+            "description": stage["description"],
+            "status": stage_status,
+            "progress": stage_prog,
+        })
+
+    active_stage_name = CANONICAL_STAGES[active_idx]["name"]
+    return active_stage_id, active_stage_name, stages
+
+
 def _core(report: dict[str, Any]) -> dict[str, Any]:
     """Fields shared by summary + detail."""
     job_id = report.get("jobId", "")
@@ -164,6 +278,7 @@ def _core(report: dict[str, Any]) -> dict[str, Any]:
 
     dep_upgrades = report.get("dependencyUpgrades") or report.get("dependency_upgrades") or []
     dep_count = int(report.get("dependencyCount") or len(dep_upgrades))
+    active_stage_id, active_stage_name, stages = _build_stages(report)
 
     return {
         "job_id": job_id,
@@ -183,6 +298,9 @@ def _core(report: dict[str, Any]) -> dict[str, Any]:
         "completed_at": report.get("completedAt") or report.get("completed_at"),
         "progress_percent": int(report.get("progressPercent") or report.get("progress_percent") or 0),
         "current_step": report.get("currentStep") or report.get("current_step") or "",
+        "current_stage": active_stage_id,
+        "current_stage_name": active_stage_name,
+        "stages": stages,
         "files_modified": files_modified_count,
         "issues_fixed": issues_fixed,
         "error_message": report.get("errorMessage") or report.get("error_message"),

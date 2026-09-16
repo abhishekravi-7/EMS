@@ -75,6 +75,20 @@ export async function resetPassword(email: string): Promise<void> {
 }
 
 /**
+ * Confirm the password reset with the token.
+ */
+export async function confirmPasswordReset(token: string, newPassword: string): Promise<void> {
+  await requestJson(
+    "/auth/reset-password",
+    "Password reset failed",
+    {
+      method: "POST",
+      body: { token, newPassword },
+    }
+  );
+}
+
+/**
  * Log out the current user via the backend.
  */
 export async function logOut(): Promise<void> {

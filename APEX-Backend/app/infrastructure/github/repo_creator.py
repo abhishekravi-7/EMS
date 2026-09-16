@@ -30,6 +30,26 @@ class RepoCreator:
         self._github = github_client or GithubClient()
         self._profiles = profile_resolver or ProfileResolver(self._github)
 
+    @staticmethod
+    def clean_repo_name(repo_name: str | None) -> str:
+        """Extracts the simple repository name if a full URL, git remote, or path was provided."""
+        if not repo_name:
+            return "repo"
+        import re
+        cleaned = str(repo_name).strip().rstrip("/\\")
+        if cleaned.endswith(".git"):
+            cleaned = cleaned[:-4]
+        if "://" in cleaned:
+            cleaned = cleaned.split("://", 1)[1]
+        if ":" in cleaned and "/" not in cleaned.split(":", 1)[0]:
+            cleaned = cleaned.split(":", 1)[1]
+        if "/" in cleaned or "\\" in cleaned:
+            parts = [p for p in re.split(r"[/\\]+", cleaned) if p]
+            if parts:
+                cleaned = parts[-1]
+        cleaned = cleaned.strip()
+        return cleaned or "repo"
+
     def create(
         self,
         repo_name: str,
@@ -45,6 +65,7 @@ class RepoCreator:
                 "No target GitHub token configured. Set GITHUB_TARGET_TOKEN."
             )
 
+        repo_name = self.clean_repo_name(repo_name)
         profile: TargetProfile = self._profiles.resolve(owner=owner, host=host)
         logger.info(
             "Creating repo %s/%s (%s)",

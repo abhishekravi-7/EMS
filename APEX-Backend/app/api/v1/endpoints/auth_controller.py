@@ -29,6 +29,8 @@ from app.schemas.auth_schema import (
     MessageResponse,
     SignupRequest,
     UserResponse,
+    ForgotPasswordRequest,
+    ResetPasswordRequest,
 )
 
 logger = logging.getLogger(__name__)
@@ -265,6 +267,44 @@ async def logout(request: Request, db: Session = Depends(get_db)) -> JSONRespons
     response = JSONResponse(status_code=200, content={"message": "Logged out."})
     _clear_auth_cookies(response)
     return response
+
+
+@router.post(
+    "/forgot-password",
+    response_model=MessageResponse,
+    summary="Request a password reset email.",
+)
+async def forgot_password(payload: ForgotPasswordRequest) -> JSONResponse:
+    if settings.auth_provider == "mongodb":
+        from app.infrastructure.persistence.mongodb import get_mongodb
+        from app.application.services.mongodb_auth_service import MongoDBAuthService
+        mongo_db = await get_mongodb()
+        service = MongoDBAuthService(mongo_db)
+        await service.forgot_password(email=payload.email, frontend_url=settings.frontend_url)
+    
+    # We always return success to prevent email enumeration
+    return JSONResponse(status_code=200, content={"message": "If that email is in our system, we sent a password reset link."})
+
+
+@router.post(
+    "/reset-password",
+    response_model=MessageResponse,
+    summary="Reset password using a token.",
+)
+async def reset_password(payload: ResetPasswordRequest) -> JSONResponse:
+    if settings.auth_provider == "mongodb":
+        from app.infrastructure.persistence.mongodb import get_mongodb
+        from app.application.services.mongodb_auth_service import MongoDBAuthService
+        mongo_db = await get_mongodb()
+        service = MongoDBAuthService(mongo_db)
+        try:
+            await service.reset_password(token=payload.token, new_password=payload.new_password)
+            return JSONResponse(status_code=200, content={"message": "Password successfully reset."})
+        except AuthError as exc:
+            return _auth_error_response(exc)
+
+    return JSONResponse(status_code=501, content={"detail": "Not implemented for non-MongoDB providers."})
+
 
 
 # --- OAuth (Google / GitHub social login) -----------------------------------

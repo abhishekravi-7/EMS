@@ -1,4 +1,6 @@
 import { requestJson } from "@/services/http/client";
+export { formatProposedTestDisplayName } from "../utils/proposedTestFormatters";
+export type { ProposedTestLike } from "../utils/proposedTestFormatters";
 
 export type ProposedTestType = "UNIT" | "API" | "UI";
 export type ProposedTestPriority = "HIGH" | "MEDIUM" | "LOW";
@@ -11,7 +13,8 @@ export type ProposedTestStatus =
   | "PASSED"
   | "FAILED"
   | "SKIPPED"
-  | "NOT_EXECUTED";
+  | "NOT_EXECUTED"
+  | "APPLICATION_UNAVAILABLE";
 
 export interface StepExecutionRecord {
   step_number: number;
@@ -90,7 +93,14 @@ export interface ProposedTestCase {
   api_spec?: ApiTestSpec | null;
   unit_spec?: UnitTestSpec | null;
   ui_spec?: UiTestSpec | null;
+  validation?: {
+    status: string;
+    issue?: string | null;
+    playwright_executable?: boolean;
+    evidence?: string[];
+  } | null;
   execution_result?: ExecutionResult | null;
+  baseline_execution_result?: ExecutionResult | null;
 }
 
 export interface ProposedTestTypeBreakdown {
@@ -259,3 +269,90 @@ export async function getProposedTestsResults(jobId: string): Promise<ProposedTe
     "Failed to fetch proposed test results"
   );
 }
+
+export interface AppReadinessResponse {
+  job_id: string;
+  base_url: string;
+  ready: boolean;
+  port: number;
+  http_status?: number | null;
+  health_endpoint?: string | null;
+  error?: string | null;
+  elapsed_seconds?: number;
+  build_status?: string;
+  build_success?: boolean | null;
+  app_startup_status?: string;
+  app_readiness_status_stored?: string;
+  app_pid?: number | null;
+}
+
+export async function getAppReadiness(jobId: string): Promise<AppReadinessResponse> {
+  return requestJson<AppReadinessResponse>(
+    `/v1/migration/${encodeURIComponent(jobId)}/proposed-tests/app-readiness`,
+    "Failed to check app readiness"
+  );
+}
+
+export interface TestComparisonItem {
+  id: string;
+  title: string;
+  type: ProposedTestType;
+  source: string;
+  baseline_status: ProposedTestStatus;
+  target_status: ProposedTestStatus;
+  match: boolean;
+  is_regression: boolean;
+  is_improvement: boolean;
+  baseline_duration: string;
+  target_duration: string;
+}
+
+export interface ProposedTestComparisonResponse {
+  job_id: string;
+  baseline_available: boolean;
+  target_available: boolean;
+  baseline_metrics: ProposedTestMetrics;
+  target_metrics: ProposedTestMetrics;
+  parity_percentage: string;
+  regressions_count: number;
+  improvements_count: number;
+  preserved_passed_count: number;
+  source_status: {
+    build_success?: boolean;
+    startup_status?: string;
+    readiness_status?: string;
+    base_url?: string | null;
+    error?: string | null;
+  };
+  target_status: {
+    app_ready?: boolean;
+    error?: string | null;
+  };
+  test_comparisons: TestComparisonItem[];
+}
+
+export async function getProposedTestBaseline(jobId: string): Promise<ProposedTestResultsResponse> {
+  return requestJson<ProposedTestResultsResponse>(
+    `/v1/migration/${encodeURIComponent(jobId)}/proposed-tests/baseline`,
+    "Failed to fetch baseline proposed test results"
+  );
+}
+
+export async function runProposedTestBaseline(
+  jobId: string,
+  buildTool = "MAVEN"
+): Promise<ProposedTestResultsResponse> {
+  return requestJson<ProposedTestResultsResponse>(
+    `/v1/migration/${encodeURIComponent(jobId)}/proposed-tests/baseline/run?build_tool=${encodeURIComponent(buildTool)}`,
+    "Failed to run baseline proposed tests",
+    { method: "POST" }
+  );
+}
+
+export async function getProposedTestComparison(jobId: string): Promise<ProposedTestComparisonResponse> {
+  return requestJson<ProposedTestComparisonResponse>(
+    `/v1/migration/${encodeURIComponent(jobId)}/proposed-tests/comparison`,
+    "Failed to fetch proposed test comparison"
+  );
+}
+
