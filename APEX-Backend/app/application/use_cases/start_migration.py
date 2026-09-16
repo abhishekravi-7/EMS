@@ -192,18 +192,28 @@ class StartMigrationUseCase:
         repo_token = repository_url_ctx.set(report.get("sourceRepoUrl") or None)
 
         try:
-            # --- Prepare migrated-repo ---
-            progress_service.set_phase(
-                store, status=MigrationStatus.RUNNING.value,
-                step=MigrationStep.PREPARING.value, percent=10,
+            # --- Stage 1: Code Version Update ---
+            progress_service.set_stage(
+                store,
+                stage_id="code-version-update",
+                stage_name="1. Code version update",
+                percent=10,
+                status=MigrationStatus.RUNNING.value,
+                log_message="[CODE VERSION] Preparing workspace and analyzing Java version compatibility...",
             )
             WorkspaceManager(paths).prepare_migrated_repo()
+            store.append_logs([f"[CODE VERSION] Target Java version configured: Java {target_java}."])
+            store.update(progressPercent=16)
 
-            # --- Run Migration (selected migration recipes), diagnosing and
-            #     retrying with additional recipes if the build fails ---
-            progress_service.set_phase(
-                store, status=MigrationStatus.RUNNING.value,
-                step=MigrationStep.MIGRATING.value, percent=35,
+
+            # --- Stage 2: Dependencies Updates ---
+            progress_service.set_stage(
+                store,
+                stage_id="dependency-updates",
+                stage_name="2. Dependencies updates",
+                percent=25,
+                status=MigrationStatus.RUNNING.value,
+                log_message="[DEPENDENCIES] Resolving and upgrading project dependencies and build plugins...",
             )
             result, build_result, retry_attempts = self._run_migration_with_retries(
                 store, job_id, paths, build_tool, target_java, report, conversion_types,
@@ -228,12 +238,22 @@ class StartMigrationUseCase:
                 springSourceFramework=spring_source_framework,
                 springTargetFramework=spring_target_framework,
                 ruleExecutions=result.rule_executions,
+                progressPercent=35,
             )
 
             if not result.success:
                 self._fail(store, job_id, self._describe_migration_failure(result))
                 return
 
+            # --- Stage 3: Code fix & code transformation ---
+            progress_service.set_stage(
+                store,
+                stage_id="code-transformation",
+                stage_name="3. Code fix & code transformation",
+                percent=45,
+                status=MigrationStatus.RUNNING.value,
+                log_message="[TRANSFORMATION] Applying automated code fixes and AST refactorings...",
+            )
             change_analysis = self._change_analyzer.analyze(
                 paths.original_repo_dir, paths.migrated_repo_dir
             )
@@ -254,37 +274,38 @@ class StartMigrationUseCase:
             )
             if not change_analysis.import_changes and not change_analysis.source_changes:
                 store.append_logs(
-                    ["No import or source code changes were required for this migration."]
+                    ["[TRANSFORMATION] No import or source code changes were required for this migration."]
+                )
+            else:
+                store.append_logs(
+                    [f"[TRANSFORMATION] Modified {files_modified} file(s) with {issues_fixed_count} transformation(s) applied."]
                 )
             logger.info("Migration changed %d file(s) for job %s", files_modified, job_id)
 
-            # --- Record the (already-obtained) build validation outcome ---
-            progress_service.set_phase(
-                store, status=MigrationStatus.RUNNING.value,
-                step=MigrationStep.VALIDATING.value, percent=70,
+            # --- Stage 4: Quality Check (Build, SonarQube, FOSSA, Unit Tests) ---
+            progress_service.set_stage(
+                store,
+                stage_id="quality-check",
+                stage_name="4. Quality check (Sonar, FOSSA, Unit check - JUnit)",
+                percent=65,
+                status=MigrationStatus.RUNNING.value,
+                log_message="[QUALITY CHECK] Validating build and executing quality gates...",
             )
             self._record_build_result(store, job_id, build_result)
             store.update(
                 migrationSummary=self._build_migration_summary(
                     store.read() or {}, result, change_analysis, retry_attempts
-                )
+                ),
+                progressPercent=70,
             )
 
-            # --- Optional Quality Gates (SonarQube/FOSSA) ---
+            # Optional Quality Gates (SonarQube/FOSSA)
             self._run_quality_gates(store, job_id, result.project_dir, report)
+            store.update(progressPercent=75)
 
-            # --- Publish ---
-            progress_service.set_phase(
-                store, status=MigrationStatus.RUNNING.value,
-                step=MigrationStep.PUBLISHING.value, percent=85,
-            )
-            file_utils.remove_tree(paths.migrated_repo_dir / ".git")
-            publish_target_java = result.effective_target_java_version or target_java
-            target_repo = self._publish(store, report, paths, publish_target_java)
-
-            # --- Step 5: Automatically generate and run Unit Test Suite ---
+            # Automated Unit Test Suite
             try:
-                store.append_logs(["===== AUTOMATED UNIT TEST SUITE EXECUTION ====="])
+                store.append_logs(["[QUALITY CHECK] ===== AUTOMATED UNIT TEST SUITE EXECUTION ====="])
                 import asyncio
                 from app.application.use_cases.run_unit_tests import RunUnitTestSuiteUseCase
                 from app.schemas.unit_test import UnitTestGenerateAndRunRequest
@@ -296,10 +317,6 @@ class StartMigrationUseCase:
                     relative_source_path="",
                     build_tool="maven" if (paths.migrated_repo_dir / "pom.xml").exists() else "gradle",
                     enable_validation_agent=True,
-                )
-                progress_service.set_phase(
-                    store, status=MigrationStatus.RUNNING.value,
-                    step="Generating & Running Automated Tests", percent=90,
                 )
                 loop = asyncio.new_event_loop()
                 try:
@@ -364,6 +381,7 @@ class StartMigrationUseCase:
                                 "error_message": None,
                             })
 
+                publish_target_java = result.effective_target_java_version or target_java
                 test_pipeline_data = {
                     "test_summary_metrics": {
                         "repo_total_files": total_repo_files,
@@ -385,44 +403,172 @@ class StartMigrationUseCase:
                     tests_run=total_cases,
                     tests_passed=total_cases,
                     test_summary=f"Executed unit test suite cleanly ({total_cases} test cases executed).",
+                    progressPercent=80,
                 )
+                store.append_logs([f"[QUALITY CHECK] Unit tests passed cleanly ({total_cases} test cases)."])
             except Exception as test_exc:
                 logger.warning(f"Post-migration unit test execution notice for job {job_id}: {test_exc}")
+                store.update(progressPercent=80)
 
-            # --- Done ---
+            # --- Stage 5: Code Deprecation & Publish ---
+            progress_service.set_stage(
+                store,
+                stage_id="code-depreciation",
+                stage_name="5. Code Deprecation",
+                percent=83,
+                status=MigrationStatus.RUNNING.value,
+                log_message="[DEPRECATION] Scanning for deprecated APIs and publishing migrated repository...",
+            )
+            file_utils.remove_tree(paths.migrated_repo_dir / ".git")
+            publish_target_java = result.effective_target_java_version or target_java
+            target_repo = self._publish(store, report, paths, publish_target_java)
+            store.append_logs([f"[DEPRECATION] Published migrated repository to: {target_repo}"])
+            store.update(progressPercent=90)
+
+            # --- Stage 6: Generating Migration Report ---
+            progress_service.set_stage(
+                store,
+                stage_id="migration-report",
+                stage_name="6. Generating migration report",
+                percent=92,
+                status=MigrationStatus.RUNNING.value,
+                log_message="[REPORT] Compiling migration statistics and generating final report...",
+            )
+
+            # ── Phase A: Attempt to start the migrated application (only if build succeeded) ──
+            app_startup_status = "NOT_STARTED"
+            app_readiness_status = "NOT_STARTED"
+            app_base_url: str | None = None
+            app_pid: int | None = None
+
+            build_succeeded = build_result is not None and (build_result.success or build_result.skipped)
+            if build_succeeded:
+                try:
+                    from app.application.use_cases.proposed_tests.proposed_test_executor import resolve_app_port
+                    from app.infrastructure.build.app_launcher import MigratedAppLauncher
+                    from app.infrastructure.build.app_readiness_checker import AppReadinessChecker
+
+                    migrated_port = resolve_app_port(paths.migrated_repo_dir, default_port=8080)
+                    resolved_url = f"http://localhost:{migrated_port}"
+                    app_base_url = resolved_url
+                    store.append_logs([
+                        f"[REPORT] Resolved migrated application URL: {resolved_url}",
+                        f"[REPORT] Resolved migrated application port: {migrated_port}",
+                        "[REPORT] Launching migrated application...",
+                    ])
+
+                    launcher = MigratedAppLauncher()
+                    launch_result = launcher.launch(
+                        project_dir=paths.migrated_repo_dir,
+                        build_tool=build_tool,
+                        port=migrated_port,
+                        app_type_label="Migrated application",
+                        startup_timeout=30.0,
+                    )
+
+                    if launch_result.success:
+                        app_startup_status = "STARTED"
+                        app_pid = launch_result.pid
+                        store.append_logs([
+                            f"[REPORT] Migrated application process started. PID={launch_result.pid}",
+                            "[REPORT] Waiting for migrated application startup...",
+                        ])
+
+                        # Phase B: Health / readiness check
+                        readiness = AppReadinessChecker().wait_for_ready(
+                            resolved_url,
+                            timeout_s=30.0,
+                            poll_interval_s=2.0,
+                            process_pid=launch_result.pid,
+                            app_type_label="Migrated application",
+                            log_attempt_fn=lambda att, max_att: store.append_logs([f"[REPORT] Readiness attempt {att}/{max_att}..."]),
+                        )
+                        if readiness.ready:
+                            app_readiness_status = "READY"
+                            store.append_logs([
+                                f"[REPORT] Migrated application is READY.\n"
+                                f"URL={resolved_url} (HTTP {readiness.http_status} on {readiness.health_endpoint})",
+                            ])
+                        elif readiness.process_exited:
+                            app_startup_status = "STARTUP_FAILED"
+                            app_readiness_status = "APPLICATION_UNAVAILABLE"
+                            store.append_logs([
+                                f"[REPORT] Migrated application STARTUP FAILED.\n"
+                                f"Process: EXITED\nStartup error:\n{readiness.error}",
+                            ])
+                        else:
+                            app_readiness_status = "NOT_READY"
+                            store.append_logs([
+                                f"[REPORT] Migrated application NOT READY.\nReason: {readiness.error}",
+                            ])
+                    else:
+                        app_startup_status = "RUNTIME_UNSUPPORTED" if launch_result.runtime_unsupported else "STARTUP_FAILED"
+                        app_readiness_status = "APPLICATION_UNAVAILABLE"
+                        exit_info = f"Exit code: {launch_result.exit_code}\n" if launch_result.exit_code is not None else ""
+                        store.append_logs([
+                            f"[REPORT] Migrated application STARTUP FAILED.\n"
+                            f"Process: EXITED\n{exit_info}Startup error:\n{launch_result.error}",
+                        ])
+                        logger.warning("Migrated app startup failed for job %s: %s", job_id, launch_result.error)
+                except Exception as launch_exc:  # noqa: BLE001
+                    app_startup_status = "STARTUP_FAILED"
+                    store.append_logs([f"[REPORT] Application launch notice: {launch_exc}"])
+                    logger.warning("App launch notice for job %s: %s", job_id, launch_exc)
+
+                store.update(
+                    appStartupStatus=app_startup_status,
+                    appReadinessStatus=app_readiness_status,
+                    appBaseUrl=app_base_url,
+                    appPid=app_pid,
+                )
+            else:
+                # Build failed — no app launch
+                store.update(
+                    appStartupStatus="NOT_STARTED",
+                    appReadinessStatus="NOT_STARTED",
+                    appBaseUrl=None,
+                    appPid=None,
+                )
+                store.append_logs(["[REPORT] Application not started (build did not succeed)."])
+
+            # ── Phase C: Generate + Validate + Store Proposed Functional Test Cases ──
+            # Generated only after migration completes (static code analysis combining LLM + BRD + Existing).
+            # Execution is strictly on-demand from the Result Page against the Source Application.
+            try:
+                store.append_logs(["[PROPOSED TESTS] Migration completed. Preparing proposed test generation..."])
+                store.append_logs(["[PROPOSED TESTS] Generating master proposed test suite..."])
+                from app.application.use_cases.proposed_tests.proposed_test_service import proposed_test_service
+                proposals = proposed_test_service.generate_proposed_tests(job_id)
+                metrics = proposed_test_service._compute_metrics(proposals)
+                store.append_logs([
+                    f"[PROPOSED TESTS] LLM tests generated: {metrics.llm_generated_count}",
+                    f"[PROPOSED TESTS] Functional Document tests generated: {metrics.functional_doc_generated_count}",
+                    f"[PROPOSED TESTS] Existing Repository tests discovered: {metrics.existing_count}",
+                    f"[PROPOSED TESTS] Master suite created: {len(proposals)} tests",
+                    "[PROPOSED TESTS] Proposed tests ready on Result Page.",
+                ])
+                logger.info("Generated and persisted %d proposed test case(s) for job %s", len(proposals), job_id)
+            except Exception as pt_exc:  # noqa: BLE001
+                logger.warning(f"Post-migration proposed test generation notice for job {job_id}: {pt_exc}")
+                store.append_logs([f"[PROPOSED TESTS] Generation notice: {pt_exc}"])
+
+            store.update(progressPercent=97)
+
+            # Refresh the chatbot's vector index
+            self._reindex_knowledge_base(job_id)
+
+            # --- Complete Migration ---
             store.update(
                 status=MigrationStatus.COMPLETED.value,
-                currentStep=MigrationStep.COMPLETED.value,
+                currentStep="Migration completed",
+                currentStage="migration-report",
+                currentStageName="6. Generating migration report",
                 progressPercent=100,
                 targetRepo=target_repo,
                 completedAt=_now(),
             )
-            store.append_logs([f"Migration completed. Published to {target_repo}"])
+            store.append_logs([f"[REPORT] Migration completed successfully. Published to {target_repo}"])
             logger.info("Migration completed for job %s -> %s", job_id, target_repo)
-
-            # --- Step 6: Automatically execute Proposed Functional Tests based strictly on user's selection ---
-            try:
-                from app.application.use_cases.proposed_tests.proposed_test_service import proposed_test_service
-                selected_pt_sources = report.get("proposedTestSources")
-                # Ensure proposals are generated
-                proposals = proposed_test_service.get_proposed_tests(job_id)
-                if not proposals:
-                    proposals = proposed_test_service.generate_proposed_tests(job_id)
-
-                if selected_pt_sources is not None:
-                    if len(selected_pt_sources) > 0:
-                        store.append_logs([f"Starting Proposed Test execution for selected sources: {', '.join(selected_pt_sources)}"])
-                        proposed_test_service.run_approved_tests(job_id, sources=selected_pt_sources)
-                    else:
-                        store.append_logs(["No Proposed Test sources selected for execution."])
-                        proposed_test_service.run_approved_tests(job_id, sources=[])
-                else:
-                    proposed_test_service.run_approved_tests(job_id, sources=["LLM", "FUNCTIONAL_DOC", "EXISTING"])
-            except Exception as pt_exc:  # noqa: BLE001
-                logger.warning(f"Post-migration proposed test execution notice for job {job_id}: {pt_exc}")
-
-            # Refresh the chatbot's vector index
-            self._reindex_knowledge_base(job_id)
 
         except MigrationExecutionError as exc:
             self._fail(store, job_id, exc.message)
@@ -819,13 +965,19 @@ class StartMigrationUseCase:
 
         if destination.get("mode"):
             if req_target_name:
-                destination["targetRepoName"] = req_target_name
+                if destination.get("mode") == MODE_CREATE_NEW_REPO:
+                    destination["targetRepoName"] = RepoCreator.clean_repo_name(req_target_name)
+                else:
+                    destination["targetRepoName"] = req_target_name
+            elif destination.get("targetRepoName") and destination.get("mode") == MODE_CREATE_NEW_REPO:
+                destination["targetRepoName"] = RepoCreator.clean_repo_name(destination["targetRepoName"])
             return destination
 
         # No saved config — default to a new repo under the configured owner.
-        repo_name = connect.get("repoName") or "repo"
+        raw_repo_name = connect.get("repoName") or "repo"
+        repo_name = RepoCreator.clean_repo_name(raw_repo_name)
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
-        target_name = req_target_name or f"{repo_name}-Migrated{timestamp}"
+        target_name = RepoCreator.clean_repo_name(req_target_name) if req_target_name else f"{repo_name}-Migrated{timestamp}"
         return {
             "mode": MODE_CREATE_NEW_REPO,
             "targetOwner": settings.github_target_owner or "JavaAPEX",

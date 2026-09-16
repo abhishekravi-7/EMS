@@ -23,55 +23,55 @@ from app.domain.models.proposed_test_models import (
 logger = logging.getLogger(__name__)
 
 
+def resolve_app_port(repo_dir: Path | None = None, default_port: int = 8080) -> int:
+    """
+    Extracts configured server.port from application.properties, application.yml, or application.yaml.
+    Defaults to 8080 if not configured.
+    """
+    if not repo_dir or not Path(repo_dir).exists():
+        return default_port
+
+    port = default_port
+    # Scan application.properties / bootstrap.properties
+    for prop_file in Path(repo_dir).rglob("*.properties"):
+        if any(k in prop_file.name.lower() for k in ["application", "bootstrap", "config"]):
+            try:
+                content = prop_file.read_text(encoding="utf-8", errors="ignore")
+                match = re.search(r"^\s*server\.port\s*=\s*(\d+)", content, re.MULTILINE)
+                if match:
+                    return int(match.group(1))
+            except Exception:  # noqa: BLE001
+                pass
+
+    # Scan application.yml / application.yaml / bootstrap.yml
+    for yml_file in list(Path(repo_dir).rglob("*.yml")) + list(Path(repo_dir).rglob("*.yaml")):
+        if any(k in yml_file.name.lower() for k in ["application", "bootstrap", "config"]):
+            try:
+                content = yml_file.read_text(encoding="utf-8", errors="ignore")
+                match = re.search(r"(?:server\s*:\s*\n\s*)?port\s*:\s*(\d+)", content)
+                if match:
+                    return int(match.group(1))
+            except Exception:  # noqa: BLE001
+                pass
+
+    return port
+
+
 def resolve_migrated_app_url(repo_dir: Path | None = None) -> str:
     """
-    Resolves the target base URL for the migrated application.
+    Resolves the target base URL for the migrated or source application.
     Checks environment variable MIGRATED_APP_BASE_URL,
-    scans application.properties, application.yml, application.yaml, bootstrap.yml,
-    and config files in the migrated repository.
+    scans application.properties, application.yml, application.yaml in the repository.
     """
     env_url = os.environ.get("MIGRATED_APP_BASE_URL")
     if env_url:
         return env_url.rstrip("/")
 
-    port = 8080
-    if repo_dir and Path(repo_dir).exists():
-        # Scan application.properties / bootstrap.properties
-        for prop_file in Path(repo_dir).rglob("*.properties"):
-            if "application" in prop_file.name.lower() or "bootstrap" in prop_file.name.lower() or "config" in prop_file.name.lower():
-                try:
-                    content = prop_file.read_text(encoding="utf-8", errors="ignore")
-                    match = re.search(r"server\.port\s*=\s*(\d+)", content)
-                    if match:
-                        port = int(match.group(1))
-                        break
-                except Exception:  # noqa: BLE001
-                    pass
-
-        # Scan application.yml / application.yaml / bootstrap.yml
-        for yml_file in Path(repo_dir).rglob("*.yml"):
-            if "application" in yml_file.name.lower() or "bootstrap" in yml_file.name.lower():
-                try:
-                    content = yml_file.read_text(encoding="utf-8", errors="ignore")
-                    match = re.search(r"(?:server\s*:\s*\n\s*)?port\s*:\s*(\d+)", content)
-                    if match:
-                        port = int(match.group(1))
-                        break
-                except Exception:  # noqa: BLE001
-                    pass
-
-        for yaml_file in Path(repo_dir).rglob("*.yaml"):
-            if "application" in yaml_file.name.lower() or "bootstrap" in yaml_file.name.lower():
-                try:
-                    content = yaml_file.read_text(encoding="utf-8", errors="ignore")
-                    match = re.search(r"(?:server\s*:\s*\n\s*)?port\s*:\s*(\d+)", content)
-                    if match:
-                        port = int(match.group(1))
-                        break
-                except Exception:  # noqa: BLE001
-                    pass
-
+    port = resolve_app_port(repo_dir, default_port=8080)
     return f"http://localhost:{port}"
+
+
+resolve_app_url = resolve_migrated_app_url
 
 
 class ProposedTestExecutor:
@@ -94,16 +94,16 @@ class ProposedTestExecutor:
         logger.info(f"[{self.job_id}] [{level}] {msg}")
 
     def execute_test(self, test: ProposedTestCase, repo_dir: Path | None = None) -> ExecutionResult:
-        """Executes a single proposed functional test case against the migrated application."""
+        """Executes a single proposed functional test case against the target application."""
         start_time = time.time()
         now_str = datetime.now(timezone.utc).isoformat()
         test_dir = self.evidence_dir / test.id
         test_dir.mkdir(parents=True, exist_ok=True)
 
-        if repo_dir and (not self.base_url or "8080" in self.base_url):
-            self.base_url = resolve_migrated_app_url(repo_dir)
+        if not self.base_url and repo_dir:
+            self.base_url = resolve_app_url(repo_dir)
 
-        self.log_fn(f"[PROPOSED TESTS] Executing {test.id}: {test.title} ({test.type.value}) against migrated application at {self.base_url}")
+        self.log_fn(f"[BASELINE] Executing {test.id}: {test.title} ({test.type.value}) against application at {self.base_url}")
 
         try:
             if test.type == ProposedTestType.API:
@@ -118,7 +118,7 @@ class ProposedTestExecutor:
             res.executed_at = now_str
 
             status_label = "PASSED" if res.status == ProposedTestStatus.PASSED else "FAILED"
-            self.log_fn(f"[PROPOSED TESTS] {test.id} finished with status: {status_label} in {res.duration}")
+            self.log_fn(f"[BASELINE] {test.id} finished with status: {status_label} in {res.duration}")
             return res
 
         except Exception as e:  # noqa: BLE001

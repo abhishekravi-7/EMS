@@ -271,6 +271,7 @@ class RunDiscoveryUseCase:
             "repoUrl": repo_url,
             "owner": owner,
             "repoName": repo_name,
+            "discoveryStages": RunDiscoveryUseCase._build_stages(analysis, eligibility),
             "buildTool": analysis.build_tool,
             "currentJavaVersion": analysis.current_java_version,
             "springBootVersion": analysis.spring_boot_version,
