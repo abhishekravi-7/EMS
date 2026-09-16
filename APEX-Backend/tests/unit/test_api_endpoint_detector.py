@@ -9,8 +9,8 @@ def detector():
 
 def test_detect_no_jar(detector):
     with patch.object(Path, "exists", return_value=False):
-        results = detector.detect(Path("/tmp/fake-repo"))
-        assert results == []
+        with pytest.raises(RuntimeError, match="Migration engine JAR not found"):
+            detector.detect(Path("/tmp/fake-repo"))
 
 @patch("subprocess.run")
 def test_detect_success(mock_run, detector):
