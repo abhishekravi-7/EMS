@@ -53,6 +53,7 @@ class ChatLLM:
         system_prompt: str,
         user_prompt: str,
         endpoint: str | None = None,
+        max_tokens: int | None = None,
     ) -> AsyncIterator[str]:
         # Use Groq as primary when configured; Ollama as fallback.
         providers = []
@@ -76,7 +77,7 @@ class ChatLLM:
             try:
                 # If this is the primary provider and we have a fallback, enforce a fast timeout
                 # for the FIRST chunk. If it's slow to start, we fallback to the next provider.
-                gen = provider.stream_chat(system_prompt, user_prompt)
+                gen = provider.stream_chat(system_prompt, user_prompt, max_tokens=max_tokens)
 
                 if i < len(providers) - 1:
                     try:

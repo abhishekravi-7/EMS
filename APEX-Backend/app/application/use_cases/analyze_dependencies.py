@@ -236,7 +236,7 @@ class AnalyzeDependenciesUseCase:
 
                 try:
                     logger.info("[DependencyAnalysis] Attempting Hugging Face (primary)")
-                    raw_json = await self._llm.chat_json(DEPENDENCY_ANALYSIS_SYSTEM_PROMPT, user_prompt)
+                    raw_json = await self._llm.chat_json(DEPENDENCY_ANALYSIS_SYSTEM_PROMPT, user_prompt, max_tokens=3000)
                     providers_used.add("huggingface")
                 except Exception as exc:  # noqa: BLE001
                     logger.warning(
@@ -248,6 +248,7 @@ class AnalyzeDependenciesUseCase:
                         system_prompt=DEPENDENCY_ANALYSIS_SYSTEM_PROMPT,
                         user_prompt=user_prompt,
                         endpoint="dependency_analysis_fallback",
+                        max_tokens=3000,
                     ):
                         response_text += chunk
                     raw_json = self._extract_json(response_text)
