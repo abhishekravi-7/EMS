@@ -47,6 +47,60 @@ async def get_proposed_tests_status_endpoint(
     return JSONResponse(content=res)
 
 
+@router.get("/{job_id}/proposed-tests/app-readiness")
+async def get_app_readiness_endpoint(
+    job_id: str,
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
+):
+    """Checks whether the migrated application is reachable and returns readiness status.
+
+    The Report Page calls this before triggering Playwright execution so that
+    infrastructure failures (ECONNREFUSED) are clearly separated from functional failures.
+    """
+    await verify_job_ownership(db, job_id, current_user)
+    try:
+        from app.application.services.status_service import MigrationReportStore
+        from app.application.use_cases.proposed_tests.proposed_test_executor import resolve_migrated_app_url
+        from app.infrastructure.build.app_readiness_checker import AppReadinessChecker
+        from app.infrastructure.workspace.workspace_paths import WorkspacePaths as WP
+
+        paths = WP(job_id)
+        # Resolve URL from application config files in migrated repo
+        repo_dir = paths.migrated_repo_dir if paths.migrated_repo_dir.exists() else paths.original_repo_dir
+        base_url = resolve_migrated_app_url(repo_dir)
+
+        # Read persisted build/startup status from migration report
+        migration_report = MigrationReportStore(paths).read() or {}
+        build_status = migration_report.get("buildStatus", "UNKNOWN")
+        build_success = migration_report.get("buildSuccess", None)
+        app_startup_status = migration_report.get("appStartupStatus", "UNKNOWN")
+        app_readiness_status_stored = migration_report.get("appReadinessStatus", "UNKNOWN")
+        app_pid = migration_report.get("appPid")
+
+        # Perform live readiness check
+        readiness = AppReadinessChecker().check(base_url, timeout_s=5.0)
+
+        return JSONResponse(content={
+            "job_id": job_id,
+            "base_url": base_url,
+            "ready": readiness.ready,
+            "port": readiness.port,
+            "http_status": readiness.http_status,
+            "health_endpoint": readiness.health_endpoint,
+            "error": readiness.error,
+            "elapsed_seconds": readiness.elapsed_seconds,
+            # Persisted from migration pipeline
+            "build_status": build_status,
+            "build_success": build_success,
+            "app_startup_status": app_startup_status,
+            "app_readiness_status_stored": app_readiness_status_stored,
+            "app_pid": app_pid,
+        })
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse(status_code=500, content={"error": str(e), "ready": False})
+
+
 @router.get("/{job_id}/proposed-tests/results")
 async def get_proposed_tests_results_endpoint(
     job_id: str,
@@ -57,6 +111,60 @@ async def get_proposed_tests_results_endpoint(
     await verify_job_ownership(db, job_id, current_user)
     res = proposed_test_service.get_results(job_id)
     return JSONResponse(content=res)
+
+
+@router.get("/{job_id}/proposed-tests/baseline")
+async def get_proposed_tests_baseline_endpoint(
+    job_id: str,
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
+):
+    """Returns pre-migration source repository baseline execution results and metrics."""
+    await verify_job_ownership(db, job_id, current_user)
+    res = proposed_test_service.get_baseline_results(job_id)
+    if not res:
+        # Fallback to computing from proposals
+        proposals = proposed_test_service.get_proposed_tests(job_id)
+        metrics = proposed_test_service._compute_metrics_for_baseline(proposals)
+        res = {
+            "job_id": job_id,
+            "status": "COMPLETED" if any(p.baseline_execution_result is not None for p in proposals) else "NOT_RUN",
+            "metrics": metrics.model_dump(),
+            "test_cases": [p.model_dump() for p in proposals],
+        }
+    return JSONResponse(content=res)
+
+
+@router.post("/{job_id}/proposed-tests/baseline/run")
+async def run_proposed_tests_baseline_endpoint(
+    job_id: str,
+    build_tool: str = "MAVEN",
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
+):
+    """Executes pre-migration baseline build, startup, and test execution against source repository."""
+    await verify_job_ownership(db, job_id, current_user)
+    try:
+        res = await asyncio.to_thread(proposed_test_service.run_source_baseline, job_id, build_tool=build_tool)
+        return JSONResponse(content=res)
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse(status_code=500, content={"error": str(e), "status": "FAILED"})
+
+
+@router.get("/{job_id}/proposed-tests/comparison")
+async def get_proposed_tests_comparison_endpoint(
+    job_id: str,
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
+):
+    """Returns side-by-side comparison between pre-migration baseline and target migrated results."""
+    await verify_job_ownership(db, job_id, current_user)
+    try:
+        comparison = proposed_test_service.get_comparison(job_id)
+        return JSONResponse(content=comparison.model_dump())
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
 
 
 @router.get("/{job_id}/proposed-tests/validation")

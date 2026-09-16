@@ -68,6 +68,7 @@ async def explain_risk(
     db: Session | None = Depends(get_db_optional),  # noqa: B008
 ) -> JSONResponse:
     result = await _explain_risk_use_case.execute(payload, db=db, current_user=current_user)
+    return JSONResponse(status_code=200, content=result.model_dump())
 
 
 @router.post(

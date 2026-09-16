@@ -63,7 +63,7 @@ class GroqClient:
     def is_configured(self) -> bool:
         return bool(self._api_key)
 
-    async def stream_chat(self, system_prompt: str, user_prompt: str) -> AsyncIterator[str]:
+    async def stream_chat(self, system_prompt: str, user_prompt: str, max_tokens: int | None = None) -> AsyncIterator[str]:
         """Yield answer text deltas from Groq. Raises on config/transport errors."""
         if not self._api_key:
             raise ChatLLMNotConfiguredError()
@@ -79,6 +79,8 @@ class GroqClient:
             "stream": True,
             "stream_options": {"include_usage": True},
         }
+        if max_tokens:
+            payload["max_tokens"] = max_tokens
         headers = {
             "Authorization": f"Bearer {self._api_key}",
             "Content-Type": "application/json",
@@ -105,6 +107,8 @@ class GroqClient:
                             )
                             # 429 = rate limit → retry with backoff
                             if response.status_code == 429 and attempt < max_retries - 1:
+                                if "tokens per minute" in body_preview.lower():
+                                    raise GroqPermanentError(f"Groq token rate limit reached: {body_preview[:120]}")
                                 retry_after = int(response.headers.get("Retry-After", 2 ** attempt))
                                 logger.warning(
                                     "[GROQ] Rate limited (429). Retrying in %ss (attempt %s/%s)",

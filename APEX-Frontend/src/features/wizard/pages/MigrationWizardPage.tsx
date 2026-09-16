@@ -6,11 +6,9 @@ import {
   FaProjectDiagram,
   FaRocket,
   FaChartBar,
-  FaChevronLeft,
-  FaChevronRight,
   FaCheck,
 } from "react-icons/fa";
-import apexLogo from "../../../assets/logo.jpg";
+import { useSidebar } from "@/shared/context/SidebarContext";
 import { wizardStyles as styles } from "@/shared/components/wizard/wizardStyles";
 import { useWizardController } from "../hooks/useWizardController";
 import { useChatbot } from "@/shared/context/ChatbotContext";
@@ -30,11 +28,11 @@ import { ResultReportView } from "@/features/result/components/ResultReportView"
 import "./MigrationWizardPage.css";
 
 const WIZARD_SIDEBAR_STEPS = [
-  { id: 1, number: 1, title: "Connect", subtitle: "Repository", icon: FaLink },
-  { id: 2, number: 2, title: "Discovery", subtitle: "Dependencies", icon: FaSearch },
-  { id: 3, number: 3, title: "Strategy", subtitle: "Migration Plan", icon: FaProjectDiagram },
-  { id: 4, number: 4, title: "Migration", subtitle: "Modernization", icon: FaRocket },
-  { id: 5, number: 5, title: "Results", subtitle: "Validation", icon: FaChartBar },
+   { id: 1, number: 1, title: "Connect", subtitle: "", icon: FaLink },
+    { id: 2, number: 2, title: "Discovery", subtitle: "", icon: FaSearch },
+    { id: 3, number: 3, title: "Strategy", subtitle: "", icon: FaProjectDiagram },
+    { id: 4, number: 4, title: "Migration", subtitle: "", icon: FaRocket },
+    { id: 5, number: 5, title: "Results", subtitle: "", icon: FaChartBar },
 ];
 
 export default function MigrationWizardPage() {
@@ -174,7 +172,7 @@ export default function MigrationWizardPage() {
     const nextProjectContext: ProjectContext = {
       projectName:
         selectedRepo?.name ||
-        (repoUrl ? repoUrl.split("/").pop()?.replace(/\.git$/i, "") : null) ||
+        (repoUrl ? (repoUrl || "").split("/").pop()?.replace(/\.git$/i, "") : null) ||
         "essl",
       currentJavaVersion:
         selectedSourceVersion ||
@@ -284,7 +282,7 @@ export default function MigrationWizardPage() {
       project: {
         name:
           selectedRepo?.name ||
-          (repoUrl ? repoUrl.split("/").pop()?.replace(/\.git$/i, "") : null) ||
+          (repoUrl ? (repoUrl || "").split("/").pop()?.replace(/\.git$/i, "") : null) ||
           "essl",
         repository: repoUrl || selectedRepo?.clone_url || "https://github.com/example/repo",
         currentJavaVersion: currentJava,
@@ -362,29 +360,18 @@ export default function MigrationWizardPage() {
   }, [step]);
 
   const activeSidebarStepId = step === 7 ? 5 : step >= 4 ? 4 : step;
-  const [isSidebarExpanded, setIsSidebarExpanded] = React.useState(true);
-
+  const { isSidebarExpanded } = useSidebar();
   const projectName =
     selectedRepo?.name?.toUpperCase() ||
-    (repoUrl ? repoUrl.split("/").pop()?.replace(/\.git$/i, "").toUpperCase() : "") ||
+    (repoUrl ? (repoUrl || "").split("/").pop()?.replace(/\.git$/i, "").toUpperCase() : "") ||
     "ESSL";
 
   return (
     <div className="wizard-dashboard-layout">
       {/* Left Sidebar Step Navigation */}
       <aside className={`wizard-sidebar ${isSidebarExpanded ? "is-expanded" : ""}`}>
-        <div className="wizard-sidebar-header">
-          <button
-            type="button"
-            className="wizard-sidebar-toggle-btn"
-            onClick={() => setIsSidebarExpanded((prev) => !prev)}
-            title={isSidebarExpanded ? "Collapse sidebar" : "Expand sidebar"}
-            aria-label={isSidebarExpanded ? "Collapse sidebar" : "Expand sidebar"}
-          >
-            {isSidebarExpanded ? <FaChevronLeft size={11} color="#1e293b" /> : <FaChevronRight size={11} color="#1e293b" />}
-          </button>
-        </div>
-
+        {/* Sidebar header spacer — logo lives in the top app header */}
+               <div className="wizard-sidebar-header" aria-hidden="true" />
         <div className="wizard-steps-list">
           {WIZARD_SIDEBAR_STEPS.map((s, index) => {
             const isCurrent = activeSidebarStepId === s.id;
@@ -401,12 +388,7 @@ export default function MigrationWizardPage() {
                   className={`wizard-step-item ${isCurrent ? "is-active" : ""} ${isCompleted && !isCurrent ? "is-completed" : ""} ${isAvailable ? "is-available" : ""} ${isLocked ? "is-locked" : ""}`}
                   onClick={() => {
                     if (canClick) {
-                      if (s.id === 5) {
-                        setIsMigrationFinishedState(true);
-                        setStep(7);
-                      } else {
-                        setStep(s.id);
-                      }
+                     setStep(s.id === 5 ? 7 : s.id);
                     }
                   }}
                   style={{
@@ -633,7 +615,10 @@ export default function MigrationWizardPage() {
                 setError("");
                 resetWizard();
               }}
-              onViewReport={() => setStep(7)}
+              onViewReport={() => {
+                setIsMigrationFinishedState(true);
+                setStep(7);
+              }}
             />
           </ResultPage>
         )}

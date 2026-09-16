@@ -6,13 +6,18 @@ import {
   FaTerminal,
   FaTimes,
   FaExternalLinkAlt,
+  FaCopy,
+  FaCheck,
 } from "react-icons/fa";
 import {
   getProposedTestsStatus,
   getProposedTestsResults,
   runApprovedProposedTests,
+  formatProposedTestDisplayName,
+  getProposedTestComparison,
   type ProposedTestCase,
   type ProposedTestMetrics,
+  type ProposedTestComparisonResponse,
 } from "@/features/modernization/services/proposedTestService";
 import { downloadProposedTestReport } from "@/features/result/services/resultService";
 import { triggerBlobDownload } from "@/features/result/utils/migrationWizardPdf";
@@ -32,6 +37,7 @@ export function MigrationProposedTestSection({
   const jobId = migrationJob?.job_id || "";
   const [proposals, setProposals] = useState<ProposedTestCase[]>([]);
   const [metrics, setMetrics] = useState<ProposedTestMetrics | null>(null);
+  const [comparison, setComparison] = useState<ProposedTestComparisonResponse | null>(null);
   const [logs, setLogs] = useState<Array<{ ts?: string; msg?: string; level?: string }>>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -41,9 +47,27 @@ export function MigrationProposedTestSection({
   const [selectedSources, setSelectedSources] = useState<string[] | null>(null);
   const [allureReportAvailable, setAllureReportAvailable] = useState(false);
   const [allureReportUrl, setAllureReportUrl] = useState<string | null>(null);
+  const [isLogsCopied, setIsLogsCopied] = useState(false);
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const logBoxRef = useRef<HTMLDivElement | null>(null);
+
+  const handleCopyLogs = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!logs || logs.length === 0) return;
+    const text = logs
+      .map((log) => `${log.ts ? `[${log.ts}] ` : ""}${log.level ? `[${log.level}] ` : ""}${log.msg || ""}`)
+      .join("\n");
+    navigator.clipboard
+      .writeText(text)
+      .then(() => {
+        setIsLogsCopied(true);
+        setTimeout(() => setIsLogsCopied(false), 2000);
+      })
+      .catch((err) => {
+        console.error("Failed to copy execution logs:", err);
+      });
+  };
 
   // Auto-scroll execution logs
   useEffect(() => {
@@ -79,6 +103,10 @@ export function MigrationProposedTestSection({
             setAllureReportAvailable(finalResults.allure_report_available);
             if (finalResults.allure_report_url) setAllureReportUrl(finalResults.allure_report_url);
           }
+
+          // Fetch comparison against pre-migration baseline
+          const compData = await getProposedTestComparison(jobId).catch(() => null);
+          if (compData) setComparison(compData);
         }
       } catch (err) {
         console.error("Polling proposed tests error:", err);
@@ -95,8 +123,13 @@ export function MigrationProposedTestSection({
 
     const loadData = async () => {
       try {
-        const res = await getProposedTestsStatus(jobId);
+        const [res, compData] = await Promise.all([
+          getProposedTestsStatus(jobId).catch(() => null),
+          getProposedTestComparison(jobId).catch(() => null),
+        ]);
         if (!isMounted) return;
+
+        if (compData) setComparison(compData);
 
         if (res) {
           if (res.proposals) setProposals(res.proposals);
@@ -128,12 +161,61 @@ export function MigrationProposedTestSection({
     };
   }, [jobId, startPolling]);
 
+  const [selectedTestIds, setSelectedTestIds] = useState<Set<string>>(new Set());
+
+  // Auto-select valid tests by default on initial load
+  useEffect(() => {
+    if (proposals.length > 0 && selectedTestIds.size === 0) {
+      const validIds = proposals
+        .filter((p) => !p.validation || p.validation.playwright_executable !== false)
+        .map((p) => p.id);
+      setSelectedTestIds(new Set(validIds.length > 0 ? validIds : proposals.map((p) => p.id)));
+    }
+  }, [proposals]);
+
+  const handleToggleSelectAll = () => {
+    if (selectedTestIds.size === proposals.length) {
+      setSelectedTestIds(new Set());
+    } else {
+      setSelectedTestIds(new Set(proposals.map((p) => p.id)));
+    }
+  };
+
+  const handleToggleTest = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelectedTestIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const handleRunSelected = async () => {
+    if (!jobId || isRunning || selectedTestIds.size === 0) return;
+    setIsRunning(true);
+    setLogs([]);
+    try {
+      await runApprovedProposedTests(jobId, {
+        test_ids: Array.from(selectedTestIds),
+      });
+      startPolling();
+    } catch (err) {
+      console.error("Failed to trigger Playwright execution for selected tests:", err);
+      setIsRunning(false);
+    }
+  };
+
   const handleRunAgain = async () => {
     if (!jobId || isRunning) return;
     setIsRunning(true);
     setLogs([]);
     try {
       await runApprovedProposedTests(jobId, {
+        test_ids: selectedTestIds.size > 0 ? Array.from(selectedTestIds) : undefined,
         sources: selectedSources && selectedSources.length > 0 ? selectedSources : undefined,
       });
       startPolling();
@@ -168,6 +250,12 @@ export function MigrationProposedTestSection({
   const skippedCount = metrics?.skipped ?? proposals.filter((p) => p.status === "SKIPPED").length;
   const notExecutedCount = metrics?.not_executed ?? Math.max(0, totalProposed - executedCount);
 
+  // Validation Breakdown Counts (Inventory is fully preserved)
+  const validCount = proposals.filter((p) => !p.validation || p.validation.status === "VALID" || p.validation.status === "PARTIALLY_VALID").length;
+  const duplicateCount = proposals.filter((p) => p.validation?.status === "DUPLICATE").length;
+  const hallucinatedCount = proposals.filter((p) => p.validation?.status === "HALLUCINATED").length;
+  const invalidCount = proposals.filter((p) => p.validation?.status === "INVALID").length;
+
   const passRateNum = executedCount > 0 ? Math.round((passedCount / executedCount) * 100) : 0;
   const passRateDisplay = `${passRateNum}%`;
   const durationDisplay = metrics?.duration || "0.0s";
@@ -194,7 +282,7 @@ export function MigrationProposedTestSection({
 
   const llmCount = Math.max(0, totalProposed - functionalDocCount - existingCount);
 
-  const statusLabel = isRunning ? "running playwright tests" : executedCount > 0 ? "completed" : "awaiting first run";
+  const statusLabel = isRunning ? "running baseline tests" : executedCount > 0 ? "completed" : "ready for baseline run";
   const statusColor = isRunning ? "#0284c7" : executedCount > 0 ? (failedCount === 0 ? "#10b981" : "#ef4444") : "#d97706";
 
   return (
@@ -238,13 +326,13 @@ export function MigrationProposedTestSection({
                 PLAYWRIGHT RUNNER
               </span>
             </div>
-            <div style={{ fontSize: 13, color: "#64748b", marginTop: 4, fontFamily: "'JetBrains Mono', monospace" }}>
-              Migrated Application Target · {totalProposed} Total Proposed Scenarios
+            <div style={{ fontSize: 13, color: "#475569", marginTop: 4, fontFamily: "'JetBrains Mono', monospace", fontWeight: 600 }}>
+              Execution Target: <span style={{ color: "#0284c7", fontWeight: 800 }}>Source Application</span> · Execution Mode: <span style={{ color: "#059669", fontWeight: 800 }}>Baseline</span> · {totalProposed} Total Scenarios
             </div>
           </div>
 
           {/* Status Badge & Action Controls */}
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
             <div
               style={{
                 display: "inline-flex",
@@ -265,6 +353,31 @@ export function MigrationProposedTestSection({
               {statusLabel}
             </div>
 
+            {/* Run Selected Button */}
+            <button
+              type="button"
+              onClick={handleRunSelected}
+              disabled={isRunning || isLoading || selectedTestIds.size === 0}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "6px 14px",
+                borderRadius: 8,
+                background: isRunning || selectedTestIds.size === 0 ? "#94a3b8" : "linear-gradient(135deg, #0284c7 0%, #0369a1 100%)",
+                border: "none",
+                color: "#fff",
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: isRunning || selectedTestIds.size === 0 ? "not-allowed" : "pointer",
+                transition: "all 0.15s ease",
+              }}
+              title={`Run ${selectedTestIds.size} selected tests against Source Application`}
+            >
+              <FaRedo className={isRunning ? "animate-spin" : ""} size={11} />
+              {isRunning ? "Running..." : `Run Selected (${selectedTestIds.size})`}
+            </button>
+
             {/* Run Again Button */}
             <button
               type="button"
@@ -284,6 +397,7 @@ export function MigrationProposedTestSection({
                 cursor: isRunning ? "not-allowed" : "pointer",
                 transition: "all 0.15s ease",
               }}
+              title="Run baseline tests against Source Application"
             >
               <FaRedo className={isRunning ? "animate-spin" : ""} size={11} />
               {isRunning ? "Running Tests..." : "Run Again"}
@@ -303,7 +417,7 @@ export function MigrationProposedTestSection({
                 background: isRunning
                   ? "#f1f5f9"
                   : allureReportAvailable || executedCount > 0
-                  ? "linear-gradient(135deg, #0284c7 0%, #0369a1 100%)"
+                  ? "linear-gradient(135deg, #059669 0%, #047857 100%)"
                   : "#f1f5f9",
                 border: isRunning || (!allureReportAvailable && executedCount === 0) ? "1px solid #cbd5e1" : "none",
                 color: isRunning || (!allureReportAvailable && executedCount === 0) ? "#94a3b8" : "#fff",
@@ -356,6 +470,41 @@ export function MigrationProposedTestSection({
               {isDownloading ? <FaSpinner className="animate-spin" size={11} /> : <FaDownload size={11} />}
               Download Report
             </button>
+          </div>
+        </div>
+
+        {/* Validation Inventory Summary Strip */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(5, 1fr)",
+            gap: 12,
+            background: "#f8fafc",
+            border: "1px solid #e2e8f0",
+            borderRadius: 10,
+            padding: "12px 16px",
+            marginBottom: 20,
+          }}
+        >
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: "#0f172a" }}>{totalProposed}</div>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginTop: 2 }}>TOTAL INVENTORY</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: "#059669" }}>{validCount}</div>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginTop: 2 }}>VALID</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: "#d97706" }}>{duplicateCount}</div>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginTop: 2 }}>DUPLICATE</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: "#7c3aed" }}>{hallucinatedCount}</div>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginTop: 2 }}>HALLUCINATED</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: "#dc2626" }}>{invalidCount}</div>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginTop: 2 }}>INVALID</div>
           </div>
         </div>
 
@@ -426,6 +575,150 @@ export function MigrationProposedTestSection({
             </div>
           </div>
         </div>
+
+        {/* Source Application Diagnostics & Pre-Migration Status */}
+        {comparison?.source_status && (
+          <div
+            style={{
+              background: "#f8fafc",
+              border: "1px solid #e2e8f0",
+              borderRadius: 12,
+              padding: "16px 20px",
+              marginBottom: 20,
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 13, fontWeight: 800, color: "#1e293b", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                  Source Application (Pre-Migration Baseline)
+                </span>
+                <span
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 800,
+                    padding: "2px 8px",
+                    borderRadius: 6,
+                    background: comparison.source_status.readiness_status === "READY" ? "rgba(16, 185, 129, 0.15)" : "rgba(245, 158, 11, 0.15)",
+                    color: comparison.source_status.readiness_status === "READY" ? "#059669" : "#d97706",
+                    border: `1px solid ${comparison.source_status.readiness_status === "READY" ? "rgba(16, 185, 129, 0.3)" : "rgba(245, 158, 11, 0.3)"}`,
+                  }}
+                >
+                  {comparison.source_status.readiness_status === "READY" ? "✓ SOURCE READY" : "⚠ SOURCE NOT READY"}
+                </span>
+              </div>
+              {comparison.source_status.base_url && (
+                <div style={{ fontSize: 12, color: "#64748b", fontFamily: "monospace" }}>
+                  URL: <span style={{ color: "#0284c7", fontWeight: 700 }}>{comparison.source_status.base_url}</span>
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
+              <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 8, padding: "10px 14px" }}>
+                <div style={{ fontSize: 13, fontWeight: 800, color: comparison.source_status.build_success ? "#059669" : "#dc2626" }}>
+                  {comparison.source_status.build_success ? "✓ BUILD SUCCESS" : "✕ BUILD FAILED"}
+                </div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginTop: 2 }}>Build Status</div>
+              </div>
+              <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 8, padding: "10px 14px" }}>
+                <div style={{ fontSize: 13, fontWeight: 800, color: comparison.source_status.startup_status === "STARTED" ? "#059669" : "#d97706" }}>
+                  {comparison.source_status.startup_status || "NOT STARTED"}
+                </div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginTop: 2 }}>Startup Status</div>
+              </div>
+              <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 8, padding: "10px 14px" }}>
+                <div style={{ fontSize: 13, fontWeight: 800, color: comparison.source_status.readiness_status === "READY" ? "#059669" : "#d97706" }}>
+                  {comparison.source_status.readiness_status || "NOT STARTED"}
+                </div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginTop: 2 }}>Readiness Status</div>
+              </div>
+              <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 8, padding: "10px 14px" }}>
+                <div style={{ fontSize: 13, fontWeight: 800, color: comparison.baseline_available ? "#0284c7" : "#64748b" }}>
+                  {comparison.baseline_available ? "✓ EXECUTED" : "NOT EXECUTED"}
+                </div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginTop: 2 }}>Baseline Tests</div>
+              </div>
+            </div>
+
+            {/* If there was a startup or readiness diagnostic error */}
+            {comparison.source_status.error && (
+              <div
+                style={{
+                  marginTop: 12,
+                  background: "rgba(239, 68, 68, 0.06)",
+                  border: "1px solid rgba(239, 68, 68, 0.2)",
+                  borderRadius: 8,
+                  padding: "10px 14px",
+                  fontSize: 12,
+                  color: "#b91c1c",
+                }}
+              >
+                <div style={{ fontWeight: 800, marginBottom: 2 }}>Source Application Diagnostic:</div>
+                <div style={{ whiteSpace: "pre-wrap", fontFamily: "monospace", fontSize: 11 }}>{comparison.source_status.error}</div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Pre-Migration Baseline vs. Migrated Target Comparison Card */}
+        {comparison && comparison.baseline_available && (
+          <div
+            style={{
+              background: "linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)",
+              border: "1px solid #cbd5e1",
+              borderRadius: 12,
+              padding: "16px 20px",
+              marginBottom: 24,
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 13, fontWeight: 800, color: "#1e293b", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                  Pre-Migration Baseline vs. Migrated Parity
+                </span>
+                <span
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 800,
+                    padding: "2px 8px",
+                    borderRadius: 6,
+                    background: comparison.regressions_count === 0 ? "rgba(16, 185, 129, 0.15)" : "rgba(239, 68, 68, 0.15)",
+                    color: comparison.regressions_count === 0 ? "#059669" : "#dc2626",
+                    border: `1px solid ${comparison.regressions_count === 0 ? "rgba(16, 185, 129, 0.3)" : "rgba(239, 68, 68, 0.3)"}`,
+                  }}
+                >
+                  {comparison.regressions_count === 0 ? "✓ 0 REGRESSIONS" : `⚠ ${comparison.regressions_count} REGRESSION${comparison.regressions_count > 1 ? "S" : ""}`}
+                </span>
+              </div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#475569" }}>
+                Parity Rate: <span style={{ color: (comparison.parity_percentage || "").includes("100") || (comparison.parity_percentage || "").includes("9") ? "#059669" : "#d97706", fontSize: 14, fontWeight: 800 }}>{comparison.parity_percentage || "0%"}</span>
+              </div>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12 }}>
+              <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 8, padding: "10px 14px" }}>
+                <div style={{ fontSize: 18, fontWeight: 800, color: "#0284c7" }}>{comparison.baseline_metrics?.passed ?? 0} / {comparison.baseline_metrics?.executed ?? 0}</div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginTop: 2 }}>Baseline Passed</div>
+              </div>
+              <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 8, padding: "10px 14px" }}>
+                <div style={{ fontSize: 18, fontWeight: 800, color: "#059669" }}>{comparison.target_metrics?.passed ?? 0} / {comparison.target_metrics?.executed ?? 0}</div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginTop: 2 }}>Migrated Passed</div>
+              </div>
+              <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 8, padding: "10px 14px" }}>
+                <div style={{ fontSize: 18, fontWeight: 800, color: "#059669" }}>{comparison.preserved_passed_count ?? 0}</div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginTop: 2 }}>Parity Maintained</div>
+              </div>
+              <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 8, padding: "10px 14px" }}>
+                <div style={{ fontSize: 18, fontWeight: 800, color: (comparison.regressions_count ?? 0) > 0 ? "#dc2626" : "#64748b" }}>{comparison.regressions_count ?? 0}</div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginTop: 2 }}>Regressions</div>
+              </div>
+              <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 8, padding: "10px 14px" }}>
+                <div style={{ fontSize: 18, fontWeight: 800, color: "#7c3aed" }}>{comparison.improvements_count ?? 0}</div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginTop: 2 }}>Improvements</div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Source Breakdown Cards Grid (Dynamic: LLM, Functional Doc, Existing, Total) */}
         <div style={{ marginBottom: 20 }}>
@@ -515,30 +808,42 @@ export function MigrationProposedTestSection({
             <span style={{ fontSize: 11, color: "#64748b", fontWeight: 600 }}>Click row for step assertions &amp; evidence</span>
           </div>
 
-          <div style={{ maxHeight: 320, overflowY: "auto", border: "1px solid #e2e8f0", borderRadius: 8, background: "#ffffff" }}>
+          <div style={{ maxHeight: 420, overflowY: "auto", border: "1px solid #e2e8f0", borderRadius: 8, background: "#ffffff" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: 12 }}>
               <thead>
                 <tr style={{ background: "#f8fafc", color: "#475569", borderBottom: "1px solid #e2e8f0", position: "sticky", top: 0, zIndex: 2 }}>
-                  <th style={{ padding: "8px 12px", width: 70, fontWeight: 700 }}>ID</th>
-                  <th style={{ padding: "8px 12px", fontWeight: 700 }}>Test Name</th>
-                  <th style={{ padding: "8px 12px", width: 150, fontWeight: 700 }}>Source</th>
-                  <th style={{ padding: "8px 12px", width: 80, fontWeight: 700 }}>Type</th>
-                  <th style={{ padding: "8px 12px", width: 100, fontWeight: 700 }}>Status</th>
-                  <th style={{ padding: "8px 12px", width: 90, fontWeight: 700 }}>Duration</th>
-                  <th style={{ padding: "8px 12px", width: 70, fontWeight: 700, textAlign: "center" }}>Details</th>
+                  <th style={{ padding: "8px 10px", width: 35, textAlign: "center" }}>
+                    <input
+                      type="checkbox"
+                      checked={proposals.length > 0 && selectedTestIds.size === proposals.length}
+                      onChange={handleToggleSelectAll}
+                      style={{ cursor: "pointer" }}
+                      title="Select / Deselect All Tests"
+                    />
+                  </th>
+                  <th style={{ padding: "8px 10px", width: 65, fontWeight: 700 }}>ID</th>
+                  <th style={{ padding: "8px 10px", fontWeight: 700 }}>Test Name</th>
+                  <th style={{ padding: "8px 10px", width: 110, fontWeight: 700 }}>Source</th>
+                  <th style={{ padding: "8px 10px", width: 50, fontWeight: 700 }}>Type</th>
+                  <th style={{ padding: "8px 10px", width: 60, fontWeight: 700 }}>Method</th>
+                  <th style={{ padding: "8px 10px", width: 150, fontWeight: 700 }}>Endpoint / Route</th>
+                  <th style={{ padding: "8px 10px", width: 100, fontWeight: 700 }}>Validation</th>
+                  <th style={{ padding: "8px 10px", width: 110, fontWeight: 700 }}>Execution Status</th>
+                  <th style={{ padding: "8px 10px", width: 70, fontWeight: 700 }}>Duration</th>
+                  <th style={{ padding: "8px 10px", width: 50, fontWeight: 700, textAlign: "center" }}>Details</th>
                 </tr>
               </thead>
               <tbody>
                 {isLoading ? (
                   <tr>
-                    <td colSpan={7} style={{ padding: "36px 12px", textAlign: "center", color: "#64748b" }}>
+                    <td colSpan={11} style={{ padding: "36px 12px", textAlign: "center", color: "#64748b" }}>
                       <FaSpinner className="animate-spin" size={18} style={{ marginBottom: 6 }} />
                       <div>Loading proposed test execution data...</div>
                     </td>
                   </tr>
                 ) : proposals.length === 0 ? (
                   <tr>
-                    <td colSpan={7} style={{ padding: "28px 12px", textAlign: "center", color: "#64748b" }}>
+                    <td colSpan={11} style={{ padding: "28px 12px", textAlign: "center", color: "#64748b" }}>
                       No proposed test cases found for this migration.
                     </td>
                   </tr>
@@ -564,35 +869,109 @@ export function MigrationProposedTestSection({
                     const sourceBadgeBg = isExisting ? "#ecfdf5" : isDoc ? "#faf5ff" : "#f0f9ff";
                     const sourceBadgeBorder = isExisting ? "#a7f3d0" : isDoc ? "#d8b4fe" : "#bae6fd";
 
-                    const status = t.status || (t.execution_result ? t.execution_result.status : "PROPOSED");
-                    const isPassed = status === "PASSED";
-                    const isFailed = status === "FAILED";
-                    const isSkipped = status === "SKIPPED";
-                    const isRunningRow = status === "RUNNING";
+                    const execStatus = t.execution_result?.status || t.baseline_execution_result?.status || t.status || "NOT_EXECUTED";
+                    const method = t.api_spec?.method || (t.type === "API" ? "GET" : "--");
+                    const endpoint = t.api_spec?.endpoint || t.ui_spec?.target_route || "--";
 
-                    const statusBg = isPassed
-                      ? "rgba(16, 185, 129, 0.12)"
-                      : isFailed
-                      ? "rgba(239, 68, 68, 0.12)"
-                      : isRunningRow
-                      ? "rgba(2, 132, 199, 0.12)"
-                      : "rgba(100, 116, 139, 0.12)";
-                    const statusTextColor = isPassed
-                      ? "#059669"
-                      : isFailed
-                      ? "#dc2626"
-                      : isRunningRow
-                      ? "#0284c7"
-                      : "#64748b";
-                    const statusBorder = isPassed
-                      ? "1px solid rgba(16, 185, 129, 0.3)"
-                      : isFailed
-                      ? "1px solid rgba(239, 68, 68, 0.3)"
-                      : isRunningRow
-                      ? "1px solid rgba(2, 132, 199, 0.3)"
-                      : "1px solid rgba(100, 116, 139, 0.3)";
+                    const valStatus = t.validation?.status || "VALID";
+                    const valColor =
+                      valStatus === "VALID" || valStatus === "PARTIALLY_VALID"
+                        ? "#059669"
+                        : valStatus === "DUPLICATE"
+                        ? "#d97706"
+                        : valStatus === "HALLUCINATED"
+                        ? "#7c3aed"
+                        : "#dc2626";
+                    const valBg =
+                      valStatus === "VALID" || valStatus === "PARTIALLY_VALID"
+                        ? "rgba(16, 185, 129, 0.1)"
+                        : valStatus === "DUPLICATE"
+                        ? "rgba(217, 119, 6, 0.1)"
+                        : valStatus === "HALLUCINATED"
+                        ? "rgba(124, 58, 237, 0.1)"
+                        : "rgba(239, 68, 68, 0.1)";
+                    const valBorder =
+                      valStatus === "VALID" || valStatus === "PARTIALLY_VALID"
+                        ? "rgba(16, 185, 129, 0.3)"
+                        : valStatus === "DUPLICATE"
+                        ? "rgba(217, 119, 6, 0.3)"
+                        : valStatus === "HALLUCINATED"
+                        ? "rgba(124, 58, 237, 0.3)"
+                        : "rgba(239, 68, 68, 0.3)";
 
-                    const duration = t.execution_result?.duration || "--";
+                    const renderStatusBadge = (s: string | null) => {
+                      if (!s || s === "PROPOSED" || s === "APPROVED" || s === "READY" || s === "NOT_EXECUTED") {
+                        return (
+                          <span style={{ fontSize: 10, fontWeight: 700, color: "#64748b", background: "rgba(100, 116, 139, 0.1)", padding: "2px 6px", borderRadius: 4 }}>
+                            NOT_EXECUTED
+                          </span>
+                        );
+                      }
+                      const isPassed = s === "PASSED";
+                      const isFailed = s === "FAILED";
+                      const isAppUnavailable = s === "APPLICATION_UNAVAILABLE";
+                      const isSkipped = s === "SKIPPED";
+                      const isRunningRow = s === "RUNNING";
+
+                      const bg = isPassed
+                        ? "rgba(16, 185, 129, 0.12)"
+                        : isFailed
+                        ? "rgba(239, 68, 68, 0.12)"
+                        : isAppUnavailable
+                        ? "rgba(245, 158, 11, 0.12)"
+                        : isRunningRow
+                        ? "rgba(2, 132, 199, 0.12)"
+                        : "rgba(100, 116, 139, 0.12)";
+                      const color = isPassed
+                        ? "#059669"
+                        : isFailed
+                        ? "#dc2626"
+                        : isAppUnavailable
+                        ? "#d97706"
+                        : isRunningRow
+                        ? "#0284c7"
+                        : "#64748b";
+                      const border = isPassed
+                        ? "1px solid rgba(16, 185, 129, 0.3)"
+                        : isFailed
+                        ? "1px solid rgba(239, 68, 68, 0.3)"
+                        : isAppUnavailable
+                        ? "1px solid rgba(245, 158, 11, 0.4)"
+                        : isRunningRow
+                        ? "1px solid rgba(2, 132, 199, 0.3)"
+                        : "1px solid rgba(100, 116, 139, 0.3)";
+
+                      return (
+                        <span
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 3,
+                            padding: "2px 6px",
+                            borderRadius: 4,
+                            fontSize: 10,
+                            fontWeight: 800,
+                            background: bg,
+                            color,
+                            border,
+                          }}
+                        >
+                          {isRunningRow && <FaSpinner className="animate-spin" size={7} />}
+                          {isPassed
+                            ? "✓ PASSED"
+                            : isFailed
+                            ? "✕ FAILED"
+                            : isAppUnavailable
+                            ? "⊘ UNAVAIL"
+                            : isSkipped
+                            ? "⚠ SKIPPED"
+                            : s}
+                        </span>
+                      );
+                    };
+
+                    const duration = t.execution_result?.duration || t.baseline_execution_result?.duration || "--";
+                    const isChecked = selectedTestIds.has(t.id);
 
                     return (
                       <tr
@@ -602,18 +981,27 @@ export function MigrationProposedTestSection({
                           borderBottom: "1px solid #e2e8f0",
                           color: "#0f172a",
                           cursor: "pointer",
+                          background: isChecked ? "rgba(2, 132, 199, 0.02)" : "transparent",
                           transition: "background 0.12s ease",
                         }}
-                        onMouseEnter={(e) => (e.currentTarget.style.background = "#f8fafc")}
-                        onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = isChecked ? "rgba(2, 132, 199, 0.05)" : "#f8fafc")}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = isChecked ? "rgba(2, 132, 199, 0.02)" : "transparent")}
                       >
-                        <td style={{ padding: "8px 12px", fontFamily: "monospace", color: "#0284c7", fontWeight: 700 }}>
+                        <td style={{ padding: "8px 10px", textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={(e) => handleToggleTest(t.id, e as unknown as React.MouseEvent)}
+                            style={{ cursor: "pointer" }}
+                          />
+                        </td>
+                        <td style={{ padding: "8px 10px", fontFamily: "monospace", color: "#0284c7", fontWeight: 700 }}>
                           {t.id}
                         </td>
-                        <td style={{ padding: "8px 12px", fontWeight: 600 }}>
-                          {t.title}
+                        <td style={{ padding: "8px 10px", fontWeight: 600 }}>
+                          {formatProposedTestDisplayName(t)}
                         </td>
-                        <td style={{ padding: "8px 12px" }}>
+                        <td style={{ padding: "8px 10px" }}>
                           <span
                             style={{
                               fontSize: 10,
@@ -628,32 +1016,54 @@ export function MigrationProposedTestSection({
                             {sourceBadgeLabel}
                           </span>
                         </td>
-                        <td style={{ padding: "8px 12px", fontSize: 11, color: "#64748b" }}>
+                        <td style={{ padding: "8px 10px", fontSize: 11, color: "#64748b" }}>
                           {t.type}
                         </td>
-                        <td style={{ padding: "8px 12px" }}>
+                        <td style={{ padding: "8px 10px" }}>
+                          {method !== "--" ? (
+                            <span
+                              style={{
+                                fontSize: 9,
+                                fontWeight: 800,
+                                padding: "2px 5px",
+                                borderRadius: 3,
+                                background: method === "GET" ? "#f0fdf4" : method === "POST" ? "#eff6ff" : method === "DELETE" ? "#fef2f2" : "#f8fafc",
+                                color: method === "GET" ? "#15803d" : method === "POST" ? "#1d4ed8" : method === "DELETE" ? "#b91c1c" : "#475569",
+                                border: "1px solid rgba(0,0,0,0.08)",
+                                fontFamily: "monospace",
+                              }}
+                            >
+                              {method}
+                            </span>
+                          ) : (
+                            <span style={{ color: "#94a3b8" }}>--</span>
+                          )}
+                        </td>
+                        <td style={{ padding: "8px 10px", fontFamily: "monospace", fontSize: 11, color: "#334155", maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={endpoint}>
+                          {endpoint}
+                        </td>
+                        <td style={{ padding: "8px 10px" }}>
                           <span
                             style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: 4,
-                              padding: "2px 8px",
-                              borderRadius: 4,
                               fontSize: 10,
                               fontWeight: 800,
-                              background: statusBg,
-                              color: statusTextColor,
-                              border: statusBorder,
+                              color: valColor,
+                              background: valBg,
+                              border: `1px solid ${valBorder}`,
+                              padding: "2px 6px",
+                              borderRadius: 4,
                             }}
                           >
-                            {isRunningRow && <FaSpinner className="animate-spin" size={8} />}
-                            {isPassed ? "✓ PASSED" : isFailed ? "✕ FAILED" : isSkipped ? "⚠ SKIPPED" : status}
+                            {valStatus}
                           </span>
                         </td>
-                        <td style={{ padding: "8px 12px", color: "#64748b", fontSize: 11, fontFamily: "monospace" }}>
+                        <td style={{ padding: "8px 10px" }}>
+                          {renderStatusBadge(execStatus)}
+                        </td>
+                        <td style={{ padding: "8px 10px", color: "#64748b", fontSize: 11, fontFamily: "monospace" }}>
                           {duration}
                         </td>
-                        <td style={{ padding: "8px 12px", textAlign: "center" }}>
+                        <td style={{ padding: "8px 10px", textAlign: "center" }}>
                           <button
                             type="button"
                             onClick={(e) => {
@@ -697,9 +1107,35 @@ export function MigrationProposedTestSection({
               <FaTerminal size={12} style={{ color: "#0284c7" }} />
               <span>PLAYWRIGHT EXECUTION LOGS ({logs.length} entries)</span>
             </div>
-            <span style={{ fontSize: 11, color: "#64748b" }}>
-              {showLogs ? "Hide Console ▲" : "Show Console ▼"}
-            </span>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <button
+                type="button"
+                onClick={handleCopyLogs}
+                disabled={!logs || logs.length === 0}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 5,
+                  padding: "3px 10px",
+                  borderRadius: 6,
+                  border: "1px solid #cbd5e1",
+                  background: isLogsCopied ? "#f0fdf4" : "#f8fafc",
+                  color: isLogsCopied ? "#16a34a" : "#475569",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: !logs || logs.length === 0 ? "not-allowed" : "pointer",
+                  opacity: !logs || logs.length === 0 ? 0.6 : 1,
+                  transition: "all 0.15s ease",
+                }}
+                title="Copy Playwright execution logs to clipboard"
+              >
+                {isLogsCopied ? <FaCheck size={11} /> : <FaCopy size={11} />}
+                <span>{isLogsCopied ? "Copied!" : "Copy Logs"}</span>
+              </button>
+              <span style={{ fontSize: 11, color: "#64748b" }}>
+                {showLogs ? "Hide Console ▲" : "Show Console ▼"}
+              </span>
+            </div>
           </div>
 
           {showLogs && (
@@ -767,7 +1203,7 @@ export function MigrationProposedTestSection({
               background: "#ffffff",
               border: "1px solid #e2e8f0",
               borderRadius: 16,
-              maxWidth: 720,
+              maxWidth: 780,
               width: "100%",
               maxHeight: "88vh",
               display: "flex",
@@ -807,11 +1243,25 @@ export function MigrationProposedTestSection({
                       color: selectedTest.status === "PASSED" ? "#059669" : "#dc2626",
                     }}
                   >
-                    {selectedTest.status || "PROPOSED"}
+                    Migrated: {selectedTest.status || "PROPOSED"}
                   </span>
+                  {selectedTest.baseline_execution_result && (
+                    <span
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 800,
+                        padding: "2px 8px",
+                        borderRadius: 4,
+                        background: selectedTest.baseline_execution_result.status === "PASSED" ? "rgba(16, 185, 129, 0.12)" : "rgba(239, 68, 68, 0.12)",
+                        color: selectedTest.baseline_execution_result.status === "PASSED" ? "#059669" : "#dc2626",
+                      }}
+                    >
+                      Baseline: {selectedTest.baseline_execution_result.status}
+                    </span>
+                  )}
                 </div>
                 <h3 style={{ fontSize: 16, fontWeight: 800, color: "#0f172a", margin: 0 }}>
-                  {selectedTest.title}
+                  {formatProposedTestDisplayName(selectedTest)}
                 </h3>
               </div>
               <button
@@ -844,6 +1294,63 @@ export function MigrationProposedTestSection({
                 </p>
               </div>
 
+              {/* Side-by-Side Baseline vs Migrated Execution Result Card */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                {/* Source Baseline Column */}
+                <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, padding: 12 }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: "#475569", textTransform: "uppercase", marginBottom: 6 }}>
+                    Pre-Migration Baseline (Source)
+                  </div>
+                  <div style={{ fontSize: 12, color: "#334155", display: "flex", flexDirection: "column", gap: 4 }}>
+                    <div>
+                      <span style={{ fontWeight: 600 }}>Status: </span>
+                      <span style={{ fontWeight: 800, color: selectedTest.baseline_execution_result?.status === "PASSED" ? "#059669" : selectedTest.baseline_execution_result?.status === "FAILED" ? "#dc2626" : "#64748b" }}>
+                        {selectedTest.baseline_execution_result?.status || "Not Executed / Skipped"}
+                      </span>
+                    </div>
+                    <div>
+                      <span style={{ fontWeight: 600 }}>Duration: </span>
+                      <span>{selectedTest.baseline_execution_result?.duration || "--"}</span>
+                    </div>
+                    {selectedTest.baseline_execution_result?.error && (
+                      <div style={{ marginTop: 6, background: "rgba(239, 68, 68, 0.08)", border: "1px solid rgba(239, 68, 68, 0.2)", borderRadius: 6, padding: 8 }}>
+                        <div style={{ color: "#dc2626", fontWeight: 700, fontSize: 11 }}>Baseline Error:</div>
+                        <pre style={{ margin: "4px 0 0 0", fontSize: 10, color: "#b91c1c", fontFamily: "monospace", whiteSpace: "pre-wrap" }}>
+                          {selectedTest.baseline_execution_result.error}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Target Migrated Column */}
+                <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, padding: 12 }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: "#475569", textTransform: "uppercase", marginBottom: 6 }}>
+                    Post-Migration (Target)
+                  </div>
+                  <div style={{ fontSize: 12, color: "#334155", display: "flex", flexDirection: "column", gap: 4 }}>
+                    <div>
+                      <span style={{ fontWeight: 600 }}>Status: </span>
+                      <span style={{ fontWeight: 800, color: selectedTest.execution_result?.status === "PASSED" ? "#059669" : selectedTest.execution_result?.status === "FAILED" ? "#dc2626" : "#64748b" }}>
+                        {selectedTest.execution_result?.status || selectedTest.status || "Pending / Not Run"}
+                      </span>
+                    </div>
+                    <div>
+                      <span style={{ fontWeight: 600 }}>Duration: </span>
+                      <span>{selectedTest.execution_result?.duration || "--"}</span>
+                    </div>
+                    {selectedTest.execution_result?.error && (
+                      <div style={{ marginTop: 6, background: "rgba(239, 68, 68, 0.08)", border: "1px solid rgba(239, 68, 68, 0.2)", borderRadius: 6, padding: 8 }}>
+                        <div style={{ color: "#dc2626", fontWeight: 700, fontSize: 11 }}>Migrated Error:</div>
+                        <pre style={{ margin: "4px 0 0 0", fontSize: 10, color: "#b91c1c", fontFamily: "monospace", whiteSpace: "pre-wrap" }}>
+                          {selectedTest.execution_result.error}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               {/* Execution Steps */}
               {selectedTest.steps && selectedTest.steps.length > 0 && (
                 <div>
@@ -873,18 +1380,6 @@ export function MigrationProposedTestSection({
                       </div>
                     ))}
                   </div>
-                </div>
-              )}
-
-              {/* Error or Trace output if failed */}
-              {selectedTest.execution_result?.error && (
-                <div style={{ background: "rgba(239, 68, 68, 0.08)", border: "1px solid rgba(239, 68, 68, 0.25)", borderRadius: 8, padding: 12 }}>
-                  <div style={{ color: "#dc2626", fontWeight: 800, fontSize: 12, marginBottom: 4 }}>
-                    Execution Failure:
-                  </div>
-                  <pre style={{ margin: 0, fontSize: 11, color: "#b91c1c", fontFamily: "monospace", whiteSpace: "pre-wrap" }}>
-                    {selectedTest.execution_result.error}
-                  </pre>
                 </div>
               )}
 

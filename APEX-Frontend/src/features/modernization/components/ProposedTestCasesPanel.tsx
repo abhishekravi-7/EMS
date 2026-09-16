@@ -17,6 +17,7 @@ import {
   generateProposedTests,
   getProposedTests,
   getProposedTestsStatus,
+  formatProposedTestDisplayName,
 } from "../services/proposedTestService";
 import type { TestResult, TestSelectionItem } from "../services/existingTestService";
 
@@ -1473,9 +1474,9 @@ export function ProposedTestCasesPanel({
                               textOverflow: "ellipsis",
                               display: "block",
                             }}
-                            title={t.title}
+                            title={formatProposedTestDisplayName(t)}
                           >
-                            {t.title}
+                            {formatProposedTestDisplayName(t)}
                           </span>
                         </td>
 
@@ -1845,7 +1846,7 @@ export function ProposedTestCasesPanel({
                   </span>
                 </div>
                 <h3 style={{ fontSize: 18, fontWeight: 900, color: "#fff", margin: 0 }}>
-                  {reviewTest.title}
+                  {formatProposedTestDisplayName(reviewTest)}
                 </h3>
                 <div style={{ fontSize: 12, color: "#94a3b8", fontFamily: "monospace", marginTop: 4 }}>
                   Source: {reviewTest.source}

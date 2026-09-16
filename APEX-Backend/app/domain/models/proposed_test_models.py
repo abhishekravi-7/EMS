@@ -30,6 +30,7 @@ class ProposedTestStatus(str, Enum):
     FAILED = "FAILED"
     SKIPPED = "SKIPPED"
     NOT_EXECUTED = "NOT_EXECUTED"
+    APPLICATION_UNAVAILABLE = "APPLICATION_UNAVAILABLE"  # App not reachable — NOT a functional failure
 
 
 class StepExecutionRecord(BaseModel):
@@ -142,6 +143,7 @@ class ProposedTestCase(BaseModel):
     unit_spec: UnitTestSpec | None = None
     ui_spec: UiTestSpec | None = None
     execution_result: ExecutionResult | None = None
+    baseline_execution_result: ExecutionResult | None = None
     validation: ProposedTestValidationResult | None = None
 
 
@@ -191,3 +193,32 @@ class RunProposedTestsRequest(BaseModel):
     sources: list[str] | None = None
     test_ids: list[str] | None = None
     framework: str = "PLAYWRIGHT"
+
+
+class TestComparisonItem(BaseModel):
+    id: str
+    title: str
+    type: ProposedTestType
+    source: str
+    baseline_status: ProposedTestStatus = ProposedTestStatus.NOT_EXECUTED
+    target_status: ProposedTestStatus = ProposedTestStatus.NOT_EXECUTED
+    match: bool = True
+    is_regression: bool = False
+    is_improvement: bool = False
+    baseline_duration: str = "--"
+    target_duration: str = "--"
+
+
+class ProposedTestComparisonResponse(BaseModel):
+    job_id: str
+    baseline_available: bool = False
+    target_available: bool = False
+    baseline_metrics: ProposedTestMetrics = Field(default_factory=ProposedTestMetrics)
+    target_metrics: ProposedTestMetrics = Field(default_factory=ProposedTestMetrics)
+    parity_percentage: str = "0%"
+    regressions_count: int = 0
+    improvements_count: int = 0
+    preserved_passed_count: int = 0
+    source_status: dict[str, Any] = Field(default_factory=dict)
+    target_status: dict[str, Any] = Field(default_factory=dict)
+    test_comparisons: list[TestComparisonItem] = Field(default_factory=list)

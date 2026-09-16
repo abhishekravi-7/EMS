@@ -135,17 +135,51 @@ const SignUpPage: React.FC = () => {
   if (submitted) {
     return (
       <AuthLayout mode="signup">
-        <div className="auth-success">
-          <div className="auth-success-icon">
-            <FaCheck />
+        <div style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          textAlign: "center",
+          padding: "40px 20px",
+        }}>
+          <div style={{
+            width: "80px",
+            height: "80px",
+            borderRadius: "50%",
+            backgroundColor: "#dcfce7",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            marginBottom: "24px",
+            boxShadow: "0 4px 14px 0 rgba(34, 197, 94, 0.39)",
+          }}>
+            <FaCheck style={{ fontSize: "36px", color: "#16a34a" }} />
           </div>
-          <h2 className="auth-success-title">Account created!</h2>
-          <p className="auth-success-text">
-            Your account has been created successfully. Sign in to start your migration journey.
+          <h2 style={{
+            fontSize: "26px",
+            fontWeight: "700",
+            color: "#0f172a",
+            marginBottom: "12px",
+            letterSpacing: "-0.5px"
+          }}>Account Created Successfully!</h2>
+          <p style={{
+            fontSize: "15px",
+            color: "#64748b",
+            marginBottom: "32px",
+            maxWidth: "320px",
+            lineHeight: "1.6"
+          }}>
+            Welcome to Java APEX. Your account is ready, you can now sign in to start your migration journey.
           </p>
-          <Button variant="primary" fullWidth onClick={() => navigate("/signin")}>
-            Go to Sign In
-          </Button>
+          <button 
+            className="apex-btn-auth-primary"
+            onClick={() => navigate("/signin")}
+            style={{ padding: "14px 32px", width: "100%", maxWidth: "300px" }}
+          >
+            <span>Go to Sign In</span>
+            <FaArrowRight style={{ fontSize: 13 }} />
+          </button>
         </div>
       </AuthLayout>
     );

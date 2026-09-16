@@ -1,8 +1,6 @@
 import pytest
 import asyncio
-from motor.motor_asyncio import AsyncIOMotorClient
 from app.core.config import settings
-
 @pytest.fixture(scope="session")
 def event_loop():
     loop = asyncio.get_event_loop_policy().new_event_loop()
@@ -11,6 +9,10 @@ def event_loop():
 
 @pytest.fixture(scope="session")
 async def mongodb_client():
+    try:
+        from motor.motor_asyncio import AsyncIOMotorClient
+    except ImportError:
+        pytest.skip("motor not installed")
     if not settings.mongodb_uri:
         pytest.skip("MONGODB_URI not configured")
     
