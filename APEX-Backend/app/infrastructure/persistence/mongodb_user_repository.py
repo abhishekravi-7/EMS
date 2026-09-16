@@ -57,6 +57,28 @@ async def update_user(db: AsyncIOMotorDatabase, user_id: str, updates: dict[str,
     updates["updated_at"] = datetime.now(timezone.utc)
     await db.users.update_one({"_id": user_id}, {"$set": updates})
 
+# --- Password Reset ---
+
+async def create_password_reset_token(db: AsyncIOMotorDatabase, user_id: str, token: str, expires_at: datetime):
+    await db.password_resets.insert_one({
+        "user_id": user_id,
+        "token": token,
+        "expires_at": expires_at,
+        "created_at": datetime.now(timezone.utc)
+    })
+
+async def get_password_reset_token(db: AsyncIOMotorDatabase, token: str) -> Optional[dict]:
+    return await db.password_resets.find_one({"token": token})
+
+async def delete_password_reset_token(db: AsyncIOMotorDatabase, token: str):
+    await db.password_resets.delete_many({"token": token})
+
+async def update_user_password(db: AsyncIOMotorDatabase, user_id: str, password_hash: str):
+    await db.users.update_one(
+        {"_id": user_id},
+        {"$set": {"password_hash": password_hash, "updated_at": datetime.now(timezone.utc)}}
+    )
+
 # --- OAuth ---
 
 async def get_oauth_account(db: AsyncIOMotorDatabase, provider: str, provider_user_id: str) -> Optional[dict]:

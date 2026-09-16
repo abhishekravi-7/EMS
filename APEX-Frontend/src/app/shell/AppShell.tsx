@@ -78,7 +78,8 @@ const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const normalizedPath = location.pathname.replace(/\/+$/, "");
   const isStandalonePage =
     normalizedPath === "/signin" ||
-    normalizedPath === "/signup";
+    normalizedPath === "/signup" ||
+    normalizedPath === "/reset-password";
 
   const isWizardPage =
     !isStandalonePage &&

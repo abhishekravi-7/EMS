@@ -50,7 +50,7 @@ def build_authorization_url(*, state: str) -> str:
     # signed `state` value is this flow's only CSRF protection.
     params = {
         "client_id": settings.github_client_id,
-        "redirect_uri": settings.github_redirect_uri,
+        "redirect_uri": settings.get_github_redirect_uri,
         "scope": SCOPES,
         "state": state,
         "allow_signup": "true",
@@ -69,7 +69,7 @@ async def exchange_code_for_profile(*, code: str) -> GithubUserProfile:
     token_payload = {
         "client_id": settings.github_client_id,
         "client_secret": settings.github_client_secret,
-        "redirect_uri": settings.github_redirect_uri,
+        "redirect_uri": settings.get_github_redirect_uri,
         "code": code,
     }
     try:
