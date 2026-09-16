@@ -37,7 +37,7 @@ class GoogleUserProfile:
 def build_authorization_url(*, state: str, code_challenge: str) -> str:
     params = {
         "client_id": settings.google_client_id,
-        "redirect_uri": settings.google_redirect_uri,
+        "redirect_uri": settings.get_google_redirect_uri,
         "response_type": "code",
         "scope": SCOPES,
         "state": state,
@@ -61,7 +61,7 @@ async def exchange_code_for_profile(*, code: str, code_verifier: str) -> GoogleU
         "code": code,
         "client_id": settings.google_client_id,
         "client_secret": settings.google_client_secret,
-        "redirect_uri": settings.google_redirect_uri,
+        "redirect_uri": settings.get_google_redirect_uri,
         "grant_type": "authorization_code",
         "code_verifier": code_verifier,
     }
