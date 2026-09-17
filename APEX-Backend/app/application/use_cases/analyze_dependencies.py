@@ -1,18 +1,14 @@
-"""LLM-Powered Dependency Risk & Migration Analysis Use Case.
-
-Assesses repository dependencies using repository-grounded LLM inference,
-strictly preserving detected coordinates and versions while enriching risk levels,
-categories, contextual explanations, and actionable migration recommendations.
-"""
-
-from __future__ import annotations
-
+import asyncio
+import hashlib
 import json
 import logging
+import re
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.core.config import BACKEND_ROOT, settings
 from app.core.context import user_id_ctx
 from app.core.exceptions import LLMResponseInvalidError
 from app.infrastructure.llm.chat_llm import ChatLLM
@@ -47,6 +43,97 @@ ALLOWED_CATEGORIES = {
     "Other",
 }
 ALLOWED_COMPLEXITIES = {"NONE", "LIGHT", "MODERATE", "COMPLEX"}
+
+_CACHE_DIR = BACKEND_ROOT / "storage" / "dependency-analysis-cache"
+_memory_cache: dict[str, DependencyAnalysisResponse] = {}
+_inflight_tasks: dict[str, asyncio.Task[DependencyAnalysisResponse]] = {}
+_inflight_lock = asyncio.Lock()
+
+
+def compute_analysis_fingerprint(request: DependencyAnalysisRequest) -> str:
+    """Compute a deterministic SHA-256 fingerprint for a dependency analysis request.
+
+    Normalizes and sorts dependencies, frameworks, versions, and build tools so that
+    ordering differences produce the exact same fingerprint.
+    """
+    normalized_deps = []
+    for d in (request.dependencies or []):
+        normalized_deps.append({
+            "group_id": (d.group_id or "").strip().lower(),
+            "artifact_id": (d.artifact_id or "").strip().lower(),
+            "current_version": (d.current_version or "").strip(),
+            "resolved_version": (d.resolved_version or "").strip(),
+            "scope": (d.scope or "compile").strip().lower(),
+        })
+    # Sort deterministically by coordinate, versions, and scope
+    normalized_deps.sort(
+        key=lambda x: (
+            x["group_id"],
+            x["artifact_id"],
+            x["current_version"],
+            x["resolved_version"],
+            x["scope"],
+        )
+    )
+
+    norm_frameworks = sorted(
+        [
+            str(f.get("name") if isinstance(f, dict) else f).strip().lower()
+            for f in (request.frameworks or [])
+        ]
+    )
+    norm_test_fw = sorted(
+        [
+            str(t.get("name") if isinstance(t, dict) else t).strip().lower()
+            for t in (request.testing_frameworks or [])
+        ]
+    )
+
+    canonical_payload = {
+        "job_id": (request.job_id or "").strip(),
+        "source_java_version": (request.source_java_version or "").strip(),
+        "target_java_version": (request.target_java_version or "").strip(),
+        "build_tool": (request.build_tool or "").strip().upper(),
+        "spring_boot_version": (request.spring_boot_version or "").strip(),
+        "frameworks": norm_frameworks,
+        "testing_frameworks": norm_test_fw,
+        "api_endpoint_count": request.api_endpoint_count or 0,
+        "dependencies": normalized_deps,
+    }
+    serialized = json.dumps(canonical_payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def _get_cache_file_path(fingerprint: str, job_id: str | None = None) -> Path:
+    folder = job_id.strip() if job_id and job_id.strip() else "global"
+    return _CACHE_DIR / folder / f"{fingerprint}.json"
+
+
+def _read_from_cache(fingerprint: str, job_id: str | None = None) -> DependencyAnalysisResponse | None:
+    if fingerprint in _memory_cache:
+        return _memory_cache[fingerprint]
+
+    cache_file = _get_cache_file_path(fingerprint, job_id)
+    if cache_file.exists():
+        try:
+            data = json.loads(cache_file.read_text(encoding="utf-8"))
+            parsed = DependencyAnalysisResponse.model_validate(data)
+            _memory_cache[fingerprint] = parsed
+            return parsed
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[DependencyAnalysis] Failed to read cached file %s: %s", cache_file, exc)
+    return None
+
+
+def _write_to_cache(fingerprint: str, job_id: str | None, response: DependencyAnalysisResponse) -> None:
+    _memory_cache[fingerprint] = response
+    try:
+        cache_file = _get_cache_file_path(fingerprint, job_id)
+        cache_file.parent.mkdir(parents=True, exist_ok=True)
+        cache_file.write_text(json.dumps(response.model_dump(), indent=2), encoding="utf-8")
+        logger.info("[DependencyAnalysis] validated result cached (fingerprint=%s)", fingerprint)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[DependencyAnalysis] Failed to write cache file: %s", exc)
 
 
 def _heuristic_classify_category(group: str, artifact: str) -> str:
@@ -196,13 +283,65 @@ class AnalyzeDependenciesUseCase:
                 provider_used="heuristic",
             )
 
+        fingerprint = compute_analysis_fingerprint(request)
+        logger.info("[DependencyAnalysis] fingerprint=%s", fingerprint)
+
+        # 1. Check cache first
+        cached = _read_from_cache(fingerprint, request.job_id)
+        if cached is not None:
+            logger.info("[DependencyAnalysis] cache hit for fingerprint=%s", fingerprint)
+            logger.info("[DependencyAnalysis] using cached result")
+            return cached
+
+        logger.info("[DependencyAnalysis] cache miss for fingerprint=%s", fingerprint)
+
+        # 2. Single-flight request deduplication lock
+        task: asyncio.Task[DependencyAnalysisResponse] | None = None
+        is_initiator = False
+
+        async with _inflight_lock:
+            cached = _read_from_cache(fingerprint, request.job_id)
+            if cached is not None:
+                logger.info("[DependencyAnalysis] cache hit for fingerprint=%s", fingerprint)
+                logger.info("[DependencyAnalysis] using cached result")
+                return cached
+
+            if fingerprint in _inflight_tasks:
+                logger.info(
+                    "[DependencyAnalysis] analysis already in progress for fingerprint=%s, awaiting existing task",
+                    fingerprint,
+                )
+                task = _inflight_tasks[fingerprint]
+            else:
+                task = asyncio.create_task(
+                    self._do_execute(request, fingerprint, db, current_user)
+                )
+                _inflight_tasks[fingerprint] = task
+                is_initiator = True
+
+        try:
+            result = await task
+            return result
+        finally:
+            if is_initiator:
+                async with _inflight_lock:
+                    _inflight_tasks.pop(fingerprint, None)
+
+    async def _do_execute(
+        self,
+        request: DependencyAnalysisRequest,
+        fingerprint: str,
+        db: Session | None = None,
+        current_user: User | None = None,
+    ) -> DependencyAnalysisResponse:
+        input_deps = request.dependencies or []
         user_token = None
         if current_user:
             user_token = user_id_ctx.set(current_user.id)
 
         try:
-            # Batch dependencies in chunks of up to 30 to comfortably fit context window
-            batch_size = 30
+            # Batch dependencies in chunks of up to 25 to comfortably fit LLM context & output windows
+            batch_size = 25
             batches = [input_deps[i : i + batch_size] for i in range(0, len(input_deps), batch_size)]
             all_analyzed_map: dict[str, dict[str, Any]] = {}
             overall_risk_candidates: list[str] = []
@@ -211,7 +350,7 @@ class AnalyzeDependenciesUseCase:
             complexity_explanations: list[str] = []
             providers_used: set[str] = set()
 
-            for batch in batches:
+            for batch_idx, batch in enumerate(batches):
                 dep_dicts = [
                     {
                         "id": f"{d.group_id or ''}:{d.artifact_id or ''}",
@@ -234,25 +373,99 @@ class AnalyzeDependenciesUseCase:
                     api_endpoint_count=request.api_endpoint_count,
                 )
 
+                raw_json: dict[str, Any] | None = None
+
+                # 1. Primary: Hugging Face
                 try:
-                    logger.info("[DependencyAnalysis] Attempting Hugging Face (primary)")
-                    raw_json = await self._llm.chat_json(DEPENDENCY_ANALYSIS_SYSTEM_PROMPT, user_prompt, max_tokens=3000)
-                    providers_used.add("huggingface")
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning(
-                        "[DependencyAnalysis] Hugging Face failed, falling back to Strategy Chat LLM. Reason: %s",
-                        exc,
+                    logger.info(
+                        "[DependencyAnalysis] Attempting Hugging Face (primary) for batch %d/%d (%d deps)",
+                        batch_idx + 1,
+                        len(batches),
+                        len(batch),
                     )
-                    response_text = ""
-                    async for chunk in self._chat_llm.stream_chat(
-                        system_prompt=DEPENDENCY_ANALYSIS_SYSTEM_PROMPT,
-                        user_prompt=user_prompt,
-                        endpoint="dependency_analysis_fallback",
-                        max_tokens=3000,
-                    ):
-                        response_text += chunk
-                    raw_json = self._extract_json(response_text)
-                    providers_used.add(self._chat_llm.last_provider or "fallback")
+                    raw_json = await self._llm.chat_json(
+                        DEPENDENCY_ANALYSIS_SYSTEM_PROMPT, user_prompt, max_tokens=4096
+                    )
+                    self._validate_analysis_payload(raw_json)
+                    providers_used.add("huggingface")
+                    logger.info(
+                        "[DependencyAnalysis] provider=HuggingFace succeeded for batch %d/%d",
+                        batch_idx + 1,
+                        len(batches),
+                    )
+                except Exception as hf_exc:  # noqa: BLE001
+                    logger.warning(
+                        "[DependencyAnalysis] Hugging Face failed for batch %d/%d (Reason: %s), falling back to Strategy Chat LLM.",
+                        batch_idx + 1,
+                        len(batches),
+                        hf_exc,
+                    )
+                    raw_json = None
+
+                # 2. Fallback: Strategy Chat LLM (Groq -> Ollama)
+                if raw_json is None:
+                    try:
+                        logger.info(
+                            "[DependencyAnalysis] Attempting Strategy Chat LLM fallback for batch %d/%d",
+                            batch_idx + 1,
+                            len(batches),
+                        )
+                        response_text = ""
+                        async for chunk in self._chat_llm.stream_chat(
+                            system_prompt=DEPENDENCY_ANALYSIS_SYSTEM_PROMPT,
+                            user_prompt=user_prompt,
+                            endpoint="dependency_analysis_fallback",
+                            max_tokens=4096,
+                        ):
+                            response_text += chunk
+
+                        active_provider = self._chat_llm.last_provider or "chat_llm"
+                        preview = response_text[:300].replace("\n", " ").strip()
+                        logger.info(
+                            "[DependencyAnalysis] %s response received successfully (%d chars) for batch %d/%d. Preview: %s...",
+                            active_provider,
+                            len(response_text),
+                            batch_idx + 1,
+                            len(batches),
+                            preview,
+                        )
+
+                        raw_json = self._extract_json(response_text)
+                        self._validate_analysis_payload(raw_json)
+                        providers_used.add(active_provider)
+                        logger.info(
+                            "[DependencyAnalysis] provider=%s JSON parsed and validated successfully for batch %d/%d",
+                            active_provider,
+                            batch_idx + 1,
+                            len(batches),
+                        )
+                    except Exception as chat_exc:  # noqa: BLE001
+                        logger.warning(
+                            "[DependencyAnalysis] Strategy Chat LLM fallback failed for batch %d/%d (Reason: %s). Using heuristic for this batch.",
+                            batch_idx + 1,
+                            len(batches),
+                            chat_exc,
+                        )
+                        raw_json = None
+
+                # 3. Deterministic Heuristic Fallback for this batch if LLMs failed
+                if raw_json is None:
+                    logger.info(
+                        "[DependencyAnalysis] heuristic fallback applied for batch %d/%d",
+                        batch_idx + 1,
+                        len(batches),
+                    )
+                    fallback_res = _build_fallback_analysis(
+                        batch, request.build_tool, request.source_java_version
+                    )
+                    providers_used.add("heuristic")
+                    raw_json = {
+                        "overall_risk": fallback_res.overall_risk,
+                        "complexity": fallback_res.complexity,
+                        "overall_explanation": fallback_res.overall_explanation,
+                        "complexity_explanation": fallback_res.complexity_explanation,
+                        "dependencies": [d.model_dump() for d in fallback_res.dependencies],
+                    }
 
                 raw_deps = raw_json.get("dependencies") or []
 
@@ -283,7 +496,12 @@ class AnalyzeDependenciesUseCase:
                 name = aid or gid or "dependency"
 
                 # Look up analyzed entry
-                llm_entry = all_analyzed_map.get(dep_id.lower()) or all_analyzed_map.get(coord.lower()) or all_analyzed_map.get(aid.lower()) or {}
+                llm_entry = (
+                    all_analyzed_map.get(dep_id.lower())
+                    or all_analyzed_map.get(coord.lower())
+                    or all_analyzed_map.get(aid.lower())
+                    or {}
+                )
 
                 cat = str(llm_entry.get("category") or "").strip().title()
                 if cat not in ALLOWED_CATEGORIES:
@@ -331,14 +549,36 @@ class AnalyzeDependenciesUseCase:
             )
 
             # Determine overall risk
-            overall_risk = overall_risk_candidates[0] if overall_risk_candidates and overall_risk_candidates[0] in ALLOWED_RISK_LEVELS else ""
+            overall_risk = (
+                overall_risk_candidates[0]
+                if overall_risk_candidates and overall_risk_candidates[0] in ALLOWED_RISK_LEVELS
+                else ""
+            )
             if not overall_risk:
-                overall_risk = "CRITICAL" if crit_cnt > 0 else "HIGH" if high_cnt > 0 else "MEDIUM" if med_cnt > 0 else "LOW"
+                overall_risk = (
+                    "CRITICAL"
+                    if crit_cnt > 0
+                    else "HIGH"
+                    if high_cnt > 0
+                    else "MEDIUM"
+                    if med_cnt > 0
+                    else "LOW"
+                )
 
             # Determine complexity
-            complexity = complexity_candidates[0] if complexity_candidates and complexity_candidates[0] in ALLOWED_COMPLEXITIES else ""
+            complexity = (
+                complexity_candidates[0]
+                if complexity_candidates and complexity_candidates[0] in ALLOWED_COMPLEXITIES
+                else ""
+            )
             if not complexity:
-                complexity = "LIGHT" if tot_cnt <= 10 and crit_cnt == 0 and high_cnt == 0 else "MODERATE" if tot_cnt <= 35 and crit_cnt == 0 else "COMPLEX"
+                complexity = (
+                    "LIGHT"
+                    if tot_cnt <= 10 and crit_cnt == 0 and high_cnt == 0
+                    else "MODERATE"
+                    if tot_cnt <= 35 and crit_cnt == 0
+                    else "COMPLEX"
+                )
 
             overall_explanation = " ".join(overall_explanations).strip()
             if not overall_explanation:
@@ -348,38 +588,101 @@ class AnalyzeDependenciesUseCase:
             if not complexity_explanation:
                 complexity_explanation = f"Evaluated {tot_cnt} dependencies across {len(set(d.category for d in final_dependencies))} technical categories."
 
-            return DependencyAnalysisResponse(
+            final_response = DependencyAnalysisResponse(
                 overall_risk=overall_risk,
                 complexity=complexity,
                 overall_explanation=overall_explanation,
                 complexity_explanation=complexity_explanation,
                 counts=counts,
                 dependencies=final_dependencies,
-                provider_used=", ".join(sorted(providers_used)) or "huggingface",
+                provider_used=", ".join(sorted(providers_used)) or "heuristic",
             )
 
+            # Save validated result to cache
+            _write_to_cache(fingerprint, request.job_id, final_response)
+            return final_response
+
         except Exception as exc:  # noqa: BLE001
-            logger.warning("LLM Dependency analysis failed (%s); falling back to heuristic.", exc)
-            return _build_fallback_analysis(input_deps, request.build_tool, request.source_java_version)
+            logger.warning("[DependencyAnalysis] LLM analysis failed (%s); falling back to heuristic.", exc)
+            fallback_response = _build_fallback_analysis(
+                input_deps, request.build_tool, request.source_java_version
+            )
+            _write_to_cache(fingerprint, request.job_id, fallback_response)
+            return fallback_response
         finally:
             if user_token:
                 user_id_ctx.reset(user_token)
 
     @staticmethod
-    def _extract_json(content: str) -> dict:
-        text = (content or "").strip()
-        # Some models wrap JSON in ```json ... ``` fences
-        if text.startswith("```"):
-            text = text.strip("`")
-            if text[:4].lower() == "json":
-                text = text[4:]
+    def _validate_analysis_payload(payload: Any) -> None:
+        """Validate that the parsed JSON conforms to the expected structure."""
+        if not isinstance(payload, dict):
+            raise LLMResponseInvalidError("Parsed LLM response is not a JSON object.")
+        deps = payload.get("dependencies")
+        if deps is not None and not isinstance(deps, list):
+            raise LLMResponseInvalidError("'dependencies' field in LLM response must be an array.")
 
+    @staticmethod
+    def _extract_json(content: str) -> dict[str, Any]:
+        """Extract and parse JSON object from LLM response text with multiple repair strategies."""
+        text = (content or "").strip()
+        if not text:
+            raise LLMResponseInvalidError("LLM response was empty.")
+
+        candidates: list[str] = []
+
+        # Strategy 1: Look for markdown code fences ```json ... ``` or ``` ... ```
+        fence_pattern = re.compile(r"```(?:json)?\s*([\s\S]*?)\s*```", re.IGNORECASE)
+        for match in fence_pattern.finditer(text):
+            fenced = match.group(1).strip()
+            if fenced:
+                candidates.append(fenced)
+
+        # Strategy 2: Find outermost { ... }
         start = text.find("{")
         end = text.rfind("}")
-        if start == -1 or end == -1 or end < start:
-            raise LLMResponseInvalidError("Fallback model response did not contain JSON.")
+        if start != -1 and end != -1 and end > start:
+            candidates.append(text[start : end + 1].strip())
 
-        try:
-            return json.loads(text[start : end + 1])
-        except json.JSONDecodeError as exc:
-            raise LLMResponseInvalidError("Fallback model response was not valid JSON.") from exc
+        # Strategy 3: Raw text
+        candidates.append(text)
+
+        # Attempt to parse each candidate with progressive repairs
+        for candidate in candidates:
+            if not candidate:
+                continue
+
+            # Direct parse
+            try:
+                parsed = json.loads(candidate)
+                if isinstance(parsed, dict):
+                    return parsed
+            except json.JSONDecodeError:
+                pass
+
+            # Repair: remove single-line // comments and multi-line /* */ comments
+            cleaned = re.sub(r"//.*$", "", candidate, flags=re.MULTILINE)
+            cleaned = re.sub(r"/\*[\s\S]*?\*/", "", cleaned)
+
+            # Repair: remove trailing commas before } or ]
+            cleaned = re.sub(r",\s*([\]}])", r"\1", cleaned)
+
+            try:
+                parsed = json.loads(cleaned)
+                if isinstance(parsed, dict):
+                    return parsed
+            except json.JSONDecodeError:
+                pass
+
+            # Search within cleaned candidate for { ... }
+            c_start = cleaned.find("{")
+            c_end = cleaned.rfind("}")
+            if c_start != -1 and c_end != -1 and c_end > c_start:
+                try:
+                    parsed = json.loads(cleaned[c_start : c_end + 1])
+                    if isinstance(parsed, dict):
+                        return parsed
+                except json.JSONDecodeError:
+                    pass
+
+        raise LLMResponseInvalidError("LLM response was not valid JSON.")

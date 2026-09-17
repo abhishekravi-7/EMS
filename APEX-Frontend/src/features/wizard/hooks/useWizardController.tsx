@@ -1240,6 +1240,7 @@ export function useWizardController() {
 
   const fetchedRiskExplanationKeyRef = useRef<string>("");
   const fetchedDependencyAnalysisKeyRef = useRef<string>("");
+  const inFlightDependencyAnalysisKeyRef = useRef<string>("");
   const modernizationState = useModernizationState(persistedFormState);
   const {
     runTests,
@@ -4194,6 +4195,7 @@ export function useWizardController() {
         }
         fetchedRiskExplanationKeyRef.current = "";
         fetchedDependencyAnalysisKeyRef.current = "";
+        inFlightDependencyAnalysisKeyRef.current = "";
       }
 
       try {
@@ -4482,13 +4484,16 @@ export function useWizardController() {
       return;
     }
 
-    const depsKey = `${repoAnalysis.java_version || repoAnalysis.java_version_from_build || ""}_${repoAnalysis.build_tool || ""}_${effectiveTargetVersion || ""}_${repoAnalysis.dependencies.map((d) => `${d.group_id}:${d.artifact_id}:${d.current_version}`).join(";")}`;
-    if (fetchedDependencyAnalysisKeyRef.current === depsKey && dependencyAnalysis) {
+    const depsKey = `${jobId || ""}_${repoAnalysis.java_version || repoAnalysis.java_version_from_build || ""}_${repoAnalysis.build_tool || ""}_${effectiveTargetVersion || ""}_${repoAnalysis.dependencies.map((d) => `${d.group_id}:${d.artifact_id}:${d.current_version}`).join(";")}`;
+    if (
+      inFlightDependencyAnalysisKeyRef.current === depsKey ||
+      (fetchedDependencyAnalysisKeyRef.current === depsKey && dependencyAnalysis)
+    ) {
       return;
     }
 
     let cancelled = false;
-    fetchedDependencyAnalysisKeyRef.current = depsKey;
+    inFlightDependencyAnalysisKeyRef.current = depsKey;
     setDependencyAnalysisLoading(true);
 
     analyzeDependencies({
@@ -4504,6 +4509,7 @@ export function useWizardController() {
       .then((res) => {
         if (cancelled) return;
         if (res && res.dependencies && res.dependencies.length > 0) {
+          fetchedDependencyAnalysisKeyRef.current = depsKey;
           setDependencyAnalysis(res);
         }
       })
@@ -4512,6 +4518,9 @@ export function useWizardController() {
         console.warn("Dependency analysis fetch error, using client fallback:", err);
       })
       .finally(() => {
+        if (inFlightDependencyAnalysisKeyRef.current === depsKey) {
+          inFlightDependencyAnalysisKeyRef.current = "";
+        }
         if (!cancelled) {
           setDependencyAnalysisLoading(false);
         }
