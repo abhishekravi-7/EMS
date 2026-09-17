@@ -6,6 +6,7 @@ from pathlib import Path
 
 import defusedxml.ElementTree as ET
 
+from app.infrastructure.java_runtime import build_tool_env
 from app.schemas.unit_test import TestExecutionDetail, UnitTestSuiteResult
 from app.shared.command_runner import resolve_executable, run_command
 
@@ -18,6 +19,7 @@ class UnitTestRunner:
         build_tool: str = "maven",
         target_class_name: str | None = None,
         target_class_names: list[str] | None = None,
+        target_major: int | None = None,
     ) -> UnitTestSuiteResult:
         build_tool_clean = (build_tool or "maven").lower()
 
@@ -80,7 +82,7 @@ class UnitTestRunner:
             except OSError:
                 pass
 
-        res = run_command(cmd, cwd=project_dir, timeout=600)
+        res = run_command(cmd, cwd=project_dir, timeout=600, env=build_tool_env(target_major))
 
         return self.parse_junit_reports(
             reports_dir=reports_dir,
