@@ -132,3 +132,30 @@ class MessageResponse(BaseModel):
     """Generic ``{ "message": "..." }`` body for refresh/logout."""
 
     message: str
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+    @field_validator("email")
+    @classmethod
+    def _normalize_email(cls, value: str) -> str:
+        return value.strip().lower()
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str = Field(..., alias="newPassword", min_length=8, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def _validate_password_strength(cls, value: str) -> str:
+        if not _HAS_UPPERCASE.search(value):
+            raise ValueError("Password must contain at least one uppercase letter.")
+        if not _HAS_LOWERCASE.search(value):
+            raise ValueError("Password must contain at least one lowercase letter.")
+        if not _HAS_DIGIT.search(value):
+            raise ValueError("Password must contain at least one number.")
+        if not _HAS_SPECIAL_CHARACTER.search(value):
+            raise ValueError("Password must contain at least one special character.")
+        return value
+

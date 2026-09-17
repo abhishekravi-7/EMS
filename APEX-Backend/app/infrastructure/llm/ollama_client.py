@@ -163,7 +163,7 @@ class OllamaClient:
                 "url": self._base_url,
             }
 
-    async def stream_chat(self, system_prompt: str, user_prompt: str) -> AsyncIterator[str]:
+    async def stream_chat(self, system_prompt: str, user_prompt: str, max_tokens: int | None = None) -> AsyncIterator[str]:
         """Stream from local Ollama server."""
         async for delta in self._stream_ollama_internal(system_prompt, user_prompt):
             yield delta

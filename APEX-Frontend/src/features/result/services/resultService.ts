@@ -165,6 +165,14 @@ export interface FunctionalTesting {
       message?: string;
 }
 
+export interface MigrationStageInfo {
+  id: string;
+  name: string;
+  description?: string;
+  status: "pending" | "in_progress" | "completed" | "failed";
+  progress: number;
+}
+
 export interface MigrationResult {
   job_id: string;
   status: string;
@@ -178,6 +186,9 @@ export interface MigrationResult {
   completed_at: string | null;
   progress_percent: number;
   current_step: string;
+  current_stage?: string;
+  current_stage_name?: string;
+  stages?: MigrationStageInfo[];
   dependencies: DependencyInfo[];
   files_modified: number;
   issues_fixed: number;
@@ -302,6 +313,9 @@ export interface MigrationJobSummary {
   completed_at: string | null;
   progress_percent: number;
   current_step: string;
+  current_stage?: string;
+  current_stage_name?: string;
+  stages?: MigrationStageInfo[];
   files_modified: number;
   issues_fixed: number;
   api_endpoints_validated: number;

@@ -111,8 +111,14 @@ class Settings(BaseSettings):
     # Clone only the latest commit to keep the workspace small and fast.
     git_clone_depth: int = 1
 
-    # --- Migration engine ---------------------------------------------------
-    java_migration_engine_jar: Path = WORKSPACE_ROOT / "migration-engine" / "target" / "migration-engine-1.0.0-SNAPSHOT.jar"
+    java_migration_engine_jar: Path = Field(
+        default_factory=lambda: WORKSPACE_ROOT / "migration-engine" / "target" / "migration-engine-1.0.0-SNAPSHOT.jar",
+        validation_alias=AliasChoices(
+            "MIGRATION_ENGINE_JAR_PATH",
+            "JAVA_MIGRATION_ENGINE_JAR",
+            "java_migration_engine_jar",
+        ),
+    )
     migration_recipe_catalog_path: Path = BACKEND_ROOT / "app" / "config" / "migration_pack_catalog.json"
     # Timeout (seconds) for a single migration-engine run.
     migration_timeout_seconds: float = 1800.0
@@ -293,24 +299,42 @@ class Settings(BaseSettings):
 
     # Frontend origin this deployment's auth cookies/CORS trust.
     frontend_url: str = "http://localhost:5173"
+    backend_url: str = Field(default="http://localhost:8000", alias="BACKEND_URL")
 
-    # "development" or "production" — controls the auth cookies' Secure flag.
-    environment: str = "development"
+    # Use True to enforce JWT cookies having Secure flag
+    # For local dev without HTTPS, this can be set to False
+    environment: str = Field(default="development", alias="ENVIRONMENT")
 
-    # --- OAuth (Google / GitHub social login) ---------------------------------
+    # --- SMTP / Email Configuration -------------------------------------------
+    smtp_host: str | None = Field(default=None, alias="SMTP_HOST")
+    smtp_port: int = Field(default=587, alias="SMTP_PORT")
+    smtp_username: str | None = Field(default=None, alias="SMTP_USERNAME")
+    smtp_password: str | None = Field(default=None, alias="SMTP_PASSWORD")
+    smtp_use_tls: bool = Field(default=True, alias="SMTP_USE_TLS")
+    smtp_from_address: str | None = Field(default=None, alias="SMTP_FROM_ADDRESS")
+
+    @property
+    def is_smtp_configured(self) -> bool:
+        return bool(self.smtp_host and self.smtp_username and self.smtp_password and self.smtp_from_address)
+
+    # --- Feature Flags / Third-party Tools -------------------------------------
     # identity-only login (see app/infrastructure/oauth/). Deliberately separate
     # from GITHUB_TOKEN/GITHUB_TARGET_TOKEN above, which are unrelated to login
     # and used only for the Connect stage's repository read/publish access.
     google_client_id: str = Field(default="", alias="GOOGLE_CLIENT_ID")
     google_client_secret: str = Field(default="", alias="GOOGLE_CLIENT_SECRET")
-    google_redirect_uri: str = Field(
-        default="http://localhost:8000/api/auth/google/callback", alias="GOOGLE_REDIRECT_URI"
-    )
+    google_redirect_uri: str | None = Field(default=None, alias="GOOGLE_REDIRECT_URI")
     github_client_id: str = Field(default="", alias="GITHUB_CLIENT_ID")
     github_client_secret: str = Field(default="", alias="GITHUB_CLIENT_SECRET")
-    github_redirect_uri: str = Field(
-        default="http://localhost:8000/api/auth/github/callback", alias="GITHUB_REDIRECT_URI"
-    )
+    github_redirect_uri: str | None = Field(default=None, alias="GITHUB_REDIRECT_URI")
+
+    @property
+    def get_google_redirect_uri(self) -> str:
+        return self.google_redirect_uri or f"{self.backend_url}/api/auth/google/callback"
+
+    @property
+    def get_github_redirect_uri(self) -> str:
+        return self.github_redirect_uri or f"{self.backend_url}/api/auth/github/callback"
     # How long a signed OAuth `state` (and, for Google, the PKCE code_verifier
     # cookie) stays valid — the window the user has to complete the provider's
     # consent screen before the login attempt must be restarted.

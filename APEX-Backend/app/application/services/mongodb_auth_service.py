@@ -13,6 +13,9 @@ from app.core.exceptions import (
     OAuthEmailMissingError,
 )
 from app.infrastructure.persistence import mongodb_user_repository
+import secrets
+from datetime import timedelta
+from fastapi import HTTPException
 
 logger = logging.getLogger(__name__)
 
@@ -180,3 +183,50 @@ class MongoDBAuthService:
             provider_email=normalized_email,
         )
         return user
+
+    async def forgot_password(self, email: str, frontend_url: str):
+        normalized_email = email.strip().lower()
+        user = await mongodb_user_repository.get_user_by_email(self._db, normalized_email)
+        if not user:
+            # Silently return to prevent email enumeration
+            return
+
+        if not user.get("is_active", True):
+            return
+
+        token = secrets.token_urlsafe(32)
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=30)
+        
+        await mongodb_user_repository.create_password_reset_token(
+            self._db,
+            user_id=user["_id"],
+            token=token,
+            expires_at=expires_at
+        )
+
+        reset_link = f"{frontend_url.rstrip('/')}/reset-password?token={token}"
+        
+        # Here we would send the email.
+        # We will integrate an email service to send the specific template.
+        from app.infrastructure.email.email_service import send_password_reset_email
+        await send_password_reset_email(
+            to_email=user["email"],
+            user_name=user.get("full_name", "User"),
+            reset_link=reset_link
+        )
+
+    async def reset_password(self, token: str, new_password: str):
+        token_doc = await mongodb_user_repository.get_password_reset_token(self._db, token)
+        if not token_doc:
+            raise AuthenticationError("Invalid or expired reset token.")
+
+        if token_doc["expires_at"].replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
+            await mongodb_user_repository.delete_password_reset_token(self._db, token)
+            raise AuthenticationError("Invalid or expired reset token.")
+
+        user_id = token_doc["user_id"]
+        password_hash = security.hash_password(new_password)
+        
+        await mongodb_user_repository.update_user_password(self._db, user_id, password_hash)
+        await mongodb_user_repository.delete_password_reset_token(self._db, token)
+

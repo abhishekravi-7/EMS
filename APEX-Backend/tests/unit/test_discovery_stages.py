@@ -147,6 +147,6 @@ def test_force_refresh_reruns_fresh_analysis(tmp_path):
 
     assert outcome.response["status"] == STATUS_COMPLETED
     assert outcome.response["project"]["currentJavaVersion"] == "17"
-    assert outcome.response["project"]["discoveryStages"]["repositoryMap"]["status"] == "COMPLETE"
-    assert outcome.response["project"]["discoveryStages"]["serviceFit"]["status"] == "COMPLETE"
+    assert outcome.report["discoveryStages"]["repositoryMap"]["status"] == "COMPLETE"
+    assert outcome.report["discoveryStages"]["serviceFit"]["status"] == "COMPLETE"
     assert job_repo.save_discovery_report.called
