@@ -30,7 +30,7 @@ RUN apt-get update \
 # Installed under /opt/java/jdk-<major>, which matters: _discover_jdks()
 # (app/infrastructure/java_runtime.py) scans /opt/java and infers the major
 # version from the directory name via _infer_major_from_name().
-ARG JDK_VERSIONS="17 21"
+ARG JDK_VERSIONS="11 17 21 25"
 RUN set -eux; \
     mkdir -p /opt/java; \
     for major in ${JDK_VERSIONS}; do \
@@ -63,6 +63,17 @@ ENV JAVA_HOME=/opt/java/jdk-17 \
     GRADLE_HOME=/opt/gradle \
     PATH="/opt/java/jdk-17/bin:/opt/maven/bin:/opt/gradle/bin:${PATH}"
 
+# Quality gates use these executables at runtime.
+ARG SONAR_SCANNER_VERSION=6.2.1.4610
+RUN set -eux; \
+    curl -fsSL -o /tmp/sonar-scanner.zip "https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-${SONAR_SCANNER_VERSION}-linux-x64.zip"; \
+    unzip -q /tmp/sonar-scanner.zip -d /opt; \
+    ln -s "/opt/sonar-scanner-${SONAR_SCANNER_VERSION}-linux-x64/bin/sonar-scanner" /usr/local/bin/sonar-scanner; \
+    rm /tmp/sonar-scanner.zip; \
+    curl -fsSL -o /tmp/install-fossa.sh https://raw.githubusercontent.com/fossas/fossa-cli/master/install-latest.sh; \
+    BINDIR=/usr/local/bin bash /tmp/install-fossa.sh; \
+    rm /tmp/install-fossa.sh
+
 WORKDIR /app
 
 # -- Python dependencies ---------------------------------------------------- #
@@ -70,8 +81,13 @@ COPY APEX-Backend/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt
 
+COPY APEX-Backend/requirements-render.txt ./requirements-render.txt
+RUN pip install --no-cache-dir -r requirements-render.txt \
+    && python -m playwright install --with-deps chromium
+
 # -- Application ------------------------------------------------------------ #
 COPY APEX-Backend/app ./app
+COPY APEX-Backend/token_tracing ./token_tracing
 COPY --from=frontend-build /frontend/dist ./frontend-dist
 
 # Writable job workspace. Mount a persistent volume here if you want reports,
@@ -88,4 +104,4 @@ EXPOSE 8000
 
 # One worker keeps the in-process job state consistent. A second worker would
 # not see the same local job state and could produce confusing behavior.
-CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1"]

@@ -15,6 +15,11 @@ APEX-Backend/tests/
 APEX-Frontend/node_modules/
 APEX-Frontend/dist/
 APEX-Frontend/.vite/
+APEX-Frontend/.env
+APEX-Frontend/.env.*
+APEX-Backend/logs/
+APEX-Backend/.venv/
+APEX-Backend/venv/
 
 **/__pycache__/
 **/*.py[cod]

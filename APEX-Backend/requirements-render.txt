@@ -1,0 +1,2 @@
+# Browser/API execution for proposed tests in the deployment image.
+playwright>=1.49,<2
