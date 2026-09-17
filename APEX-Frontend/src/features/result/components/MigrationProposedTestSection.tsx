@@ -8,6 +8,16 @@ import {
   FaExternalLinkAlt,
   FaCopy,
   FaCheck,
+  FaCheckCircle,
+  FaPlay,
+  FaCode,
+  FaFileAlt,
+  FaLayerGroup,
+  FaListUl,
+  FaTimesCircle,
+  FaHourglassHalf,
+  FaMinusCircle,
+  FaClock,
 } from "react-icons/fa";
 import {
   getProposedTestsStatus,
@@ -285,192 +295,20 @@ export function MigrationProposedTestSection({
   const statusLabel = isRunning ? "running baseline tests" : executedCount > 0 ? "completed" : "ready for baseline run";
   const statusColor = isRunning ? "#0284c7" : executedCount > 0 ? (failedCount === 0 ? "#10b981" : "#ef4444") : "#d97706";
 
+  // Breakdown Calculations
+  const apiCount = proposals.filter(p => p.type === "API").length;
+  const uiCount = proposals.filter(p => p.type === "UI").length;
+
+
   return (
-    <div style={styles.reportSection}>
-      {/* Section Title Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-        <div style={{ fontSize: 18, fontWeight: 800, color: "#0f172a" }}>
-          Proposed Test Case Information
-        </div>
-      </div>
-
-      {/* Main White Modern Container Card */}
-      <div
-        style={{
-          background: "#ffffff",
-          border: "1px solid #e2e8f0",
-          borderRadius: 16,
-          padding: "24px",
-          color: "#0f172a",
-          boxShadow: "0 4px 20px -2px rgba(0, 0, 0, 0.05)",
-        }}
-      >
-        {/* Card Header */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
-          <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <h3 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: "#0f172a", letterSpacing: "-0.02em" }}>
-                Proposed Test Cases Summary
-              </h3>
-              <span
-                style={{
-                  fontSize: 10,
-                  fontWeight: 900,
-                  padding: "2px 8px",
-                  borderRadius: 6,
-                  background: "linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%)",
-                  color: "#fff",
-                  letterSpacing: "0.05em",
-                }}
-              >
-                PLAYWRIGHT RUNNER
-              </span>
-            </div>
-            <div style={{ fontSize: 13, color: "#475569", marginTop: 4, fontFamily: "'JetBrains Mono', monospace", fontWeight: 600 }}>
-              Execution Target: <span style={{ color: "#0284c7", fontWeight: 800 }}>Source Application</span> · Execution Mode: <span style={{ color: "#059669", fontWeight: 800 }}>Baseline</span> · {totalProposed} Total Scenarios
-            </div>
+    <div style={{ ...styles.reportSection, background: "#ffffff", border: "1px solid #eef2f6", borderRadius: 16, padding: "24px 32px", boxShadow: "0 4px 20px rgba(0,0,0,0.03)" }}>
+      {/* ── TOP HEADER AREA ────────────────────────────────────────────────── */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 32 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ background: "#2563eb", color: "#fff", width: 32, height: 32, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>
+            <FaFileAlt />
           </div>
-
-          {/* Status Badge & Action Controls */}
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
-            <div
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-                padding: "4px 12px",
-                borderRadius: 20,
-                background: isRunning ? "rgba(2, 132, 199, 0.1)" : executedCount > 0 ? (failedCount === 0 ? "rgba(16, 185, 129, 0.1)" : "rgba(239, 68, 68, 0.1)") : "rgba(217, 119, 6, 0.1)",
-                border: `1px solid ${isRunning ? "rgba(2, 132, 199, 0.3)" : executedCount > 0 ? (failedCount === 0 ? "rgba(16, 185, 129, 0.3)" : "rgba(239, 68, 68, 0.3)") : "rgba(217, 119, 6, 0.3)"}`,
-                fontSize: 12,
-                fontWeight: 700,
-                color: statusColor,
-                fontFamily: "'JetBrains Mono', monospace",
-                textTransform: "uppercase",
-              }}
-            >
-              <span style={{ width: 7, height: 7, borderRadius: "50%", background: statusColor }}></span>
-              {statusLabel}
-            </div>
-
-            {/* Run Selected Button */}
-            <button
-              type="button"
-              onClick={handleRunSelected}
-              disabled={isRunning || isLoading || selectedTestIds.size === 0}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-                padding: "6px 14px",
-                borderRadius: 8,
-                background: isRunning || selectedTestIds.size === 0 ? "#94a3b8" : "linear-gradient(135deg, #0284c7 0%, #0369a1 100%)",
-                border: "none",
-                color: "#fff",
-                fontSize: 12,
-                fontWeight: 700,
-                cursor: isRunning || selectedTestIds.size === 0 ? "not-allowed" : "pointer",
-                transition: "all 0.15s ease",
-              }}
-              title={`Run ${selectedTestIds.size} selected tests against Source Application`}
-            >
-              <FaRedo className={isRunning ? "animate-spin" : ""} size={11} />
-              {isRunning ? "Running..." : `Run Selected (${selectedTestIds.size})`}
-            </button>
-
-            {/* Run Again Button */}
-            <button
-              type="button"
-              onClick={handleRunAgain}
-              disabled={isRunning || isLoading}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-                padding: "6px 14px",
-                borderRadius: 8,
-                background: isRunning ? "#94a3b8" : "linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%)",
-                border: "none",
-                color: "#fff",
-                fontSize: 12,
-                fontWeight: 700,
-                cursor: isRunning ? "not-allowed" : "pointer",
-                transition: "all 0.15s ease",
-              }}
-              title="Run baseline tests against Source Application"
-            >
-              <FaRedo className={isRunning ? "animate-spin" : ""} size={11} />
-              {isRunning ? "Running Tests..." : "Run Again"}
-            </button>
-
-            {/* View Allure Report Button */}
-            <button
-              type="button"
-              onClick={handleViewAllureReport}
-              disabled={isRunning || (!allureReportAvailable && executedCount === 0)}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-                padding: "6px 14px",
-                borderRadius: 8,
-                background: isRunning
-                  ? "#f1f5f9"
-                  : allureReportAvailable || executedCount > 0
-                  ? "linear-gradient(135deg, #059669 0%, #047857 100%)"
-                  : "#f1f5f9",
-                border: isRunning || (!allureReportAvailable && executedCount === 0) ? "1px solid #cbd5e1" : "none",
-                color: isRunning || (!allureReportAvailable && executedCount === 0) ? "#94a3b8" : "#fff",
-                fontSize: 12,
-                fontWeight: 700,
-                cursor: isRunning || (!allureReportAvailable && executedCount === 0) ? "not-allowed" : "pointer",
-                transition: "all 0.15s ease",
-              }}
-              title={
-                isRunning
-                  ? "Generating Allure Report..."
-                  : allureReportAvailable || executedCount > 0
-                  ? "Open interactive Allure report in new tab"
-                  : "No Allure report available yet"
-              }
-            >
-              {isRunning ? (
-                <>
-                  <FaSpinner className="animate-spin" size={11} />
-                  <span>Generating Allure Report...</span>
-                </>
-              ) : (
-                <>
-                  <FaExternalLinkAlt size={10} />
-                  <span>View Allure Report</span>
-                </>
-              )}
-            </button>
-
-            {/* Download Report Button */}
-            <button
-              type="button"
-              onClick={handleDownloadReport}
-              disabled={isDownloading || totalProposed === 0}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-                padding: "6px 14px",
-                borderRadius: 8,
-                background: "#f8fafc",
-                border: "1px solid #cbd5e1",
-                color: "#334155",
-                fontSize: 12,
-                fontWeight: 700,
-                cursor: isDownloading ? "not-allowed" : "pointer",
-                transition: "all 0.15s ease",
-              }}
-            >
-              {isDownloading ? <FaSpinner className="animate-spin" size={11} /> : <FaDownload size={11} />}
-              Download Report
-            </button>
-          </div>
+          <h3 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: "#0f172a" }}>Proposed Test Case Information</h3>
         </div>
 
         {/* Validation Inventory Summary Strip */}
@@ -546,32 +384,77 @@ export function MigrationProposedTestSection({
               Execution pass percentage across Playwright test suite.
             </div>
           </div>
+          <button
+            onClick={handleRunAgain}
+            disabled={isRunning}
+            style={{
+              background: "#7c3aed",
+              color: "#fff",
+              border: "none",
+              padding: "8px 20px",
+              borderRadius: 10,
+              fontSize: 13,
+              fontWeight: 700,
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              cursor: isRunning ? "default" : "pointer",
+            }}
+          >
+            <FaPlay size={10} /> Run Again
+          </button>
+          <button
+            onClick={handleViewAllureReport}
+            disabled={!allureReportAvailable && executedCount === 0}
+            style={{
+              background: "#2563eb",
+              color: "#fff",
+              border: "none",
+              padding: "8px 20px",
+              borderRadius: 10,
+              fontSize: 13,
+              fontWeight: 700,
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              cursor: "pointer",
+            }}
+          >
+             <FaExternalLinkAlt size={12} /> View Allure Report
+          </button>
+          <button
+            onClick={handleDownloadReport}
+            style={{
+              background: "#fff",
+              border: "1px solid #e2e8f0",
+              padding: "8px 20px",
+              borderRadius: 10,
+              fontSize: 13,
+              fontWeight: 700,
+              color: "#0f172a",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              cursor: "pointer"
+            }}
+          >
+             <FaDownload /> Download Report
+          </button>
+        </div>
+      </div>
 
-          {/* Metric Overview Grid */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px 24px" }}>
-            <div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: "#0f172a" }}>{totalProposed}</div>
-              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: "#64748b", textTransform: "uppercase", marginTop: 2 }}>TOTAL PROPOSED TESTS</div>
-            </div>
-            <div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: "#059669" }}>{passedCount}</div>
-              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: "#64748b", textTransform: "uppercase", marginTop: 2 }}>PASSED</div>
-            </div>
-            <div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: failedCount > 0 ? "#dc2626" : "#64748b" }}>{failedCount}</div>
-              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: "#64748b", textTransform: "uppercase", marginTop: 2 }}>FAILED</div>
-            </div>
-            <div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: "#d97706" }}>{skippedCount}</div>
-              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: "#64748b", textTransform: "uppercase", marginTop: 2 }}>SKIPPED</div>
-            </div>
-            <div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: "#64748b" }}>{notExecutedCount}</div>
-              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: "#64748b", textTransform: "uppercase", marginTop: 2 }}>NOT EXECUTED</div>
-            </div>
-            <div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: "#0284c7", fontFamily: "monospace" }}>{durationDisplay}</div>
-              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: "#64748b", textTransform: "uppercase", marginTop: 2 }}>EXECUTION DURATION</div>
+      {/* ── CORE PERFORMANCE BLOCK ───────────────────────────────────────── */}
+      <div style={{ display: "flex", alignItems: "center", gap: 32, marginBottom: 40, background: "#fbfcfd", padding: "20px", borderRadius: 16, border: "1px solid #f1f5f9" }}>
+        {/* Gauge */}
+        <div style={{ textAlign: "center", flexShrink: 0, borderRight: "1px solid #eef2f6", paddingRight: 20 }}>
+          <div style={{ position: "relative", width: 110, height: 110, margin: "0 auto" }}>
+            <svg width="110" height="110" viewBox="0 0 110 110">
+              <circle cx="55" cy="55" r="48" fill="none" stroke="#e2e8f0" strokeWidth="10" />
+              <circle cx="55" cy="55" r="48" fill="none" stroke="#10b981" strokeWidth="10" strokeDasharray={`${passRateNum * 3.01} 301`} strokeLinecap="round" transform="rotate(-90 55 55)" />
+            </svg>
+            <div style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+              <div style={{ fontSize: 22, fontWeight: 800, color: "#0f172a" }}>{passRateDisplay}</div>
+              <div style={{ fontSize: 8, fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>Pass Rate</div>
             </div>
           </div>
         </div>
@@ -720,92 +603,63 @@ export function MigrationProposedTestSection({
           </div>
         )}
 
-        {/* Source Breakdown Cards Grid (Dynamic: LLM, Functional Doc, Existing, Total) */}
+        {/* Source Breakdown Cards Grid */}
         <div style={{ marginBottom: 20 }}>
           <div style={{ fontSize: 12, fontWeight: 800, color: "#475569", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 }}>
             Source Breakdown
           </div>
           <div style={{ display: "grid", gridTemplateColumns: existingCount > 0 ? "repeat(4, 1fr)" : "repeat(3, 1fr)", gap: 14 }}>
-            {/* Card 1: LLM Generated */}
-            <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 10, padding: "14px 16px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ fontSize: 20, fontWeight: 800, color: "#0284c7" }}>{llmCount}</span>
-                <span style={{ fontSize: 10, fontWeight: 800, color: "#0284c7", background: "#f0f9ff", border: "1px solid #bae6fd", padding: "2px 6px", borderRadius: 4 }}>LLM</span>
-              </div>
-              <div style={{ fontSize: 11, color: "#64748b", fontWeight: 600, marginTop: 8 }}>LLM Generated Test Cases</div>
-            </div>
-
-            {/* Card 2: Functional Testing Document */}
-            <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 10, padding: "14px 16px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ fontSize: 20, fontWeight: 800, color: "#7c3aed" }}>{functionalDocCount}</span>
-                <span style={{ fontSize: 10, fontWeight: 800, color: "#7c3aed", background: "#faf5ff", border: "1px solid #d8b4fe", padding: "2px 6px", borderRadius: 4 }}>DOC</span>
-              </div>
-              <div style={{ fontSize: 11, color: "#64748b", fontWeight: 600, marginTop: 8 }}>Functional Testing Document Tests</div>
-            </div>
-
-            {/* Card 3: Existing Test Cases (if any) */}
-            {existingCount > 0 && (
-              <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 10, padding: "14px 16px" }}>
+            {[
+              { value: llmCount, label: "LLM Generated", color: "#0284c7", bg: "#f0f9ff", borderColor: "#bae6fd", tag: "LLM" },
+              { value: functionalDocCount, label: "BRD / Functional Doc", color: "#7c3aed", bg: "#f5f3ff", borderColor: "#c4b5fd", tag: "DOC" },
+              ...(existingCount > 0 ? [{ value: existingCount, label: "Existing Tests", color: "#059669", bg: "#f0fdf4", borderColor: "#86efac", tag: "EXISTING" }] : []),
+              { value: totalProposed, label: "Total Executable", color: "#0f172a", bg: "#f8fafc", borderColor: "#e2e8f0", tag: "TOTAL" },
+            ].map((card, idx) => (
+              <div key={idx} style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 10, padding: "14px 16px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: 20, fontWeight: 800, color: "#059669" }}>{existingCount}</span>
-                  <span style={{ fontSize: 10, fontWeight: 800, color: "#059669", background: "#ecfdf5", border: "1px solid #a7f3d0", padding: "2px 6px", borderRadius: 4 }}>EXISTING</span>
+                  <span style={{ fontSize: 20, fontWeight: 800, color: card.color }}>{card.value}</span>
+                  <span style={{ fontSize: 10, fontWeight: 800, color: card.color, background: card.bg, border: `1px solid ${card.borderColor}`, padding: "2px 6px", borderRadius: 4 }}>{card.tag}</span>
                 </div>
-                <div style={{ fontSize: 11, color: "#64748b", fontWeight: 600, marginTop: 8 }}>Existing Repository Tests</div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", lineHeight: 1.2, marginTop: 6 }}>{card.label}</div>
               </div>
-            )}
-
-            {/* Card 4: Total Executable */}
-            <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 10, padding: "14px 16px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ fontSize: 20, fontWeight: 800, color: "#0f172a" }}>{totalProposed}</span>
-                <span style={{ fontSize: 10, fontWeight: 800, color: "#475569", background: "#e2e8f0", border: "1px solid #cbd5e1", padding: "2px 6px", borderRadius: 4 }}>TOTAL</span>
-              </div>
-              <div style={{ fontSize: 11, color: "#64748b", fontWeight: 600, marginTop: 8 }}>Total Executable Tests</div>
-            </div>
+            ))}
           </div>
         </div>
+      </div>
 
-        {/* Functional Test Type Breakdown Cards Grid (API, UI, Total) */}
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 12, fontWeight: 800, color: "#475569", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 }}>
-            Functional Test Type Breakdown
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
-            {/* Card 1: API */}
-            <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 10, padding: "14px 16px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ fontSize: 20, fontWeight: 800, color: "#0284c7" }}>{proposals.filter((p) => p.type === "API").length}</span>
-                <span style={{ fontSize: 10, fontWeight: 800, color: "#0284c7", background: "#f0f9ff", border: "1px solid #bae6fd", padding: "2px 6px", borderRadius: 4 }}>API</span>
-              </div>
-              <div style={{ fontSize: 11, color: "#64748b", fontWeight: 600, marginTop: 8 }}>API Functional Tests (Playwright API)</div>
-            </div>
+      {/* ── BREAKDOWNS AREA (GRID 2-COL) ─────────────────────────────────── */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 32, marginBottom: 48 }}>
 
-            {/* Card 2: UI */}
-            <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 10, padding: "14px 16px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ fontSize: 20, fontWeight: 800, color: "#7c3aed" }}>{proposals.filter((p) => p.type === "UI").length}</span>
-                <span style={{ fontSize: 10, fontWeight: 800, color: "#7c3aed", background: "#faf5ff", border: "1px solid #d8b4fe", padding: "2px 6px", borderRadius: 4 }}>UI</span>
-              </div>
-              <div style={{ fontSize: 11, color: "#64748b", fontWeight: 600, marginTop: 8 }}>UI Functional Tests (Playwright Browser)</div>
+        {/* Type Breakdown Section */}
+        <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+            <h4 style={{ margin: 0, fontSize: 15, fontWeight: 800, color: "#0f172a" }}>Functional Test Type Breakdown</h4>
             </div>
-
-            {/* Card 3: Total Functional Scenarios */}
-            <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 10, padding: "14px 16px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ fontSize: 20, fontWeight: 800, color: "#0f172a" }}>{proposals.filter((p) => p.type === "API" || p.type === "UI").length}</span>
-                <span style={{ fontSize: 10, fontWeight: 800, color: "#475569", background: "#e2e8f0", border: "1px solid #cbd5e1", padding: "2px 6px", borderRadius: 4 }}>TOTAL</span>
-              </div>
-              <div style={{ fontSize: 11, color: "#64748b", fontWeight: 600, marginTop: 8 }}>Total Functional Scenarios (API + UI)</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+            {[
+                { label: "API Functional", value: apiCount, tag: "API", color: "#2563eb", bg: "#eff6ff" },
+                { label: "UI Functional", value: uiCount, tag: "UI", color: "#7c3aed", bg: "#f5f3ff" },
+                { label: "Total Functional", value: totalProposed, tag: "TOTAL", color: "#10b981", bg: "#f0fdf4" },
+            ].map((item, i) => (
+                <div key={i} style={{ background: item.bg, border: "1px solid #eef2f6", borderRadius: 12, padding: "12px", display: "flex", flexDirection: "column", gap: 8, boxShadow: "0 2px 8px rgba(0,0,0,0.02)" }}>
+                    <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "flex-start" }}>
+                        <span style={{ fontSize: 7, fontWeight: 800, color: item.color, background: `${item.color}10`, padding: "2px 6px", borderRadius: 4 }}>{item.tag}</span>
+                    </div>
+                    <div>
+                        <div style={{ fontSize: 24, fontWeight: 800, color: "#0f172a" }}>{item.value}</div>
+                        <div style={{ fontSize: 12, color: "#64748b", fontWeight: 600 }}>{item.label}</div>
+                    </div>
+                </div>
+            ))}
             </div>
-          </div>
         </div>
+      </div>
 
-        {/* Executed Proposed Test Method Details Table */}
-        <div style={{ marginTop: 24 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", marginBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span>Executed Proposed Test Method Details ({proposals.length} scenarios)</span>
-            <span style={{ fontSize: 11, color: "#64748b", fontWeight: 600 }}>Click row for step assertions &amp; evidence</span>
+      {/* ── TABLE AREA (TOPIC STYLE) ──────────────────────────────────────── */}
+      <div style={{ marginBottom: 40 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+          <div style={{ background: "#7c3aed", color: "#fff", width: 24, height: 24, borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}>
+            <FaLayerGroup />
           </div>
 
           <div style={{ maxHeight: 420, overflowY: "auto", border: "1px solid #e2e8f0", borderRadius: 8, background: "#ffffff" }}>
@@ -1090,22 +944,17 @@ export function MigrationProposedTestSection({
             </table>
           </div>
         </div>
+      </div>
 
-        {/* Live Execution Logs Console */}
-        <div style={{ marginTop: 24 }}>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              marginBottom: 8,
-              cursor: "pointer",
-            }}
-            onClick={() => setShowLogs(!showLogs)}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: "#475569" }}>
-              <FaTerminal size={12} style={{ color: "#0284c7" }} />
-              <span>PLAYWRIGHT EXECUTION LOGS ({logs.length} entries)</span>
+      {/* ── CONSOLE TOGGLE AREA (TOPIC STYLE) ────────────────────────────────── */}
+      {logs.length > 0 && (
+        <div style={{ marginBottom: 32 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ background: "#7c3aed", color: "#fff", width: 24, height: 24, borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}>
+                <FaTerminal />
+              </div>
+              <h4 style={{ margin: 0, fontSize: 15, fontWeight: 800, color: "#0f172a" }}>PLAYWRIGHT EXECUTION LOGS ({logs.length} entries)</h4>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <button
@@ -1137,52 +986,25 @@ export function MigrationProposedTestSection({
               </span>
             </div>
           </div>
-
           {showLogs && (
-            <div
-              ref={logBoxRef}
-              style={{
-                background: "#030712",
-                border: "1px solid #1f2937",
-                borderRadius: 8,
-                padding: "12px 14px",
-                maxHeight: 200,
-                overflowY: "auto",
-                fontFamily: "'JetBrains Mono', monospace",
-                fontSize: 11,
-                lineHeight: 1.5,
-                color: "#e2e8f0",
-              }}
-            >
-              {logs.length === 0 ? (
-                <div style={{ color: "#64748b", fontStyle: "italic" }}>
-                  {isRunning ? "Waiting for Playwright test worker output..." : "No execution logs yet. Click 'Run Again' to execute proposed tests."}
+            <div ref={logBoxRef} style={{ background: "#0f172a", borderRadius: 16, padding: "24px", maxHeight: 250, overflowY: "auto", fontFamily: "'JetBrains Mono', monospace", fontSize: 12, lineHeight: 1.6, color: "#e2e8f0", border: "1px solid #1e293b", boxShadow: "inset 0 4px 20px rgba(0,0,0,0.3)" }}>
+              {logs.map((log, i) => (
+                <div key={i} style={{ marginBottom: 4, display: "flex", gap: 16 }}>
+                  <span style={{ color: "#475569", flexShrink: 0 }}>[{log.ts || "00:00:00"}]</span>
+                  <span style={{ color: log.level === "ERROR" ? "#f87171" : "#3b82f6", fontWeight: 700, flexShrink: 0 }}>[{log.level}]</span>
+                  <span style={{ wordBreak: "break-all" }}>{log.msg}</span>
                 </div>
-              ) : (
-                logs.map((log, i) => (
-                  <div key={`prop-log-${i}`} style={{ display: "flex", gap: 8, marginBottom: 2 }}>
-                    {log.ts && <span style={{ color: "#64748b", flexShrink: 0 }}>[{log.ts}]</span>}
-                    {log.level && (
-                      <span
-                        style={{
-                          color: log.level === "ERROR" ? "#f87171" : log.level === "WARN" ? "#fbbf24" : "#38bdf8",
-                          fontWeight: 700,
-                          flexShrink: 0,
-                        }}
-                      >
-                        [{log.level}]
-                      </span>
-                    )}
-                    <span style={{ wordBreak: "break-all" }}>{log.msg}</span>
-                  </div>
-                ))
-              )}
+              ))}
             </div>
           )}
         </div>
+      )}
+
+      {/* ── FOOTER ACTIONS ─────────────────────────────────────────────────── */}
+      <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center" }}>
       </div>
 
-      {/* ── Test Details Modal / Drawer ────────────────────────────────────────── */}
+      {/* ── MODAL ─────────────────────────────────────────────────────────── */}
       {selectedTest && (
         <div
           style={{

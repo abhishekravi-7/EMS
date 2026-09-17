@@ -128,7 +128,7 @@ class AutomatedMigrationRunner:
         accumulated_errors = list(ast_result.error_lines)
         final_status = ast_result.status
 
-        # 4. Phase 2 & 3: Compilation Check + LLM Self-Healing Repair Loop
+        # 4. Phase 2 & 3: Iterative Compilation Check + LLM Self-Healing Repair
         if enable_llm_repair:
             target_major = None
             if effective_target:
@@ -137,25 +137,62 @@ class AutomatedMigrationRunner:
                 except ValueError:
                     target_major = None
 
-            compile_check = self._build_validator.validate(migrated_repo_dir, build_tool, target_major)
-            if not compile_check.success and compile_check.error_lines:
-                accumulated_logs.append("Phase 2 Compilation Verification reported build errors. Triggering Phase 3 LLM Self-Healing Repair...")
-                accumulated_errors.extend(compile_check.error_lines[:15])
+            max_heal_cycles = 3
+            previous_error_count = float("inf")
+
+            for cycle in range(1, max_heal_cycles + 1):
+                compile_check = self._build_validator.validate(
+                    migrated_repo_dir, build_tool, target_major
+                )
+
+                if compile_check.success or compile_check.skipped:
+                    if cycle == 1:
+                        accumulated_logs.append(
+                            "Phase 2 Compilation Verification: BUILD SUCCESS on first pass."
+                        )
+                    else:
+                        accumulated_logs.append(
+                            f"Phase 3 LLM Self-Healing resolved all errors after {cycle - 1} repair cycle(s)!"
+                        )
+                    final_status = "SUCCESS"
+                    break
+
+                current_error_count = len(compile_check.error_lines)
+                accumulated_logs.append(
+                    f"Heal cycle {cycle}/{max_heal_cycles}: "
+                    f"{current_error_count} compiler error(s) detected."
+                )
+
+                if cycle > 1 and current_error_count >= previous_error_count:
+                    accumulated_logs.append(
+                        "No error reduction detected \u2014 stopping self-healing loop."
+                    )
+                    final_status = "PARTIAL"
+                    break
+
+                previous_error_count = current_error_count
+                accumulated_errors.extend(compile_check.error_lines[:20])
 
                 repair_res = self._llm_repair.repair_build_failures(
                     migrated_repo_dir,
                     compile_check.error_lines,
                     target_java_version=effective_target,
+                    max_files_to_fix=0,
                 )
                 accumulated_logs.extend(repair_res.log_lines)
-                if repair_res.success:
-                    re_check = self._build_validator.validate(migrated_repo_dir, build_tool, target_major)
-                    if re_check.success:
-                        final_status = "SUCCESS"
-                        accumulated_logs.append("Phase 3 LLM Self-Healing Repair resolved all compilation errors!")
-                    else:
-                        final_status = "PARTIAL"
-                        accumulated_logs.append("LLM Self-Healing Repair patched files; remaining errors require SME manual review.")
+
+                if not repair_res.success:
+                    accumulated_logs.append(
+                        "LLM Self-Healing could not patch any files this cycle."
+                    )
+                    final_status = "PARTIAL"
+                    break
+            else:
+                final_status = "PARTIAL"
+                accumulated_logs.append(
+                    f"LLM Self-Healing exhausted {max_heal_cycles} repair cycles. "
+                    "Remaining errors require manual SME review."
+                )
 
         # 5. Post-migration discovery to find the new version
         # Use robust Maven evaluation for the final report
@@ -376,7 +413,7 @@ class AutomatedMigrationRunner:
             return None
 
         # Priority properties to check
-        for expr in ["java.version", "maven.compiler.release", "maven.compiler.source"]:
+        for expr in ["maven.compiler.release", "maven.compiler.source", "maven.compiler.target"]:
             cmd = [mvn, "-q", "help:evaluate", f"-Dexpression={expr}", "-DforceStdout", "-B"]
             res = run_command(cmd, cwd=project_dir, timeout=30)
             val = res.stdout.strip()

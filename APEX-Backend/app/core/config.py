@@ -121,6 +121,12 @@ class Settings(BaseSettings):
     migration_commit_author_email: str = "migration-bot@javaapex.local"
     # Bounded retry loop when the post-migration build fails. 0 disables retries.
     migration_max_retry_attempts: int = 2
+    # Maximum build→fix→rebuild iterations for LLM self-healing.
+    max_heal_cycles: int = 3
+    # Max files to attempt LLM repair per heal cycle. 0 = unlimited.
+    max_files_per_heal_cycle: int = 0
+    # If True, block publishing to GitHub when the build completely fails.
+    block_publish_on_build_failure: bool = False
 
     # --- Build validation (post-migration "does it build?" check) -----------
     # Whether to compile/package the migrated code and log BUILD SUCCESS/FAILED.
