@@ -300,7 +300,7 @@ class StartMigrationUseCase:
             )
 
             # Optional Quality Gates (SonarQube/FOSSA)
-            self._run_quality_gates(store, job_id, result.project_dir, report)
+            self._run_quality_gates(store, job_id, result.project_dir or paths.migrated_repo_dir, report)
             store.update(progressPercent=75)
 
 

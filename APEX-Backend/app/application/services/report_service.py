@@ -419,12 +419,14 @@ def build_result(report: dict[str, Any]) -> dict[str, Any]:
         "test_summary": report.get("test_summary"),
         "test_llm_model": report.get("test_llm_model"),
         "sonar_report": report.get("sonar_report"),
+        "fossa_report": report.get("fossa_report"),
         "test_pipeline": report.get("test_pipeline"),
         # --- full migration report detail ---
         "modified_files": report.get("modifiedFiles") or [f["relativePath"] for f in file_diffs],
         "file_diffs": file_diffs,
         "import_changes": report.get("importChanges") or [],
         "source_changes": report.get("sourceChanges") or [],
+        "rule_executions": report.get("ruleExecutions") or [],
     }
 
 

@@ -195,10 +195,19 @@ class Settings(BaseSettings):
     sonarqube_scanner_command: str = "sonar-scanner"
 
     # FOSSA API key. Required only when the FOSSA quality gate card is active.
-    fossa_api_key: str = Field(default="", alias="FOSSA_API_KEY")
+    fossa_api_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("FOSSA_API_KEY", "fossa_api_key"),
+    )
     # Optional custom FOSSA endpoint for self-hosted/enterprise setups.
-    fossa_endpoint: str = Field(default="", alias="FOSSA_ENDPOINT")
-    fossa_cli_command: str = "fossa"
+    fossa_endpoint: str = Field(
+        default="",
+        validation_alias=AliasChoices("FOSSA_ENDPOINT", "fossa_endpoint"),
+    )
+    fossa_cli_command: str = Field(
+        default="fossa",
+        validation_alias=AliasChoices("FOSSA_CLI_PATH", "FOSSA_CLI_COMMAND", "fossa_cli_command"),
+    )
 
     # --- Storage -------------------------------------------------------------
     # Root folder where per-job artifacts (reports, etc.) are written.

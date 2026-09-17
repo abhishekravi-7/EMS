@@ -289,7 +289,8 @@ export interface MigrationResult {
   migration_summary?: string;
   modified_files?: string[];
   import_changes?: Array<{ file: string; added: string[]; removed: string[] }>;
-  source_changes?: Array<{ file: string; linesChanged: number }>;
+  source_changes?: Array<{ file: string; linesChanged?: number; lines_changed?: number }>;
+  rule_executions?: Array<Record<string, any>>;
   retry_attempts?: Array<{ attempt: number; rootCause: string; recipesAdded: string[]; buildStatus: string }>;
   spring_source_framework?: string;
   spring_target_framework?: string;
