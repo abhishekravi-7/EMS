@@ -326,12 +326,6 @@ def _core(report: dict[str, Any]) -> dict[str, Any]:
         "spring_conversion_requested": bool(report.get("springConversionRequested")),
         "spring_conversion_supported": report.get("springConversionSupported"),
         "spring_conversion_note": report.get("springConversionNote"),
-        "run_sonar": bool(report.get("runSonar") or report.get("run_sonar")),
-        "run_fossa": bool(report.get("runFossa") or report.get("run_fossa")),
-        "run_tests": bool(report.get("runTests") or report.get("run_tests")),
-        "runSonar": bool(report.get("runSonar") or report.get("run_sonar")),
-        "runFossa": bool(report.get("runFossa") or report.get("run_fossa")),
-        "runTests": bool(report.get("runTests") or report.get("run_tests")),
     }
 
 

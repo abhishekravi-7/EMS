@@ -214,7 +214,7 @@ export function mapDiscoveryToRepoAnalysis(response: DiscoveryResponse): RepoAna
     total_file_count: project.totalFileCount,
     has_tests: Boolean(project.hasTests),
     dependencies,
-    api_endpoints: project.apiEndpoints,
+    api_endpoints: project.apiEndpoints ?? [],
     detected_frameworks: (project.frameworks ?? []).map((f) => ({
       name: f,
       path: project.detectedFiles?.pomXml ? "pom.xml" : "build.gradle",
