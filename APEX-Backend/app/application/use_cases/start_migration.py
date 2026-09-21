@@ -142,6 +142,35 @@ class StartMigrationUseCase:
             t_host = destination.get("targetHost") or "github.com"
             initial_target_repo = f"https://{t_host}/{t_owner}/{t_name}"
 
+        # Explicit request parameters take precedence over stored config options
+        run_sonar = (
+            bool(request["run_sonar"])
+            if "run_sonar" in request
+            else (
+                bool(request["runSonar"])
+                if "runSonar" in request
+                else bool(options.get("runSonar") if "runSonar" in options else options.get("run_sonar", False))
+            )
+        )
+        run_fossa = (
+            bool(request["run_fossa"])
+            if "run_fossa" in request
+            else (
+                bool(request["runFossa"])
+                if "runFossa" in request
+                else bool(options.get("runFossa") if "runFossa" in options else options.get("run_fossa", False))
+            )
+        )
+        run_tests = (
+            bool(request["run_tests"])
+            if "run_tests" in request
+            else (
+                bool(request["runTests"])
+                if "runTests" in request
+                else bool(options.get("runTests") if "runTests" in options else options.get("run_tests", False))
+            )
+        )
+
         store = MigrationReportStore(WorkspacePaths(job_id))
         report = {
             "jobId": job_id,
@@ -154,9 +183,12 @@ class StartMigrationUseCase:
             "buildTool": build_tool,
             "conversionTypes": conversion_types,
             "options": options,
-            "runSonar": bool(options.get("runSonar") or request.get("run_sonar")),
-            "runFossa": bool(options.get("runFossa") or request.get("run_fossa")),
-            "runTests": bool(options.get("runTests") or request.get("run_tests")),
+            "runSonar": run_sonar,
+            "run_sonar": run_sonar,
+            "runFossa": run_fossa,
+            "run_fossa": run_fossa,
+            "runTests": run_tests,
+            "run_tests": run_tests,
             "proposedTestSources": proposed_test_sources,
             "destination": destination,
             "targetRepo": initial_target_repo,
@@ -309,111 +341,124 @@ class StartMigrationUseCase:
             store.update(progressPercent=75)
 
 
-            # --- Step 5: Automatically generate and run Unit Test Suite ---
-            try:
-                store.append_logs(["[QUALITY CHECK] ===== AUTOMATED UNIT TEST SUITE EXECUTION ====="])
-                import asyncio
-                from app.application.use_cases.run_unit_tests import RunUnitTestSuiteUseCase
-                from app.schemas.unit_test import UnitTestGenerateAndRunRequest
-
-                unit_test_use_case = RunUnitTestSuiteUseCase()
-                req = UnitTestGenerateAndRunRequest(
-                    job_id=job_id,
-                    project_dir=str(paths.migrated_repo_dir),
-                    relative_source_path="",
-                    build_tool="maven" if (paths.migrated_repo_dir / "pom.xml").exists() else "gradle",
-                    enable_validation_agent=True,
+            # --- Step 5: Automatically generate and run Unit Test Suite (if selected) ---
+            run_tests = bool(
+                report["runTests"]
+                if "runTests" in report
+                else (
+                    report["run_tests"]
+                    if "run_tests" in report
+                    else False
                 )
-                loop = asyncio.new_event_loop()
+            )
+            if run_tests:
                 try:
-                    test_result = loop.run_until_complete(
-                        asyncio.wait_for(unit_test_use_case.execute_project_suite(req), timeout=45.0)
+                    store.append_logs(["[QUALITY CHECK] ===== AUTOMATED UNIT TEST SUITE EXECUTION ====="])
+                    import asyncio
+                    from app.application.use_cases.run_unit_tests import RunUnitTestSuiteUseCase
+                    from app.schemas.unit_test import UnitTestGenerateAndRunRequest
+
+                    unit_test_use_case = RunUnitTestSuiteUseCase()
+                    req = UnitTestGenerateAndRunRequest(
+                        job_id=job_id,
+                        project_dir=str(paths.migrated_repo_dir),
+                        relative_source_path="",
+                        build_tool="maven" if (paths.migrated_repo_dir / "pom.xml").exists() else "gradle",
+                        enable_validation_agent=True,
                     )
-                except Exception as suite_err:
-                    logger.warning(f"execute_project_suite timed out or noticed exception: {suite_err}")
-                    test_result = type("UnitTestSuiteResult", (), {
-                        "existing_test_results": [],
-                        "generated_test_results": []
-                    })()
-                finally:
-                    loop.close()
+                    loop = asyncio.new_event_loop()
+                    try:
+                        test_result = loop.run_until_complete(
+                            asyncio.wait_for(unit_test_use_case.execute_project_suite(req), timeout=45.0)
+                        )
+                    except Exception as suite_err:
+                        logger.warning(f"execute_project_suite timed out or noticed exception: {suite_err}")
+                        test_result = type("UnitTestSuiteResult", (), {
+                            "existing_test_results": [],
+                            "generated_test_results": []
+                        })()
+                    finally:
+                        loop.close()
 
-                orig_repo = paths.original_repo_dir if paths.original_repo_dir.exists() else paths.migrated_repo_dir
-                mig_repo = paths.migrated_repo_dir
+                    orig_repo = paths.original_repo_dir if paths.original_repo_dir.exists() else paths.migrated_repo_dir
+                    mig_repo = paths.migrated_repo_dir
 
-                orig_test_dir = orig_repo / "src" / "test" / "java"
-                orig_test_files = list(orig_test_dir.rglob("*.java")) if orig_test_dir.exists() else []
-                existing_test_files = len(orig_test_files)
+                    orig_test_dir = orig_repo / "src" / "test" / "java"
+                    orig_test_files = list(orig_test_dir.rglob("*.java")) if orig_test_dir.exists() else []
+                    existing_test_files = len(orig_test_files)
 
-                mig_test_dir = mig_repo / "src" / "test" / "java"
-                mig_test_files = list(mig_test_dir.rglob("*.java")) if mig_test_dir.exists() else []
+                    mig_test_dir = mig_repo / "src" / "test" / "java"
+                    mig_test_files = list(mig_test_dir.rglob("*.java")) if mig_test_dir.exists() else []
 
-                orig_rel_set = {str(f.relative_to(orig_repo)).replace("\\", "/") for f in orig_test_files}
-                new_test_files_list = [f for f in mig_test_files if str(f.relative_to(mig_repo)).replace("\\", "/") not in orig_rel_set]
-                new_test_files = len(new_test_files_list)
+                    orig_rel_set = {str(f.relative_to(orig_repo)).replace("\\", "/") for f in orig_test_files}
+                    new_test_files_list = [f for f in mig_test_files if str(f.relative_to(mig_repo)).replace("\\", "/") not in orig_rel_set]
+                    new_test_files = len(new_test_files_list)
 
-                total_repo_files = len(list(mig_repo.rglob("*.java")))
-                exist_count = len(test_result.existing_test_results) or (existing_test_files if existing_test_files > 0 else 1)
-                gen_count = len(test_result.generated_test_results) or (new_test_files * 4 if new_test_files > 0 else 40)
-                total_cases = exist_count + gen_count
+                    total_repo_files = len(list(mig_repo.rglob("*.java")))
+                    exist_count = len(test_result.existing_test_results) or (existing_test_files if existing_test_files > 0 else 1)
+                    gen_count = len(test_result.generated_test_results) or (new_test_files * 4 if new_test_files > 0 else 40)
+                    total_cases = exist_count + gen_count
 
-                executed_details = []
-                all_details = test_result.existing_test_results + test_result.generated_test_results
-                if all_details:
-                    for d in all_details:
-                        executed_details.append({
-                            "test_class": d.test_class.split(".")[-1],
-                            "test_method": d.test_method,
-                            "status": d.status,
-                            "execution_time_seconds": round(d.execution_time_seconds, 3),
-                            "error_message": d.error_message,
-                        })
-                else:
-                    for test_f in mig_test_files:
-                        c_name = test_f.stem
-                        action_name = c_name.replace("Test", "")
-                        bdd_scenarios = [
-                            f"givenValidRequest_when{action_name}_thenReturnSuccess",
-                            f"givenNullInput_when{action_name}_thenThrowIllegalArgumentException",
-                            f"givenBoundaryValues_when{action_name}_thenReturnValidResult",
-                            f"givenInvalidState_when{action_name}_thenThrowException",
-                        ]
-                        for bdd_m in bdd_scenarios:
+                    executed_details = []
+                    all_details = test_result.existing_test_results + test_result.generated_test_results
+                    if all_details:
+                        for d in all_details:
                             executed_details.append({
-                                "test_class": c_name,
-                                "test_method": bdd_m,
-                                "status": "PASSED",
-                                "execution_time_seconds": 0.012,
-                                "error_message": None,
+                                "test_class": d.test_class.split(".")[-1],
+                                "test_method": d.test_method,
+                                "status": d.status,
+                                "execution_time_seconds": round(d.execution_time_seconds, 3),
+                                "error_message": d.error_message,
                             })
+                    else:
+                        for test_f in mig_test_files:
+                            c_name = test_f.stem
+                            action_name = c_name.replace("Test", "")
+                            bdd_scenarios = [
+                                f"givenValidRequest_when{action_name}_thenReturnSuccess",
+                                f"givenNullInput_when{action_name}_thenThrowIllegalArgumentException",
+                                f"givenBoundaryValues_when{action_name}_thenReturnValidResult",
+                                f"givenInvalidState_when{action_name}_thenThrowException",
+                            ]
+                            for bdd_m in bdd_scenarios:
+                                executed_details.append({
+                                    "test_class": c_name,
+                                    "test_method": bdd_m,
+                                    "status": "PASSED",
+                                    "execution_time_seconds": 0.012,
+                                    "error_message": None,
+                                })
 
-                publish_target_java = result.effective_target_java_version or target_java
-                test_pipeline_data = {
-                    "test_summary_metrics": {
-                        "repo_total_files": total_repo_files,
-                        "existing_test_files": existing_test_files,
-                        "new_test_files": new_test_files,
-                        "existing_test_cases": exist_count,
-                        "generated_test_cases": gen_count,
-                        "total_test_cases": total_cases,
-                        "java_migration_version": publish_target_java,
-                    },
-                    "executed_test_details": executed_details,
-                    "coverage_result": {
-                        "available": True,
-                        "line_coverage_pct": 87.5,
+                    publish_target_java = result.effective_target_java_version or target_java
+                    test_pipeline_data = {
+                        "test_summary_metrics": {
+                            "repo_total_files": total_repo_files,
+                            "existing_test_files": existing_test_files,
+                            "new_test_files": new_test_files,
+                            "existing_test_cases": exist_count,
+                            "generated_test_cases": gen_count,
+                            "total_test_cases": total_cases,
+                            "java_migration_version": publish_target_java,
+                        },
+                        "executed_test_details": executed_details,
+                        "coverage_result": {
+                            "available": True,
+                            "line_coverage_pct": 87.5,
+                        }
                     }
-                }
-                store.update(
-                    test_pipeline=test_pipeline_data,
-                    tests_run=total_cases,
-                    tests_passed=total_cases,
-                    test_summary=f"Executed unit test suite cleanly ({total_cases} test cases executed).",
-                    progressPercent=80,
-                )
-                store.append_logs([f"[QUALITY CHECK] Unit tests passed cleanly ({total_cases} test cases)."])
-            except Exception as test_exc:
-                logger.warning(f"Post-migration unit test execution notice for job {job_id}: {test_exc}")
+                    store.update(
+                        test_pipeline=test_pipeline_data,
+                        tests_run=total_cases,
+                        tests_passed=total_cases,
+                        test_summary=f"Executed unit test suite cleanly ({total_cases} test cases executed).",
+                        progressPercent=80,
+                    )
+                    store.append_logs([f"[QUALITY CHECK] Unit tests passed cleanly ({total_cases} test cases)."])
+                except Exception as test_exc:
+                    logger.warning(f"Post-migration unit test execution notice for job {job_id}: {test_exc}")
+                    store.update(progressPercent=80)
+            else:
+                store.append_logs(["[QUALITY CHECK] Unit test suite execution skipped (not selected)."])
                 store.update(progressPercent=80)
 
             # --- Stage 5: Code Deprecation ---
@@ -862,8 +907,24 @@ class StartMigrationUseCase:
         if project_dir is None:
             return
 
-        run_sonar = bool(report.get("runSonar"))
-        run_fossa = bool(report.get("runFossa"))
+        run_sonar = bool(
+            report["runSonar"]
+            if "runSonar" in report
+            else (
+                report["run_sonar"]
+                if "run_sonar" in report
+                else False
+            )
+        )
+        run_fossa = bool(
+            report["runFossa"]
+            if "runFossa" in report
+            else (
+                report["run_fossa"]
+                if "run_fossa" in report
+                else False
+            )
+        )
         if not run_sonar and not run_fossa:
             return
 

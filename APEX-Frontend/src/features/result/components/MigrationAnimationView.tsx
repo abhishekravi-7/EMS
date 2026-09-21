@@ -446,8 +446,11 @@ export function MigrationAnimationView({
       clearInterval(countdownTimerRef.current);
       countdownTimerRef.current = null;
     }
-    onMigrationCompleteRef.current?.();
-    onViewReportRef.current?.();
+    if (onViewReportRef.current) {
+      onViewReportRef.current();
+    } else if (onMigrationCompleteRef.current) {
+      onMigrationCompleteRef.current();
+    }
   };
 
   // Backend Status Detection & Genuine Migration Status

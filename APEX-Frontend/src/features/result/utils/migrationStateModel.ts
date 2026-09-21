@@ -504,7 +504,7 @@ export function buildMigrationState(params: BuildMigrationStateParams): Migratio
         executed: Boolean(migrationJob?.run_fossa ?? migrationJob?.runFossa ?? runFossa),
       },
       junit: {
-        executed: Boolean(migrationJob?.run_tests ?? migrationJob?.runTests ?? runTests) || hasUnitTestData,
+        executed: Boolean(migrationJob?.run_tests ?? migrationJob?.runTests ?? runTests),
         testsPassed,
         testsFailed,
       },
