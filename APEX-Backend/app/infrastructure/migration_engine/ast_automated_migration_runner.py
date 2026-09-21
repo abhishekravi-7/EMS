@@ -168,20 +168,21 @@ class AstMigrationRunner:
         active_packs = plan.get("activePacks", [])
 
         # 1. Modernize Build Manifest (pom.xml or build.gradle)
-        pom_path = project_dir / "pom.xml"
+        has_pom = (project_dir / "pom.xml").exists() or any(project_dir.rglob("pom.xml"))
+        has_gradle = (project_dir / "build.gradle").exists() or (project_dir / "build.gradle.kts").exists() or any(project_dir.rglob("build.gradle*"))
         dep_upgrades: list[dict[str, str]] = []
         sb_before: str | None = None
         sb_after: str | None = None
 
-        if pom_path.exists():
-            pom_res = PomModernizer().modernize(pom_path, target_java)
+        if has_pom:
+            pom_res = PomModernizer().modernize(project_dir, target_java)
             dep_upgrades = pom_res.dependency_upgrades
             sb_before = pom_res.spring_boot_before
             sb_after = pom_res.spring_boot_after
             if pom_res.modified:
                 changed_files.extend(pom_res.changed_files)
                 logs.extend(pom_res.log_lines)
-        elif (project_dir / "build.gradle").exists() or (project_dir / "build.gradle.kts").exists():
+        elif has_gradle:
             gradle_res = GradleModernizer().modernize(project_dir, target_java)
             dep_upgrades = gradle_res.dependency_upgrades
             sb_before = gradle_res.spring_boot_before
