@@ -37,6 +37,8 @@ def save_report_to_db(job_id: str, report: dict[str, Any]) -> None:
                     },
                     upsert=True
                 )
+                from app.infrastructure.persistence.mongodb_ownership_repository import sync_update_job_last_updated
+                sync_update_job_last_updated(job_id)
                 return
         except Exception as exc: # noqa: BLE001
             logger.debug("Non-fatal: could not persist report to MongoDB for %s: %s", job_id, exc)
@@ -71,6 +73,9 @@ def save_report_to_db(job_id: str, report: dict[str, Any]) -> None:
             session.commit()
     except Exception as exc:  # noqa: BLE001
         logger.debug("Non-fatal: could not persist migration report to db for %s: %s", job_id, exc)
+
+    from app.infrastructure.persistence.mongodb_ownership_repository import sync_update_job_last_updated
+    sync_update_job_last_updated(job_id)
 
 
 def load_report_from_db(job_id: str) -> dict[str, Any] | None:

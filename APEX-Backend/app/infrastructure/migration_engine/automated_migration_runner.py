@@ -140,6 +140,7 @@ class AutomatedMigrationRunner:
 
             max_heal_cycles = 3
             previous_error_count = float("inf")
+            desperation_triggered = False
 
             for cycle in range(1, max_heal_cycles + 1):
                 compile_check = self._build_validator.validate(

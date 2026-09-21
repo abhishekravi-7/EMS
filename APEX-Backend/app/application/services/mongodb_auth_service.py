@@ -201,7 +201,8 @@ class MongoDBAuthService:
             self._db,
             user_id=user["_id"],
             token=token,
-            expires_at=expires_at
+            expires_at=expires_at,
+            email=user["email"]
         )
 
         reset_link = f"{frontend_url.rstrip('/')}/reset-password?token={token}"
