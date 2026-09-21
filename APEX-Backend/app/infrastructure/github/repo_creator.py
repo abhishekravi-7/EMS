@@ -56,20 +56,14 @@ class RepoCreator:
         *,
         owner: str | None = None,
         host: str | None = None,
-        token: str | None = None,
         private: bool = False,
         description: str = "Migrated with the Java APEX migration engine",
     ) -> CreatedRepo:
-        effective_token = (
-            (token or "").strip()
-            or (settings.github_target_token or "").strip()
-            or (settings.github_token or "").strip()
-        )
-        if not effective_token:
+        token = (settings.github_target_token or "").strip()
+        if not token:
             raise PushFailedError(
-                "No target GitHub token configured. Set GITHUB_TARGET_TOKEN or provide a PAT."
+                "No target GitHub token configured. Set GITHUB_TARGET_TOKEN."
             )
-        token = effective_token
 
         repo_name = self.clean_repo_name(repo_name)
         profile: TargetProfile = self._profiles.resolve(owner=owner, host=host)

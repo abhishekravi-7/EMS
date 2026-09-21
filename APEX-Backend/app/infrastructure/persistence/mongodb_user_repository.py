@@ -59,10 +59,9 @@ async def update_user(db: AsyncIOMotorDatabase, user_id: str, updates: dict[str,
 
 # --- Password Reset ---
 
-async def create_password_reset_token(db: AsyncIOMotorDatabase, user_id: str, token: str, expires_at: datetime, email: Optional[str] = None):
+async def create_password_reset_token(db: AsyncIOMotorDatabase, user_id: str, token: str, expires_at: datetime):
     await db.password_resets.insert_one({
         "user_id": user_id,
-        "email": email,
         "token": token,
         "expires_at": expires_at,
         "created_at": datetime.now(timezone.utc)

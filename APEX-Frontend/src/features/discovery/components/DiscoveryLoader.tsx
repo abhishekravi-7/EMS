@@ -87,7 +87,7 @@ const SCANS_CONFIG: ScanDefinition[] = [
       "Detect ORM & database drivers (Hibernate, JPA, JDBC)",
       "Detect web and REST service layers",
       "Assess Spring Boot readiness",
-      "Map API endpoints",
+      // "Assess Spring Boot & microservice readiness",
     ],
     calloutTitle: "Detecting frameworks & service fit...",
     calloutDescription: "Analyzing framework annotations, configuration files, and service patterns.",

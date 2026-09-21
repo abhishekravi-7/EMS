@@ -85,13 +85,7 @@ async def run_existing_tests_endpoint(
              try:
                  mongo_db = await get_mongodb()
                  if mongo_db is not None:
-                     await record_mongo_owner(
-                         mongo_db, 
-                         job_id=job_id, 
-                         user_id=str(current_user.id),
-                         owner_name=current_user.full_name,
-                         owner_email=current_user.email
-                     )
+                     await record_mongo_owner(mongo_db, job_id=job_id, user_id=str(current_user.id))
              except Exception as rec_err: # noqa: BLE001
                  logger.debug("Non-fatal: could not record job owner in MongoDB for %s: %s", job_id, rec_err)
         elif db is not None and settings.database_enabled:

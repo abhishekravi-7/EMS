@@ -1,6 +1,5 @@
 import { authHeader, performRequest, requestJson } from "@/services/http/client";
 import type { RepoAnalysis, RepoFile } from "@/shared/types/domain";
-import type { RecentRepository, RecentRepositoriesResponse } from "../types/recentRepositories";
 
 /**
  * Connect stage (Step 1) — talks to the new layered backend endpoint
@@ -202,17 +201,3 @@ export async function getLocalProjectFileContent(projectPath: string, filePath: 
     }
   );
 }
-
-export async function getRecentRepositories(): Promise<RecentRepository[]> {
-  try {
-    const res = await requestJson<RecentRepositoriesResponse>(
-      "/v1/connect/recent-repositories",
-      "Failed to fetch recent repositories"
-    );
-    return res?.repositories || [];
-  } catch (error) {
-    console.warn("Failed to fetch recent repositories:", error);
-    return [];
-  }
-}
-

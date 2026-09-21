@@ -215,22 +215,7 @@ async def upload_local_project(
         JobRepository().save_connect_report(job_id, connect_report)
 
         # Record user ownership for the newly created job
-        from app.core.config import settings
-        if settings.persistence_backend == "mongodb":
-            from app.infrastructure.persistence.mongodb import get_mongodb
-            from app.infrastructure.persistence.mongodb_ownership_repository import record_job_owner as record_mongo_owner
-            mongo_db = await get_mongodb()
-            if mongo_db is not None:
-                await record_mongo_owner(
-                    mongo_db, 
-                    job_id=job_id, 
-                    user_id=str(current_user.id),
-                    owner_name=current_user.full_name,
-                    owner_email=current_user.email,
-                    repository_name=resolved_project_name
-                )
-        else:
-            await run_in_threadpool(record_job_owner, db, job_id=job_id, user_id=current_user.id)
+        await run_in_threadpool(record_job_owner, db, job_id=job_id, user_id=current_user.id)
 
         logger.info("[LOCAL PROJECT UPLOAD SUCCESS] job_id=%s project=%s", job_id, resolved_project_name)
 
