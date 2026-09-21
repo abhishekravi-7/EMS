@@ -38,14 +38,15 @@ class FossaScanResult:
 class DependencyCheckRunner:
     """Runs FOSSA analysis when a FOSSA API key is configured."""
 
-    def run(self, project_dir: Path, *, job_id: str, project_name: str | None = None) -> FossaScanResult:
-        api_key = settings.fossa_api_key.strip()
+    def run(self, project_dir: Path, *, job_id: str, project_name: str | None = None, quality_checks_values: dict | None = None) -> FossaScanResult:
+        qc_config = quality_checks_values or {}
+        api_key = (qc_config.get("fossa_api_key") or "").strip()
         if not api_key:
             return FossaScanResult(
                 policy_status="UNAVAILABLE",
                 scan_mode="missing_token",
-                error_message="Set FOSSA_API_KEY in .env to enable FOSSA quality gate scans.",
-                log_lines=["FOSSA skipped: FOSSA_API_KEY is not configured."],
+                error_message="FOSSA API key missing. Configure it in User Settings.",
+                log_lines=["FOSSA skipped: API key is not configured in user settings."],
             )
 
         cli = self._resolve_command(settings.fossa_cli_command)
@@ -58,14 +59,15 @@ class DependencyCheckRunner:
             )
 
         project = self._project_name(job_id, project_name or project_dir.name)
-        host_url = (settings.fossa_endpoint.strip() if settings.fossa_endpoint.strip() else "https://app.fossa.com").rstrip("/")
+        fossa_ep = (qc_config.get("fossa_endpoint") or "").strip()
+        host_url = (fossa_ep if fossa_ep else "https://app.fossa.com").rstrip("/")
         # analysis_url is a fallback; the real URL will be extracted from CLI output after `fossa analyze` runs
         fallback_url = self._analysis_url(project)
 
         env = os.environ.copy()
         env["FOSSA_API_KEY"] = api_key
-        if settings.fossa_endpoint.strip():
-            env["FOSSA_ENDPOINT"] = settings.fossa_endpoint.strip()
+        if fossa_ep:
+            env["FOSSA_ENDPOINT"] = fossa_ep
 
         logger.info("Running FOSSA analysis for job %s | project=%s | cwd=%s | cli=%s", job_id, project, project_dir, cli)
 

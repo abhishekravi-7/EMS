@@ -219,7 +219,7 @@ class RunUnitTestSuiteUseCase:
             target_files = self.discover_target_classes(project_dir)
 
             if not target_files:
-                return self._runner.run(project_dir=project_dir, build_tool=req.build_tool)
+                return self._runner.run(project_dir=project_dir, build_tool=req.build_tool, test_command=req.test_command)
 
             for target_file in target_files:
                 try:
@@ -248,7 +248,7 @@ class RunUnitTestSuiteUseCase:
                 except Exception:  # noqa: BLE001, S112
                     continue  # nosec B112
 
-            return self._runner.run(project_dir=project_dir, build_tool=req.build_tool)
+            return self._runner.run(project_dir=project_dir, build_tool=req.build_tool, test_command=req.test_command)
         finally:
             if db:
                 self._generator._chat_llm = original_chat

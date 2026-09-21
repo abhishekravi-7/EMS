@@ -8,11 +8,17 @@ from app.core.security import hash_password
 
 logger = logging.getLogger(__name__)
 
+def _get_query_id(user_id: str):
+    query_ids = [user_id]
+    if isinstance(user_id, str) and user_id.isdigit():
+        query_ids.append(int(user_id))
+    return {"$in": query_ids}
+
 async def get_user_by_email(db: AsyncIOMotorDatabase, email: str) -> Optional[dict]:
     return await db.users.find_one({"email": email.lower().strip()})
 
 async def get_user_by_id(db: AsyncIOMotorDatabase, user_id: str) -> Optional[dict]:
-    return await db.users.find_one({"_id": user_id})
+    return await db.users.find_one({"_id": _get_query_id(user_id)})
 
 async def create_user(
     db: AsyncIOMotorDatabase,
@@ -49,13 +55,13 @@ async def create_user(
 
 async def update_last_login(db: AsyncIOMotorDatabase, user_id: str):
     await db.users.update_one(
-        {"_id": user_id},
+        {"_id": _get_query_id(user_id)},
         {"$set": {"last_login_at": datetime.now(timezone.utc), "updated_at": datetime.now(timezone.utc)}}
     )
 
 async def update_user(db: AsyncIOMotorDatabase, user_id: str, updates: dict[str, Any]):
     updates["updated_at"] = datetime.now(timezone.utc)
-    await db.users.update_one({"_id": user_id}, {"$set": updates})
+    await db.users.update_one({"_id": _get_query_id(user_id)}, {"$set": updates})
 
 # --- Password Reset ---
 
@@ -75,7 +81,7 @@ async def delete_password_reset_token(db: AsyncIOMotorDatabase, token: str):
 
 async def update_user_password(db: AsyncIOMotorDatabase, user_id: str, password_hash: str):
     await db.users.update_one(
-        {"_id": user_id},
+        {"_id": _get_query_id(user_id)},
         {"$set": {"password_hash": password_hash, "updated_at": datetime.now(timezone.utc)}}
     )
 
@@ -101,7 +107,8 @@ async def create_oauth_user(
     auth_provider: str,
     provider_user_id: str,
     profile_image: Optional[str] = None,
-    is_email_verified: bool = False
+    is_email_verified: bool = False,
+    github_account: Optional[str] = None
 ) -> dict:
     user_id = str(uuid4())
     now = datetime.now(timezone.utc)
@@ -114,6 +121,7 @@ async def create_oauth_user(
         "auth_providers": [auth_provider],
         "provider_user_id": provider_user_id,
         "profile_image": profile_image,
+        "github_account": github_account,
         "role": "USER",
         "is_active": True,
         "is_email_verified": is_email_verified,

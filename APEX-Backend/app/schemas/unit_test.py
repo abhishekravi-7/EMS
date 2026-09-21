@@ -87,3 +87,4 @@ class UnitTestGenerateAndRunRequest(BaseModel):
     spring_boot_version: str | None = Field(None, description="Detected Spring Boot version if applicable")
     max_reflection_retries: int = Field(3, description="Maximum retries for self-correction reflection loop")
     enable_validation_agent: bool = Field(True, description="Enable Multi-Agent Critic and Smell Detector validation")
+    test_command: str | None = Field(None, description="Optional custom test command to run instead of default maven/gradle test")

@@ -30,6 +30,7 @@ import {
 import { SourceCodeViewerModal } from "./SourceCodeViewerModal";
 import { QualityCheckDetailsModal } from "./QualityCheckDetailsModal";
 import { MigrationStepper, type MigrationStepItem as StepperStepItem } from "./MigrationStepper";
+import { displayError } from "@/shared/utils/llmError";
 import "./MigrationAnimationView.css";
 
 export interface MigrationStepConfig {
@@ -621,7 +622,9 @@ export function MigrationAnimationView({
   }, [isBackendFailed, isAllComplete, migrationJob?.current_stage_name, migrationJob?.current_step, currentStepDef]);
 
   const activityDescription = useMemo(() => {
-    if (isBackendFailed) return migrationJob?.error_message || "An error occurred during the migration process.";
+    if (isBackendFailed) {
+      return displayError(migrationJob?.error_message || "An error occurred during the migration process.");
+    }
     if (isAllComplete) return "Your application has been successfully modernized.";
     return currentStepDef ? currentStepDef.activitySubtitle(migrationState) : "Please wait while we process your data.";
   }, [isBackendFailed, isAllComplete, currentStepDef, migrationState, migrationJob?.error_message]);

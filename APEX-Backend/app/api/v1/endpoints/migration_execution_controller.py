@@ -59,9 +59,13 @@ async def start_migration(
     db: Session = Depends(get_db),  # noqa: B008
 ) -> JSONResponse:
     await verify_job_ownership(db, job_id, current_user)
-    request = payload.model_dump() if payload else None
+    request = payload.model_dump() if payload else {}
+    from app.api.deps import resolve_github_token
+    github_token = await resolve_github_token(request.get("github_token"), current_user)
     try:
-        result = await asyncio.to_thread(_pipeline.start, job_id, request, current_user_id=current_user.id)
+        result = await asyncio.to_thread(
+            _pipeline.start, job_id, request, current_user_id=current_user.id, github_token=github_token
+        )
         logger.info("[MIGRATION START] Migration started for job %s by user %s", job_id, current_user.id)
         return JSONResponse(status_code=200, content=result)
     except (MigrationConfigError, MigrationExecutionError) as exc:

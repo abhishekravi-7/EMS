@@ -96,6 +96,7 @@ class AuthService:
         email_verified: bool,
         full_name: str | None,
         profile_image: str | None,
+        github_account: str | None = None,
     ) -> User:
         """Find-or-create the local user for a verified provider identity.
 

@@ -1,26 +1,52 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { getAdminSettings, updateAdminSettings, type SystemSettings } from "../services/adminService";
+import {
+  getAdminSettings,
+  updateAdminSettings,
+  getUserSettings,
+  updateUserSettings,
+  testAdminGithubConnection,
+  testUserGithubConnection,
+  fetchUserGithubRepos,
+  fetchUserGithubBranches,
+  type SystemSettings,
+  type UserGitHubConfig,
+  type FullUserSettings,
+  type GithubRepo,
+  type GithubBranch
+} from "../services/adminService";
+import { useAuth } from "@/shared/context/AuthContext";
 import {
   FaGithub,
   FaBrain,
   FaShieldAlt,
-  FaDatabase,
   FaEye,
   FaEyeSlash,
   FaArrowLeft,
   FaSyncAlt,
-  FaServer,
+  FaCog,
   FaLink,
-  FaRocket,
 } from "react-icons/fa";
+import QualityChecksSettings from "../components/QualityChecksSettings";
+import UserQualityChecksSettings from "../components/UserQualityChecksSettings";
+import { TestCasesAdminSettings } from "../components/TestCasesAdminSettings";
+import { TestCasesUserSettings } from "../components/TestCasesUserSettings";
+import { LlmAdminSettings } from "../components/LlmAdminSettings";
+import { LlmUserSettings } from "../components/LlmUserSettings";
 import "./AdminConsolePage.css";
 
 const ADMIN_RAIL_TABS = [
-  { id: "github", label: "Pipeline", icon: FaGithub, category: "Infrastructure" },
+  { id: "github", label: "GitHub", icon: FaGithub, category: "Infrastructure" },
+  { id: "quality", label: "Quality Checks", icon: FaShieldAlt, category: "Validation" },
+  { id: "testcases", label: "Test Cases", icon: FaShieldAlt, category: "Testing" },
   { id: "ai", label: "Intelligence", icon: FaBrain, category: "Cognitive" },
-  { id: "quality", label: "Reliability", icon: FaShieldAlt, category: "Validation" },
-  { id: "platform", label: "Core Hub", icon: FaDatabase, category: "System" },
+];
+
+const USER_RAIL_TABS = [
+  { id: "github", label: "GitHub", icon: FaGithub, category: "Personal Settings" },
+  { id: "user_quality", label: "Quality Checks", icon: FaShieldAlt, category: "Personal Settings" },
+  { id: "testcases", label: "Test Cases", icon: FaShieldAlt, category: "Personal Settings" },
+  { id: "ai", label: "Intelligence", icon: FaBrain, category: "Personal Settings" },
 ];
 
 const INITIAL_SETTINGS: SystemSettings = {
@@ -28,8 +54,11 @@ const INITIAL_SETTINGS: SystemSettings = {
   github_api_base_url: "",
   github_target_owner: "",
   github_target_token: "",
-  huggingface_token: "",
-  groq_api_key: "",
+  github_client_id: "",
+  github_client_secret: "",
+  github_callback_url: "",
+  github_organization: "",
+  github_default_branch: "",
   ollama_base_url: "",
   rag_enabled: false,
   sonarqube_host_url: "",
@@ -37,32 +66,88 @@ const INITIAL_SETTINGS: SystemSettings = {
   fossa_api_key: "",
   database_url: "",
   jwt_secret_key: "",
+  quality_checks_config: "",
+};
+
+const INITIAL_USER_SETTINGS: FullUserSettings = {
+  github_config: {
+    github_account: "",
+    pat: "",
+    pat_scope: "",
+    repository: "",
+    branch: "",
+    user_access: "",
+  },
+  quality_checks_values: {}
 };
 
 export default function AdminConsolePage() {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState("github");
+  const { currentUser } = useAuth();
+  
+  const isSuperAdmin = currentUser?.role === "SUPERADMIN";
+
   const [showSecrets, setShowSecrets] = useState<{ [key: string]: boolean }>({});
+  
+  // State for SUPERADMIN
   const [settings, setSettings] = useState<SystemSettings>(INITIAL_SETTINGS);
+  // State for USER
+  const [userSettings, setUserSettings] = useState<FullUserSettings>(INITIAL_USER_SETTINGS);
+  
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [availableRepos, setAvailableRepos] = useState<GithubRepo[]>([]);
+  const [availableBranches, setAvailableBranches] = useState<GithubBranch[]>([]);
+  const [isLoadingRepos, setIsLoadingRepos] = useState(false);
+  const [isLoadingBranches, setIsLoadingBranches] = useState(false);
 
   useEffect(() => {
     async function fetchSettings() {
       try {
         setIsLoading(true);
-        const data = await getAdminSettings();
-        setSettings(data);
+        if (isSuperAdmin) {
+          const data = await getAdminSettings();
+          setSettings(data);
+        } else {
+          const userData = await getUserSettings();
+          setUserSettings(userData);
+        }
       } catch (err) {
         setError("Failed to load settings. Please check your permissions.");
-        console.error("Failed to load admin settings:", err);
+        console.error("Failed to load settings:", err);
       } finally {
         setIsLoading(false);
       }
     }
-    fetchSettings();
-  }, []);
+    if (currentUser) {
+      fetchSettings();
+    }
+  }, [isSuperAdmin, currentUser]);
+
+  useEffect(() => {
+    if (!isSuperAdmin && userSettings.github_config?.pat) {
+      setIsLoadingRepos(true);
+      fetchUserGithubRepos()
+        .then(repos => setAvailableRepos(repos))
+        .catch(err => console.error("Failed to fetch repos", err))
+        .finally(() => setIsLoadingRepos(false));
+    }
+  }, [isSuperAdmin, userSettings.github_config?.pat]);
+
+  useEffect(() => {
+    if (!isSuperAdmin && userSettings.github_config?.repository && availableRepos.length > 0) {
+      const selectedRepo = availableRepos.find(r => r.full_name === userSettings.github_config?.repository);
+      if (selectedRepo && userSettings.github_config?.pat) {
+        setIsLoadingBranches(true);
+        fetchUserGithubBranches(selectedRepo.owner, selectedRepo.name)
+          .then(branches => setAvailableBranches(branches))
+          .catch(err => console.error("Failed to fetch branches", err))
+          .finally(() => setIsLoadingBranches(false));
+      }
+    }
+  }, [isSuperAdmin, userSettings.github_config?.repository, availableRepos, userSettings.github_config?.pat]);
 
   const toggleSecret = (id: string) => {
     setShowSecrets(prev => ({ ...prev, [id]: !prev[id] }));
@@ -72,21 +157,58 @@ export default function AdminConsolePage() {
     setSettings(prev => ({ ...prev, [key]: value }));
   };
 
+  const handleUserFieldChange = (key: keyof UserGitHubConfig, value: string) => {
+    setUserSettings(prev => ({
+      ...prev,
+      github_config: { ...prev.github_config, [key]: value }
+    }));
+  };
+
+  const handleUserSettingChange = (key: keyof FullUserSettings, value: any) => {
+    setUserSettings(prev => ({ ...prev, [key]: value }));
+  };
+
   const handleDeploy = async () => {
+    setIsSaving(true);
+    setError(null);
     try {
-      setIsSaving(true);
-      setError(null);
-      await updateAdminSettings(settings);
-      alert("Settings deployed and applied successfully.");
+      if (isSuperAdmin) {
+        await updateAdminSettings(settings);
+      } else {
+        await updateUserSettings(userSettings.github_config, userSettings.quality_checks_values, userSettings.test_cases_values, userSettings.llm_values);
+        // Notify other components (e.g. chatbot) that settings have been saved
+        window.dispatchEvent(new CustomEvent("javaapex:settings-saved"));
+      }
     } catch (err) {
-      setError("Failed to update settings.");
-      console.error("Failed to update admin settings:", err);
+      setError("Failed to save configuration.");
+      console.error(err);
     } finally {
       setIsSaving(false);
     }
   };
 
-  const currentTab = ADMIN_RAIL_TABS.find(t => t.id === activeTab) || ADMIN_RAIL_TABS[0];
+  const handleTestConnection = async () => {
+    setIsSaving(true);
+    setError(null);
+    try {
+      if (isSuperAdmin) {
+        // Save first so test uses latest
+        await updateAdminSettings(settings);
+        const res = await testAdminGithubConnection();
+        alert(res.message);
+      } else {
+        await updateUserSettings(userSettings.github_config, userSettings.quality_checks_values, userSettings.test_cases_values, userSettings.llm_values);
+        // Notify other components that settings have been saved
+        window.dispatchEvent(new CustomEvent("javaapex:settings-saved"));
+        const res = await testUserGithubConnection();
+        alert(res.message);
+      }
+    } catch (err: any) {
+      setError(err.message || "Failed to test connection.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   const renderContent = () => {
     if (isLoading) {
@@ -98,297 +220,275 @@ export default function AdminConsolePage() {
       );
     }
 
-    switch (activeTab) {
-      case "github":
-        return (
-          <div className="admin-content-grid">
-            <div className="admin-config-card">
-              <h3 className="card-heading-modern">
-                <FaGithub style={{ color: "#2563eb" }} />
-                Source Connection
-              </h3>
-              <div className="field-group-modern">
-                <div className="field-modern">
-                  <label className="label-modern">Analysis Token</label>
-                  <div className="input-wrap-modern">
-                    <input
-                      type={showSecrets["github_token"] ? "text" : "password"}
-                      className="input-modern"
-                      value={settings.github_token}
-                      onChange={(e) => handleFieldChange("github_token", e.target.value)}
-                    />
-                    <div className="toggle-modern" onClick={() => toggleSecret("github_token")}>
-                      {showSecrets["github_token"] ? <FaEyeSlash /> : <FaEye />}
-                    </div>
-                  </div>
-                </div>
-                <div className="field-modern">
-                  <label className="label-modern">API Endpoint</label>
+    if (isSuperAdmin) {
+      return (
+        <div className="admin-content-stacked">
+          {/* GitHub Section */}
+          <div className="admin-config-card">
+            <h3 className="card-heading-modern">
+              <FaGithub style={{ color: "#2563eb", marginRight: "8px" }} />
+              Platform GitHub Configuration
+            </h3>
+            <div className="field-grid-three">
+              <div className="field-modern">
+                <label className="label-modern">GitHub Client ID</label>
+                <input
+                  type="text"
+                  className="input-modern"
+                  value={settings.github_client_id || ""}
+                  onChange={(e) => handleFieldChange("github_client_id", e.target.value)}
+                />
+              </div>
+              <div className="field-modern">
+                <label className="label-modern">GitHub Client Secret</label>
+                <div className="input-wrap-modern">
                   <input
-                    type="text"
+                    type={showSecrets["github_client_secret"] ? "text" : "password"}
                     className="input-modern"
-                    value={settings.github_api_base_url}
-                    onChange={(e) => handleFieldChange("github_api_base_url", e.target.value)}
+                    value={settings.github_client_secret || ""}
+                    onChange={(e) => handleFieldChange("github_client_secret", e.target.value)}
                   />
+                  <div className="toggle-modern" onClick={() => toggleSecret("github_client_secret")}>
+                    {showSecrets["github_client_secret"] ? <FaEyeSlash /> : <FaEye />}
+                  </div>
                 </div>
               </div>
-            </div>
+              <div className="field-modern">
+                <label className="label-modern">Callback / Redirect URL</label>
+                <input
+                  type="text"
+                  className="input-modern"
+                  value={settings.github_redirect_uri || ""}
+                  onChange={(e) => handleFieldChange("github_redirect_uri", e.target.value)}
+                />
+              </div>
+              <div className="field-modern">
+                <label className="label-modern">GitHub Organization</label>
+                <input
+                  type="text"
+                  className="input-modern"
+                  value={settings.github_target_owner || ""}
+                  onChange={(e) => handleFieldChange("github_target_owner", e.target.value)}
+                />
+              </div>
 
-            <div className="admin-config-card">
-              <h3 className="card-heading-modern">
-                <FaRocket style={{ color: "#2563eb" }} />
-                Target Publication
-              </h3>
-              <div className="field-group-modern">
-                <div className="field-modern">
-                  <label className="label-modern">Destination Owner</label>
-                  <input
-                    type="text"
-                    className="input-modern"
-                    value={settings.github_target_owner}
-                    onChange={(e) => handleFieldChange("github_target_owner", e.target.value)}
-                  />
-                </div>
-                <div className="field-modern">
-                  <label className="label-modern">Publishing Token</label>
-                  <div className="input-wrap-modern">
+              <div className="field-modern">
+                <label className="label-modern">Default Branch</label>
+                <input
+                  type="text"
+                  className="input-modern"
+                  value={settings.github_default_branch || ""}
+                  onChange={(e) => handleFieldChange("github_default_branch", e.target.value)}
+                />
+              </div>
+            </div>
+            <div style={{ marginTop: "16px", display: "flex", gap: "12px", justifyContent: "flex-end" }}>
+               <button className="deploy-btn-modern" onClick={handleTestConnection}>
+                 Test Connection
+               </button>
+            </div>
+          </div>
+
+          {/* Quality Checks Section */}
+          <div className="admin-config-card">
+            <h3 className="card-heading-modern">
+              <FaShieldAlt style={{ color: "#2563eb", marginRight: "8px" }} />
+              Quality Checks Configuration
+            </h3>
+            <QualityChecksSettings 
+              configString={settings.quality_checks_config || ""} 
+              onChange={(newConfig) => handleFieldChange("quality_checks_config", newConfig)} 
+            />
+          </div>
+
+          {/* Test Cases Section */}
+          <div className="admin-config-card">
+            <TestCasesAdminSettings
+              settings={settings}
+              onChange={handleFieldChange}
+            />
+          </div>
+
+          {/* AI / LLM Section */}
+          <div className="admin-config-card">
+            <LlmAdminSettings 
+              settings={settings}
+              onChange={handleFieldChange}
+            />
+          </div>
+          
+          <div className="admin-config-card">
+            <h3 className="card-heading-modern">
+              <FaLink style={{ color: "#2563eb", marginRight: "8px" }} />
+              Contextual RAG
+            </h3>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px" }}>
+              <div className="field-modern">
+                <label className="label-modern">Ollama Host</label>
+                <input
+                  type="text"
+                  className="input-modern"
+                  value={settings.ollama_base_url}
+                  onChange={(e) => handleFieldChange("ollama_base_url", e.target.value)}
+                />
+              </div>
+              <div className="field-modern">
+                <label className="label-modern">RAG Stack</label>
+                <div className="switch-row-modern">
+                  <label className="switch-modern">
                     <input
-                      type={showSecrets["github_target_token"] ? "text" : "password"}
-                      className="input-modern"
-                      value={settings.github_target_token}
-                      onChange={(e) => handleFieldChange("github_target_token", e.target.value)}
+                      type="checkbox"
+                      checked={settings.rag_enabled === true || settings.rag_enabled === "True"}
+                      onChange={(e) => handleFieldChange("rag_enabled", e.target.checked)}
                     />
-                    <div className="toggle-modern" onClick={() => toggleSecret("github_target_token")}>
-                      {showSecrets["github_target_token"] ? <FaEyeSlash /> : <FaEye />}
-                    </div>
-                  </div>
+                    <span className="slider-modern"></span>
+                  </label>
+                  <span className="switch-label-modern">
+                    {settings.rag_enabled ? "Enabled" : "Disabled"}
+                  </span>
                 </div>
               </div>
             </div>
           </div>
-        );
+        </div>
+      );
+    } else {
+      // User Settings
+      return (
+        <div className="admin-content-stacked">
+          {/* GitHub Section */}
+          <div className="user-config-card">
+            <h3 className="card-heading-modern">
+              <FaGithub style={{ color: "#2563eb", marginRight: "8px" }} />
+              Personal GitHub Settings
+            </h3>
+            <div className="field-grid-three">
+              <div className="field-modern">
+                <label className="label-modern">GitHub Account (Username)</label>
+                <input
+                  type="text"
+                  className="input-modern"
+                  value={userSettings.github_config.github_account || ""}
+                  onChange={(e) => handleUserFieldChange("github_account", e.target.value)}
+                />
+              </div>
+              <div className="field-modern">
+                <label className="label-modern">Personal Access Token (PAT)</label>
+                <div className="input-wrap-modern">
+                  <input
+                    type={showSecrets["pat"] ? "text" : "password"}
+                    className="input-modern"
+                    value={userSettings.github_config.pat || ""}
+                    onChange={(e) => handleUserFieldChange("pat", e.target.value)}
+                  />
+                  <div className="toggle-modern" onClick={() => toggleSecret("pat")}>
+                    {showSecrets["pat"] ? <FaEyeSlash /> : <FaEye />}
+                  </div>
+                </div>
+              </div>
 
-      case "ai":
-        return (
-          <div className="admin-content-grid">
-            <div className="admin-config-card">
-              <h3 className="card-heading-modern">
-                <FaBrain style={{ color: "#2563eb" }} />
-                Intelligence Engines
-              </h3>
-              <div className="field-group-modern">
-                <div className="field-modern">
-                  <label className="label-modern">Analysis Engine (LLM_1)</label>
-                  <div className="input-wrap-modern">
-                    <input
-                      type={showSecrets["llm_1"] ? "text" : "password"}
-                      className="input-modern"
-                      value={settings.huggingface_token}
-                      onChange={(e) => handleFieldChange("huggingface_token", e.target.value)}
-                    />
-                    <div className="toggle-modern" onClick={() => toggleSecret("llm_1")}>
-                      {showSecrets["llm_1"] ? <FaEyeSlash /> : <FaEye />}
-                    </div>
-                  </div>
-                </div>
-                <div className="field-modern">
-                  <label className="label-modern">Strategy Engine (LLM_2)</label>
-                  <div className="input-wrap-modern">
-                    <input
-                      type={showSecrets["llm_2"] ? "text" : "password"}
-                      className="input-modern"
-                      value={settings.groq_api_key}
-                      onChange={(e) => handleFieldChange("groq_api_key", e.target.value)}
-                    />
-                    <div className="toggle-modern" onClick={() => toggleSecret("llm_2")}>
-                      {showSecrets["llm_2"] ? <FaEyeSlash /> : <FaEye />}
-                    </div>
-                  </div>
-                </div>
+              <div className="field-modern">
+                <label className="label-modern">Default Repository</label>
+                <select
+                  className="input-modern"
+                  value={userSettings.github_config.repository || ""}
+                  onChange={(e) => handleUserFieldChange("repository", e.target.value)}
+                  disabled={isLoadingRepos || availableRepos.length === 0}
+                >
+                  <option value="">{isLoadingRepos ? "Loading..." : "Select Repository"}</option>
+                  {availableRepos.map(repo => (
+                    <option key={repo.id} value={repo.full_name}>{repo.full_name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="field-modern">
+                <label className="label-modern">Default Branch</label>
+                <select
+                  className="input-modern"
+                  value={userSettings.github_config.branch || ""}
+                  onChange={(e) => handleUserFieldChange("branch", e.target.value)}
+                  disabled={isLoadingBranches || availableBranches.length === 0}
+                >
+                  <option value="">{isLoadingBranches ? "Loading..." : "Select Branch"}</option>
+                  {availableBranches.map(branch => (
+                    <option key={branch.name} value={branch.name}>{branch.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="field-modern">
+                <label className="label-modern">Access Level</label>
+                <select
+                  className="input-modern"
+                  value={userSettings.github_config.user_access || ""}
+                  onChange={(e) => handleUserFieldChange("user_access", e.target.value)}
+                >
+                  <option value="">Select Access</option>
+                  <option value="read">Read</option>
+                  <option value="write">Write</option>
+                </select>
               </div>
             </div>
-
-            <div className="admin-config-card">
-              <h3 className="card-heading-modern">
-                <FaLink style={{ color: "#2563eb" }} />
-                Contextual RAG
-              </h3>
-              <div className="field-group-modern">
-                <div className="field-modern">
-                  <label className="label-modern">Ollama Host</label>
-                  <input
-                    type="text"
-                    className="input-modern"
-                    value={settings.ollama_base_url}
-                    onChange={(e) => handleFieldChange("ollama_base_url", e.target.value)}
-                  />
-                </div>
-                <div className="field-modern">
-                  <label className="label-modern">RAG Stack</label>
-                  <div className="switch-row-modern">
-                    <label className="switch-modern">
-                      <input
-                        type="checkbox"
-                        checked={settings.rag_enabled === true || settings.rag_enabled === "True"}
-                        onChange={(e) => handleFieldChange("rag_enabled", e.target.checked)}
-                      />
-                      <span className="slider-modern"></span>
-                    </label>
-                    <span className="switch-label-modern">
-                      {settings.rag_enabled ? "Enabled" : "Disabled"}
-                    </span>
-                  </div>
-                </div>
-              </div>
+            <div style={{ marginTop: "16px", display: "flex", gap: "12px", justifyContent: "flex-end" }}>
+               <button className="deploy-btn-modern" onClick={handleTestConnection}>
+                 Test Connection
+               </button>
             </div>
           </div>
-        );
 
-      case "quality":
-        return (
-          <div className="admin-content-grid">
-            <div className="admin-config-card" style={{ gridColumn: "span 2" }}>
-              <h3 className="card-heading-modern">
-                <FaShieldAlt style={{ color: "#2563eb" }} />
-                Reliability Gates
-              </h3>
-              <div className="field-grid-three">
-                <div className="field-modern">
-                  <label className="label-modern">Sonar Host</label>
-                  <input
-                    type="text"
-                    className="input-modern"
-                    value={settings.sonarqube_host_url}
-                    onChange={(e) => handleFieldChange("sonarqube_host_url", e.target.value)}
-                  />
-                </div>
-                <div className="field-modern">
-                  <label className="label-modern">Sonar Token</label>
-                  <div className="input-wrap-modern">
-                    <input
-                      type={showSecrets["sonar"] ? "text" : "password"}
-                      className="input-modern"
-                      value={settings.sonarqube_token}
-                      onChange={(e) => handleFieldChange("sonarqube_token", e.target.value)}
-                    />
-                    <div className="toggle-modern" onClick={() => toggleSecret("sonar")}>
-                      {showSecrets["sonar"] ? <FaEyeSlash /> : <FaEye />}
-                    </div>
-                  </div>
-                </div>
-                <div className="field-modern">
-                  <label className="label-modern">FOSSA API Key</label>
-                  <div className="input-wrap-modern">
-                    <input
-                      type={showSecrets["fossa"] ? "text" : "password"}
-                      className="input-modern"
-                      value={settings.fossa_api_key}
-                      onChange={(e) => handleFieldChange("fossa_api_key", e.target.value)}
-                    />
-                    <div className="toggle-modern" onClick={() => toggleSecret("fossa")}>
-                      {showSecrets["fossa"] ? <FaEyeSlash /> : <FaEye />}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
+          {/* Quality Checks Section */}
+          <UserQualityChecksSettings 
+            settings={userSettings} 
+            onChange={setUserSettings}
+          />
+
+          {/* Test Cases Section */}
+          <div className="user-config-card">
+            <TestCasesUserSettings
+              settings={userSettings}
+              isAdminEnabled={settings.test_cases_playwright_enabled === true || settings.test_cases_playwright_enabled === "true"}
+              onChange={(key, value) => {
+                setUserSettings((prev) => ({
+                  ...prev,
+                  [key]: value
+                }));
+              }}
+            />
           </div>
-        );
 
-      case "platform":
-        return (
-          <div className="admin-content-grid">
-            <div className="admin-config-card" style={{ gridColumn: "span 2" }}>
-              <h3 className="card-heading-modern">
-                <FaServer style={{ color: "#2563eb" }} />
-                Infrastructure Hub
-              </h3>
-              <div className="field-group-modern">
-                <div className="field-modern">
-                  <label className="label-modern">Main Database URL</label>
-                  <input
-                    type="text"
-                    className="input-modern"
-                    value={settings.database_url}
-                    onChange={(e) => handleFieldChange("database_url", e.target.value)}
-                  />
-                </div>
-                <div className="field-modern">
-                  <label className="label-modern">JWT Authentication Secret</label>
-                  <div className="input-wrap-modern">
-                    <input
-                      type={showSecrets["jwt"] ? "text" : "password"}
-                      className="input-modern"
-                      value={settings.jwt_secret_key}
-                      onChange={(e) => handleFieldChange("jwt_secret_key", e.target.value)}
-                    />
-                    <div className="toggle-modern" onClick={() => toggleSecret("jwt")}>
-                      {showSecrets["jwt"] ? <FaEyeSlash /> : <FaEye />}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
+          {/* AI / LLM Section */}
+          <div className="user-config-card">
+            <LlmUserSettings 
+              settings={userSettings}
+              onChange={handleUserSettingChange}
+              isAdminEnabled={
+                userSettings.system_llm_config?.llm_enabled === true || 
+                userSettings.system_llm_config?.llm_enabled === "true"
+              }
+              allowedGroqModelsStr={userSettings.system_llm_config?.groq_models}
+              allowedHuggingFaceModelsStr={userSettings.system_llm_config?.huggingface_models}
+            />
           </div>
-        );
-
-      default:
-        return null;
+        </div>
+      );
     }
   };
 
   return (
     <div className="admin-console-layout">
-      {/* Sidebar Rail - Matches Main Page Style */}
-      <aside className="admin-rail-sidebar">
-        <div className="admin-rail-steps">
-          {ADMIN_RAIL_TABS.map((tab) => {
-            const isCurrent = activeTab === tab.id;
-            return (
-              <div
-                key={tab.id}
-                className={`admin-rail-item ${isCurrent ? "is-active" : ""}`}
-                onClick={() => setActiveTab(tab.id)}
-              >
-                <div className="admin-rail-icon-wrap">
-                  <tab.icon size={18} />
-                </div>
-
-                <div className="admin-rail-details-reveal">
-                  <div className="admin-rail-text-col">
-                    <span className="admin-rail-title">{tab.label}</span>
-                    <span className="admin-rail-subtitle">{tab.category}</span>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="admin-sidebar-footer">
-          <div style={{ fontSize: 11, color: "#94a3b8", textAlign: "center" }}>
-            © 2026 Powered by <strong style={{ color: "#2563eb" }}>Sorim.ai</strong>
-          </div>
-        </div>
-      </aside>
-
       <main className="admin-main-surface">
         <header className="admin-main-header">
           <div className="header-title-group">
             <div className="header-symbol-wrap">
-              <currentTab.icon size={22} />
+              <FaCog size={22} />
             </div>
             <div className="header-text-stack">
-              <span className="header-eyebrow">{currentTab.category}</span>
-              <h2 className="header-heading">{currentTab.label} Config</h2>
+              <h2 className="header-heading">
+                Settings
+              </h2>
             </div>
           </div>
 
           <div className="header-actions">
-            <button className="back-btn-modern" onClick={() => navigate("/")} disabled={isSaving}>
-              <FaArrowLeft />
-              <span>Back</span>
-            </button>
             <button
               className="deploy-btn-modern"
               onClick={handleDeploy}
@@ -397,12 +497,11 @@ export default function AdminConsolePage() {
               {isSaving ? (
                 <>
                   <div className="spinner-small"></div>
-                  <span>Deploying...</span>
+                  <span>Saving...</span>
                 </>
               ) : (
                 <>
-                  <FaSyncAlt />
-                  <span>Deploy</span>
+                  <span>Save Configuration</span>
                 </>
               )}
             </button>
@@ -417,7 +516,7 @@ export default function AdminConsolePage() {
           </div>
         )}
 
-        <div className="admin-scroll-canvas" key={activeTab}>
+        <div className="admin-scroll-canvas">
           {renderContent()}
         </div>
       </main>

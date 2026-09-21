@@ -41,12 +41,20 @@ class HuggingFaceClient:
         :class:`LLMServiceError` on any transport/HTTP failure or a response
         that isn't parseable JSON.
         """
-        token = (settings.huggingface_token or "").strip()
-        if not token:
+        from app.core.context import llm_values_ctx
+        
+        if not settings.llm_enabled:
             raise LLMNotConfiguredError()
 
+        ctx_vals = llm_values_ctx.get()
+        token = ctx_vals.get("huggingface_api_key")
+        model_to_use = ctx_vals.get("huggingface_model")
+
+        if not token or not model_to_use:
+            raise LLMNotConfiguredError("LLM is not configured. Please setup your API key and model in User Settings.")
+
         payload = {
-            "model": self._model,
+            "model": model_to_use,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
@@ -150,7 +158,7 @@ class HuggingFaceClient:
                 usage = tt.extract_usage(body) if body else (0, 0, 0, 0)
                 tt.get_token_tracer().record(
                     role="chat",
-                    model=self._model,
+                    model=model_to_use,
                     call_type="chat",
                     duration_ms=duration_ms,
                     usage=usage,

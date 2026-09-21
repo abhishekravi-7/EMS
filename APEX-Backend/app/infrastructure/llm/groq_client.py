@@ -53,7 +53,7 @@ class GroqClient:
         model: str | None = None,
         timeout: float | None = None,
     ) -> None:
-        self._api_key = (api_key if api_key is not None else settings.groq_api_key).strip()
+        self._api_key = (api_key or "").strip()
         self._base_url = (base_url or settings.groq_base_url).rstrip("/")
         self._model = model or settings.groq_model
         self._timeout = timeout or settings.chat_llm_request_timeout_seconds
@@ -61,16 +61,36 @@ class GroqClient:
 
     @property
     def is_configured(self) -> bool:
-        return bool(self._api_key)
+        from app.core.context import llm_values_ctx
+        ctx_vals = llm_values_ctx.get()
+        api_key = ctx_vals.get("groq_api_key")
+        model = ctx_vals.get("groq_model")
+        return bool(api_key and model)
 
     async def stream_chat(self, system_prompt: str, user_prompt: str, max_tokens: int | None = None) -> AsyncIterator[str]:
         """Yield answer text deltas from Groq. Raises on config/transport errors."""
-        if not self._api_key:
-            raise ChatLLMNotConfiguredError()
+        if not settings.llm_enabled:
+            raise ChatLLMNotConfiguredError("Intelligence features are disabled globally.")
+
+        from app.core.context import llm_values_ctx
+        ctx_vals = llm_values_ctx.get()
+        
+        # We explicitly require the user settings to have the API key and model, 
+        # unless it was passed directly to the constructor (e.g., during connection testing)
+        api_key = ctx_vals.get("groq_api_key")
+        if not api_key and self._api_key:
+            api_key = self._api_key
+            
+        model_to_use = ctx_vals.get("groq_model")
+        if not model_to_use and self._model and self._model != settings.groq_model:
+            model_to_use = self._model
+
+        if not api_key or not model_to_use:
+            raise ChatLLMNotConfiguredError("LLM is not configured. Please setup your API key and model in User Settings.")
 
         self.last_usage = None
         payload = {
-            "model": self._model,
+            "model": model_to_use,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
@@ -82,7 +102,7 @@ class GroqClient:
         if max_tokens:
             payload["max_tokens"] = max_tokens
         headers = {
-            "Authorization": f"Bearer {self._api_key}",
+            "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
 

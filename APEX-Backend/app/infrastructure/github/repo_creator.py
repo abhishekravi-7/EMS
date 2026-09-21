@@ -58,8 +58,9 @@ class RepoCreator:
         host: str | None = None,
         private: bool = False,
         description: str = "Migrated with the Java APEX migration engine",
+        token: str | None = None,
     ) -> CreatedRepo:
-        token = (settings.github_target_token or "").strip()
+        token = (token or settings.github_target_token or "").strip()
         if not token:
             raise PushFailedError(
                 "No target GitHub token configured. Set GITHUB_TARGET_TOKEN."

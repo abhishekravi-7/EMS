@@ -49,8 +49,8 @@ class Settings(BaseSettings):
     # authorized on that org (repo scope, or fine-grained Administration +
     # Contents: write). May be empty until the Start Migration stage is used.
     github_target_token: str = ""
-    # GitHub owner (org/user) that migrated repositories are published under.
-    github_target_owner: str = "JavaAPEX"
+    github_target_owner: str = Field(default="JavaAPEX", alias="GITHUB_TARGET_OWNER")
+    github_default_branch: str = Field(default="main", alias="GITHUB_DEFAULT_BRANCH")
     github_request_timeout_seconds: float = 15.0
 
     # --- Hugging Face LLM (Target Java Version Recommendation) --------------
@@ -156,49 +156,16 @@ class Settings(BaseSettings):
         return [a for a in self.build_gradle_args.split(",") if a]
 
     # --- Quality Gates -------------------------------------------------------
-    # SonarQube/SonarCloud token. Required only when the SonarQube quality gate
-    # card is active.
-    sonarqube_token: str = Field(
-        default="",
-        validation_alias=AliasChoices("SONAR_TOKEN", "SONARQUBE_TOKEN", "sonarqube_token"),
-    )
-    # SonarQube server URL. For SonarCloud use https://sonarcloud.io.
-    sonarqube_host_url: str = Field(
-        default="http://localhost:9000",
-        validation_alias=AliasChoices(
-            "SONAR_HOST_URL",
-            "SONAR_URL",
-            "SONARQUBE_HOST_URL",
-            "SONARQUBE_URL",
-            "sonarqube_host_url",
-        ),
-    )
-    # Optional fixed project key. Leave empty to derive one from the migration job.
-    sonarqube_project_key: str = Field(
-        default="",
-        validation_alias=AliasChoices(
-            "SONAR_PROJECT_KEY",
-            "SONARQUBE_PROJECT_KEY",
-            "sonarqube_project_key",
-        ),
-    )
-    # Required by SonarCloud; leave empty for local SonarQube.
-    sonarqube_organization: str = Field(
-        default="",
-        validation_alias=AliasChoices(
-            "SONAR_ORGANIZATION",
-            "SONARQUBE_ORGANIZATION",
-            "sonarqube_organization",
-        ),
-    )
+    # Dynamic settings are now fetched from MongoDB (User Settings) during migration.
+    
+    # Internal prefixes and CLI command names used by runners:
     sonarqube_project_key_prefix: str = "java-apex"
     sonarqube_scanner_command: str = "sonar-scanner"
-
-    # FOSSA API key. Required only when the FOSSA quality gate card is active.
-    fossa_api_key: str = Field(default="", alias="FOSSA_API_KEY")
-    # Optional custom FOSSA endpoint for self-hosted/enterprise setups.
-    fossa_endpoint: str = Field(default="", alias="FOSSA_ENDPOINT")
     fossa_cli_command: str = "fossa"
+
+    # --- Test Cases ----------------------------------------------------------
+    test_cases_playwright_enabled: bool = False
+    test_cases_playwright_command: str = "npx playwright test"
 
     # --- Storage -------------------------------------------------------------
     # Root folder where per-job artifacts (reports, etc.) are written.
@@ -304,6 +271,16 @@ class Settings(BaseSettings):
     # Use True to enforce JWT cookies having Secure flag
     # For local dev without HTTPS, this can be set to False
     environment: str = Field(default="development", alias="ENVIRONMENT")
+
+    # --- SonarQube (Quality Checks) ------------------------------------------
+    sonarqube_host_url: str = Field(default="http://localhost:9000", alias="SONARQUBE_HOST_URL")
+    sonarqube_token: str = ""
+    sonarqube_request_timeout_seconds: float = 30.0
+
+    # --- LLM Settings --------------------------------------------------------
+    llm_enabled: bool = Field(default=True, alias="LLM_ENABLED")
+    llm_features: str = Field(default="EXPLAIN_RESULTS,GENERATE_TESTS,RAG,CODE_ANALYSIS", alias="LLM_FEATURES")
+    llm_models: str = Field(default="Groq,HuggingFace", alias="LLM_MODELS")
 
     # --- SMTP / Email Configuration -------------------------------------------
     smtp_host: str | None = Field(default=None, alias="SMTP_HOST")

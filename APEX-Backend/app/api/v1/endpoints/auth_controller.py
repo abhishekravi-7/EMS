@@ -460,6 +460,7 @@ async def github_callback(request: Request, db: Session = Depends(get_db)) -> Re
                 email_verified=profile.email_verified,
                 full_name=profile.full_name,
                 profile_image=profile.profile_image,
+                github_account=profile.github_account,
             )
             access_token, refresh_token = await service.create_login_session(user_data)
             user_id_for_log = user_data["_id"]
@@ -472,6 +473,7 @@ async def github_callback(request: Request, db: Session = Depends(get_db)) -> Re
                 email_verified=profile.email_verified,
                 full_name=profile.full_name,
                 profile_image=profile.profile_image,
+                github_account=profile.github_account,
             )
             access_token, refresh_token = service.create_login_session(user)
             user_id_for_log = user.id

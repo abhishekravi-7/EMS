@@ -14,7 +14,7 @@ from fastapi import Depends, Header, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.context import job_id_ctx, user_id_ctx
+from app.core.context import job_id_ctx, user_id_ctx, llm_values_ctx
 from app.core.exceptions import NotAuthenticatedError
 from app.infrastructure.persistence.database import get_db_optional
 from app.infrastructure.persistence.models import User
@@ -77,9 +77,11 @@ async def get_current_user(request: Request, db: Session | None = Depends(get_db
                 self.is_email_verified = data.get("is_email_verified", False)
                 self.created_at = data.get("created_at") or datetime.now(timezone.utc)
                 self.last_login_at = data.get("last_login_at")
+                self.llm_values = data.get("llm_values", {})
 
         user = MongoUser(user_data)
         user_id_ctx.set(user.id)
+        llm_values_ctx.set(user.llm_values)
         return user  # type: ignore
     except NotAuthenticatedError as exc:
         raise HTTPException(status_code=401, detail=exc.message) from exc
@@ -139,3 +141,16 @@ def github_token_from_header(authorization: str | None = Header(default=None)) -
     if value.lower().startswith(_BEARER_PREFIX):
         return value[len(_BEARER_PREFIX):].strip()
     return ""
+
+async def resolve_github_token(token: str | None, current_user: User) -> str | None:
+    """Resolve a masked GitHub PAT from MongoDB if necessary."""
+    if not token:
+        return None
+    normalized_token = token.strip()
+    if normalized_token == "********" or normalized_token.startswith("****************"):
+        from app.infrastructure.persistence.mongodb import get_mongodb
+        mongo_db = await get_mongodb()
+        user_doc = await mongo_db.users.find_one({"_id": str(current_user.id)}) or {}
+        github_config = user_doc.get("github_config", {})
+        return github_config.get("pat") or None
+    return normalized_token

@@ -128,6 +128,7 @@ class MongoDBAuthService:
         email_verified: bool,
         full_name: str | None,
         profile_image: str | None,
+        github_account: str | None = None,
     ) -> dict:
         """Find-or-create the local user for a verified provider identity (MongoDB)."""
         existing_account = await mongodb_user_repository.get_oauth_account(
@@ -137,6 +138,12 @@ class MongoDBAuthService:
             user = await mongodb_user_repository.get_user_by_id(self._db, existing_account["user_id"])
             if not user or not user.get("is_active", True):
                 raise AccountDisabledError()
+            
+            # Update github account if provided and not set
+            if github_account and provider == "github" and user.get("github_account") != github_account:
+                await mongodb_user_repository.update_user(self._db, user["_id"], {"github_account": github_account})
+                user["github_account"] = github_account
+                
             return user
 
         normalized_email = email.strip().lower() if email else None
@@ -158,9 +165,16 @@ class MongoDBAuthService:
                 provider_email=normalized_email,
             )
             # Add to auth_providers if not already there
+            updates = {}
             if provider not in existing_user.get("auth_providers", []):
-                providers = existing_user.get("auth_providers", []) + [provider]
-                await mongodb_user_repository.update_user(self._db, existing_user["_id"], {"auth_providers": providers})
+                updates["auth_providers"] = existing_user.get("auth_providers", []) + [provider]
+                
+            if github_account and provider == "github":
+                updates["github_account"] = github_account
+                
+            if updates:
+                await mongodb_user_repository.update_user(self._db, existing_user["_id"], updates)
+                existing_user.update(updates)
             
             return existing_user
 
@@ -173,6 +187,7 @@ class MongoDBAuthService:
             provider_user_id=provider_user_id,
             profile_image=profile_image,
             is_email_verified=email_verified,
+            github_account=github_account,
         )
         
         await mongodb_user_repository.create_oauth_account(

@@ -5,8 +5,11 @@ export interface SystemSettings {
   github_api_base_url: string;
   github_target_owner: string;
   github_target_token: string;
-  huggingface_token: string;
-  groq_api_key: string;
+  github_client_id?: string;
+  github_client_secret?: string;
+  github_callback_url?: string;
+  github_organization?: string;
+  github_default_branch?: string;
   ollama_base_url: string;
   rag_enabled: string | boolean;
   sonarqube_host_url: string;
@@ -14,6 +17,13 @@ export interface SystemSettings {
   fossa_api_key: string;
   database_url: string;
   jwt_secret_key: string;
+  quality_checks_config?: string;
+  test_cases_playwright_enabled?: string | boolean;
+  test_cases_playwright_command?: string;
+  llm_enabled?: string | boolean;
+  llm_features?: string; // JSON array of features
+  groq_models?: string; // JSON array of groq models
+  huggingface_models?: string; // JSON array of hugging face models
 }
 
 export interface SystemSettingsResponse {
@@ -35,13 +45,168 @@ export async function getAdminSettings(): Promise<SystemSettings> {
  * Update system settings. Only the provided keys will be updated.
  */
 export async function updateAdminSettings(settings: Partial<SystemSettings>): Promise<SystemSettings> {
+  const stringifiedSettings: Record<string, string> = {};
+  for (const [key, value] of Object.entries(settings)) {
+    if (value !== undefined && value !== null) {
+      stringifiedSettings[key] = String(value);
+    }
+  }
+
   const response = await requestJson<SystemSettingsResponse>(
     "/v1/admin/settings",
     "Failed to update admin settings",
     {
       method: "POST",
-      body: { settings },
+      body: { settings: stringifiedSettings },
     }
   );
   return response.settings;
+}
+
+export async function testAdminPlaywrightConnection(): Promise<{ status: string; message: string }> {
+  return requestJson<{ status: string; message: string }>(
+    "/v1/admin/settings/test-cases/playwright/test",
+    "Failed to test Playwright configuration",
+    { method: "POST" }
+  );
+}
+
+export interface UserGitHubConfig {
+  github_account?: string;
+  pat?: string;
+  pat_scope?: string;
+  repository?: string;
+  branch?: string;
+  user_access?: string;
+}
+
+export interface UserSettingsResponse {
+  github_config: UserGitHubConfig;
+  quality_checks_values?: Record<string, any>;
+  test_cases_values?: Record<string, any>;
+  llm_values?: Record<string, any>;
+  system_llm_config?: {
+    llm_enabled?: boolean | string;
+    groq_models?: string;
+    huggingface_models?: string;
+  };
+}
+
+export interface FullUserSettings {
+  github_config: UserGitHubConfig;
+  quality_checks_values: Record<string, any>;
+  test_cases_values: Record<string, any>;
+  llm_values: Record<string, any>;
+  system_llm_config?: {
+    llm_enabled?: boolean | string;
+    groq_models?: string;
+    huggingface_models?: string;
+  };
+}
+
+export async function getUserSettings(): Promise<FullUserSettings> {
+  const response = await requestJson<UserSettingsResponse>(
+    "/v1/user/settings/github",
+    "Failed to fetch user settings"
+  );
+  return {
+    github_config: response.github_config,
+    quality_checks_values: response.quality_checks_values || {},
+    test_cases_values: response.test_cases_values || {},
+    llm_values: response.llm_values || {},
+    system_llm_config: response.system_llm_config || {},
+  };
+}
+
+export async function updateUserSettings(
+  github_config: UserGitHubConfig,
+  quality_checks_values?: Record<string, any>,
+  test_cases_values?: Record<string, any>,
+  llm_values?: Record<string, any>
+): Promise<FullUserSettings> {
+  const body: any = { github_config };
+  if (quality_checks_values) {
+    body.quality_checks_values = quality_checks_values;
+  }
+  if (test_cases_values) {
+    body.test_cases_values = test_cases_values;
+  }
+  if (llm_values) {
+    body.llm_values = llm_values;
+  }
+  
+  const response = await requestJson<UserSettingsResponse>(
+    "/v1/user/settings/github",
+    "Failed to update user settings",
+    {
+      method: "POST",
+      body,
+    }
+  );
+  return {
+    github_config: response.github_config,
+    quality_checks_values: response.quality_checks_values || {},
+    test_cases_values: response.test_cases_values || {},
+    llm_values: response.llm_values || {},
+  };
+}
+
+export async function testUserPlaywrightConnection(baseUrl: string): Promise<{ status: string; message: string }> {
+  return requestJson<{ status: string; message: string }>(
+    "/v1/user/settings/test-cases/playwright/test",
+    "Failed to test User Playwright connection",
+    { 
+      method: "POST",
+      body: { base_url: baseUrl }
+    }
+  );
+}
+
+export async function getQualityChecksAdminConfig(): Promise<{quality_checks_config: string}> {
+  return requestJson<{quality_checks_config: string}>(
+    "/v1/user/settings/quality-checks-config",
+    "Failed to fetch Quality Checks Admin Configuration"
+  );
+}
+
+export async function testAdminGithubConnection(): Promise<{status: string, message: string}> {
+  return requestJson<{status: string, message: string}>(
+    "/v1/admin/settings/github/test",
+    "Admin GitHub Connection Test Failed",
+    { method: "POST" }
+  );
+}
+
+export async function testUserGithubConnection(): Promise<{status: string, message: string}> {
+  return requestJson<{status: string, message: string}>(
+    "/v1/user/settings/github/test",
+    "User GitHub Connection Test Failed",
+    { method: "POST" }
+  );
+}
+
+export interface GithubRepo {
+  id: number;
+  name: string;
+  full_name: string;
+  owner: string;
+  private: boolean;
+}
+
+export interface GithubBranch {
+  name: string;
+}
+
+export async function fetchUserGithubRepos(): Promise<GithubRepo[]> {
+  return requestJson<GithubRepo[]>(
+    "/v1/user/settings/github/repos",
+    "Failed to fetch GitHub repositories"
+  );
+}
+
+export async function fetchUserGithubBranches(owner: string, repo: string): Promise<GithubBranch[]> {
+  return requestJson<GithubBranch[]>(
+    `/v1/user/settings/github/repos/${owner}/${repo}/branches`,
+    "Failed to fetch GitHub branches"
+  );
 }

@@ -29,9 +29,10 @@ class RepoPusher:
         commit_message: str,
         branch: str = "main",
         allow_force_update_existing: bool = False,
+        token: str | None = None,
     ) -> str:
         """Init, commit, and push ``repo_dir`` to ``clone_url``. Returns the branch."""
-        token = (settings.github_target_token or "").strip()
+        token = (token or settings.github_target_token or "").strip()
         if not token:
             raise PushFailedError("No target GitHub token configured. Set GITHUB_TARGET_TOKEN.")
 

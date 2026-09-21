@@ -43,6 +43,7 @@ class GithubUserProfile:
     email_verified: bool
     full_name: str | None
     profile_image: str | None
+    github_account: str | None
 
 
 def build_authorization_url(*, state: str) -> str:
@@ -124,4 +125,5 @@ async def exchange_code_for_profile(*, code: str) -> GithubUserProfile:
         email_verified=email_verified,
         full_name=user_data.get("name") or user_data.get("login"),
         profile_image=user_data.get("avatar_url"),
+        github_account=user_data.get("login"),
     )

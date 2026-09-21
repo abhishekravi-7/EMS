@@ -147,6 +147,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from fastapi.responses import JSONResponse
+from app.core.exceptions import LLMNotConfiguredError, ChatLLMNotConfiguredError
+
+@app.exception_handler(LLMNotConfiguredError)
+async def llm_not_configured_handler(request: Request, exc: LLMNotConfiguredError):
+    return JSONResponse(
+        status_code=400,
+        content={"detail": "llm is not configured setup in settings"},
+    )
+
+@app.exception_handler(ChatLLMNotConfiguredError)
+async def chat_llm_not_configured_handler(request: Request, exc: ChatLLMNotConfiguredError):
+    return JSONResponse(
+        status_code=400,
+        content={"detail": "llm is not configured setup in settings"},
+    )
+
 # All v1 endpoints are mounted under /api/v1 (-> POST /api/v1/connect).
 app.include_router(api_router, prefix=settings.api_v1_prefix)
 

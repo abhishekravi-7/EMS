@@ -99,7 +99,8 @@ async def run_discovery(
     Read-only after cloning — no migration, build, or file modification happens.
     """
     await verify_job_ownership(db, job_id, current_user)
-    token = payload.github_token if payload else None
+    from app.api.deps import resolve_github_token
+    token = await resolve_github_token(payload.github_token if payload else None, current_user)
     force_refresh = payload.force_refresh if payload else False
     try:
         outcome = await run_in_threadpool(_pipeline.run, job_id, token, force_refresh)

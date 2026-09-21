@@ -21,9 +21,9 @@ class BranchCreator:
     def __init__(self, pusher: RepoPusher | None = None) -> None:
         self._pusher = pusher or RepoPusher()
 
-    def push_branch(self, repo_dir: Path, repo_https_url: str, branch: str, *, commit_message: str) -> str:
+    def push_branch(self, repo_dir: Path, repo_https_url: str, branch: str, *, commit_message: str, token: str | None = None) -> str:
         """Commit ``repo_dir`` and push it as ``branch`` to an existing repo."""
-        token = (settings.github_target_token or "").strip()
+        token = (token or settings.github_target_token or "").strip()
         if not token:
             raise PushFailedError("No target GitHub token configured. Set GITHUB_TARGET_TOKEN.")
 

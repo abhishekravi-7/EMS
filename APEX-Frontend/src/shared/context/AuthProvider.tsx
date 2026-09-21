@@ -41,6 +41,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const handleLogout = async () => {
     await logOut();
     setCurrentUser(null);
+    window.sessionStorage.clear();
     window.location.href = "/signin";
   };
 
