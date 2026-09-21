@@ -20,18 +20,6 @@ from app.core.exceptions import ChatLLMNotConfiguredError, ChatLLMServiceError
 
 logger = logging.getLogger(__name__)
 
-_shared_client = None
-_client_lock = threading.Lock()
-
-def _get_client():
-    global _shared_client
-    if _shared_client is None:
-        with _client_lock:
-            if _shared_client is None:
-                _shared_client = httpx.AsyncClient(timeout=settings.chat_llm_request_timeout_seconds)
-    return _shared_client
-
-
 class GroqPermanentError(ChatLLMServiceError):
     """Groq failed with an error that will NOT be fixed by retrying or falling back to Ollama.
 
@@ -63,7 +51,7 @@ class GroqClient:
     def is_configured(self) -> bool:
         return bool(self._api_key)
 
-    async def stream_chat(self, system_prompt: str, user_prompt: str) -> AsyncIterator[str]:
+    async def stream_chat(self, system_prompt: str, user_prompt: str, max_tokens: int | None = None) -> AsyncIterator[str]:
         """Yield answer text deltas from Groq. Raises on config/transport errors."""
         if not self._api_key:
             raise ChatLLMNotConfiguredError()
@@ -75,25 +63,30 @@ class GroqClient:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            "temperature": 0.2,
+            "temperature": 0.0,
+            "seed": 42,
             "stream": True,
             "stream_options": {"include_usage": True},
         }
+        if max_tokens:
+            payload["max_tokens"] = max_tokens
         headers = {
             "Authorization": f"Bearer {self._api_key}",
             "Content-Type": "application/json",
         }
 
         max_retries = 3
-        client = _get_client()
         for attempt in range(max_retries):
             try:
-                async with client.stream(
-                    "POST",
-                    f"{self._base_url}/chat/completions",
-                    headers=headers,
-                    json=payload,
-                ) as response:
+                # Use a fresh AsyncClient per request/retry to ensure it is cleanly bound
+                # to the current active event loop and never reuses closed/stale loops.
+                async with httpx.AsyncClient(timeout=self._timeout) as client:
+                    async with client.stream(
+                        "POST",
+                        f"{self._base_url}/chat/completions",
+                        headers=headers,
+                        json=payload,
+                    ) as response:
                         if response.status_code != 200:
                             await response.aread()
                             body_preview = (response.text or "")[:300]
@@ -105,6 +98,8 @@ class GroqClient:
                             )
                             # 429 = rate limit → retry with backoff
                             if response.status_code == 429 and attempt < max_retries - 1:
+                                if "tokens per minute" in body_preview.lower():
+                                    raise GroqPermanentError(f"Groq token rate limit reached: {body_preview[:120]}")
                                 retry_after = int(response.headers.get("Retry-After", 2 ** attempt))
                                 logger.warning(
                                     "[GROQ] Rate limited (429). Retrying in %ss (attempt %s/%s)",
@@ -133,14 +128,39 @@ class GroqClient:
                 return
             except (GroqPermanentError, ChatLLMNotConfiguredError):
                 raise  # permanent errors must not be swallowed or retried
+            except httpx.TimeoutException as exc:
+                logger.warning(
+                    "[GROQ] Request timed out (attempt %s/%s) | URL: %s | Model: %s",
+                    attempt + 1,
+                    max_retries,
+                    self._base_url,
+                    self._model,
+                )
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(1)
+                    continue
+                raise ChatLLMServiceError("Groq API request timed out.") from exc
             except httpx.HTTPError as exc:
                 logger.error(
-                    "[GROQ] Connection failed | URL: %s | Model: %s | Cause: %s",
+                    "[GROQ] HTTP transport failure (attempt %s/%s) | URL: %s | Model: %s | Cause: %s",
+                    attempt + 1,
+                    max_retries,
                     self._base_url,
                     self._model,
                     type(exc).__name__,
                 )
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(1)
+                    continue
                 raise ChatLLMServiceError("Groq API could not be reached.") from exc
+            except RuntimeError as exc:
+                logger.error("[GROQ] Runtime/Event-loop failure: %s", exc)
+                raise ChatLLMServiceError(f"Groq runtime error: {exc}") from exc
+            except Exception as exc:
+                if isinstance(exc, ChatLLMServiceError):
+                    raise
+                logger.error("[GROQ] Unexpected failure: %s", exc, exc_info=True)
+                raise ChatLLMServiceError(f"Groq request failed: {type(exc).__name__}") from exc
         raise ChatLLMServiceError("Groq API request failed after retries.")
 
 

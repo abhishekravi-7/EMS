@@ -34,7 +34,7 @@ class HuggingFaceClient:
         self._timeout = timeout or settings.huggingface_request_timeout_seconds
         self.last_usage: tuple[int, int, int, int] | None = None
 
-    async def chat_json(self, system_prompt: str, user_prompt: str) -> dict[str, Any]:
+    async def chat_json(self, system_prompt: str, user_prompt: str, max_tokens: int | None = None) -> dict[str, Any]:
         """Send a chat completion request and return the parsed JSON content.
 
         Raises :class:`LLMNotConfiguredError` when no token is configured, and
@@ -51,8 +51,11 @@ class HuggingFaceClient:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            "temperature": 0.2,
+            "temperature": 0.0,
+            "seed": 42,
         }
+        if max_tokens:
+            payload["max_tokens"] = max_tokens
         headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
         import asyncio
@@ -87,6 +90,11 @@ class HuggingFaceClient:
                         )
                         await asyncio.sleep(retry_after)
                         continue
+
+                    if response.status_code == 402:
+                        error = "HTTP 402 Payment Required"
+                        logger.error("[HuggingFace] API requires payment (HTTP 402)")
+                        raise LLMServiceError("Hugging Face API requires payment (HTTP 402).")
 
                     if response.status_code != 200:
                         error = f"HTTP {response.status_code}"

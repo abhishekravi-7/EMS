@@ -111,8 +111,14 @@ class Settings(BaseSettings):
     # Clone only the latest commit to keep the workspace small and fast.
     git_clone_depth: int = 1
 
-    # --- Migration engine ---------------------------------------------------
-    java_migration_engine_jar: Path = WORKSPACE_ROOT / "migration-engine" / "target" / "migration-engine-1.0.0-SNAPSHOT.jar"
+    java_migration_engine_jar: Path = Field(
+        default_factory=lambda: WORKSPACE_ROOT / "migration-engine" / "target" / "migration-engine-1.0.0-SNAPSHOT.jar",
+        validation_alias=AliasChoices(
+            "MIGRATION_ENGINE_JAR_PATH",
+            "JAVA_MIGRATION_ENGINE_JAR",
+            "java_migration_engine_jar",
+        ),
+    )
     migration_recipe_catalog_path: Path = BACKEND_ROOT / "app" / "config" / "migration_pack_catalog.json"
     # Timeout (seconds) for a single migration-engine run.
     migration_timeout_seconds: float = 1800.0
@@ -195,10 +201,19 @@ class Settings(BaseSettings):
     sonarqube_scanner_command: str = "sonar-scanner"
 
     # FOSSA API key. Required only when the FOSSA quality gate card is active.
-    fossa_api_key: str = Field(default="", alias="FOSSA_API_KEY")
+    fossa_api_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("FOSSA_API_KEY", "fossa_api_key"),
+    )
     # Optional custom FOSSA endpoint for self-hosted/enterprise setups.
-    fossa_endpoint: str = Field(default="", alias="FOSSA_ENDPOINT")
-    fossa_cli_command: str = "fossa"
+    fossa_endpoint: str = Field(
+        default="",
+        validation_alias=AliasChoices("FOSSA_ENDPOINT", "fossa_endpoint"),
+    )
+    fossa_cli_command: str = Field(
+        default="fossa",
+        validation_alias=AliasChoices("FOSSA_CLI_PATH", "FOSSA_CLI_COMMAND", "fossa_cli_command"),
+    )
 
     # --- Storage -------------------------------------------------------------
     # Root folder where per-job artifacts (reports, etc.) are written.

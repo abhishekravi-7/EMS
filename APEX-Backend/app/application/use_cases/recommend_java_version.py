@@ -97,7 +97,7 @@ class RecommendJavaVersionUseCase:
         try:
             try:
                 logger.info("[JavaRecommendation] Attempting Hugging Face (primary)")
-                raw = await self._llm.chat_json(system_prompt, user_prompt)
+                raw = await self._llm.chat_json(system_prompt, user_prompt, max_tokens=1024)
                 return self._sanitize(raw, allowed_targets, already_at_latest)
             except (LLMServiceError, Exception) as exc:
                 logger.warning(
@@ -110,6 +110,7 @@ class RecommendJavaVersionUseCase:
                     system_prompt=system_prompt,
                     user_prompt=user_prompt,
                     endpoint="java_version_recommendation_fallback",
+                    max_tokens=1024,
                 ):
                     response_text += chunk
 
@@ -145,6 +146,7 @@ class RecommendJavaVersionUseCase:
         except json.JSONDecodeError as exc:
             raise LLMResponseInvalidError("Fallback model response was not valid JSON.") from exc
 
+    @staticmethod
     def _fallback(source_major: int, allowed_targets: list[str], already_at_latest: bool) -> dict:
         if already_at_latest:
             recommended = str(source_major)
