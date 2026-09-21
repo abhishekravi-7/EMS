@@ -249,6 +249,12 @@ export interface MigrationResult {
   fossa_analysis_url?: string | null;
   fossa_error_message?: string | null;
   fossa_report?: FossaScanResult | null;
+  run_sonar?: boolean;
+  run_fossa?: boolean;
+  run_tests?: boolean;
+  runSonar?: boolean;
+  runFossa?: boolean;
+  runTests?: boolean;
   error_message: string | null;
   migration_log: string[];
   file_diffs?: PreviewFileDiff[];

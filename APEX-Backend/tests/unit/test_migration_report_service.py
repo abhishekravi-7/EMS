@@ -200,3 +200,37 @@ def test_target_repo_does_not_contain_source_repo_url():
     assert "https-github" not in res["target_repo"]
 
 
+def test_build_result_scan_execution_flags():
+    """Verify that runSonar, runFossa, runTests flags are propagated to result and summary."""
+    rep_off = {
+        "jobId": "test-job-scans-off",
+        "runSonar": False,
+        "runFossa": False,
+        "runTests": True,
+    }
+    res_off = report_service.build_result(rep_off)
+    sum_off = report_service.build_summary(rep_off)
+    assert res_off["run_sonar"] is False
+    assert res_off["run_fossa"] is False
+    assert res_off["run_tests"] is True
+    assert sum_off["run_sonar"] is False
+    assert sum_off["run_fossa"] is False
+    assert sum_off["run_tests"] is True
+
+    rep_on = {
+        "jobId": "test-job-scans-on",
+        "runSonar": True,
+        "runFossa": True,
+        "runTests": False,
+    }
+    res_on = report_service.build_result(rep_on)
+    sum_on = report_service.build_summary(rep_on)
+    assert res_on["run_sonar"] is True
+    assert res_on["run_fossa"] is True
+    assert res_on["run_tests"] is False
+    assert sum_on["run_sonar"] is True
+    assert sum_on["run_fossa"] is True
+    assert sum_on["run_tests"] is False
+
+
+
