@@ -407,31 +407,31 @@ class StartMigrationUseCase:
                                 "error_message": None,
                             })
 
-                publish_target_java = result.effective_target_java_version or target_java
-                test_pipeline_data = {
-                    "test_summary_metrics": {
-                        "repo_total_files": total_repo_files,
-                        "existing_test_files": existing_test_files,
-                        "new_test_files": new_test_files,
-                        "existing_test_cases": exist_count,
-                        "generated_test_cases": gen_count,
-                        "total_test_cases": total_cases,
-                        "java_migration_version": publish_target_java,
-                    },
-                    "executed_test_details": executed_details,
-                    "coverage_result": {
-                        "available": True,
-                        "line_coverage_pct": 87.5,
+                    publish_target_java = result.effective_target_java_version or target_java
+                    test_pipeline_data = {
+                        "test_summary_metrics": {
+                            "repo_total_files": total_repo_files,
+                            "existing_test_files": existing_test_files,
+                            "new_test_files": new_test_files,
+                            "existing_test_cases": exist_count,
+                            "generated_test_cases": gen_count,
+                            "total_test_cases": total_cases,
+                            "java_migration_version": publish_target_java,
+                        },
+                        "executed_test_details": executed_details,
+                        "coverage_result": {
+                            "available": True,
+                            "line_coverage_pct": 87.5,
+                        }
                     }
-                }
-                store.update(
-                    test_pipeline=test_pipeline_data,
-                    tests_run=total_cases,
-                    tests_passed=total_cases,
-                    test_summary=f"Executed unit test suite cleanly ({total_cases} test cases executed).",
-                    progressPercent=80,
-                )
-                store.append_logs([f"[QUALITY CHECK] Unit tests passed cleanly ({total_cases} test cases)."])
+                    store.update(
+                        test_pipeline=test_pipeline_data,
+                        tests_run=total_cases,
+                        tests_passed=total_cases,
+                        test_summary=f"Executed unit test suite cleanly ({total_cases} test cases executed).",
+                        progressPercent=80,
+                    )
+                    store.append_logs([f"[QUALITY CHECK] Unit tests passed cleanly ({total_cases} test cases)."])
             except Exception as test_exc:
                 logger.warning(f"Post-migration unit test execution notice for job {job_id}: {test_exc}")
                 store.update(progressPercent=80)
@@ -632,8 +632,7 @@ class StartMigrationUseCase:
             import traceback
             logger.exception("Migration job %s failed with an unexpected error", job_id)
             err_trace = traceback.format_exc()
-            self._fail(store, job_id, f"Migration failed due to an unexpected error.
-{err_trace}")
+            self._fail(store, job_id, f"Migration failed due to an unexpected error.\\n{err_trace}")
         finally:
             if repo_token is not None:
                 repository_url_ctx.reset(repo_token)
