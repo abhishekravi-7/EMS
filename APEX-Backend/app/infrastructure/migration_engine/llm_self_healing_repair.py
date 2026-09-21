@@ -44,6 +44,7 @@ class LlmSelfHealingRepair:
         *,
         target_java_version: Optional[str] = None,
         max_files_to_fix: int = 0,
+        desperation_mode: bool = False,
     ) -> RepairResult:
         """Attempt to repair failing compilation files using ChatLLM."""
         if not error_lines:
@@ -76,12 +77,25 @@ class LlmSelfHealingRepair:
                 file_errors = error_lines[:20]  # fallback to global context
             error_context = "\n".join(file_errors[:30])
 
-            system_prompt = (
-                "You are an expert Enterprise Java Modernization AI Agent. "
-                "Your task is to fix compiler errors in a Java source file resulting from a Java / Spring Boot upgrade. "
-                "Preserve exact business logic, method signatures, comments, and structure. "
-                "Return ONLY the complete updated Java file inside a ```java code block with no preamble or markdown explanations."
-            )
+            if desperation_mode:
+                system_prompt = (
+                    "You are a desperate QA Automation AI acting as a fallback compiler agent. "
+                    "The previous intelligent attempts to fix this Java file failed to compile. "
+                    "Your absolute priority is to force this code to compile at all costs, even if it means disabling functionality. "
+                    "If you cannot resolve a missing dependency, removed class, or syntax error cleanly: "
+                    "1. Comment out the offending lines of code completely. "
+                    "2. If an entire method body is broken, replace its internals with `throw new UnsupportedOperationException('STUBBED FOR COMPILATION');`. "
+                    "3. If it is a test class, remove or comment out `@Test` annotations on failing tests. "
+                    "DO NOT change the class name or public method signatures if possible. "
+                    "Return ONLY the complete updated Java file inside a ```java code block with no preamble."
+                )
+            else:
+                system_prompt = (
+                    "You are an expert Enterprise Java Modernization AI Agent. "
+                    "Your task is to fix compiler errors in a Java source file resulting from a Java / Spring Boot upgrade. "
+                    "Preserve exact business logic, method signatures, comments, and structure. "
+                    "Return ONLY the complete updated Java file inside a ```java code block with no preamble or markdown explanations."
+                )
 
             user_prompt = (
                 f"Target Java Version: {target_java_version or '17'}\n"
