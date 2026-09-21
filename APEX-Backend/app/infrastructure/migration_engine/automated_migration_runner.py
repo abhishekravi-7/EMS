@@ -23,6 +23,7 @@ from app.infrastructure.migration_engine.ast_automated_migration_runner import (
 from app.infrastructure.migration_engine.ast_rule_mapper import AstRuleMapper
 from app.infrastructure.migration_engine.llm_self_healing_repair import LlmSelfHealingRepair
 from app.shared.command_runner import resolve_executable, run_command
+from app.shared.file_utils import find_shallowest_dir_with
 
 logger = logging.getLogger(__name__)
 
@@ -409,13 +410,20 @@ class AutomatedMigrationRunner:
     def _get_effective_java_version(self, project_dir: Path) -> str | None:
         """Use Maven to resolve the effective Java version."""
         mvn = resolve_executable("mvn")
-        if not mvn or not (project_dir / "pom.xml").exists():
+        if not mvn:
             return None
+        effective_dir = project_dir
+        if not (project_dir / "pom.xml").exists():
+            found_dir = find_shallowest_dir_with(project_dir, ("pom.xml",))
+            if found_dir and (found_dir / "pom.xml").exists():
+                effective_dir = found_dir
+            else:
+                return None
 
         # Priority properties to check
         for expr in ["maven.compiler.release", "maven.compiler.source", "maven.compiler.target"]:
             cmd = [mvn, "-q", "help:evaluate", f"-Dexpression={expr}", "-DforceStdout", "-B"]
-            res = run_command(cmd, cwd=project_dir, timeout=30)
+            res = run_command(cmd, cwd=effective_dir, timeout=30)
             val = res.stdout.strip()
             if res.succeeded and val and not val.startswith("[") and val != "null":
                 # Normalize 1.8 -> 8 etc.
@@ -427,13 +435,20 @@ class AutomatedMigrationRunner:
     def _get_effective_boot_version(self, project_dir: Path) -> str | None:
         """Use Maven to resolve the effective Spring Boot version."""
         mvn = resolve_executable("mvn")
-        if not mvn or not (project_dir / "pom.xml").exists():
+        if not mvn:
             return None
+        effective_dir = project_dir
+        if not (project_dir / "pom.xml").exists():
+            found_dir = find_shallowest_dir_with(project_dir, ("pom.xml",))
+            if found_dir and (found_dir / "pom.xml").exists():
+                effective_dir = found_dir
+            else:
+                return None
 
         # 1. Try common properties/parent via help:evaluate
         for expr in ["project.parent.version", "spring-boot.version", "spring.boot.version"]:
             cmd = [mvn, "-q", "help:evaluate", f"-Dexpression={expr}", "-DforceStdout", "-B"]
-            res = run_command(cmd, cwd=project_dir, timeout=30)
+            res = run_command(cmd, cwd=effective_dir, timeout=30)
             val = res.stdout.strip()
             if res.succeeded and val and not val.startswith("[") and val != "null":
                 if re.match(r"^\d+\.\d+\.\d+", val):
@@ -441,7 +456,7 @@ class AutomatedMigrationRunner:
 
         # 2. Fallback to dependency list
         cmd = [mvn, "dependency:list", "-DincludeGroupIds=org.springframework.boot", "-DincludeArtifactIds=spring-boot-starter", "-DoutputAbsoluteArtifactFilename=false", "-B"]
-        res = run_command(cmd, cwd=project_dir, timeout=60)
+        res = run_command(cmd, cwd=effective_dir, timeout=60)
         if res.succeeded:
             for line in res.stdout.splitlines():
                 if ":spring-boot-starter:jar:" in line:

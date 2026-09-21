@@ -61,6 +61,7 @@ import type {
   DependencyInfo,
   MicroserviceEligibilityResult,
   MicroserviceServiceCandidate,
+  RepoInfo,
 } from "@/shared/types/domain";
 import {
   previewMigration,
@@ -72,6 +73,14 @@ import {
 import {
   clearWizardStorage,
   readSessionJson,
+  readPersistedValue,
+  writeSessionValue,
+  removeSessionValue,
+  getScopedStepUnlockKey,
+  WIZARD_DISCOVERY_COMPLETED_KEY,
+  WIZARD_STRATEGY_COMPLETED_KEY,
+  WIZARD_JOB_ID_KEY,
+  WIZARD_SELECTED_REPO_KEY,
   type PersistedWizardFormState,
   WIZARD_FORM_STATE_KEY,
 } from "@/shared/utils/migrationWizardStorage";
@@ -1072,9 +1081,7 @@ export function useWizardController() {
         const targetRoute = STEP_ROUTES[nextStep] || "/connect";
         const currentRoute = location.pathname.replace(/\/+$/, "") || "/";
         if (currentRoute !== targetRoute) {
-          setTimeout(() => {
-            navigate(targetRoute, { replace: nextStep === 7 });
-          }, 0);
+          navigate(targetRoute, { replace: nextStep === 7 });
         }
         return nextStep;
       });
@@ -2881,6 +2888,9 @@ export function useWizardController() {
       });
     }
 
+    const activeKey = getScopedStepUnlockKey(WIZARD_STRATEGY_COMPLETED_KEY, jobId || selectedRepo?.url);
+    writeSessionValue(activeKey, "true");
+    writeSessionValue(WIZARD_STRATEGY_COMPLETED_KEY, "true");
     setStrategyCompleted(true);
     setStep(nextStep);
   };
@@ -3279,13 +3289,32 @@ export function useWizardController() {
   );
 
   // Track milestone completion across steps and backward navigation
-  const [discoveryCompleted, setDiscoveryCompleted] = useState<boolean>(false);
-  const [strategyCompleted, setStrategyCompleted] = useState<boolean>(false);
+  const [discoveryCompleted, setDiscoveryCompleted] = useState<boolean>(() => {
+    const activeJobId = readPersistedValue(WIZARD_JOB_ID_KEY);
+    const activeRepo = readSessionJson<RepoInfo>(WIZARD_SELECTED_REPO_KEY);
+    const scopedKey = getScopedStepUnlockKey(WIZARD_DISCOVERY_COMPLETED_KEY, activeJobId || activeRepo?.url);
+    const persisted = readPersistedValue(scopedKey) || readPersistedValue(WIZARD_DISCOVERY_COMPLETED_KEY);
+    if (persisted === "true") return true;
+    const initialRouteStep = typeof window !== "undefined" ? getStepFromPath(window.location.pathname) : 1;
+    return initialRouteStep >= 3;
+  });
+  const [strategyCompleted, setStrategyCompleted] = useState<boolean>(() => {
+    const activeJobId = readPersistedValue(WIZARD_JOB_ID_KEY);
+    const activeRepo = readSessionJson<RepoInfo>(WIZARD_SELECTED_REPO_KEY);
+    const scopedKey = getScopedStepUnlockKey(WIZARD_STRATEGY_COMPLETED_KEY, activeJobId || activeRepo?.url);
+    const persisted = readPersistedValue(scopedKey) || readPersistedValue(WIZARD_STRATEGY_COMPLETED_KEY);
+    if (persisted === "true") return true;
+    const initialRouteStep = typeof window !== "undefined" ? getStepFromPath(window.location.pathname) : 1;
+    return initialRouteStep >= 4;
+  });
 
   const continueToStrategy = useCallback(() => {
+    const activeKey = getScopedStepUnlockKey(WIZARD_DISCOVERY_COMPLETED_KEY, jobId || selectedRepo?.url);
+    writeSessionValue(activeKey, "true");
+    writeSessionValue(WIZARD_DISCOVERY_COMPLETED_KEY, "true");
     setDiscoveryCompleted(true);
     setStep(3);
-  }, [setStep]);
+  }, [jobId, selectedRepo?.url, setStep]);
 
   useEffect(() => {
     if (!isConnectCompleted) {
@@ -3294,11 +3323,11 @@ export function useWizardController() {
     }
   }, [isConnectCompleted]);
 
-  // Step 2: Discovery completed (strictly when repoAnalysis is ready AND user explicitly clicked Continue to Strategy)
+  // Step 2: Discovery completed (strictly when repoAnalysis is ready AND user explicitly clicked Continue to Strategy or has unlocked/visited Strategy)
   const isDiscoveryCompleted =
     isConnectCompleted &&
-    Boolean(repoAnalysis && !analysisLoading) &&
-    discoveryCompleted;
+    (Boolean(repoAnalysis) || discoveryCompleted || step >= 3) &&
+    (discoveryCompleted || step >= 3);
 
   // Step 3: Strategy completed (strictly when Discovery completed AND user explicitly clicked Continue to Migration)
   const isStrategyCompleted = isDiscoveryCompleted && strategyCompleted;
@@ -5089,6 +5118,12 @@ export function useWizardController() {
     setMaxVisitedIndicatorStep(1);
     setDiscoveryCompleted(false);
     setStrategyCompleted(false);
+    removeSessionValue(WIZARD_DISCOVERY_COMPLETED_KEY);
+    removeSessionValue(WIZARD_STRATEGY_COMPLETED_KEY);
+    if (jobId || selectedRepo?.url) {
+      removeSessionValue(getScopedStepUnlockKey(WIZARD_DISCOVERY_COMPLETED_KEY, jobId || selectedRepo?.url));
+      removeSessionValue(getScopedStepUnlockKey(WIZARD_STRATEGY_COMPLETED_KEY, jobId || selectedRepo?.url));
+    }
     setIsMigrationFinishedState(false);
 
     // Reset connect state & credentials
