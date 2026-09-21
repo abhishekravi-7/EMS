@@ -432,9 +432,9 @@ class StartMigrationUseCase:
                         progressPercent=80,
                     )
                     store.append_logs([f"[QUALITY CHECK] Unit tests passed cleanly ({total_cases} test cases)."])
-            except Exception as test_exc:
-                logger.warning(f"Post-migration unit test execution notice for job {job_id}: {test_exc}")
-                store.update(progressPercent=80)
+                except Exception as test_exc:
+                    logger.warning(f"Post-migration unit test execution notice for job {job_id}: {test_exc}")
+                    store.update(progressPercent=80)
 
             # --- Stage 5: Code Deprecation ---
 
