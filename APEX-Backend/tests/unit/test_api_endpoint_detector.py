@@ -38,7 +38,7 @@ class TestScanFile:
                 public String greeting() { return "Hello"; }
             }
         """)
-        eps = _scan_file(f)
+        eps = _scan_file(f, tmp_path)
         assert len(eps) == 1
         assert eps[0]["httpMethod"] == "GET"
         assert eps[0]["path"] == "/greeting"
@@ -54,7 +54,7 @@ class TestScanFile:
                 public User create() { return null; }
             }
         """)
-        eps = _scan_file(f)
+        eps = _scan_file(f, tmp_path)
         routes = {(e["httpMethod"], e["path"]) for e in eps}
         assert ("GET", "/api/users/list") in routes
         assert ("POST", "/api/users") in routes
@@ -75,7 +75,7 @@ class TestScanFile:
                 public Object patch() { return null; }
             }
         """)
-        eps = _scan_file(f)
+        eps = _scan_file(f, tmp_path)
         methods = {e["httpMethod"] for e in eps}
         assert methods == {"GET", "POST", "PUT", "DELETE", "PATCH"}
 
@@ -89,7 +89,7 @@ class TestScanFile:
             }
         """)
         # @Controller contains the substring so it should match _RE_REST_CTRL
-        eps = _scan_file(f)
+        eps = _scan_file(f, tmp_path)
         # @Controller *does* match our pattern (correct — it can expose REST via ResponseBody)
         assert any(e["path"] == "/home" for e in eps)
 
@@ -100,7 +100,7 @@ class TestScanFile:
                 public String greet() { return "hi"; }
             }
         """)
-        eps = _scan_file(f)
+        eps = _scan_file(f, tmp_path)
         assert eps == []
 
     def test_comment_lines_not_counted(self, tmp_path):
@@ -112,7 +112,7 @@ class TestScanFile:
                 public String real() { return ""; }
             }
         """)
-        eps = _scan_file(f)
+        eps = _scan_file(f, tmp_path)
         routes = [e["path"] for e in eps]
         assert "/real" in routes
         assert "/not-real" not in routes
@@ -127,7 +127,7 @@ class TestScanFile:
                 public String ping() { return ""; }
             }
         """)
-        eps = _scan_file(f)
+        eps = _scan_file(f, tmp_path)
         assert len(eps) == 1
 
 
@@ -274,10 +274,10 @@ import pytest
 
 from app.infrastructure.analyzers.api_endpoint_detector import (
     ApiEndpointDetector,
-    _detect_in_file,
+    _scan_file,
     _extract_class_base_path,
     _extract_class_name,
-    _normalize_path,
+    _normalise_path as _normalize_path,
 )
 
 
@@ -349,7 +349,7 @@ public class UserController {
 
 def test_detect_in_file_rest_controller(tmp_path):
     jf = _write_java(tmp_path, "UserController.java", SIMPLE_REST_CONTROLLER)
-    results = _detect_in_file(jf)
+    results = _scan_file(jf, tmp_path)
     assert len(results) == 3
     methods = {r["httpMethod"] for r in results}
     assert methods == {"GET", "POST", "DELETE"}
@@ -359,24 +359,24 @@ def test_detect_in_file_rest_controller(tmp_path):
 
 def test_detect_in_file_no_controller(tmp_path):
     jf = _write_java(tmp_path, "Service.java", "public class MyService { void doStuff() {} }")
-    results = _detect_in_file(jf)
+    results = _scan_file(jf, tmp_path)
     assert results == []
 
 
 def test_detect_in_file_nonexistent():
-    results = _detect_in_file(Path("/nonexistent/file.java"))
+    results = _scan_file(Path("/nonexistent/file.java"), Path("/"))
     assert results == []
 
 
 def test_detect_in_file_fields_present(tmp_path):
     jf = _write_java(tmp_path, "UC.java", SIMPLE_REST_CONTROLLER)
-    results = _detect_in_file(jf)
+    results = _scan_file(jf, tmp_path)
     for r in results:
         assert "id" in r
         assert "httpMethod" in r
         assert "path" in r
         assert "controller" in r
-        assert "methodName" in r
+        assert "handlerMethod" in r
 
 
 # ---------------------------------------------------------------------------

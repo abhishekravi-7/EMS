@@ -96,18 +96,44 @@ _RE_RM_METHOD = re.compile(
     r"method\s*=\s*RequestMethod\.(\w+)"
 )
 
+# Grabs the Java method name immediately after the annotation block
+_METHOD_NAME_RE = re.compile(
+    r"(?:public|protected|private|static|\s)+\s+\w[\w<>\[\],\s]*\s+(\w+)\s*\("
+)
+
+
+def _extract_class_base_path(source: str) -> str:
+    """Return the class-level @RequestMapping path, or empty string."""
+    m = _RE_CLASS_MAPPING.search(source)
+    if not m:
+        return ""
+    # groups: (value="..", bare "..")
+    return (m.group(1) or "").strip("/")
+
+
+def _extract_class_name(source: str) -> str:
+    """Return the Java class name (best effort)."""
+    # Require a Java declaration context before 'class': access modifier, annotation,
+    # or start of line — to avoid matching identifiers that contain 'class' as a word.
+    m = re.search(
+        r"(?:(?:public|protected|private|abstract|final|static)\s+)+class\s+(\w+)"
+        r"|^\s*class\s+(\w+)",
+        source,
+        re.MULTILINE,
+    )
+    if not m:
+        return "UnknownController"
+    return m.group(1) or m.group(2)
+
 
 def _normalise_path(base: str, method_path: str) -> str:
     """Combine a class-level base path with a method-level path."""
-    base = base.rstrip("/")
-    method_path = method_path.strip()
-    if not method_path.startswith("/"):
-        method_path = "/" + method_path
-    combined = base + method_path
-    # Remove trailing slash unless it's the root
-    if combined != "/" and combined.endswith("/"):
-        combined = combined.rstrip("/")
-    return combined or "/"
+    base = base.strip().strip("/")
+    method_path = method_path.strip().strip("/")
+    
+    parts = [p for p in [base, method_path] if p]
+    combined = "/" + "/".join(parts)
+    return combined if combined else "/"
 
 
 def _is_in_skip_dir(java_file: Path, project_root: Path) -> bool:
@@ -122,7 +148,7 @@ def _is_in_skip_dir(java_file: Path, project_root: Path) -> bool:
     return False
 
 
-def _scan_file(java_file: Path) -> list[dict[str, Any]]:
+def _scan_file(java_file: Path, project_root: Path) -> list[dict[str, Any]]:
     """Return (http_method, route) dicts found in one .java source file."""
     try:
         text = java_file.read_text(encoding="utf-8", errors="replace")
@@ -176,8 +202,11 @@ def _scan_file(java_file: Path) -> list[dict[str, Any]]:
                 "httpMethod": http_method,
                 "path": route,
                 "controller": java_file.stem,
-                "sourceFile": java_file.name,
-                "methodName": "unknown",
+                "sourceFile": str(java_file.relative_to(project_root)).replace("\\", "/"),
+                "handlerMethod": "unknown",
+                "module": "main",
+                "framework": "Spring",
+                "detectionStatus": "detected"
             }
         )
 
@@ -210,8 +239,11 @@ def _scan_file(java_file: Path) -> list[dict[str, Any]]:
                 "httpMethod": http_method,
                 "path": route,
                 "controller": java_file.stem,
-                "sourceFile": java_file.name,
-                "methodName": "unknown",
+                "sourceFile": str(java_file.relative_to(project_root)).replace("\\", "/"),
+                "handlerMethod": "unknown",
+                "module": "main",
+                "framework": "Spring",
+                "detectionStatus": "detected"
             }
         )
 
@@ -234,7 +266,7 @@ def _python_spring_scan(project_root: Path) -> list[dict[str, Any]]:
     for java_file in all_java:
         if _is_in_skip_dir(java_file, project_root):
             continue
-        for ep in _scan_file(java_file):
+        for ep in _scan_file(java_file, project_root):
             key = (ep["httpMethod"], ep["path"])
             if key not in seen:
                 seen.add(key)
