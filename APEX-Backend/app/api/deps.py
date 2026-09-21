@@ -112,7 +112,13 @@ async def verify_job_ownership(db: Session | None, job_id: str, current_user: Us
             )
 
             try:
-                await record_mongo_owner(mongo_db, job_id=job_id, user_id=current_user.id)
+                await record_mongo_owner(
+                    mongo_db, 
+                    job_id=job_id, 
+                    user_id=str(current_user.id),
+                    owner_name=current_user.full_name,
+                    owner_email=current_user.email
+                )
                 owner_user_id = current_user.id
             except Exception as exc:  # noqa: BLE001
                 logger.debug("Could not record job owner for job %s: %s", job_id, exc)

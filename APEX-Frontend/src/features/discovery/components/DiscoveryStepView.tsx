@@ -24,6 +24,7 @@ import {
   FaShieldAlt,
   FaWrench,
   FaVial,
+  FaLink,
 } from "react-icons/fa";
 import {
   renderWizardIconBadge,
@@ -541,6 +542,10 @@ export function DiscoveryStepView({
   const xmlFiles = repoAnalysis?.config_file_count ?? repoAnalysis?.config_files?.length ?? configFileList.length;
   const othersFiles = repoAnalysis?.other_file_count ?? repoAnalysis?.other_files?.length ?? otherFileList.length;
   const totalFiles = repoAnalysis?.total_file_count ?? (javaFiles + xmlFiles + othersFiles);
+
+  const apiEndpoints = repoAnalysis?.api_endpoints;
+  const apiEndpointsCount = apiEndpoints?.length;
+  const isApiEndpointsAvailable = apiEndpoints !== undefined;
 
   const extractFileName = (filepath: string) => {
     const parts = filepath.replace(/\\/g, "/").split("/");
@@ -1416,6 +1421,144 @@ export function DiscoveryStepView({
                   <div className="discovery-kpi-popover-footer">
                     <span>{otherFileList.length} doc &amp; misc files</span>
                     <span style={{ color: "#94a3b8" }}>{pinnedKpi === "others" ? "Pinned" : "Click to pin"}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Card 5: API Endpoints */}
+            <div
+              className={`discovery-kpi-card ${activeKpi === "endpoints" ? "has-popover-open" : ""}`}
+              onMouseEnter={() => setHoveredKpi("endpoints")}
+              onMouseLeave={() => setHoveredKpi(null)}
+              onClick={(e) => {
+                e.stopPropagation();
+                setPinnedKpi((prev) => (prev === "endpoints" ? null : "endpoints"));
+              }}
+            >
+              <div className="discovery-kpi-top">
+                <div className="discovery-kpi-icon" style={{ background: "#ecfdf5", color: "#059669" }}>
+                  <FaLink />
+                </div>
+                <div className="discovery-kpi-number-wrap">
+                  <span className="discovery-kpi-number" style={{ fontSize: isApiEndpointsAvailable ? 19 : 14, color: isApiEndpointsAvailable ? "#0f172a" : "#64748b" }}>
+                    {isApiEndpointsAvailable ? apiEndpointsCount : "Unavailable"}
+                  </span>
+                </div>
+              </div>
+              <div className="discovery-kpi-bottom">
+                <span className="discovery-kpi-label">API Endpoints</span>
+                <span className="discovery-kpi-sub">HTTP routes detected</span>
+              </div>
+
+              {/* Popover */}
+              {activeKpi === "endpoints" && (
+                <div
+                  className="discovery-kpi-popover align-right"
+                  onClick={(e) => e.stopPropagation()}
+                  onMouseEnter={() => setHoveredKpi("endpoints")}
+                  onMouseLeave={() => setHoveredKpi(null)}
+                >
+                  <div className="discovery-kpi-popover-header">
+                    <div className="discovery-kpi-popover-title-wrap">
+                      <FaLink color="#059669" size={14} />
+                      <span className="discovery-kpi-popover-title">Detected API Endpoints</span>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span className="discovery-kpi-popover-badge" style={{ background: "#ecfdf5", color: "#059669" }}>
+                        {isApiEndpointsAvailable ? `${apiEndpointsCount} endpoints` : "Not analyzed"}
+                      </span>
+                      {pinnedKpi === "endpoints" && (
+                        <button
+                          className="discovery-kpi-popover-close"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPinnedKpi(null);
+                            setHoveredKpi(null);
+                          }}
+                          title="Close"
+                        >
+                          <FaTimes size={10} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="discovery-kpi-file-list" style={{ maxHeight: 240 }}>
+                    {!isApiEndpointsAvailable ? (
+                       <div style={{ padding: "20px 0", textAlign: "center", color: "#64748b", fontSize: 12 }}>
+                        Endpoint analysis is unavailable for this saved job. Please rerun Discovery to analyze.
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void handleRerunAnalysis();
+                          }}
+                          className="discovery-action-btn-outline"
+                          style={{ marginTop: 12, width: "100%", justifyContent: "center" }}
+                        >
+                          <FaRedoAlt size={10} /> Rerun Discovery
+                        </button>
+                      </div>
+                    ) : apiEndpoints.length > 0 ? (
+                      apiEndpoints.map((ep, idx) => (
+                        <div
+                          key={`${ep.id}-${idx}`}
+                          className="discovery-kpi-file-item"
+                          onClick={(e) => handleSelectPopoverFile(ep.sourceFile, e)}
+                          title={`Click to view ${ep.controller}.java`}
+                        >
+                          <div className="discovery-kpi-file-left">
+                            <span
+                              className="discovery-kpi-file-tag"
+                              style={{
+                                width: 44,
+                                textAlign: "center",
+                                background:
+                                  ep.httpMethod === "GET"
+                                    ? "#dcfce7"
+                                    : ep.httpMethod === "POST"
+                                    ? "#eff6ff"
+                                    : ep.httpMethod === "PUT"
+                                    ? "#fef3c7"
+                                    : ep.httpMethod === "DELETE"
+                                    ? "#fee2e2"
+                                    : "#f1f5f9",
+                                color:
+                                  ep.httpMethod === "GET"
+                                    ? "#15803d"
+                                    : ep.httpMethod === "POST"
+                                    ? "#1d4ed8"
+                                    : ep.httpMethod === "PUT"
+                                    ? "#b45309"
+                                    : ep.httpMethod === "DELETE"
+                                    ? "#b91c1c"
+                                    : "#475569",
+                              }}
+                            >
+                              {ep.httpMethod}
+                            </span>
+                            <div className="discovery-kpi-file-info">
+                              <span className="discovery-kpi-file-name" style={{ fontSize: 12 }}>
+                                {ep.path}
+                              </span>
+                              <span className="discovery-kpi-file-path">
+                                {ep.controller} {ep.handlerMethod !== "unknown" ? `• ${ep.handlerMethod}` : ""}
+                              </span>
+                            </div>
+                          </div>
+                          <FaChevronRight size={10} color="#94a3b8" />
+                        </div>
+                      ))
+                    ) : (
+                      <div style={{ padding: "20px 0", textAlign: "center", color: "#64748b", fontSize: 12 }}>
+                        No implemented API endpoints found.
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="discovery-kpi-popover-footer">
+                    <span>{isApiEndpointsAvailable && apiEndpoints.length > 0 ? "Click to view controller source" : "Framework support: Spring MVC"}</span>
+                    <span style={{ color: "#94a3b8" }}>{pinnedKpi === "endpoints" ? "Pinned" : "Click to pin"}</span>
                   </div>
                 </div>
               )}

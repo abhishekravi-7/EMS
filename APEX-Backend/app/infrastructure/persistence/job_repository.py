@@ -37,6 +37,10 @@ class JobRepository:
 
         report_path = reports_dir / "connect-report.json"
         report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+        
+        from app.infrastructure.persistence.mongodb_ownership_repository import sync_update_job_last_updated
+        sync_update_job_last_updated(job_id)
+        
         return report_path
 
     def read_connect_report(self, job_id: str) -> dict[str, Any] | None:
@@ -53,6 +57,10 @@ class JobRepository:
 
         report_path = reports_dir / "discovery-report.json"
         report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+        
+        from app.infrastructure.persistence.mongodb_ownership_repository import sync_update_job_last_updated
+        sync_update_job_last_updated(job_id)
+        
         return report_path
 
     def read_discovery_report(self, job_id: str) -> dict[str, Any] | None:
@@ -69,6 +77,10 @@ class JobRepository:
 
         report_path = reports_dir / "migration-config-report.json"
         report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+        
+        from app.infrastructure.persistence.mongodb_ownership_repository import sync_update_job_last_updated
+        sync_update_job_last_updated(job_id)
+        
         return report_path
 
     def read_migration_config_report(self, job_id: str) -> dict[str, Any] | None:
@@ -95,6 +107,10 @@ class JobRepository:
         }
         metadata_path = paths.attachments_dir / "brd-metadata.json"
         metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+        
+        from app.infrastructure.persistence.mongodb_ownership_repository import sync_update_job_last_updated
+        sync_update_job_last_updated(job_id)
+        
         return metadata
 
     def get_brd_metadata(self, job_id: str) -> dict[str, Any] | None:
