@@ -1,0 +1,571 @@
+/* ========================================================
+   MigrationOverviewInlineDetail Styles
+   Full-width Result Page detail card styling matching the
+   Java APEX design system.
+   ======================================================== */
+
+.moid-section-container {
+  background: #ffffff;
+  border: 1px solid #eef2f6;
+  border-radius: 16px;
+  padding: 24px 28px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
+  margin-bottom: 16px;
+  animation: moidSectionFade 0.2s ease-out;
+}
+
+@keyframes moidSectionFade {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Header */
+.moid-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.moid-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.moid-icon-box {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.moid-icon-box.files {
+  background: #eff6ff;
+  color: #2563eb;
+}
+
+.moid-icon-box.transformations {
+  background: #f5f3ff;
+  color: #7c3aed;
+}
+
+.moid-icon-box.dependencies {
+  background: #ecfdf5;
+  color: #10b981;
+}
+
+.moid-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 800;
+  color: #0f172a;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.moid-count-pill {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 10px;
+  border-radius: 20px;
+}
+
+.moid-count-pill.blue {
+  background: #eff6ff;
+  color: #2563eb;
+  border: 1px solid #bfdbfe;
+}
+
+.moid-count-pill.purple {
+  background: #f5f3ff;
+  color: #7c3aed;
+  border: 1px solid #ddd6fe;
+}
+
+.moid-count-pill.green {
+  background: #ecfdf5;
+  color: #059669;
+  border: 1px solid #a7f3d0;
+}
+
+/* Summary Pills (Modified / Added / Removed) */
+.moid-summary-counts {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: 8px;
+  flex-wrap: wrap;
+}
+
+.moid-summary-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 20px;
+}
+
+.moid-summary-pill.modified {
+  background: #eff6ff;
+  color: #2563eb;
+  border: 1px solid #bfdbfe;
+}
+
+.moid-summary-pill.added {
+  background: #ecfdf5;
+  color: #059669;
+  border: 1px solid #a7f3d0;
+}
+
+.moid-summary-pill.removed {
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+}
+
+.moid-pill-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.moid-pill-dot.modified {
+  background: #2563eb;
+}
+
+.moid-pill-dot.added {
+  background: #10b981;
+}
+
+.moid-pill-dot.removed {
+  background: #ef4444;
+}
+
+.moid-search-box {
+  position: relative;
+  width: 280px;
+}
+
+.moid-search-input {
+  width: 100%;
+  padding: 10px 16px 10px 40px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  font-size: 13px;
+  background: #ffffff;
+  color: #0f172a;
+  outline: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  transition: all 0.15s ease;
+}
+
+.moid-search-input:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.moid-search-icon {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #64748b;
+  font-size: 14px;
+  pointer-events: none;
+}
+
+/* ========================================================
+   Table (Files Modified & Dependency Updates)
+   ======================================================== */
+.moid-table-wrap {
+  overflow-x: auto;
+}
+
+.moid-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.moid-table th {
+  padding: 12px 16px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #94a3b8;
+  text-transform: uppercase;
+  border-bottom: 1px solid #f1f5f9;
+  letter-spacing: 0.04em;
+}
+
+.moid-table td {
+  padding: 14px 16px;
+  font-size: 14px;
+  border-bottom: 1px solid #f8fafc;
+  vertical-align: middle;
+}
+
+.moid-table tr:hover {
+  background-color: #fbfdff;
+}
+
+.moid-file-name {
+  font-weight: 600;
+  color: #0f172a;
+  font-size: 14px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+.moid-file-path {
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 2px;
+  word-break: break-all;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.moid-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 20px;
+  text-transform: uppercase;
+}
+
+.moid-badge.modified {
+  background: #eff6ff;
+  color: #2563eb;
+  border: 1px solid #bfdbfe;
+}
+
+.moid-badge.added {
+  background: #ecfdf5;
+  color: #059669;
+  border: 1px solid #a7f3d0;
+}
+
+.moid-badge.deleted {
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+}
+
+.moid-badge.upgraded {
+  background: #ecfdf5;
+  color: #059669;
+  border: 1px solid #a7f3d0;
+}
+
+.moid-badge.ext {
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+
+.moid-churn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.moid-churn .add {
+  color: #059669;
+}
+
+.moid-churn .del {
+  color: #dc2626;
+}
+
+/* Empty State */
+.moid-empty-row td {
+  padding: 40px;
+  text-align: center;
+  color: #64748b;
+  font-style: italic;
+  font-size: 14px;
+}
+
+/* ========================================================
+   Dependency Updates Scroll Container & Sticky Header
+   ======================================================== */
+.moid-dependencies-scroll-container {
+  max-height: 420px;
+  overflow-y: auto;
+  overflow-x: auto;
+  border: 1px solid #f1f5f9;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.moid-dependencies-scroll-container::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.moid-dependencies-scroll-container::-webkit-scrollbar-track {
+  background: #f8fafc;
+  border-radius: 4px;
+}
+
+.moid-dependencies-scroll-container::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+.moid-dependencies-scroll-container::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+.moid-sticky-table thead th {
+  position: sticky;
+  top: 0;
+  background: #ffffff;
+  z-index: 2;
+  box-shadow: 0 1px 0 #f1f5f9;
+}
+
+/* ========================================================
+   2-Column Changed Files & Code Diff Viewer Grid
+   ======================================================== */
+.moid-diff-viewer-grid {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  height: 560px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+@media (max-width: 900px) {
+  .moid-diff-viewer-grid {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+}
+
+/* Left Sidebar */
+.moid-diff-sidebar {
+  background: #ffffff;
+  border-right: 1px solid #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.moid-diff-sidebar-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid #f1f5f9;
+  background: #fafbfc;
+  flex-shrink: 0;
+}
+
+.moid-diff-file-list {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.moid-diff-file-item {
+  padding: 12px 18px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  border-left: 4px solid transparent;
+  border-bottom: 1px solid #f8fafc;
+  gap: 10px;
+}
+
+.moid-diff-file-item:hover {
+  background: #f8fafc;
+}
+
+.moid-diff-file-item.selected {
+  background: #eff6ff;
+  border-left-color: #2563eb;
+}
+
+.moid-diff-file-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.moid-diff-file-icon {
+  color: #2563eb;
+  font-size: 15px;
+  opacity: 0.85;
+  flex-shrink: 0;
+}
+
+.moid-diff-file-text-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.moid-diff-file-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.moid-diff-file-item.selected .moid-diff-file-name {
+  color: #1d4ed8;
+  font-weight: 700;
+}
+
+.moid-diff-file-subpath {
+  font-size: 11px;
+  color: #94a3b8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 1px;
+}
+
+.moid-diff-sidebar-footer {
+  padding: 12px 16px;
+  text-align: center;
+  font-size: 11px;
+  color: #64748b;
+  border-top: 1px solid #f1f5f9;
+  background: #f8fafc;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+/* Right Content: Code Changes / Diff View */
+.moid-diff-content-view {
+  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  height: 100%;
+}
+
+.moid-diff-content-header {
+  padding: 14px 24px;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #ffffff;
+  flex-shrink: 0;
+}
+
+.moid-diff-table-container {
+  flex: 1;
+  overflow: auto;
+  background: #ffffff;
+  min-height: 0;
+}
+
+.moid-diff-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.moid-diff-table tr {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.03);
+}
+
+.diff-row-normal {
+  background: transparent;
+}
+
+.diff-row-removed {
+  background: #fff1f2;
+}
+
+.diff-row-added {
+  background: #f0fdf4;
+}
+
+.diff-col-num {
+  width: 45px;
+  padding: 2px 10px;
+  text-align: right;
+  color: #94a3b8;
+  background: rgba(0, 0, 0, 0.015);
+  user-select: none;
+  border-right: 1px solid #e2e8f0;
+  font-size: 11px;
+}
+
+.diff-col-sign {
+  width: 30px;
+  padding: 2px 0;
+  text-align: center;
+  font-weight: 800;
+  user-select: none;
+  font-size: 12px;
+}
+
+.diff-row-removed .diff-col-sign {
+  color: #dc2626;
+}
+
+.diff-row-added .diff-col-sign {
+  color: #16a34a;
+}
+
+.diff-row-normal .diff-col-sign {
+  color: transparent;
+}
+
+.diff-col-code {
+  padding: 2px 14px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  flex: 1;
+  color: #334155;
+}
+
+.diff-row-removed .diff-col-code {
+  color: #991b1b;
+}
+
+.diff-row-added .diff-col-code {
+  color: #166534;
+}

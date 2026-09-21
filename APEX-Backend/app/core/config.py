@@ -127,6 +127,12 @@ class Settings(BaseSettings):
     migration_commit_author_email: str = "migration-bot@javaapex.local"
     # Bounded retry loop when the post-migration build fails. 0 disables retries.
     migration_max_retry_attempts: int = 2
+    # Maximum build→fix→rebuild iterations for LLM self-healing.
+    max_heal_cycles: int = 3
+    # Max files to attempt LLM repair per heal cycle. 0 = unlimited.
+    max_files_per_heal_cycle: int = 0
+    # If True, block publishing to GitHub when the build completely fails.
+    block_publish_on_build_failure: bool = False
 
     # --- Build validation (post-migration "does it build?" check) -----------
     # Whether to compile/package the migrated code and log BUILD SUCCESS/FAILED.
@@ -161,7 +167,20 @@ class Settings(BaseSettings):
     # Internal prefixes and CLI command names used by runners:
     sonarqube_project_key_prefix: str = "java-apex"
     sonarqube_scanner_command: str = "sonar-scanner"
-    fossa_cli_command: str = "fossa"
+    # FOSSA API key. Required only when the FOSSA quality gate card is active.
+    fossa_api_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("FOSSA_API_KEY", "fossa_api_key"),
+    )
+    # Optional custom FOSSA endpoint for self-hosted/enterprise setups.
+    fossa_endpoint: str = Field(
+        default="",
+        validation_alias=AliasChoices("FOSSA_ENDPOINT", "fossa_endpoint"),
+    )
+    fossa_cli_command: str = Field(
+        default="fossa",
+        validation_alias=AliasChoices("FOSSA_CLI_PATH", "FOSSA_CLI_COMMAND", "fossa_cli_command"),
+    )
 
     # --- Test Cases ----------------------------------------------------------
     test_cases_playwright_enabled: bool = False

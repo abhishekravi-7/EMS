@@ -28,55 +28,67 @@ class RepoPusher:
         *,
         commit_message: str,
         branch: str = "main",
-        allow_force_update_existing: bool = False,
         token: str | None = None,
+        allow_force_update_existing: bool = False,
     ) -> str:
         """Init, commit, and push ``repo_dir`` to ``clone_url``. Returns the branch."""
-        token = (token or settings.github_target_token or "").strip()
-        if not token:
-            raise PushFailedError("No target GitHub token configured. Set GITHUB_TARGET_TOKEN.")
+        effective_token = (
+            (token or "").strip()
+            or (settings.github_token or "").strip()
+            or (settings.github_target_token or "").strip()
+        )
+        if not effective_token:
+            raise PushFailedError(
+                "Unable to push to the destination repository. Please verify that the repository exists and that your PAT has write access."
+            )
 
-        auth_url = self._build_auth_url(clone_url, token)
+        auth_url = self._build_auth_url(clone_url, effective_token)
 
         # 1. Clean up heavy build output binaries to prevent bloated git push payloads
         self._cleanup_build_artifacts(repo_dir)
 
-        # 2. Init fresh repo and configure git HTTP buffers
-        self._git(repo_dir, ["init", "-q"])
-        self._git(repo_dir, ["config", "core.longpaths", "true"])
-        self._git(repo_dir, ["config", "http.postBuffer", "524288000"])
-        self._git(repo_dir, ["config", "http.version", "HTTP/1.1"])
-        self._git(repo_dir, ["symbolic-ref", "HEAD", f"refs/heads/{branch}"])
-        self._git(repo_dir, ["config", "user.name", settings.migration_commit_author_name])
-        self._git(repo_dir, ["config", "user.email", settings.migration_commit_author_email])
-        self._git(repo_dir, ["add", "-A"])
-        self._git(repo_dir, ["commit", "-q", "-m", commit_message])
-        self._git(repo_dir, ["remote", "add", "origin", auth_url], sensitive=True)
-        logger.info("Pushing migrated repo to %s", self._mask(clone_url))
-        push_result = self._run_git(repo_dir, ["push", "-u", "origin", branch])
-        if push_result.succeeded:
-            return branch
-
-        if allow_force_update_existing and self._is_non_fast_forward(push_result.stderr):
-            logger.warning(
-                "Remote %s already has %s; retrying with --force-with-lease.",
-                self._mask(clone_url),
-                branch,
-            )
-            self._run_git(
-                repo_dir,
-                ["fetch", "origin", f"{branch}:refs/remotes/origin/{branch}", "--depth=1"],
-            )
-            force_result = self._run_git(
-                repo_dir,
-                ["push", "--force-with-lease", "-u", "origin", branch],
-            )
-            if force_result.succeeded:
+        try:
+            # 2. Init fresh repo and configure git HTTP buffers
+            self._git(repo_dir, ["init", "-q"])
+            self._git(repo_dir, ["config", "core.longpaths", "true"])
+            self._git(repo_dir, ["config", "http.postBuffer", "524288000"])
+            self._git(repo_dir, ["config", "http.version", "HTTP/1.1"])
+            self._git(repo_dir, ["symbolic-ref", "HEAD", f"refs/heads/{branch}"])
+            self._git(repo_dir, ["config", "user.name", settings.migration_commit_author_name])
+            self._git(repo_dir, ["config", "user.email", settings.migration_commit_author_email])
+            self._git(repo_dir, ["add", "-A"])
+            self._git(repo_dir, ["commit", "-q", "-m", commit_message])
+            self._git(repo_dir, ["remote", "add", "origin", auth_url], sensitive=True)
+            logger.info("Pushing migrated repo to %s", self._mask(clone_url))
+            push_result = self._run_git(repo_dir, ["push", "-u", "origin", branch])
+            if push_result.succeeded:
                 return branch
-            self._raise_git_failure(force_result, action="push")
 
-        self._raise_git_failure(push_result, action="push")
-        return branch
+            if allow_force_update_existing and self._is_non_fast_forward(push_result.stderr):
+                logger.warning(
+                    "Remote %s already has %s; retrying with --force-with-lease.",
+                    self._mask(clone_url),
+                    branch,
+                )
+                self._run_git(
+                    repo_dir,
+                    ["fetch", "origin", f"{branch}:refs/remotes/origin/{branch}", "--depth=1"],
+                )
+                force_result = self._run_git(
+                    repo_dir,
+                    ["push", "--force-with-lease", "-u", "origin", branch],
+                )
+                if force_result.succeeded:
+                    return branch
+                self._raise_git_failure(force_result, action="push")
+
+            self._raise_git_failure(push_result, action="push")
+            return branch
+        finally:
+            try:
+                self._run_git(repo_dir, ["remote", "remove", "origin"])
+            except Exception:
+                pass
 
     # -- helpers ------------------------------------------------------------- #
 
@@ -124,9 +136,21 @@ class RepoPusher:
                 "Failed to publish the migrated repository because one or more file paths exceed the Windows path length limit. "
                 "Ensure Git long-path support is enabled ('git config --system core.longpaths true') or publish from a long-path supported environment."
             )
-        if "permission" in lowered_err or "403" in lowered_err or "authentication" in lowered_err or "access denied" in lowered_err or "token" in lowered_err:
+        if "401" in lowered_err or "bad credentials" in lowered_err or "invalid username or password" in lowered_err:
             raise PushFailedError(
-                "Failed to publish the migrated repository. Check the target token/permissions."
+                "Invalid GitHub token. Please verify that your PAT is valid and has not expired."
+            )
+        if "permission" in lowered_err or "403" in lowered_err or "access denied" in lowered_err or "write access" in lowered_err:
+            raise PushFailedError(
+                "Unable to push to the destination repository. Please verify that your PAT has write permission."
+            )
+        if "repository not found" in lowered_err or "not found" in lowered_err or "does not exist" in lowered_err:
+            raise PushFailedError(
+                "Unable to access the destination repository. Please verify that the repository exists and that your PAT has access."
+            )
+        if self._is_non_fast_forward(lowered_err):
+            raise PushFailedError(
+                "Failed to push: the branch already exists on the destination repository or has conflicting commits."
             )
         if "rpc failed" in lowered_err or "http 408" in lowered_err or "send-pack" in lowered_err or "curl 22" in lowered_err:
             raise PushFailedError(
@@ -134,7 +158,7 @@ class RepoPusher:
                 "The Git push payload exceeded buffer limits. Heavy build artifacts have been stripped for retries."
             )
         raise PushFailedError(
-            f"Failed to publish the migrated repository (git {action} failed: {stderr or 'unknown error'})."
+            "Unable to access the destination repository. Please verify the repository URL and PAT permissions."
         )
 
     @staticmethod
@@ -143,14 +167,27 @@ class RepoPusher:
         return "fetch first" in lowered or "non-fast-forward" in lowered or "[rejected]" in lowered
 
     @staticmethod
-    def _build_auth_url(https_url: str, token: str) -> str:
-        url = https_url.strip()
-        if not url.endswith(".git"):
-            url = f"{url.rstrip('/')}.git"
-        return url.replace("https://", f"https://x-access-token:{token}@", 1)
+    def _normalize_repo_url(url: str) -> str:
+        """Strip trailing slashes, spaces, and duplicate .git suffixes cleanly."""
+        cleaned = (url or "").strip().rstrip("/\\")
+        if cleaned.endswith(".git"):
+            cleaned = cleaned[:-4].rstrip("/\\")
+        return cleaned
+
+    @staticmethod
+    def _build_auth_url(https_url: str, token: str | None = None) -> str:
+        base_url = RepoPusher._normalize_repo_url(https_url)
+        git_url = f"{base_url}.git"
+        if token and token.strip():
+            tok = token.strip()
+            if git_url.startswith("https://"):
+                return git_url.replace("https://", f"https://x-access-token:{tok}@", 1)
+            if git_url.startswith("http://"):
+                return git_url.replace("http://", f"http://x-access-token:{tok}@", 1)
+        return git_url
 
     @staticmethod
     def _mask(text: str) -> str:
         if not text:
             return text
-        return re.sub(r"(https://)[^@/\s]+@", rf"\1{_TOKEN_MASK}@", text)
+        return re.sub(r"(https?://)[^@/\s]+@", rf"\1{_TOKEN_MASK}@", text)
