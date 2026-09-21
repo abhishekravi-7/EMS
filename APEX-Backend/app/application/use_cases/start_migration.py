@@ -300,7 +300,7 @@ class StartMigrationUseCase:
             )
 
             # Optional Quality Gates (SonarQube/FOSSA)
-            self._run_quality_gates(store, job_id, result.project_dir, report)
+            self._run_quality_gates(store, job_id, result.project_dir or paths.migrated_repo_dir, report)
             store.update(progressPercent=75)
 
 
@@ -422,6 +422,15 @@ class StartMigrationUseCase:
             )
             file_utils.remove_tree(paths.migrated_repo_dir / ".git")
             publish_target_java = result.effective_target_java_version or target_java
+            # Build-gate: warn if publishing a repo with build failures
+            build_success_flag = (store.read() or {}).get("buildSuccess", False)
+            build_status_flag = (store.read() or {}).get("buildStatus", "UNKNOWN")
+            if not build_success_flag:
+                store.append_logs([
+                    f"[WARNING] Build validation status: {build_status_flag}. "
+                    "Migrated repository will still be published for inspection, "
+                    "but may contain compilation errors."
+                ])
             target_repo = self._publish(store, report, paths, publish_target_java)
             store.append_logs([f"[DEPRECATION] Published migrated repository to: {target_repo}"])
             store.update(progressPercent=90)
@@ -562,6 +571,15 @@ class StartMigrationUseCase:
             )
             file_utils.remove_tree(paths.migrated_repo_dir / ".git")
             publish_target_java = result.effective_target_java_version or target_java
+            # Build-gate: warn if publishing a repo with build failures
+            build_success_flag = (store.read() or {}).get("buildSuccess", False)
+            build_status_flag = (store.read() or {}).get("buildStatus", "UNKNOWN")
+            if not build_success_flag:
+                store.append_logs([
+                    f"[WARNING] Build validation status: {build_status_flag}. "
+                    "Migrated repository will still be published for inspection, "
+                    "but may contain compilation errors."
+                ])
             target_repo = self._publish(store, report, paths, publish_target_java)
 
             # --- Done ---
@@ -593,9 +611,11 @@ class StartMigrationUseCase:
 
         except MigrationExecutionError as exc:
             self._fail(store, job_id, exc.message)
-        except Exception as exc:  # noqa: BLE001 - report any unexpected failure cleanly
-            logger.exception("Unexpected migration failure for job %s", job_id)
-            self._fail(store, job_id, "Migration failed due to an unexpected error.")
+        except Exception as exc:  # noqa: BLE001
+            import traceback
+            logger.exception("Migration job %s failed with an unexpected error", job_id)
+            err_trace = traceback.format_exc()
+            self._fail(store, job_id, f"Migration failed due to an unexpected error.\n{err_trace}")
         finally:
             if repo_token is not None:
                 repository_url_ctx.reset(repo_token)
@@ -616,24 +636,56 @@ class StartMigrationUseCase:
         report: dict[str, Any],
         conversion_types: list[str],
     ) -> tuple[MigrationRunResult, BuildResult | None, list[dict[str, Any]]]:
-        """Run the deterministic AST-based migration engine."""
+        """Run the AST-based migration engine with retry support."""
         include_jakarta = self._should_include_jakarta(report)
+        max_attempts = settings.migration_max_retry_attempts
+        retry_attempts: list[dict[str, Any]] = []
+        last_result: MigrationRunResult | None = None
+        last_build: BuildResult | None = None
 
-        result = self._runner.run(
-            paths.migrated_repo_dir,
-            build_tool,
-            target_java,
-            include_jakarta=include_jakarta,
-            conversion_types=conversion_types,
-        )
-        store.append_logs(result.log_lines + result.error_lines)
+        for attempt in range(1, max_attempts + 1):
+            if attempt > 1:
+                store.append_logs([f"Migration retry attempt {attempt}/{max_attempts}..."])
+                logger.info("Migration retry attempt %d/%d for job %s", attempt, max_attempts, job_id)
 
-        if not result.success:
-            return result, None, []
+            result = self._runner.run(
+                paths.migrated_repo_dir,
+                build_tool,
+                target_java,
+                include_jakarta=include_jakarta,
+                conversion_types=conversion_types,
+            )
+            store.append_logs(result.log_lines + result.error_lines)
+            last_result = result
 
-        # Deterministic Validation Phase
-        build_result = self._run_build_validation(job_id, result, build_tool)
-        return result, build_result, []
+            if not result.success:
+                retry_attempts.append({
+                    "attempt": attempt,
+                    "status": result.status,
+                    "reason": "Migration engine reported failure",
+                })
+                if attempt < max_attempts:
+                    continue
+                return result, None, retry_attempts
+
+            build_result = self._run_build_validation(job_id, result, build_tool)
+            last_build = build_result
+
+            if build_result and build_result.success:
+                logger.info("Migration succeeded on attempt %d for job %s", attempt, job_id)
+                return result, build_result, retry_attempts
+
+            retry_attempts.append({
+                "attempt": attempt,
+                "status": result.status,
+                "buildStatus": build_result.status_label if build_result else "UNKNOWN",
+                "reason": "Build validation failed after migration",
+            })
+
+            if attempt >= max_attempts:
+                break
+
+        return last_result, last_build, retry_attempts
 
     # -- build validation ---------------------------------------------------- #
 
@@ -712,7 +764,7 @@ class StartMigrationUseCase:
         parts = [f"Migrated project from Java {source} to Java {target}."]
 
         if retry_attempts:
-            causes = "; ".join(attempt["rootCause"] for attempt in retry_attempts)
+            causes = "; ".join(attempt.get("rootCause") or attempt.get("reason", "unknown") for attempt in retry_attempts)
             parts.append(
                 f"The build failed after the first pass and was automatically "
                 f"retried {len(retry_attempts)} time(s) with additional "
