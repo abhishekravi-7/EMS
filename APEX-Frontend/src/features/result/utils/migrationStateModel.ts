@@ -496,15 +496,15 @@ export function buildMigrationState(params: BuildMigrationStateParams): Migratio
         vulnerabilities: sonarVulns,
         codeSmells: sonarSmells,
         qualityGate: migrationJob?.sonar_quality_gate || null,
-        executed: runSonar || Boolean(migrationJob?.sonar_quality_gate || sonarTotalIssues > 0),
+        executed: Boolean(migrationJob?.run_sonar ?? migrationJob?.runSonar ?? runSonar),
       },
       fossa: {
         totalIssues: fossaIssues,
         complianceStatus: fossaResult?.compliance_status || migrationJob?.fossa_policy_status || null,
-        executed: runFossa || Boolean(fossaResult || migrationJob?.fossa_policy_status),
+        executed: Boolean(migrationJob?.run_fossa ?? migrationJob?.runFossa ?? runFossa),
       },
       junit: {
-        executed: runTests || hasUnitTestData,
+        executed: Boolean(migrationJob?.run_tests ?? migrationJob?.runTests ?? runTests) || hasUnitTestData,
         testsPassed,
         testsFailed,
       },
@@ -863,107 +863,111 @@ export function generateStepLogs(stepId: number, state: MigrationState): Migrati
     // ========================================================
     case 4: {
       // SonarQube
-      addLog("INFO", "Starting SonarQube analysis...", undefined, undefined, {
-        category: "sonarqube",
-        clickable: true,
-        action: "OPEN_SONARQUBE_RESULTS",
-        target: "sonarqube",
-        data: state.qualityChecks.sonar,
-      });
-      addLog("INFO", "Scanning source code quality...", undefined, undefined, {
-        category: "sonarqube",
-        clickable: true,
-        action: "OPEN_SONARQUBE_RESULTS",
-        target: "sonarqube",
-        data: state.qualityChecks.sonar,
-      });
-      addLog("INFO", "Collecting SonarQube results...", undefined, undefined, {
-        category: "sonarqube",
-        clickable: true,
-        action: "OPEN_SONARQUBE_RESULTS",
-        target: "sonarqube",
-        data: state.qualityChecks.sonar,
-      });
-      if (state.qualityChecks.sonar.totalIssues > 0) {
-        addLog(
-          "WARN",
-          `SonarQube issues found: ${state.qualityChecks.sonar.totalIssues}`,
-          undefined,
-          undefined,
-          {
-            category: "sonarqube",
-            clickable: true,
-            action: "OPEN_SONARQUBE_RESULTS",
-            target: "sonarqube",
-            data: state.qualityChecks.sonar,
-          }
-        );
-      } else {
-        addLog(
-          "SUCCESS",
-          "SonarQube analysis completed with 0 issues.",
-          undefined,
-          undefined,
-          {
-            category: "sonarqube",
-            clickable: true,
-            action: "OPEN_SONARQUBE_RESULTS",
-            target: "sonarqube",
-            data: state.qualityChecks.sonar,
-          }
-        );
+      if (state.qualityChecks.sonar.executed) {
+        addLog("INFO", "Starting SonarQube analysis...", undefined, undefined, {
+          category: "sonarqube",
+          clickable: true,
+          action: "OPEN_SONARQUBE_RESULTS",
+          target: "sonarqube",
+          data: state.qualityChecks.sonar,
+        });
+        addLog("INFO", "Scanning source code quality...", undefined, undefined, {
+          category: "sonarqube",
+          clickable: true,
+          action: "OPEN_SONARQUBE_RESULTS",
+          target: "sonarqube",
+          data: state.qualityChecks.sonar,
+        });
+        addLog("INFO", "Collecting SonarQube results...", undefined, undefined, {
+          category: "sonarqube",
+          clickable: true,
+          action: "OPEN_SONARQUBE_RESULTS",
+          target: "sonarqube",
+          data: state.qualityChecks.sonar,
+        });
+        if (state.qualityChecks.sonar.totalIssues > 0) {
+          addLog(
+            "WARN",
+            `SonarQube issues found: ${state.qualityChecks.sonar.totalIssues}`,
+            undefined,
+            undefined,
+            {
+              category: "sonarqube",
+              clickable: true,
+              action: "OPEN_SONARQUBE_RESULTS",
+              target: "sonarqube",
+              data: state.qualityChecks.sonar,
+            }
+          );
+        } else {
+          addLog(
+            "SUCCESS",
+            "SonarQube analysis completed with 0 issues.",
+            undefined,
+            undefined,
+            {
+              category: "sonarqube",
+              clickable: true,
+              action: "OPEN_SONARQUBE_RESULTS",
+              target: "sonarqube",
+              data: state.qualityChecks.sonar,
+            }
+          );
+        }
       }
 
       // FOSSA
-      addLog("INFO", "Starting FOSSA dependency/license scan...", undefined, undefined, {
-        category: "fossa",
-        clickable: true,
-        action: "OPEN_FOSSA_RESULTS",
-        target: "fossa",
-        data: state.qualityChecks.fossa,
-      });
-      addLog("INFO", "Scanning dependencies...", undefined, undefined, {
-        category: "fossa",
-        clickable: true,
-        action: "OPEN_FOSSA_RESULTS",
-        target: "fossa",
-        data: state.qualityChecks.fossa,
-      });
-      addLog("INFO", "Collecting FOSSA results...", undefined, undefined, {
-        category: "fossa",
-        clickable: true,
-        action: "OPEN_FOSSA_RESULTS",
-        target: "fossa",
-        data: state.qualityChecks.fossa,
-      });
-      if (state.qualityChecks.fossa.totalIssues > 0) {
-        addLog(
-          "WARN",
-          `FOSSA issues found: ${state.qualityChecks.fossa.totalIssues}`,
-          undefined,
-          undefined,
-          {
-            category: "fossa",
-            clickable: true,
-            action: "OPEN_FOSSA_RESULTS",
-            target: "fossa",
-            data: state.qualityChecks.fossa,
-          }
-        );
-      } else {
-        addLog(
-          "SUCCESS",
-          "FOSSA scan completed.",
-          undefined,
-          undefined,
-          {
-            category: "fossa",
-            clickable: true,
-            action: "OPEN_FOSSA_RESULTS",
-            target: "fossa",
-            data: state.qualityChecks.fossa,
-          }
-        );
+      if (state.qualityChecks.fossa.executed) {
+        addLog("INFO", "Starting FOSSA dependency/license scan...", undefined, undefined, {
+          category: "fossa",
+          clickable: true,
+          action: "OPEN_FOSSA_RESULTS",
+          target: "fossa",
+          data: state.qualityChecks.fossa,
+        });
+        addLog("INFO", "Scanning dependencies...", undefined, undefined, {
+          category: "fossa",
+          clickable: true,
+          action: "OPEN_FOSSA_RESULTS",
+          target: "fossa",
+          data: state.qualityChecks.fossa,
+        });
+        addLog("INFO", "Collecting FOSSA results...", undefined, undefined, {
+          category: "fossa",
+          clickable: true,
+          action: "OPEN_FOSSA_RESULTS",
+          target: "fossa",
+          data: state.qualityChecks.fossa,
+        });
+        if (state.qualityChecks.fossa.totalIssues > 0) {
+          addLog(
+            "WARN",
+            `FOSSA issues found: ${state.qualityChecks.fossa.totalIssues}`,
+            undefined,
+            undefined,
+            {
+              category: "fossa",
+              clickable: true,
+              action: "OPEN_FOSSA_RESULTS",
+              target: "fossa",
+              data: state.qualityChecks.fossa,
+            }
+          );
+        } else {
+          addLog(
+            "SUCCESS",
+            "FOSSA scan completed.",
+            undefined,
+            undefined,
+            {
+              category: "fossa",
+              clickable: true,
+              action: "OPEN_FOSSA_RESULTS",
+              target: "fossa",
+              data: state.qualityChecks.fossa,
+            }
+          );
+        }
       }
 
       // JUnit

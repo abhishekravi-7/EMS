@@ -18,7 +18,8 @@ import {
   FaLock,
   FaBiohazard,
   FaFire,
-  FaTimes
+  FaTimes,
+  FaRocket
 } from "react-icons/fa";
 export { MigrationProposedTestSection } from "./MigrationProposedTestSection";
 import { API_BASE_URL } from "@/services/config/env";
@@ -265,13 +266,46 @@ interface MigrationSonarSectionProps {
   styles: StyleMap;
   migrationJob: MigrationResult;
   sonarTotalFindings: number;
+  runSonar?: boolean;
 }
 
 export function MigrationSonarSection({
   styles,
   migrationJob,
   sonarTotalFindings,
+  runSonar,
 }: MigrationSonarSectionProps) {
+  const isExecuted = Boolean(migrationJob?.run_sonar ?? migrationJob?.runSonar ?? runSonar);
+
+  if (!isExecuted) {
+    return (
+      <div style={{ ...styles.reportSection, background: "#ffffff", border: "1px solid #eef2f6", borderRadius: 16, padding: "32px 40px", boxShadow: "0 4px 20px rgba(0,0,0,0.03)" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
+          <h3 style={{ fontSize: 18, fontWeight: 800, color: "#0f172a", margin: 0, display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{ background: "#64748b", color: "#fff", width: 32, height: 32, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>
+              <FaShieldAlt />
+            </div>
+            SonarQube Enterprise Code Quality Dashboard
+          </h3>
+          <span style={{ padding: "6px 16px", borderRadius: 20, background: "#f1f5f9", color: "#475569", fontSize: 12, fontWeight: 700, border: "1px solid #e2e8f0" }}>
+            NOT EXECUTED
+          </span>
+        </div>
+        <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: "28px 24px", textAlign: "center" }}>
+          <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 44, height: 44, borderRadius: "50%", background: "#f1f5f9", color: "#64748b", marginBottom: 12, fontSize: 20 }}>
+            <FaShieldAlt />
+          </div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: "#334155", marginBottom: 6 }}>
+            SonarQube analysis was not executed for this migration.
+          </div>
+          <div style={{ fontSize: 13, color: "#64748b", maxWidth: 520, margin: "0 auto" }}>
+            Code quality gate, security inspection, and test coverage analysis were not enabled during the migration configuration.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const sonarReport = (migrationJob?.sonar_report as any) || {};
   const qualityGateStatus = sonarReport?.quality_gate || "UNAVAILABLE";
   const qualityGateColor = qualityGateStatus === "PASSED" || qualityGateStatus === "OK" ? "#22c55e" : "#f59e0b";
@@ -428,6 +462,7 @@ interface MigrationFossaSectionProps {
   fossaErrorMessage?: string | null;
   fossaAnalysisUrl?: string | null;
   fossaRealScan?: boolean;
+  runFossa?: boolean;
 }
 
 export function MigrationFossaSection({
@@ -440,7 +475,39 @@ export function MigrationFossaSection({
   fossaErrorMessage,
   fossaAnalysisUrl,
   fossaRealScan,
+  runFossa,
 }: MigrationFossaSectionProps) {
+  const isExecuted = Boolean(runFossa);
+
+  if (!isExecuted) {
+    return (
+      <div style={{ padding: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
+          <h3 style={{ fontSize: 18, fontWeight: 800, color: "#0f172a", margin: 0, display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{ background: "#64748b", color: "#fff", width: 28, height: 28, borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>
+              <FaShieldAlt />
+            </div>
+            FOSSA License & Dependency Scan
+          </h3>
+          <span style={{ padding: "4px 12px", borderRadius: 20, background: "#f1f5f9", color: "#475569", fontSize: 11, fontWeight: 700, border: "1px solid #e2e8f0" }}>
+            NOT EXECUTED
+          </span>
+        </div>
+        <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: "20px", textAlign: "center" }}>
+          <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 36, height: 36, borderRadius: "50%", background: "#f1f5f9", color: "#64748b", marginBottom: 10, fontSize: 16 }}>
+            <FaShieldAlt />
+          </div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#334155", marginBottom: 4 }}>
+            FOSSA license and dependency scan was not executed for this migration.
+          </div>
+          <div style={{ fontSize: 12, color: "#64748b", maxWidth: 460, margin: "0 auto" }}>
+            Open-source license compliance and third-party vulnerability checks were not enabled during the migration configuration.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const scanMode = (fossaScanMode || "").toLowerCase();
   const policyStatus = (fossaPolicyStatus || "UNAVAILABLE").toUpperCase();
   const isAvailable = (policyStatus === "PASSED" || policyStatus === "OK" || policyStatus === "FAILED") && fossaRealScan;
@@ -726,8 +793,13 @@ interface MigrationReportActionsProps {
 export function MigrationReportActions({
   migrationJob,
   onDownloadUnitTestReport,
+  resetWizard,
 }: MigrationReportActionsProps & { onDownloadUnitTestReport: () => void }) {
   const jobId = migrationJob?.job_id;
+
+  const handleStartNewMigration = () => {
+    resetWizard?.();
+  };
 
   const handleDownload = async (type: "project" | "markdown" | "testcases" | "html") => {
     if (!jobId) return;
@@ -760,25 +832,53 @@ export function MigrationReportActions({
   };
 
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0", marginTop: 4, borderTop: "1px solid #eef2f6" }}>
-      <div style={{ display: "flex", gap: 12 }}>
-         <button onClick={() => handleDownload("project")} style={{ background: "#fff", border: "1px solid #e2e8f0", padding: "10px 20px", borderRadius: 10, fontSize: 13, fontWeight: 700, color: "#334155", display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 0 8px 0", marginTop: 8, borderTop: "1px solid #eef2f6", flexWrap: "wrap", gap: 12 }}>
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+         <button onClick={() => handleDownload("project")} style={{ background: "#fff", border: "1px solid #e2e8f0", padding: "10px 20px", borderRadius: 10, fontSize: 13, fontWeight: 700, color: "#334155", display: "flex", alignItems: "center", gap: 8, cursor: "pointer", transition: "all 0.15s ease" }}>
             <FaFileArchive style={{ color: "#d97706" }} /> Download ZIP
           </button>
-          <button onClick={onDownloadUnitTestReport} style={{ background: "#fff", border: "1px solid #e2e8f0", padding: "10px 20px", borderRadius: 10, fontSize: 13, fontWeight: 700, color: "#334155", display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+          <button onClick={onDownloadUnitTestReport} style={{ background: "#fff", border: "1px solid #e2e8f0", padding: "10px 20px", borderRadius: 10, fontSize: 13, fontWeight: 700, color: "#334155", display: "flex", alignItems: "center", gap: 8, cursor: "pointer", transition: "all 0.15s ease" }}>
             <FaExternalLinkAlt style={{ color: "#2563eb" }} /> Open Full Report
           </button>
       </div>
 
-      <div style={{ display: "flex", gap: 12 }}>
-          <button onClick={() => handleDownload("markdown")} style={{ background: "#fff", border: "1px solid #e2e8f0", padding: "10px 20px", borderRadius: 10, fontSize: 13, fontWeight: 700, color: "#334155", display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+          <button onClick={() => handleDownload("markdown")} style={{ background: "#fff", border: "1px solid #e2e8f0", padding: "10px 20px", borderRadius: 10, fontSize: 13, fontWeight: 700, color: "#334155", display: "flex", alignItems: "center", gap: 8, cursor: "pointer", transition: "all 0.15s ease" }}>
             <FaMarkdown style={{ color: "#7c3aed" }} /> Download Markdown Report
           </button>
-          <button onClick={() => handleDownload("testcases")} style={{ background: "#fff", border: "1px solid #e2e8f0", padding: "10px 20px", borderRadius: 10, fontSize: 13, fontWeight: 700, color: "#334155", display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+          <button onClick={() => handleDownload("testcases")} style={{ background: "#fff", border: "1px solid #e2e8f0", padding: "10px 20px", borderRadius: 10, fontSize: 13, fontWeight: 700, color: "#334155", display: "flex", alignItems: "center", gap: 8, cursor: "pointer", transition: "all 0.15s ease" }}>
             <FaCode style={{ color: "#059669" }} /> Download Testcases & Changes
           </button>
-          <button onClick={() => handleDownload("html")} style={{ background: "#fff", border: "1px solid #e2e8f0", padding: "10px 20px", borderRadius: 10, fontSize: 13, fontWeight: 700, color: "#334155", display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+          <button onClick={() => handleDownload("html")} style={{ background: "#fff", border: "1px solid #e2e8f0", padding: "10px 20px", borderRadius: 10, fontSize: 13, fontWeight: 700, color: "#334155", display: "flex", alignItems: "center", gap: 8, cursor: "pointer", transition: "all 0.15s ease" }}>
             <FaFileCode style={{ color: "#0284c7" }} /> Download Testcase HTML
+          </button>
+          <button
+            onClick={handleStartNewMigration}
+            style={{
+              background: "#2563eb",
+              border: "1px solid #1d4ed8",
+              padding: "10px 22px",
+              borderRadius: 10,
+              fontSize: 13,
+              fontWeight: 700,
+              color: "#ffffff",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              cursor: "pointer",
+              boxShadow: "0 2px 8px rgba(37, 99, 235, 0.25)",
+              transition: "all 0.15s ease",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "#1d4ed8";
+              e.currentTarget.style.transform = "translateY(-1px)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "#2563eb";
+              e.currentTarget.style.transform = "translateY(0)";
+            }}
+          >
+            <FaRocket /> Start New Migration
           </button>
       </div>
     </div>
