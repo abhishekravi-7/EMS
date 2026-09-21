@@ -1162,12 +1162,12 @@ export function ResultReportView({
                         fossaOutdatedCount={migrationJob.fossa_outdated_dependencies ?? (migrationJob.fossa_report as any)?.outdated_dependencies}
                         fossaTotalDependencies={migrationJob.fossa_total_dependencies ?? (migrationJob.fossa_report as any)?.total_dependencies}
                         fossaPolicyStatus={migrationJob.fossa_policy_status || (migrationJob.fossa_report as any)?.policy_status}
-                        fossaScanMode={migrationJob.fossa_scan_mode || (migrationJob.fossa_report as any)?.scan_mode}
                         fossaErrorMessage={migrationJob.fossa_error_message || (migrationJob.fossa_report as any)?.error_message}
                         fossaAnalysisUrl={fossaAnalysisUrl || migrationJob.fossa_analysis_url || (migrationJob.fossa_report as any)?.analysis_url}
                         fossaRealScan={Boolean(fossaIsRealScan || migrationJob.fossa_real_scan || (migrationJob.fossa_report as any)?.real_scan)}
+                        runFossa={Boolean(migrationJob.run_fossa ?? migrationJob.runFossa ?? runFossa)}
                       />
-                   </div>
+                    </div>
 
                    {/* JMeter Performance Test Report - Commented out per UI requirement
                    <div style={{ height: 1, background: "#f1f5f9" }} />
@@ -1193,6 +1193,7 @@ export function ResultReportView({
                   styles={styles}
                   migrationJob={migrationJob}
                   sonarTotalFindings={sonarTotalFindings}
+                  runSonar={Boolean(migrationJob.run_sonar ?? migrationJob.runSonar ?? runSonar)}
                 />
             </div>
 
