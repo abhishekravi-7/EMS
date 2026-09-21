@@ -283,10 +283,9 @@ def _python_spring_scan(project_root: Path) -> list[dict[str, Any]]:
 class ApiEndpointDetector:
     """Detects API endpoints in a Java project.
 
-    When the migration-engine JAR is present it delegates to the Java
-    EndpointDiscoveryEngine. Otherwise it falls back to a pure-Python
-    Spring annotation scanner so that endpoint counts are always populated
-    from real source code.
+    Uses a pure-Python Spring annotation scanner to extract endpoint counts
+    directly from source code without requiring a JVM or external tool.
+    (Legacy support remains if a custom migration-engine JAR is provided).
     """
 
     def __init__(self, jar_path: Path | None = None) -> None:
@@ -298,9 +297,7 @@ class ApiEndpointDetector:
             return self._detect_via_jar(project_root)
 
         logger.info(
-            "Migration engine JAR not found at %s. "
-            "Using Python Spring annotation fallback for endpoint detection.",
-            self._jar_path,
+            "Using native Python Spring annotation scanner for API endpoint detection."
         )
         return _python_spring_scan(project_root)
 
