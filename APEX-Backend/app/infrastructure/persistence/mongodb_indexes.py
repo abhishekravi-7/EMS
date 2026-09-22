@@ -39,10 +39,10 @@ async def setup_mongodb_indexes(db: AsyncIOMotorDatabase):
         await db.llm_token_usage.create_index([("job_id", pymongo.ASCENDING)])
         
         # 7. Password Reset / Email Verification Tokens
-        await db.password_resets.create_index([("token", pymongo.ASCENDING)], unique=True)
-        await db.password_resets.create_index([("expires_at", pymongo.ASCENDING)], expireAfterSeconds=0)
+        await db.password_reset_tokens.create_index([("token_hash", pymongo.ASCENDING)], unique=True)
+        await db.password_reset_tokens.create_index([("expires_at", pymongo.ASCENDING)], expireAfterSeconds=0)
         
-        await db.email_verification_tokens.create_index([("token", pymongo.ASCENDING)], unique=True)
+        await db.email_verification_tokens.create_index([("token_hash", pymongo.ASCENDING)], unique=True)
         await db.email_verification_tokens.create_index([("expires_at", pymongo.ASCENDING)], expireAfterSeconds=0)
 
         logger.info("MongoDB indexes verified/created successfully.")

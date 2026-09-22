@@ -61,7 +61,6 @@ import type {
   DependencyInfo,
   MicroserviceEligibilityResult,
   MicroserviceServiceCandidate,
-  RepoInfo,
 } from "@/shared/types/domain";
 import {
   previewMigration,
@@ -73,14 +72,6 @@ import {
 import {
   clearWizardStorage,
   readSessionJson,
-  readPersistedValue,
-  writeSessionValue,
-  removeSessionValue,
-  getScopedStepUnlockKey,
-  WIZARD_DISCOVERY_COMPLETED_KEY,
-  WIZARD_STRATEGY_COMPLETED_KEY,
-  WIZARD_JOB_ID_KEY,
-  WIZARD_SELECTED_REPO_KEY,
   type PersistedWizardFormState,
   WIZARD_FORM_STATE_KEY,
 } from "@/shared/utils/migrationWizardStorage";
@@ -89,7 +80,7 @@ import { useMigrationWizardPersistence } from "@/shared/hooks/useMigrationWizard
 import { isPrivateRepoAccessError } from "@/shared/utils/repoAccessError";
 import { buildWizardAccentVars } from "@/shared/components/wizard";
 import { useRepositoryConnect } from "@/features/connect/hooks/useRepositoryConnect";
-import { useDiscoveryState, INITIAL_DISCOVERY_STAGES } from "@/features/discovery/hooks/useDiscoveryState";
+import { useDiscoveryState } from "@/features/discovery/hooks/useDiscoveryState";
 import { useStrategyState, type MigrationApproachValue } from "@/features/strategy/hooks/useStrategyState";
 import { useModernizationState } from "@/features/modernization/hooks/useModernizationState";
 import { useMigrationExecution } from "@/features/result/hooks/useMigrationExecution";
@@ -1081,7 +1072,9 @@ export function useWizardController() {
         const targetRoute = STEP_ROUTES[nextStep] || "/connect";
         const currentRoute = location.pathname.replace(/\/+$/, "") || "/";
         if (currentRoute !== targetRoute) {
-          navigate(targetRoute, { replace: nextStep === 7 });
+          setTimeout(() => {
+            navigate(targetRoute, { replace: nextStep === 7 });
+          }, 0);
         }
         return nextStep;
       });
@@ -1316,13 +1309,6 @@ export function useWizardController() {
     isPrivateRepo,
     setIsPrivateRepo,
     patToken,
-    setPatToken,
-    githubToken,
-    setGithubToken,
-    repoVisibility,
-    setRepoVisibility,
-    isPatModeOpen,
-    setIsPatModeOpen,
     setRepoAccessCheckLoading,
     setAccessTokenValidationState,
     setAccessTokenValidationMessage,
@@ -1331,10 +1317,6 @@ export function useWizardController() {
     currentToken,
     resetAccessTokenValidationState,
     jobId,
-    setJobId,
-    setLocalProjectUploadFiles,
-    setLocalProjectUploadError,
-    setLocalProjectUploadWarning,
   } = connectState;
   const currentMigrationApproach =
     !isPrivateRepo && migrationApproach === "branch"
@@ -2888,9 +2870,6 @@ export function useWizardController() {
       });
     }
 
-    const activeKey = getScopedStepUnlockKey(WIZARD_STRATEGY_COMPLETED_KEY, jobId || selectedRepo?.url);
-    writeSessionValue(activeKey, "true");
-    writeSessionValue(WIZARD_STRATEGY_COMPLETED_KEY, "true");
     setStrategyCompleted(true);
     setStep(nextStep);
   };
@@ -3289,32 +3268,13 @@ export function useWizardController() {
   );
 
   // Track milestone completion across steps and backward navigation
-  const [discoveryCompleted, setDiscoveryCompleted] = useState<boolean>(() => {
-    const activeJobId = readPersistedValue(WIZARD_JOB_ID_KEY);
-    const activeRepo = readSessionJson<RepoInfo>(WIZARD_SELECTED_REPO_KEY);
-    const scopedKey = getScopedStepUnlockKey(WIZARD_DISCOVERY_COMPLETED_KEY, activeJobId || activeRepo?.url);
-    const persisted = readPersistedValue(scopedKey) || readPersistedValue(WIZARD_DISCOVERY_COMPLETED_KEY);
-    if (persisted === "true") return true;
-    const initialRouteStep = typeof window !== "undefined" ? getStepFromPath(window.location.pathname) : 1;
-    return initialRouteStep >= 3;
-  });
-  const [strategyCompleted, setStrategyCompleted] = useState<boolean>(() => {
-    const activeJobId = readPersistedValue(WIZARD_JOB_ID_KEY);
-    const activeRepo = readSessionJson<RepoInfo>(WIZARD_SELECTED_REPO_KEY);
-    const scopedKey = getScopedStepUnlockKey(WIZARD_STRATEGY_COMPLETED_KEY, activeJobId || activeRepo?.url);
-    const persisted = readPersistedValue(scopedKey) || readPersistedValue(WIZARD_STRATEGY_COMPLETED_KEY);
-    if (persisted === "true") return true;
-    const initialRouteStep = typeof window !== "undefined" ? getStepFromPath(window.location.pathname) : 1;
-    return initialRouteStep >= 4;
-  });
+  const [discoveryCompleted, setDiscoveryCompleted] = useState<boolean>(false);
+  const [strategyCompleted, setStrategyCompleted] = useState<boolean>(false);
 
   const continueToStrategy = useCallback(() => {
-    const activeKey = getScopedStepUnlockKey(WIZARD_DISCOVERY_COMPLETED_KEY, jobId || selectedRepo?.url);
-    writeSessionValue(activeKey, "true");
-    writeSessionValue(WIZARD_DISCOVERY_COMPLETED_KEY, "true");
     setDiscoveryCompleted(true);
     setStep(3);
-  }, [jobId, selectedRepo?.url, setStep]);
+  }, [setStep]);
 
   useEffect(() => {
     if (!isConnectCompleted) {
@@ -3323,11 +3283,11 @@ export function useWizardController() {
     }
   }, [isConnectCompleted]);
 
-  // Step 2: Discovery completed (strictly when repoAnalysis is ready AND user explicitly clicked Continue to Strategy or has unlocked/visited Strategy)
+  // Step 2: Discovery completed (strictly when repoAnalysis is ready AND user explicitly clicked Continue to Strategy)
   const isDiscoveryCompleted =
     isConnectCompleted &&
-    (Boolean(repoAnalysis) || discoveryCompleted || step >= 3) &&
-    (discoveryCompleted || step >= 3);
+    Boolean(repoAnalysis && !analysisLoading) &&
+    discoveryCompleted;
 
   // Step 3: Strategy completed (strictly when Discovery completed AND user explicitly clicked Continue to Migration)
   const isStrategyCompleted = isDiscoveryCompleted && strategyCompleted;
@@ -5118,44 +5078,32 @@ export function useWizardController() {
     setMaxVisitedIndicatorStep(1);
     setDiscoveryCompleted(false);
     setStrategyCompleted(false);
-    removeSessionValue(WIZARD_DISCOVERY_COMPLETED_KEY);
-    removeSessionValue(WIZARD_STRATEGY_COMPLETED_KEY);
-    if (jobId || selectedRepo?.url) {
-      removeSessionValue(getScopedStepUnlockKey(WIZARD_DISCOVERY_COMPLETED_KEY, jobId || selectedRepo?.url));
-      removeSessionValue(getScopedStepUnlockKey(WIZARD_STRATEGY_COMPLETED_KEY, jobId || selectedRepo?.url));
-    }
-    setIsMigrationFinishedState(false);
-
-    // Reset connect state & credentials
     setRepoUrl("");
     setSelectedRepo(null);
-    setGithubToken("");
-    setIsPrivateRepo(false);
-    setPatToken("");
-    setRepoVisibility("unknown");
-    setIsPatModeOpen(false);
-    setJobId("");
-    resetAccessTokenValidationState();
-    setLocalProjectUploadFiles([]);
-    setLocalProjectUploadError(null);
-    setLocalProjectUploadWarning(null);
-
-    // Reset discovery state
     setRepoAnalysis(null);
-    setDiscoveryStages(INITIAL_DISCOVERY_STAGES);
     setRepoFiles([]);
     setCurrentPath("");
+    setTargetRepoNamesByApproach({ fork: "", branch: "", local: "" });
+    setTargetRepoNameEditedByApproach({ fork: false, branch: false, local: false });
+    setTargetRepoTimestamp(generateRepoTimestamp());
+    setSelectedSourceVersion("8");
+    setSelectedTargetVersion("");
+    setSelectedConversions(["java_version"]);
+    setRunTests(true);
+    setRunSonar(false);
+    setRunFossa(false);
+    setLoading(false);
     setAnalysisLoading(false);
-    setAnalysisElapsedSeconds(0);
-    setAnalysisCompletedSeconds(0);
-    setMicroserviceResult(null);
-    setMicroserviceLoading(false);
-    setMicroserviceAccordionState(createDefaultMicroserviceAccordionState());
-    setIsMicroserviceEligibilityCollapsed(false);
-    setShowAllMicroserviceServices(false);
-    setActiveScoreTooltip(null);
-    setMicroserviceExpandedSections({});
-    setAnalysisStartedAtMs(null);
+    setMigrationJob(null);
+    setMigrationDetailLoadedJobId(null);
+    setFossaResult(null);
+    setFossaLoading(false);
+    setMigrationPreview(null);
+    setMigrationLogs([]);
+    setError("");
+    setTargetVersionRequiredError(false);
+    setTargetRepoNameError("");
+    setMigrationApproach("fork");
     setRiskLevel("");
     setSelectedFrameworks([]);
     setIsJavaProject(null);
@@ -5165,61 +5113,17 @@ export function useWizardController() {
     setIsEditing(false);
     setPathHistory([""]);
     setShowFileExplorer(true);
+    // Reset high-risk project states
     setIsHighRiskProject(false);
     setHighRiskConfirmed(false);
     setSuggestedJavaVersion("17");
     setDetectedFrameworks([]);
     setViewingFrameworkFile(null);
-    setRepoPreviewInitialized(false);
-    setMicroserviceAssessmentResolved(false);
-    resetDiscoverySelectionState();
-    setConversionDecision(null);
-    setShowFolderStructure(false);
-    setBrdFile(null);
-    setBrdUploadStatus("IDLE");
-    setBrdMetadata(null);
-    setBrdUploadError(null);
-
-    // Reset strategy state
-    setTargetRepoNamesByApproach({ fork: "", branch: "", local: "" });
-    setTargetRepoNameEditedByApproach({ fork: false, branch: false, local: false });
-    setTargetRepoTimestamp(generateRepoTimestamp());
-    setSelectedSourceVersion("8");
-    setSelectedTargetVersion("");
-    setSelectedConversions(["java_version"]);
-    setTargetVersionRequiredError(false);
-    setTargetRepoNameError("");
-    setMigrationApproach("fork");
-    setUserSelectedVersion(null);
-    setSourceVersionStatus("idle");
-    setRiskExplanation(null);
-    setRiskExplanationLoading(false);
-    setDependencyAnalysis(null);
-    setDependencyAnalysisLoading(false);
-
-    // Reset modernization / test state
-    setRunTests(true);
-    setRunSonar(false);
-    setRunFossa(false);
-
-    // Reset execution & report state
-    setLoading(false);
-    setMigrationJob(null);
-    setMigrationDetailLoadedJobId(null);
-    setMigrationLogs([]);
-    setFossaResult(null);
-    setFossaLoading(false);
-    setMigrationPreview(null);
+   // Reset code diff states
     setCodeChanges([]);
     setSelectedDiffFile(null);
     setShowCodeChanges(true);
     setVisibleReportDiffCount(REPORT_DIFFS_PAGE_SIZE);
-    setReportDependencyPage(1);
-    setDocumentGenerationLoading(null);
-    setDocumentPrefetchStatus("idle");
-    setPrefetchedBrdDocument(null);
-    setAnimationProgress(0);
-    setError("");
 
     clearWizardStorage();
   };

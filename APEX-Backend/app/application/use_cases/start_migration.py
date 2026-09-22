@@ -175,12 +175,7 @@ class StartMigrationUseCase:
     # ------------------------------------------------------------------ #
     # Phase 2: the long-running job (runs in a background thread)
     # ------------------------------------------------------------------ #
-    def run(
-        self,
-        job_id: str,
-        current_user_id: int | None = None,
-        token: str | None = None,
-    ) -> None:
+    def run(self, job_id: str, current_user_id: int | None = None) -> None:
         paths = WorkspacePaths(job_id)
         store = MigrationReportStore(paths)
         report = store.read() or {}
@@ -416,16 +411,28 @@ class StartMigrationUseCase:
                 logger.warning(f"Post-migration unit test execution notice for job {job_id}: {test_exc}")
                 store.update(progressPercent=80)
 
-            # --- Stage 5: Code Deprecation ---
+            # --- Stage 5: Code Deprecation & Publish ---
             progress_service.set_stage(
                 store,
                 stage_id="code-depreciation",
                 stage_name="5. Code Deprecation",
                 percent=83,
                 status=MigrationStatus.RUNNING.value,
-                log_message="[DEPRECATION] Scanning for deprecated APIs and updating modern construct references...",
+                log_message="[DEPRECATION] Scanning for deprecated APIs and publishing migrated repository...",
             )
-            store.append_logs(["[DEPRECATION] Scanned codebase for deprecated Java APIs and updated modern construct references."])
+            file_utils.remove_tree(paths.migrated_repo_dir / ".git")
+            publish_target_java = result.effective_target_java_version or target_java
+            # Build-gate: warn if publishing a repo with build failures
+            build_success_flag = (store.read() or {}).get("buildSuccess", False)
+            build_status_flag = (store.read() or {}).get("buildStatus", "UNKNOWN")
+            if not build_success_flag:
+                store.append_logs([
+                    f"[WARNING] Build validation status: {build_status_flag}. "
+                    "Migrated repository will still be published for inspection, "
+                    "but may contain compilation errors."
+                ])
+            target_repo = self._publish(store, report, paths, publish_target_java)
+            store.append_logs([f"[DEPRECATION] Published migrated repository to: {target_repo}"])
             store.update(progressPercent=90)
 
             # --- Stage 6: Generating Migration Report ---
@@ -573,7 +580,7 @@ class StartMigrationUseCase:
                     "Migrated repository will still be published for inspection, "
                     "but may contain compilation errors."
                 ])
-            target_repo = self._publish(store, report, paths, publish_target_java, token=token)
+            target_repo = self._publish(store, report, paths, publish_target_java)
 
             # --- Done ---
             store.update(
@@ -969,17 +976,10 @@ class StartMigrationUseCase:
         report: dict[str, Any],
         paths: WorkspacePaths,
         target_java: str,
-        token: str | None = None,
     ) -> str:
         destination = report.get("destination") or {}
         mode = destination.get("mode", MODE_CREATE_NEW_REPO)
         commit_message = f"Migrate to Java {target_java}"
-        effective_token = (
-            (token or "").strip()
-            or (settings.github_token or "").strip()
-            or (settings.github_target_token or "").strip()
-            or None
-        )
 
         if mode == MODE_LOCAL_FOLDER:
             store.append_logs(["Local destination: migrated code left in the workspace."])
@@ -988,15 +988,10 @@ class StartMigrationUseCase:
         if mode == MODE_EXISTING_REPO_BRANCH:
             branch = destination.get("targetBranch") or "migration"
             source_url = report.get("sourceRepoUrl") or ""
-            clean_url = RepoPusher._normalize_repo_url(source_url)
             self._branch_creator.push_branch(
-                paths.migrated_repo_dir,
-                clean_url,
-                branch,
-                commit_message=commit_message,
-                token=effective_token,
+                paths.migrated_repo_dir, source_url, branch, commit_message=commit_message
             )
-            return f"{clean_url}/tree/{branch}"
+            return f"{source_url.rstrip('/').removesuffix('.git')}/tree/{branch}"
 
         # Default: create a new repo under the configured owner and push.
         target_owner = destination.get("targetOwner")
@@ -1006,13 +1001,11 @@ class StartMigrationUseCase:
             destination.get("targetRepoName") or "",
             owner=target_owner,
             host=destination.get("targetHost"),
-            token=effective_token,
         )
         self._repo_pusher.push(
             paths.migrated_repo_dir,
             created.clone_url,
             commit_message=commit_message,
-            token=effective_token,
             allow_force_update_existing=True,
         )
         return created.html_url

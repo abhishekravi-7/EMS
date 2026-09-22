@@ -135,22 +135,6 @@ export const QualityCheckDetailsModal: React.FC<QualityCheckDetailsModalProps> =
   const renderContent = () => {
     switch (category) {
       case "sonarqube": {
-        if (!migrationState.qualityChecks?.sonar?.executed) {
-          return (
-            <div className="qc-modal-content-body">
-              <div className="qc-status-banner" style={{ background: "rgba(30, 41, 59, 0.6)", borderColor: "rgba(148, 163, 184, 0.25)" }}>
-                <BsShieldCheck style={{ color: "#94a3b8", fontSize: 24, flexShrink: 0 }} />
-                <div>
-                  <strong style={{ color: "#f1f5f9" }}>SonarQube analysis was not executed for this migration.</strong>
-                  <div className="qc-banner-sub" style={{ color: "#94a3b8" }}>
-                    Code quality gate, security inspection, and test coverage analysis were not enabled during the migration configuration.
-                  </div>
-                </div>
-              </div>
-            </div>
-          );
-        }
-
         const isSonarInProgress =
           migrationState.currentStep < 4 ||
           (migrationState.currentStep === 4 &&
@@ -302,22 +286,6 @@ export const QualityCheckDetailsModal: React.FC<QualityCheckDetailsModalProps> =
       }
 
       case "fossa": {
-        if (!migrationState.qualityChecks?.fossa?.executed) {
-          return (
-            <div className="qc-modal-content-body">
-              <div className="qc-status-banner" style={{ background: "rgba(30, 41, 59, 0.6)", borderColor: "rgba(148, 163, 184, 0.25)" }}>
-                <FaShieldAlt style={{ color: "#94a3b8", fontSize: 24, flexShrink: 0 }} />
-                <div>
-                  <strong style={{ color: "#f1f5f9" }}>FOSSA license and dependency scan was not executed for this migration.</strong>
-                  <div className="qc-banner-sub" style={{ color: "#94a3b8" }}>
-                    Open-source license compliance and third-party vulnerability checks were not enabled during the migration configuration.
-                  </div>
-                </div>
-              </div>
-            </div>
-          );
-        }
-
         const isFossaInProgress =
           migrationState.currentStep < 4 ||
           (migrationState.currentStep === 4 &&
@@ -612,30 +580,26 @@ export const QualityCheckDetailsModal: React.FC<QualityCheckDetailsModalProps> =
   // Header Title & Icon
   const getHeaderInfo = () => {
     switch (category) {
-      case "sonarqube": {
-        const isSonarExec = migrationState.qualityChecks?.sonar?.executed;
+      case "sonarqube":
         return {
           title: "SonarQube Code Quality & Security Inspection",
           subtitle: "Automated static analysis, bugs, vulnerabilities, and quality gate telemetry.",
-          icon: <BsShieldCheck size={22} color={isSonarExec ? "#38bdf8" : "#94a3b8"} />,
-          badge: isSonarExec ? (sonarGate || "PASSED") : "NOT EXECUTED",
-          badgeColor: isSonarExec ? (sonarGate === "PASSED" || sonarGate === "OK" ? "badge-green" : "badge-blue") : "badge-gray",
-          externalUrl: isSonarExec ? sonarAnalysisUrl : null,
-          externalLabel: isSonarExec ? "Open SonarQube Dashboard" : null,
+          icon: <BsShieldCheck size={22} color="#38bdf8" />,
+          badge: sonarGate || "PASSED",
+          badgeColor: sonarGate === "PASSED" || sonarGate === "OK" ? "badge-green" : "badge-blue",
+          externalUrl: sonarAnalysisUrl,
+          externalLabel: "Open SonarQube Dashboard",
         };
-      }
-      case "fossa": {
-        const isFossaExec = migrationState.qualityChecks?.fossa?.executed;
+      case "fossa":
         return {
           title: "FOSSA License & Dependency Compliance Scan",
           subtitle: "Third-party dependency license governance, policy checks, and CVE audits.",
-          icon: <FaShieldAlt size={22} color={isFossaExec ? "#38bdf8" : "#94a3b8"} />,
-          badge: isFossaExec ? (fossaPolicy || "COMPLIANT") : "NOT EXECUTED",
-          badgeColor: isFossaExec ? "badge-green" : "badge-gray",
-          externalUrl: isFossaExec ? fossaAnalysisUrl : null,
-          externalLabel: isFossaExec ? "Open FOSSA Dashboard" : null,
+          icon: <FaShieldAlt size={22} color="#38bdf8" />,
+          badge: fossaPolicy || "COMPLIANT",
+          badgeColor: "badge-green",
+          externalUrl: fossaAnalysisUrl,
+          externalLabel: "Open FOSSA Dashboard",
         };
-      }
       case "junit":
         return {
           title: "JUnit 5 Test Execution & Quality Verification",
