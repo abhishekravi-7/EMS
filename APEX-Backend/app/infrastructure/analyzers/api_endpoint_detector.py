@@ -258,7 +258,7 @@ def _python_spring_scan(project_root: Path) -> list[dict[str, Any]]:
 
     all_java = list(project_root.rglob("*.java"))
     logger.info(
-        "Python Spring fallback: scanning %d .java files under %s",
+        "Python Spring Migration: scanning %d .java files under %s",
         len(all_java),
         project_root,
     )
