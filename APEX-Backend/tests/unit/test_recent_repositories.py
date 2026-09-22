@@ -165,3 +165,47 @@ async def test_recent_repositories_owner_and_components_all_states(client, mock_
     assert by_id["job_unsupported"]["owner"] == "Owner unavailable"
     assert by_id["job_unsupported"]["componentsCount"] == "Unavailable"
     assert by_id["job_unsupported"]["status"] == "Analyzed"
+
+
+@pytest.mark.asyncio
+async def test_connect_repository_success_persists_owner_in_mongodb(client, mock_user):
+    from app.application.pipelines.connect_pipeline import ConnectResult
+
+    mock_db = MagicMock()
+    mock_db.migration_job_owners.update_one = AsyncMock(return_value=None)
+    app.dependency_overrides[get_mongodb] = lambda: mock_db
+
+    fake_result = ConnectResult(
+        job_id="job_test_123",
+        repo_url="https://github.com/abhishekravi-7/EMS",
+        owner="abhishekravi-7",
+        repo_name="EMS",
+        repo_visibility="PUBLIC",
+        access_status="ACCESS_GRANTED",
+        message="Connected to GitHub repository.",
+        created_at="2026-09-22T12:00:00Z",
+    )
+
+    with patch("app.api.v1.endpoints.connect_controller._pipeline.run", AsyncMock(return_value=fake_result)), \
+         patch("app.api.v1.endpoints.connect_controller.get_mongodb", AsyncMock(return_value=mock_db)):
+        response = client.post(
+            "/api/v1/connect",
+            json={"repo_url": "https://github.com/abhishekravi-7/EMS", "github_token": ""},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["jobId"] == "job_test_123"
+        assert data["accessStatus"] == "ACCESS_GRANTED"
+
+        # Verify update_one was called with user_id, owner_name, owner_email, repository_name
+        mock_db.migration_job_owners.update_one.assert_called_once()
+        call_args = mock_db.migration_job_owners.update_one.call_args
+        filter_query = call_args[0][0]
+        update_payload = call_args[0][1]
+
+        assert filter_query == {"job_id": "job_test_123"}
+        assert update_payload["$set"]["user_id"] == "user_123"
+        assert update_payload["$set"]["repository_name"] == "abhishekravi-7/EMS"
+        assert update_payload["$setOnInsert"]["owner_name"] == "Test User"
+        assert update_payload["$setOnInsert"]["owner_email"] == "test@example.com"
+
