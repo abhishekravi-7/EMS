@@ -548,6 +548,38 @@ OUTPUT:
 - Do not return a review, checklist, diff, explanation, or additional files.
 """
 
+JSP_REACT_FULL_CONVERSION_SYSTEM_PROMPT = """You are a source-locked JSP-to-React migration engine for one concrete Spring Boot page. Generate code ONLY when both the complete JSP source and complete backend source are supplied in the current request.
+
+HARD STOP GATE:
+1. If either source is empty, unavailable, truncated, or contains an unresolved placeholder such as `{{jsp_source}}` or `{{backend_source}}`, output exactly:
+BLOCKED: missing [JSP source / backend contract] — paste both before I generate code.
+and output nothing else.
+2. Before any code, output a verification block containing exactly:
+    - the JSP's exact <title>, every form field name+type, and every literal `${...}` / `#{...}` expression;
+    - every backend endpoint path, HTTP method, and content type explicitly shown in the supplied backend source;
+    - whether the backend response is a JSON token/user object or a redirect, stated only from the supplied source.
+3. If any verification item cannot be answered literally, output exactly:
+BLOCKED: contract unclear on <specific gap>
+and stop. Do not guess.
+
+SOURCE-OF-TRUTH RULES:
+1. Use only the current JSP and backend source. Never carry fields, components, entities, auth patterns, endpoints, or templates from prior turns.
+2. Every field, label, button, link, include, condition, loop, and visible element must trace to the JSP. Do not invent Document, Role, User, display, dashboard, CRUD, or shared components.
+3. Use the backend's actual auth and response contract. Never default to JWT, tokens, JSON, HTTP 200, redirects, or Spring Security CSRF behavior unless literally shown.
+
+REACT CORRECTNESS:
+1. Use tuple state syntax exactly: `const [state, setState] = useState(initial)`.
+2. Every input is controlled with `value={state.field}` and an onChange that calls the matching setter. Never mutate variables directly.
+3. AuthContext, if required by the literal source, must use real `createContext`, `Provider`, and `useContext`.
+4. No file may import a name from its own file. Remove unused imports/state and dead handlers.
+5. Every variable/prop/context value read by a component must be declared locally or supplied by a real parent/context in the generated files.
+6. Every generated file must be complete, internally consistent, and compilable.
+
+OUTPUT:
+- If the gates pass, output the verification block followed by one complete labeled TypeScript React code block per required component.
+- Output nothing outside the verification block and code blocks.
+"""
+
 FRONTEND_FOLDER_STRUCTURE_SYSTEM_PROMPT = """You are a Lead Frontend Architect. Your task is to design a clean, scalable React (TypeScript) or Angular folder structure for a legacy Java module migration.
 
 Rules:
@@ -738,4 +770,27 @@ MANDATORY RULES:
 - Step 2 is the complete authority for request encoding, status/redirect success, failures, and CSRF.
 - Fix self-imports, unused imports/state, and dead handlers.
 - Return only the corrected complete TypeScript React file.
+"""
+
+
+def build_jsp_react_full_conversion_prompt(*, jsp_source: str, backend_source: str) -> str:
+    """Build the hard-gated full JSP-to-React conversion prompt."""
+    return f"""Convert ONLY the concrete JSP page and backend source supplied below.
+
+JSP SOURCE:
+```jsp
+{jsp_source}
+```
+
+BACKEND SOURCE (controllers and model classes):
+```java
+{backend_source}
+```
+
+MANDATORY RULES:
+- If either source is empty or contains `{{{{jsp_source}}}}` / `{{{{backend_source}}}}`, return exactly the blocked message from the system prompt.
+- Before code, produce the required verification block with exact title, fields, EL expressions, endpoint method/path/content type, and response type.
+- If any verification fact is not explicitly shown, return the required specific contract-unclear blocked message.
+- Use only these two source blocks; do not reuse prior page structure or auth assumptions.
+- Return only the verification block and complete labeled TypeScript React files.
 """
