@@ -11,8 +11,7 @@ import json
 import logging
 from typing import Any
 
-from sqlalchemy.orm import Session
-
+from app.api.deps import User
 from app.core.context import user_id_ctx
 from app.core.exceptions import LLMResponseInvalidError
 from app.infrastructure.llm.chat_llm import ChatLLM
@@ -21,7 +20,6 @@ from app.infrastructure.llm.prompt_templates import (
     RISK_EXPLANATION_SYSTEM_PROMPT,
     build_risk_explanation_prompt,
 )
-from app.infrastructure.persistence.models import User
 from app.schemas.java_version_schema import RiskExplanationRequest, RiskExplanationResponse
 
 logger = logging.getLogger(__name__)
@@ -49,7 +47,7 @@ class ExplainRiskUseCase:
     async def execute(
         self,
         request: RiskExplanationRequest,
-        db: Session | None = None,
+        db: Any = None,
         current_user: User | None = None,
     ) -> RiskExplanationResponse:
         risk_level = (request.risk_level or "low").strip().lower()

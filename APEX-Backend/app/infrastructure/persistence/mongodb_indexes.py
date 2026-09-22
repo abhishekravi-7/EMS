@@ -11,6 +11,13 @@ async def setup_mongodb_indexes(db: AsyncIOMotorDatabase):
     try:
         # 1. Users
         await db.users.create_index([("email", pymongo.ASCENDING)], unique=True)
+        from app.infrastructure.persistence.mongodb_user_repository import migrate_to_numeric_id
+        await migrate_to_numeric_id(db)
+        # Drop legacy user_id index if it exists
+        try:
+            await db.users.drop_index("user_id_1")
+        except Exception:  # noqa: BLE001
+            pass
         
         # 2. Auth Sessions / Refresh Tokens
         await db.auth_sessions.create_index([("token_hash", pymongo.ASCENDING)], unique=True)
@@ -38,12 +45,16 @@ async def setup_mongodb_indexes(db: AsyncIOMotorDatabase):
         await db.llm_token_usage.create_index([("user_id", pymongo.ASCENDING), ("created_at", pymongo.DESCENDING)])
         await db.llm_token_usage.create_index([("job_id", pymongo.ASCENDING)])
         
-        # 7. Password Reset / Email Verification Tokens
         await db.password_resets.create_index([("token", pymongo.ASCENDING)], unique=True)
         await db.password_resets.create_index([("expires_at", pymongo.ASCENDING)], expireAfterSeconds=0)
         
-        await db.email_verification_tokens.create_index([("token", pymongo.ASCENDING)], unique=True)
-        await db.email_verification_tokens.create_index([("expires_at", pymongo.ASCENDING)], expireAfterSeconds=0)
+        await db.email_verifications.create_index([("email", pymongo.ASCENDING), ("created_at", pymongo.DESCENDING)])
+        await db.email_verifications.create_index([("expires_at", pymongo.ASCENDING)], expireAfterSeconds=0)
+        await db.email_verifications.create_index([("user_id", pymongo.ASCENDING)])
+
+        # 7. Pending Signups (temporary unverified signups)
+        await db.pending_signups.create_index([("email", pymongo.ASCENDING)], unique=True)
+        await db.pending_signups.create_index([("expires_at", pymongo.ASCENDING)], expireAfterSeconds=0)
 
         logger.info("MongoDB indexes verified/created successfully.")
     except Exception as e:

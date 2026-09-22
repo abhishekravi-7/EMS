@@ -35,7 +35,6 @@ const INITIAL_SETTINGS: SystemSettings = {
   sonarqube_host_url: "",
   sonarqube_token: "",
   fossa_api_key: "",
-  database_url: "",
   jwt_secret_key: "",
 };
 
@@ -304,15 +303,6 @@ export default function AdminConsolePage() {
                 Infrastructure Hub
               </h3>
               <div className="field-group-modern">
-                <div className="field-modern">
-                  <label className="label-modern">Main Database URL</label>
-                  <input
-                    type="text"
-                    className="input-modern"
-                    value={settings.database_url}
-                    onChange={(e) => handleFieldChange("database_url", e.target.value)}
-                  />
-                </div>
                 <div className="field-modern">
                   <label className="label-modern">JWT Authentication Secret</label>
                   <div className="input-wrap-modern">

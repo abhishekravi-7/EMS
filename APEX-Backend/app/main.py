@@ -25,18 +25,8 @@ from app.core.logging_config import configure_logging
 from app.infrastructure.java_runtime import log_java_runtime_diagnostics
 from app.infrastructure.persistence.mongodb import mongodb_manager
 
-# Import every ORM model module here so `Base.metadata` knows about all
-# tables before `create_all()` runs below — SQLAlchemy only creates tables
-# for model classes that have actually been imported (their class body must
-# have executed at least once). `noqa: F401` because this import is only for
-# its import-time side effect, not for anything used by name in this file.
-from app.infrastructure.persistence import models as _persistence_models  # noqa: F401
-from app.infrastructure.persistence.database import (
-    Base,
-    engine,
-    ensure_database_exists,
-    verify_database_connection,
-)
+from app.application.services.llm_token_tracing_service import ChainedTraceSink, MongoDBTraceSink
+from app.infrastructure.persistence.mongodb_system_settings_repository import get_all_settings
 
 configure_logging()
 logger = logging.getLogger(__name__)
@@ -44,87 +34,72 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    """Startup/shutdown hook — runs once when the server boots.
-
-    For a Java developer: this is roughly the FastAPI equivalent of a Spring
-    Boot `ApplicationRunner`/`@PostConstruct` block that runs once at boot,
-    before any request is served.
-    """
+    """Startup/shutdown hook — runs once when the server boots."""
     settings.validate_auth_settings()
     log_java_runtime_diagnostics()
-    # Local/dev convenience: create the target database itself if it doesn't
-    # exist yet (the PostgreSQL user/role must already exist and have
-    # CREATEDB — this does not create roles, only the database).
-    #
-    # Skipped in production: a managed Postgres provider creates the database
-    # for you, and the role it issues owns only that one database — it can
-    # neither connect to the `postgres` maintenance database this needs nor
-    # run CREATE DATABASE. Attempting it there raises RuntimeError and the
-    # service never finishes booting.
-    logger.info("[DATABASE] PostgreSQL enabled: %s", settings.database_enabled)
-    logger.info("[DATABASE] PostgreSQL configuration loaded: %s", bool(settings.database_url))
-    logger.info("[CONNECT] Database-independent mode: %s", "enabled" if not settings.database_enabled else "disabled")
-
-    # PostgreSQL initialization (skipped if MongoDB is the active persistence backend)
-    if settings.database_enabled and settings.persistence_backend != "mongodb":
-        if not settings.is_production:
-            ensure_database_exists()
-        verify_database_connection()
-        Base.metadata.create_all(bind=engine)  # type: ignore[arg-type]
-        logger.info("PostgreSQL database tables verified/created.")
-        
-        # Load dynamic settings overrides from database
-        try:
-            from sqlalchemy.orm import Session
-            from app.infrastructure.persistence.system_settings_repository import SystemSettingsRepository
-            with Session(engine) as db:
-                repo = SystemSettingsRepository(db)
-                overrides = repo.get_all()
-                for key, value in overrides.items():
-                    if hasattr(settings, key) and value is not None:
-                        if isinstance(getattr(settings, key), bool):
-                            bool_val = str(value).lower() in ("true", "1", "yes", "on")
-                            setattr(settings, key, bool_val)
-                        else:
-                            setattr(settings, key, value)
-                logger.info("Applied %d dynamic setting overrides from PostgreSQL", len(overrides))
-        except Exception as e:  # noqa: BLE001
-            logger.error("Failed to load dynamic settings from PostgreSQL: %s", str(e))
-    elif settings.persistence_backend == "mongodb":
-        logger.info("PostgreSQL runtime initialization skipped (Active Persistence: MongoDB).")
-    else:
-        logger.info("Database disabled by configuration — skipping DB startup tasks.")
 
     logger.info("Authentication Provider: MongoDB")
+    logger.info("Active Persistence: MongoDB")
 
+    # Safe SMTP Diagnostics (no secrets or passwords logged)
+    logger.info("SMTP configured: %s", settings.is_smtp_configured)
+    logger.info("SMTP host: %s", settings.smtp_host or "(not configured)")
+    logger.info("SMTP port: %d", settings.smtp_port)
+    logger.info("SMTP username configured: %s", bool(settings.smtp_username))
+    logger.info("SMTP password configured: %s", bool(settings.smtp_password))
+    logger.info("SMTP TLS enabled: %s", settings.smtp_use_tls)
+    logger.info("SMTP from address: %s", settings.smtp_from_address or "(not configured)")
+
+    # Initialize MongoDB
+    await mongodb_manager.connect()
+
+    # Load dynamic settings overrides from MongoDB
+    try:
+        db = mongodb_manager.get_async_db()
+        if db is not None:
+            overrides = await get_all_settings(db)
+            for key, value in overrides.items():
+                if hasattr(settings, key) and value is not None:
+                    if isinstance(getattr(settings, key), bool):
+                        bool_val = str(value).lower() in ("true", "1", "yes", "on")
+                        setattr(settings, key, bool_val)
+                    else:
+                        setattr(settings, key, value)
+            logger.info("Applied %d dynamic setting overrides from MongoDB", len(overrides))
+    except Exception as e:  # noqa: BLE001
+        logger.error("Failed to load dynamic settings from MongoDB: %s", str(e))
 
     # Initialize LLM Token Tracing
-    from app.application.services.llm_token_tracing_service import ChainedTraceSink
-    sinks = [tt.JsonlTraceSink("logs/llm_usage.jsonl")]
-    
-    if settings.persistence_backend == "mongodb":
-        from app.application.services.llm_token_tracing_service import MongoDBTraceSink
-        sinks.append(MongoDBTraceSink())
-    elif settings.database_enabled:
-        from app.application.services.llm_token_tracing_service import DatabaseTraceSink
-        sinks.append(DatabaseTraceSink())
+    sinks = [tt.JsonlTraceSink("logs/llm_usage.jsonl"), MongoDBTraceSink()]
 
     tt.init_token_tracing(
         sink=ChainedTraceSink(sinks),
         pricing_provider=tt.ChainedPricingProvider(tt.StaticPricingProvider()),
         provider="groq" if settings.groq_api_key else "ollama",
     )
-    logger.info("LLM Token Tracing initialized (sinks: JSONL + Database)")
-
-    # Initialize MongoDB
-    await mongodb_manager.connect()
+    logger.info("LLM Token Tracing initialized (sinks: JSONL + MongoDB)")
 
     yield
-    # (nothing to clean up on shutdown today)
     mongodb_manager.close()
 
 
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    for err in exc.errors():
+        loc = err.get("loc", ())
+        if "email" in loc:
+            return JSONResponse(
+                status_code=422,
+                content={"detail": "Please enter a valid email address."},
+            )
+    errors = exc.errors()
+    msg = errors[0].get("msg", "Invalid request parameters.") if errors else "Invalid request parameters."
+    return JSONResponse(status_code=422, content={"detail": msg})
 
 @app.middleware("http")
 async def context_middleware(request: Request, call_next):

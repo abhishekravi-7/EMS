@@ -51,9 +51,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       loading: isAuthLoading,
       user,
       currentUser,
-      login: () => {
-          // Trigger a re-check after login
+      login: (newUser?: UserResponse) => {
+        if (newUser) {
+          setCurrentUser(newUser);
+          setIsAuthLoading(false);
+        } else {
           void checkAuth();
+        }
       },
       logout: handleLogout,
     }),

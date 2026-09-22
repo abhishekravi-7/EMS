@@ -6,9 +6,8 @@ from fastapi import APIRouter, Depends
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 
-from app.api.deps import get_current_user
+from app.api.deps import User, get_current_user
 from app.application.use_cases.submit_support_ticket import SubmitSupportTicketUseCase
-from app.infrastructure.persistence.models import User
 from app.schemas.support_schema import SupportTicketRequest
 
 router = APIRouter(tags=["support"])

@@ -1,8 +1,4 @@
-"""Use case for validating JUnit test cases via Multi-Agent pipeline (AST Smell Detector + LLM Critic Agent)."""
-
-from __future__ import annotations
-
-from sqlalchemy.orm import Session
+from typing import Any
 
 from app.application.services.llm_token_tracing_service import LLMTokenTracingService
 from app.infrastructure.analyzers.test_smell_detector import TestSmellDetector
@@ -26,15 +22,14 @@ class ValidateUnitTestSuiteUseCase:
         source_code: str,
         test_code: str,
         target_class_name: str | None = None,
-        db: Session | None = None,
+        db: Any = None,
         job_id: str | None = None,
     ) -> UnitTestValidationReport:
-        # Wrap critic agent's ChatLLM with tracing if DB is available
+        # Wrap critic agent's ChatLLM with tracing
         original_chat = self._critic_agent._chat_llm
-        if db:
+        if job_id:
             tracing_chat = LLMTokenTracingService(
                 chat_llm=original_chat,
-                db=db,
                 job_id=job_id,
             )
             self._critic_agent._chat_llm = tracing_chat

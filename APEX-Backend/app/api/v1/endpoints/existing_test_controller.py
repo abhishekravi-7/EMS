@@ -5,16 +5,14 @@ from collections import deque
 
 from fastapi import APIRouter, Body, Depends, HTTPException
 from fastapi.responses import JSONResponse
-from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, verify_job_ownership
+from app.api.deps import User, get_current_user, verify_job_ownership
 from app.application.use_cases.existing_test_runner_service import (
     MAX_EXISTING_TEST_OUTPUT_LINES,
     existing_test_runner_service,
 )
-from app.core.config import settings
-from app.infrastructure.persistence.database import get_db_optional
-from app.infrastructure.persistence.models import User
+from app.infrastructure.persistence.mongodb import get_mongodb
+from app.infrastructure.persistence.mongodb_ownership_repository import record_job_owner as record_mongo_owner
 
 logger = logging.getLogger(__name__)
 
@@ -24,10 +22,9 @@ router = APIRouter(tags=["existing-tests"])
 async def scan_existing_tests_total(
     job_id: str,
     current_user: User = Depends(get_current_user),  # noqa: B008
-    db: Session | None = Depends(get_db_optional)  # noqa: B008
 ):
     """Fast scan — returns total test count before execution (no run)."""
-    await verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(job_id, current_user)
     try:
         res = await asyncio.to_thread(
             existing_test_runner_service.scan_total, job_id
@@ -44,10 +41,9 @@ async def run_existing_tests_endpoint(
     job_id: str,
     test_selection: list[dict] | None = Body(default=None),  # noqa: B008
     current_user: User = Depends(get_current_user),  # noqa: B008
-    db: Session | None = Depends(get_db_optional)  # noqa: B008
 ):
     """Start existing tests in the background and return immediately."""
-    await verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(job_id, current_user)
     try:
         current = await asyncio.to_thread(existing_test_runner_service.get_status, job_id)
         if current.get("status") in {"RUNNING", "IN_PROGRESS"}:
@@ -79,27 +75,18 @@ async def run_existing_tests_endpoint(
         logger.info("[EXISTING-TEST-JOB] Created and stored initial RUNNING state for job %s", job_id)
 
         # Ensure database ownership record is persisted
-        if settings.persistence_backend == "mongodb":
-             from app.infrastructure.persistence.mongodb import get_mongodb
-             from app.infrastructure.persistence.mongodb_ownership_repository import record_job_owner as record_mongo_owner
-             try:
-                 mongo_db = await get_mongodb()
-                 if mongo_db is not None:
-                     await record_mongo_owner(
-                         mongo_db, 
-                         job_id=job_id, 
-                         user_id=str(current_user.id),
-                         owner_name=current_user.full_name,
-                         owner_email=current_user.email
-                     )
-             except Exception as rec_err: # noqa: BLE001
-                 logger.debug("Non-fatal: could not record job owner in MongoDB for %s: %s", job_id, rec_err)
-        elif db is not None and settings.database_enabled:
-            from app.infrastructure.persistence.migration_ownership_repository import record_job_owner
-            try:
-                await asyncio.to_thread(record_job_owner, db, job_id=job_id, user_id=current_user.id)
-            except Exception as rec_err:  # noqa: BLE001
-                logger.debug("Non-fatal: could not record job owner for %s: %s", job_id, rec_err)
+        try:
+            mongo_db = await get_mongodb()
+            if mongo_db is not None:
+                await record_mongo_owner(
+                    mongo_db, 
+                    job_id=job_id, 
+                    user_id=str(current_user.id),
+                    owner_name=current_user.full_name,
+                    owner_email=current_user.email
+                )
+        except Exception as rec_err:  # noqa: BLE001
+            logger.debug("Non-fatal: could not record job owner in MongoDB for %s: %s", job_id, rec_err)
 
         async def _run_background():
             logger.info("[EXISTING-TEST-JOB] Background execution task started for job %s", job_id)
@@ -140,10 +127,9 @@ async def run_existing_tests_endpoint(
 async def get_existing_tests_status_endpoint(
     job_id: str,
     current_user: User = Depends(get_current_user),  # noqa: B008
-    db: Session | None = Depends(get_db_optional)  # noqa: B008
 ):
     """Returns current run status + live logs + final result when done."""
-    await verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(job_id, current_user)
     try:
         res = await asyncio.to_thread(existing_test_runner_service.get_status, job_id)
         return JSONResponse(content=res)
@@ -157,10 +143,9 @@ async def get_existing_tests_status_endpoint(
 async def reset_existing_tests_endpoint(
     job_id: str,
     current_user: User = Depends(get_current_user),  # noqa: B008
-    db: Session | None = Depends(get_db_optional)  # noqa: B008
 ):
     """Reset execution state for a job."""
-    await verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(job_id, current_user)
     try:
         await asyncio.to_thread(existing_test_runner_service.reset, job_id)
         return JSONResponse(content={"reset": True})
@@ -174,10 +159,9 @@ async def reset_existing_tests_endpoint(
 async def stop_existing_tests_endpoint(
     job_id: str,
     current_user: User = Depends(get_current_user),  # noqa: B008
-    db: Session | None = Depends(get_db_optional)  # noqa: B008
 ):
     """Aborts/terminates the current execution of existing tests."""
-    await verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(job_id, current_user)
     try:
         await asyncio.to_thread(existing_test_runner_service.stop_existing_tests, job_id)
         return JSONResponse(content={"stopped": True})

@@ -6,8 +6,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy.orm import Session
-
+from app.api.deps import User
 from app.core.config import BACKEND_ROOT, settings
 from app.core.context import user_id_ctx
 from app.core.exceptions import LLMResponseInvalidError
@@ -17,7 +16,6 @@ from app.infrastructure.llm.prompt_templates import (
     DEPENDENCY_ANALYSIS_SYSTEM_PROMPT,
     build_dependency_analysis_prompt,
 )
-from app.infrastructure.persistence.models import User
 from app.schemas.dependency_analysis_schema import (
     AnalyzedDependencyItem,
     DependencyAnalysisRequest,
@@ -268,7 +266,7 @@ class AnalyzeDependenciesUseCase:
     async def execute(
         self,
         request: DependencyAnalysisRequest,
-        db: Session | None = None,
+        db: Any = None,
         current_user: User | None = None,
     ) -> DependencyAnalysisResponse:
         input_deps = request.dependencies or []
@@ -331,7 +329,7 @@ class AnalyzeDependenciesUseCase:
         self,
         request: DependencyAnalysisRequest,
         fingerprint: str,
-        db: Session | None = None,
+        db: Any = None,
         current_user: User | None = None,
     ) -> DependencyAnalysisResponse:
         input_deps = request.dependencies or []
