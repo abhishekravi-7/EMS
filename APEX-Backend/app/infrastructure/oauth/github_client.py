@@ -20,8 +20,8 @@ from app.core.exceptions import OAuthProviderError
 
 AUTHORIZATION_ENDPOINT = "https://github.com/login/oauth/authorize"
 TOKEN_ENDPOINT = "https://github.com/login/oauth/access_token"  # nosec B105
-USER_ENDPOINT = "https://api.github.com/user"
-EMAILS_ENDPOINT = "https://api.github.com/user/emails"
+USER_ENDPOINT = f"{settings.github_api_base_url.rstrip('/')}/user"
+EMAILS_ENDPOINT = f"{settings.github_api_base_url.rstrip('/')}/user/emails"
 # Identity-only scopes. Deliberately NOT "repo" (or any repository scope) —
 # logging in with GitHub must never grant private-repository access; that
 # stays the Connect stage's separate PAT-based flow.

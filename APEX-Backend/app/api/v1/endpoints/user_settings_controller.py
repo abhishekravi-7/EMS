@@ -9,7 +9,9 @@ from app.api.deps import get_current_user
 from app.infrastructure.persistence.models import User
 from app.schemas.user_settings_schema import UserSettingsResponse, UserSettingsUpdate, UserGitHubConfig
 from app.infrastructure.persistence.mongodb import get_mongodb
+from app.infrastructure.persistence.mongodb_user_repository import _get_query_id
 from app.api.v1.endpoints.admin_settings_controller import _get_live_env_values
+from app.core.config import settings
 
 router = APIRouter(tags=["user-settings"])
 logger = logging.getLogger(__name__)
@@ -22,7 +24,7 @@ async def get_user_github_settings(
     mongo_db = await get_mongodb()
     
     # Check if we have the user document
-    user_doc = await mongo_db.users.find_one({"_id": str(current_user.id)}) or {}
+    user_doc = await mongo_db.users.find_one({"_id": _get_query_id(str(current_user.id))}) or {}
     github_config = user_doc.get("github_config", user_doc.get("git_config", {}))
     
     # Mask the PAT if it exists
@@ -36,7 +38,7 @@ async def get_user_github_settings(
         masked_pat = ""
     
     # Top-level github_account (set during OAuth) takes precedence if not inside config yet
-    github_account = github_config.get("github_account") or user_doc.get("github_account", "")
+    github_account = github_config.get("github_account") or user_doc.get("github_account") or ""
     
     # Process quality_checks_values and mask secrets
     quality_checks_values = user_doc.get("quality_checks_values", {})
@@ -79,6 +81,7 @@ async def get_user_github_settings(
             user_access=github_config.get("user_access", "")
         ),
         quality_checks_values=masked_qc_values,
+        test_cases_values=user_doc.get("test_cases_values", {}),
         llm_values=masked_llm_values,
         system_llm_config=system_llm_config
     )
@@ -92,7 +95,7 @@ async def update_user_github_settings(
     mongo_db = await get_mongodb()
     
     # Fetch existing to avoid overwriting masked PAT with "********"
-    user_doc = await mongo_db.users.find_one({"_id": str(current_user.id)}) or {}
+    user_doc = await mongo_db.users.find_one({"_id": _get_query_id(str(current_user.id))}) or {}
     existing_config = user_doc.get("github_config", user_doc.get("git_config", {}))
     existing_qc_values = user_doc.get("quality_checks_values", {})
     
@@ -116,11 +119,14 @@ async def update_user_github_settings(
             if val == "********" or (isinstance(val, str) and val.startswith("****************")):
                 new_llm_values[k] = existing_llm_values.get(k, val)
 
+    new_test_cases_values = payload.test_cases_values or {}
+    
     await mongo_db.users.update_one(
-        {"_id": str(current_user.id)},
+        {"_id": _get_query_id(str(current_user.id))},
         {"$set": {
             "github_config": new_config,
             "quality_checks_values": new_qc_values,
+            "test_cases_values": new_test_cases_values,
             "llm_values": new_llm_values
         }},
         upsert=True
@@ -143,7 +149,7 @@ async def test_user_github_connection(
 ):
     """Test the current user's GitHub PAT connection."""
     mongo_db = await get_mongodb()
-    user_doc = await mongo_db.users.find_one({"_id": str(current_user.id)}) or {}
+    user_doc = await mongo_db.users.find_one({"_id": _get_query_id(str(current_user.id))}) or {}
     github_config = user_doc.get("github_config", {})
     pat = github_config.get("pat")
     
@@ -151,8 +157,9 @@ async def test_user_github_connection(
         raise HTTPException(status_code=400, detail="No Personal Access Token configured.")
         
     async with httpx.AsyncClient(timeout=10.0) as client:
+        base_url = settings.github_api_base_url.rstrip('/')
         response = await client.get(
-            "https://api.github.com/user",
+            f"{base_url}/user",
             headers={"Authorization": f"Bearer {pat}"}
         )
         if response.status_code == 200:
@@ -170,7 +177,7 @@ async def list_user_github_repos(
 ):
     """List the repositories available to the current user via their PAT."""
     mongo_db = await get_mongodb()
-    user_doc = await mongo_db.users.find_one({"_id": str(current_user.id)}) or {}
+    user_doc = await mongo_db.users.find_one({"_id": _get_query_id(str(current_user.id))}) or {}
     github_config = user_doc.get("github_config", {})
     pat = github_config.get("pat")
     
@@ -180,8 +187,9 @@ async def list_user_github_repos(
     async with httpx.AsyncClient(timeout=10.0) as client:
         # Fetching repositories the user has access to. For simplicity, we just fetch the first page,
         # but a production app might need pagination here.
+        base_url = settings.github_api_base_url.rstrip('/')
         response = await client.get(
-            "https://api.github.com/user/repos?per_page=100&sort=updated",
+            f"{base_url}/user/repos?per_page=100&sort=updated",
             headers={"Authorization": f"Bearer {pat}"}
         )
         if response.status_code == 200:
@@ -212,7 +220,7 @@ async def list_github_repo_branches(
 ):
     """List the branches for a specific repository."""
     mongo_db = await get_mongodb()
-    user_doc = await mongo_db.users.find_one({"_id": str(current_user.id)}) or {}
+    user_doc = await mongo_db.users.find_one({"_id": _get_query_id(str(current_user.id))}) or {}
     github_config = user_doc.get("github_config", {})
     pat = github_config.get("pat")
     
@@ -220,8 +228,9 @@ async def list_github_repo_branches(
         raise HTTPException(status_code=400, detail="No Personal Access Token configured.")
         
     async with httpx.AsyncClient(timeout=10.0) as client:
+        base_url = settings.github_api_base_url.rstrip('/')
         response = await client.get(
-            f"https://api.github.com/repos/{owner}/{repo}/branches?per_page=100",
+            f"{base_url}/repos/{owner}/{repo}/branches?per_page=100",
             headers={"Authorization": f"Bearer {pat}"}
         )
         if response.status_code == 200:
@@ -287,7 +296,7 @@ async def test_user_llm_connection(
     if api_key == "********" or api_key.startswith("****************"):
         # The user submitted the masked API key, fetch real one
         mongo_db = await get_mongodb()
-        user_doc = await mongo_db.users.find_one({"_id": str(current_user.id)}) or {}
+        user_doc = await mongo_db.users.find_one({"_id": _get_query_id(str(current_user.id))}) or {}
         existing_llm_values = user_doc.get("llm_values", {})
         api_key = existing_llm_values.get(f"{provider}_api_key", api_key)
         

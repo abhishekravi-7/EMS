@@ -122,8 +122,9 @@ async def test_admin_github_connection(
     import httpx
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
+            base_url = settings.github_api_base_url.rstrip('/')
             response = await client.post(
-                f"https://api.github.com/applications/{client_id}/token",
+                f"{base_url}/applications/{client_id}/token",
                 auth=(client_id, client_secret),
                 json={"access_token": "dummy"},
                 headers={"Accept": "application/vnd.github.v3+json"}
