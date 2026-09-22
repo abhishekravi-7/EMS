@@ -8,16 +8,14 @@ Provides authentication resolvers (`get_current_user`), authorization checks
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Any
 
-from fastapi import Depends, Header, HTTPException, Request
-from sqlalchemy.orm import Session
+from fastapi import Header, HTTPException, Request
 
-from app.core.config import settings
 from app.core.context import job_id_ctx, user_id_ctx
 from app.core.exceptions import NotAuthenticatedError
-from app.infrastructure.persistence.database import get_db_optional
-from app.infrastructure.persistence.models import User
 
 logger = logging.getLogger(__name__)
 
@@ -25,22 +23,19 @@ ACCESS_TOKEN_COOKIE_NAME = "access_token"  # nosec B105
 _BEARER_PREFIX = "bearer "
 
 
-def _get_mock_user() -> User:
-    """Helper to create a consistent mock user for database-less or auth-disabled modes."""
-    fake_user = User()
-    fake_user.id = 1  # Consistent ID for ownership logic
-    fake_user.full_name = "Java APEX User"
-    fake_user.email = "javaapex@gmail.com"
-    fake_user.role = "USER"
-    fake_user.is_active = True
-    fake_user.is_email_verified = True
-    fake_user.created_at = datetime.now(timezone.utc)
-    fake_user.last_login_at = datetime.now(timezone.utc)
-    user_id_ctx.set(fake_user.id)
-    return fake_user
+@dataclass
+class User:
+    id: int | str
+    email: str
+    full_name: str = ""
+    role: str = "USER"
+    is_active: bool = True
+    is_email_verified: bool = False
+    created_at: datetime | None = None
+    last_login_at: datetime | None = None
 
 
-async def get_current_user(request: Request, db: Session | None = Depends(get_db_optional)) -> User:  # noqa: B008
+async def get_current_user(request: Request) -> User:
     """Resolve the logged-in user via MongoDB authentication."""
     auth_header = request.headers.get("Authorization", "")
     bearer_token = ""  # nosec B105
@@ -50,7 +45,6 @@ async def get_current_user(request: Request, db: Session | None = Depends(get_db
     cookie_token = request.cookies.get(ACCESS_TOKEN_COOKIE_NAME, "").strip()
     raw_token = cookie_token or bearer_token
 
-    # 1. MongoDB Provider
     from app.application.services.mongodb_auth_service import MongoDBAuthService
     from app.infrastructure.persistence.mongodb import get_mongodb
 
@@ -65,28 +59,36 @@ async def get_current_user(request: Request, db: Session | None = Depends(get_db
     auth_service = MongoDBAuthService(mongo_db)
     try:
         user_data = await auth_service.get_user_from_access_token(raw_token)
-
-        # Map dict to an object that behaves like a User model
-        class MongoUser:
-            def __init__(self, data):
-                self.id = str(data["_id"])
-                self.email = data["email"]
-                self.full_name = data.get("full_name", "")
-                self.role = data.get("role", "USER")
-                self.is_active = data.get("is_active", True)
-                self.is_email_verified = data.get("is_email_verified", False)
-                self.created_at = data.get("created_at") or datetime.now(timezone.utc)
-                self.last_login_at = data.get("last_login_at")
-
-        user = MongoUser(user_data)
-        user_id_ctx.set(user.id)
-        return user  # type: ignore
+        user = User(
+            id=user_data["_id"],
+            email=user_data["email"],
+            full_name=user_data.get("full_name", ""),
+            role=user_data.get("role", "USER"),
+            is_active=user_data.get("is_active", True),
+            is_email_verified=user_data.get("is_email_verified", False),
+            created_at=user_data.get("created_at") or datetime.now(timezone.utc),
+            last_login_at=user_data.get("last_login_at"),
+        )
+        user_id_ctx.set(str(user.id))
+        return user
     except NotAuthenticatedError as exc:
         raise HTTPException(status_code=401, detail=exc.message) from exc
 
 
-async def verify_job_ownership(db: Session | None, job_id: str, current_user: User) -> None:
-    """Raise 403/404 unless `current_user` is the recorded owner of `job_id`."""
+async def verify_job_ownership(arg1: Any, arg2: Any, arg3: Any = None) -> None:
+    """Raise 403/404 unless `current_user` is the recorded owner of `job_id`.
+    
+    Supports both `(job_id, current_user)` and legacy `(db, job_id, current_user)`.
+    """
+    if arg3 is not None:
+        # Legacy signature: (db, job_id, current_user)
+        job_id = str(arg2)
+        current_user = arg3
+    else:
+        # New signature: (job_id, current_user)
+        job_id = str(arg1)
+        current_user = arg2
+
     from app.infrastructure.persistence.mongodb import get_mongodb
     from app.infrastructure.persistence.mongodb_ownership_repository import (
         get_job_owner_user_id as get_mongo_owner,
@@ -123,7 +125,7 @@ async def verify_job_ownership(db: Session | None, job_id: str, current_user: Us
             detail={"code": "JOB_NOT_FOUND", "message": "No migration job found for this id."},
         )
 
-    if owner_user_id != current_user.id and current_user.id != 1:
+    if str(owner_user_id) != str(current_user.id) and str(current_user.id) != "1":
         raise HTTPException(
             status_code=403,
             detail={"code": "FORBIDDEN", "message": "You do not have access to this migration job."},

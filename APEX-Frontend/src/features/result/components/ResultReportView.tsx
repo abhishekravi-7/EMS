@@ -82,6 +82,7 @@ interface ResultReportViewProps {
   resultExec: ReturnType<typeof useMigrationExecution>;
   runSonar: boolean;
   runFossa: boolean;
+  runTests?: boolean;
   selectedLLMProvider: string;
   useLLMTests: boolean;
   resetWizard: () => void;
@@ -93,6 +94,7 @@ export function ResultReportView({
   resultExec,
   runSonar,
   runFossa,
+  runTests,
   selectedLLMProvider,
   useLLMTests,
   resetWizard,
@@ -254,7 +256,7 @@ export function ResultReportView({
     { label: "Total Test Cases", value: totalTestCases },
     {
       label: "JaCoCo Coverage",
-      value: typeof jacocoCoveragePct === "number" ? `${jacocoCoveragePct.toFixed(1)}%` : "87.5%",
+      value: typeof jacocoCoveragePct === "number" ? `${jacocoCoveragePct.toFixed(1)}%` : "0.0%",
     },
   ];
 
@@ -1138,6 +1140,7 @@ export function ResultReportView({
                     migrationJavaVersion={migrationJob.target_java_version}
                     summaryItems={testSummaryItems}
                     testsRun={testsRun}
+                    runTests={Boolean(migrationJob.run_tests ?? migrationJob.runTests ?? runTests)}
                     onDownloadUnitTestReport={handleDownloadUnitTestReport}
                   />
                 </div>

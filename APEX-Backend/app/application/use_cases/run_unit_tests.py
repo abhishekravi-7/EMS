@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-
-from sqlalchemy.orm import Session
+from typing import Any
 
 from app.application.services.llm_token_tracing_service import LLMTokenTracingService
 from app.application.use_cases.validate_unit_tests import ValidateUnitTestSuiteUseCase
@@ -50,7 +49,11 @@ class RunUnitTestSuiteUseCase:
 
         return self._analyzer.analyze_files(source_path=source_path, test_path=test_path)
 
-    async def execute(self, req: UnitTestGenerateAndRunRequest, db: Session | None = None) -> UnitTestSuiteResult:
+    async def execute(
+        self,
+        req: UnitTestGenerateAndRunRequest,
+        db: Any = None,
+    ) -> UnitTestSuiteResult:
         project_dir = self._resolve_project_dir(job_id=req.job_id, project_dir_str=req.project_dir)
 
         source_path = project_dir / req.relative_source_path
@@ -61,20 +64,18 @@ class RunUnitTestSuiteUseCase:
         if test_path and not test_path.exists():
             test_path = None
 
-        # Wrap generator's ChatLLM with tracing if DB is available
+        # Wrap generator's ChatLLM with tracing
         original_chat = self._generator._chat_llm
         original_critic_chat = self._validator._critic_agent._chat_llm
-        if db:
+        if req.job_id:
             tracing_chat = LLMTokenTracingService(
                 chat_llm=original_chat,
-                db=db,
                 job_id=req.job_id,
             )
             self._generator._chat_llm = tracing_chat
             # Also wrap critic agent's ChatLLM
             self._validator._critic_agent._chat_llm = LLMTokenTracingService(
                 chat_llm=original_critic_chat,
-                db=db,
                 job_id=req.job_id,
             )
 
@@ -206,15 +207,14 @@ class RunUnitTestSuiteUseCase:
         filtered = [f for f in (services + logic + others) if is_concrete_class(f)]
         return filtered[:10]
 
-    async def execute_project_suite(self, req: UnitTestGenerateAndRunRequest, db: Session | None = None) -> UnitTestSuiteResult:
+    async def execute_project_suite(self, req: UnitTestGenerateAndRunRequest, db: Any = None) -> UnitTestSuiteResult:
         project_dir = self._resolve_project_dir(job_id=req.job_id, project_dir_str=req.project_dir)
 
-        # Wrap generator's ChatLLM with tracing if DB is available
+        # Wrap generator's ChatLLM with tracing
         original_chat = self._generator._chat_llm
-        if db:
+        if req.job_id:
             tracing_chat = LLMTokenTracingService(
                 chat_llm=original_chat,
-                db=db,
                 job_id=req.job_id,
             )
             self._generator._chat_llm = tracing_chat

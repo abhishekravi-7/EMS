@@ -11,6 +11,7 @@ const MigrationWizardPage = lazy(() => import("@/features/wizard/pages/Migration
 const SignUpPage = lazy(() => import("@/features/auth/pages/SignUpPage"));
 const SignInPage = lazy(() => import("@/features/auth/pages/SignInPage"));
 const ResetPasswordPage = lazy(() => import("@/features/auth/pages/ResetPasswordPage"));
+const VerifyEmailPage = lazy(() => import("@/features/auth/pages/VerifyEmailPage"));
 const AdminConsolePage = lazy(() => import("@/features/admin/pages/AdminConsolePage"));
 const UsageDashboardPage = lazy(() => import("@/features/usage/pages/UsageDashboardPage"));
 
@@ -42,6 +43,7 @@ export default function App() {
                       {/* <Route path="/" element={<LandingPage />} /> */}
                       <Route path="/signup" element={<SignUpPage />} />
                       <Route path="/signin" element={<SignInPage />} />
+                      <Route path="/verify-email" element={<VerifyEmailPage />} />
                       <Route path="/reset-password" element={<ResetPasswordPage />} />
                       <Route path="/admin" element={<AdminConsolePage />} />
                       <Route path="/usage" element={<UsageDashboardPage />} />
@@ -54,4 +56,4 @@ export default function App() {
                         </SidebarProvider>
                       </AuthProvider>
                     );
-                  }
+                  }

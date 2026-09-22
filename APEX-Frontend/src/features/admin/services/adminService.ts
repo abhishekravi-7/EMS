@@ -12,7 +12,6 @@ export interface SystemSettings {
   sonarqube_host_url: string;
   sonarqube_token: string;
   fossa_api_key: string;
-  database_url: string;
   jwt_secret_key: string;
 }
 
