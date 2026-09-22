@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import json
 import logging
-import threading
 from collections.abc import AsyncIterator
 
 import httpx
@@ -25,18 +24,6 @@ from app.core.config import settings
 from app.core.exceptions import ChatLLMServiceError
 
 logger = logging.getLogger(__name__)
-
-_shared_client = None
-_client_lock = threading.Lock()
-
-def _get_client():
-    global _shared_client
-    if _shared_client is None:
-        with _client_lock:
-            if _shared_client is None:
-                _shared_client = httpx.AsyncClient(timeout=settings.chat_llm_request_timeout_seconds)
-    return _shared_client
-
 
 class OllamaUnavailableError(ChatLLMServiceError):
     """Raised when the Ollama server cannot be reached (not running / wrong URL)."""
@@ -119,8 +106,8 @@ class OllamaClient:
     async def health_check(self) -> dict:
         """Check if the Ollama server is reachable and the configured model is available."""
         try:
-            client = _get_client()
-            response = await client.get(f"{self._base_url}/api/tags")
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                response = await client.get(f"{self._base_url}/api/tags")
             if response.status_code == 200:
                 data = response.json()
                 models = [m.get("name", "") for m in data.get("models", [])]
@@ -185,33 +172,33 @@ class OllamaClient:
         }
 
         try:
-            client = _get_client()
-            async with client.stream(
-                "POST", f"{self._base_url}/api/chat", json=payload
-            ) as response:
-                if response.status_code == 404:
-                    await response.aread()
-                    raise OllamaModelNotFoundError(self._base_url, self._model)
-                if response.status_code != 200:
-                    await response.aread()
-                    body = response.text[:200] if response.text else ""
-                    logger.error(
-                        "[OLLAMA] HTTP %s | URL: %s | Model: %s | Body: %s",
-                        response.status_code,
-                        self._base_url,
-                        self._model,
-                        body,
-                    )
-                    raise ChatLLMServiceError(
-                        f"Ollama server returned HTTP {response.status_code}. "
-                        "Please check that the model is installed and Ollama is running."
-                    )
-                async for line in response.aiter_lines():
-                    delta, usage = _parse_ndjson_line(line)
-                    if usage:
-                        self.last_usage = usage
-                    if delta:
-                        yield delta
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                async with client.stream(
+                    "POST", f"{self._base_url}/api/chat", json=payload
+                ) as response:
+                    if response.status_code == 404:
+                        await response.aread()
+                        raise OllamaModelNotFoundError(self._base_url, self._model)
+                    if response.status_code != 200:
+                        await response.aread()
+                        body = response.text[:200] if response.text else ""
+                        logger.error(
+                            "[OLLAMA] HTTP %s | URL: %s | Model: %s | Body: %s",
+                            response.status_code,
+                            self._base_url,
+                            self._model,
+                            body,
+                        )
+                        raise ChatLLMServiceError(
+                            f"Ollama server returned HTTP {response.status_code}. "
+                            "Please check that the model is installed and Ollama is running."
+                        )
+                    async for line in response.aiter_lines():
+                        delta, usage = _parse_ndjson_line(line)
+                        if usage:
+                            self.last_usage = usage
+                        if delta:
+                            yield delta
         except (OllamaModelNotFoundError, OllamaTimeoutError, OllamaUnavailableError, ChatLLMServiceError):
             raise  # already typed — pass through unchanged
         except httpx.TimeoutException as exc:

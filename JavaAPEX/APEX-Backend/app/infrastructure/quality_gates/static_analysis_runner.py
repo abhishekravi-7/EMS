@@ -650,7 +650,6 @@ class StaticAnalysisRunner:
                 "bugs": "BUG",
                 "vulnerabilities": "VULNERABILITY",
                 "code_smells": "CODE_SMELL",
-                "security_hotspots": "SECURITY_HOTSPOT",
             }
             for metric, sonar_type in issue_types.items():
                 try:

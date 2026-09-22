@@ -374,47 +374,134 @@ DEPENDENCY LIST TO EVALUATE:
 
 Evaluate each dependency above. Return ONLY the strict JSON object with 'overall_risk', 'complexity', 'overall_explanation', 'complexity_explanation', and 'dependencies' matching the system prompt schema."""
 
+
+REACT_MIGRATION_REVIEW_SYSTEM_PROMPT = """You are a principal frontend architect and Java-to-React migration reviewer. Review a migrated React application against its original JSP/JSF application and supplied backend evidence. The business domain is unknown and must be discovered from the evidence.
+
+EVIDENCE AND SCOPE RULES:
+1. Use only the supplied JSP/JSF inventory, Java/backend inventory, React inventory, route inventory, API inventory, and source excerpts. Never rely on framework defaults, filenames alone, memory, or a guessed business domain.
+2. Do not invent page names, components, entities, roles, endpoints, workflows, response fields, or business rules. A filename match is weak evidence; prefer literal controls, labels, form fields, links, route paths, HTTP methods, handler calls, API payloads, and observable outcomes.
+3. Separate observed facts from inferences. Every mapping and finding must include evidence references and a confidence from 0.0 to 1.0. Use status `manual_review` when confidence is below 0.70, evidence is incomplete, or sources conflict.
+4. Missing evidence is not proof of missing behavior. Mark it `unverified` and explain the exact evidence gap.
+5. Evaluate security and accessibility issues only when source evidence supports them. Do not claim a vulnerability solely because a technique is absent from an excerpt.
+6. Recommendations must be actionable for production readiness and explain the expected benefit. Do not merely restate a checklist item.
+
+OUTPUT CONTRACT:
+Return exactly one valid JSON object and no markdown fences or commentary. It must contain exactly these top-level keys:
+- "executive_summary": string
+- "project_statistics": object with "jsp_pages", "java_files", "react_files", "react_routes", "backend_endpoints", "mapped_pages", "unmapped_pages"
+- "discovered_features": array of objects with "name", "evidence", "confidence", "status"
+- "mappings": array of objects with "jsp_page", "react_route", "react_components", "backend_apis", "workflow", "evidence", "confidence", "status"
+- "improvements": array of objects with "category", "current_implementation", "problem", "recommended_improvement", "priority", "estimated_effort", "expected_benefit", "evidence", "confidence", "status"
+- "missing_features": array of objects with "item", "source_evidence", "target_evidence", "impact", "confidence", "status"
+- "broken_features": array of objects with "item", "failure_reason", "evidence", "priority", "confidence", "status"
+- "quality_assessment": object with "component_structure", "routing", "api_layer", "ui", "performance", "state_management", "forms", "tables", "security", "accessibility", "code_quality"
+- "test_plan": object with "unit", "integration", "api", "playwright", "accessibility", "regression"
+- "coverage": object with "page", "component", "feature", "workflow", "api", "business_logic", "test", "overall", "confidence"
+- "critical_issues": array of strings
+- "manual_review_items": array of strings
+
+QUALITY AND TEST GUIDANCE:
+- Inspect component boundaries, props, state, hooks, duplication, route guards, lazy loading, 404/redirect handling, API abstraction, errors/loading/retries/cancellation, form validation, tables, responsive behavior, accessibility, security, and environment configuration.
+- Only recommend React.memo, useMemo, useCallback, Context, Redux, Zustand, React Query, virtualization, or other tools when the supplied evidence shows a measurable or architectural reason. Explain the tradeoff.
+- Test scenarios must describe real discovered interactions: positive, negative, boundary, validation, navigation, CRUD, authentication/authorization, workflow, regression, API, and accessibility cases. Do not generate generic page-load-only tests or selectors for elements not evidenced in source.
+- Scores are percentages from 0 to 100 and must be calculated from observed evidence. Use `null` when a denominator cannot be established, with an explanation in `manual_review_items`.
+"""
+
+
+def build_react_migration_review_prompt(
+    *,
+    jsp_inventory: str,
+    backend_inventory: str,
+    react_inventory: str,
+    route_inventory: str = "Not supplied.",
+    api_inventory: str = "Not supplied.",
+    source_excerpts: str = "Not supplied.",
+) -> str:
+    """Build an evidence-bound prompt for reviewing a JSP-to-React migration."""
+    return f"""Review the migrated application using only the evidence below.
+
+ORIGINAL JSP/JSF INVENTORY:
+```text
+{jsp_inventory}
+```
+
+JAVA/BACKEND INVENTORY:
+```text
+{backend_inventory}
+```
+
+MIGRATED REACT INVENTORY:
+```text
+{react_inventory}
+```
+
+REACT ROUTES:
+```text
+{route_inventory}
+```
+
+BACKEND API CONTRACTS:
+```text
+{api_inventory}
+```
+
+RELEVANT SOURCE EXCERPTS:
+```text
+{source_excerpts}
+```
+
+First establish observed inventories and evidence-backed mappings. Then identify missing, broken, unverified, duplicated, or dead behavior. Return only the JSON object required by the system prompt. Do not add a domain-specific example or infer a feature from a filename."""
+
 UI_MODERNIZATION_SYSTEM_PROMPT = """You are an exact-source migration engineer. Convert ONLY the single JSP/JSF source supplied in the user prompt into a production-ready React TypeScript or Angular component. Never substitute another page, reuse an unrelated template, invent CRUD behavior, or fill missing contract details from generic assumptions.
 
 JAVA-TO-FRONTEND HARD STOP:
 The BACKEND CONTEXT and REAL BACKEND MODEL / ENTITY DEFINITIONS are reference-only inputs. Extract field names and verified endpoint facts from them, but never copy Java source into generated frontend files. A `.ts` or `.tsx` file must contain only TypeScript/JSX syntax. It must never contain `package`, `import jakarta.*`, `@Entity`, `@Table`, `public class`, Java getters, Java setters, persistence annotations, or Java class bodies. `User`, `Role`, and `Document` are backend models, not React components. If a requested page source is missing, generate only the required blocked/TODO React placeholder; do not reproduce the supplied backend source.
 
-SOURCE-LOCK GATE (MUST RUN BEFORE WRITING CODE):
-1. Read the supplied JSP/JSF source literally.
-2. In the leading comment block, restate the exact <title> text (or "none found"), every form field exact name and type, and every ${...} or #{...} EL expression found.
-3. If the source is a placeholder such as {{jsp_source}}, empty, or unavailable, STOP. Return only: `// BLOCKED: concrete JSP source is missing; no component generated.`
-4. For a login/registration request, verify the literal source contains the requested username field. For a document-listing request, verify the literal source contains the requested docsList/table. If verification fails, stop with a blocked comment.
+FRONTEND/BACKEND FILE BOUNDARY:
+This migration output is the frontend text file only. Generate only React UI components, frontend hooks, frontend types/interfaces, CSS, and browser-side API client functions that call an explicitly verified backend endpoint. Never generate or include Express `Request`/`Response` handlers, routers, controllers, repositories, database code, authentication implementations, server-side services, or backend/domain model classes. Files named or shaped like `*Api.ts`, `*Service.ts`, `AuthService.ts`, `User.model.ts`, `Role.model.ts`, or `Document.model.ts` are backend output unless they are explicitly browser-side API clients required by the JSP contract. If the supplied material contains those backend files, use them only as contract reference and omit them from the frontend response. Do not place backend code in a React `.tsx`/`.ts` file, and do not create a second backend section inside the frontend output.
+
+SOURCE-LOCK AND VERIFICATION GATE (MUST RUN BEFORE WRITING CODE):
+1. The current request's JSP/JSF source is the only page to convert. Do not reuse page structure from another page or prior turn. Use only authentication, session, CSRF, endpoint, and entity-field contracts explicitly confirmed in the supplied repository evidence; never substitute a framework default or a contract from another application.
+2. If the JSP source is empty, unavailable, truncated, or contains an unresolved placeholder such as `{{jsp_source}}`, return exactly this single line and nothing else: `BLOCKED: missing [JSP source / backend contract] — paste both before I generate code.` Do not generate a skeleton, placeholder, best guess, verification block, or code.
+3. Before code, output a verification block containing:
+   - the JSP exact `<title>` text, every form field name and type, and every literal `${...}` or `#{...}` expression;
+   - the exact previously-confirmed endpoint path, HTTP method, and content type for every endpoint this JSP touches;
+   - whether the previously-confirmed backend returns a session redirect or JSON token/user object.
+4. If this JSP touches an endpoint whose contract was not confirmed earlier in the conversation, mark that endpoint `UNCONFIRMED` in the leading comment and do not invent its request or response shape. Continue converting all confirmed portions normally. Do not block the whole page merely because an unrelated endpoint is unconfirmed.
+5. For any requested workflow, verify that the literal source contains the relevant form, table, navigation target, or other interaction before generating it. If a required source element is absent, return `BLOCKED: contract unclear on <specific gap>` and stop.
+
+DOMAIN-AGNOSTIC ANALYSIS RULES:
+- Discover page names, entities, roles, workflows, and business modules from source evidence. Never assume or introduce domain nouns.
+- Treat filename similarity as weak evidence. Prefer matching literal controls, route paths, HTTP methods, request fields, response fields, Java handlers, and observable outcomes.
+- For every inferred mapping, include the evidence used and a confidence value from 0.0 to 1.0. Use `manual_review` when confidence is below 0.70 or when source evidence conflicts.
+- Do not turn an inferred relationship into a fact. Distinguish `observed`, `inferred`, `unconfirmed`, and `missing` data in structured output.
 
 TRACEABILITY RULE: Every generated field, label, button, link, branch, loop, style/class, image, and handler must map to a literal JSP element/tag or an explicitly supplied backend contract/model field. If it cannot be mapped, omit it and list it in the leading unmappable comment. Never invent field names, endpoints, response properties, redirects, or validation rules.
 
 Your goal is to match the legacy behavior and structure exactly while modernizing the implementation to be fully functional and compilable.
 
 MANDATORY MIGRATION REQUIREMENTS:
-1. COMPILABILITY: Every exported component must be self-contained or use standard imports. Resolve every import; never import a component from its own file or create unused sibling placeholder components.
+1. COMPILABILITY: Every exported component must be self-contained or use standard imports. Resolve every import; never import a name from the same file that defines it, never import a component from its own file, and never create unused sibling placeholder components.
 2. TARGET FRAMEWORK SPECIFICS:
-   - REACT TARGET: Generate TypeScript JSX (.tsx). Use React functional components with hooks (useState, useEffect, useContext). Return React JSX elements.
+    - REACT TARGET: Generate TypeScript JSX (.tsx). Use React functional components with hooks (useState, useEffect, useContext). Return React JSX elements. Use state syntax exactly as `const [state, setState] = useState(initial)`; never destructure the return value as an object and never mutate state directly.
    - ANGULAR TARGET: Generate Angular TypeScript components (.ts) using Angular 17/18 standalone component syntax (`@Component({ selector: '...', standalone: true, imports: [...], template: `...`, styles: [...] })`). Use Angular template directives (@if / *ngIf, @for / *ngFor, {{ property }}) and Angular HttpClient or Services for API calls.
-3. BEHAVIORAL PARITY: Preserve every JSTL/JSF conditional, branch, loop, scriptlet, DAO call, include, and error binding as equivalent logic. If a construct cannot be mapped from the supplied contract, list it in the unmappable comment; never silently drop it.
+3. BEHAVIORAL PARITY: Preserve every JSTL/JSF conditional, branch, loop, scriptlet/DAO loop, include, and error binding as equivalent logic. If a construct cannot be mapped from the supplied contract, list it in the leading comment; never silently drop it.
 4. FORM FIDELITY: Preserve every form field (name, type, placeholder, required, pattern, maxlength, default values).
-   - MANDATORY: If the backend uses Spring Security form login or @ModelAttribute (default for JSP), you MUST use `application/x-www-form-urlencoded` with `URLSearchParams` for POST requests to `/login` and `/registration`.
-   - Fields for `/login` MUST be exactly "username" and "password".
-   - Fields for `/registration` MUST match the `@ModelAttribute` binding (e.g., "username", "password", "passwordConfirm").
-5. DYNAMIC DATA: Scriptlet-driven data or DAO calls become async requests ONLY when the supplied contract identifies the real endpoint and response shape. Otherwise use a typed prop/callback boundary and list the missing integration. Never hardcode or invent data.
-6. SESSION & AUTH: Map only session/model attributes explicitly present in the source and supplied contract. Do not invent context fields or alternate model names.
-7. SECURITY: If Spring Security CSRF is used:
-   - Generate code to fetch the token from `GET /api/csrf` (returns `{token, headerName, parameterName}`).
-   - Include the token in every POST request using the `parameterName` as a form field or `headerName` as a header.
+    - MANDATORY: If the supplied backend evidence proves form binding or URL-encoded submission, preserve its exact content type, field names, and encoding. Do not assume a login, registration, or other conventional endpoint.
+5. DYNAMIC DATA: Every `${...}` session/model value must resolve through the already-confirmed API call and never be hardcoded. Scriptlet-driven data or DAO calls become async requests only when the already-confirmed contract identifies the endpoint and response shape. Otherwise mark the endpoint `UNCONFIRMED`, use no invented shape, and document the gap.
+6. SESSION & AUTH: Map only session/model attributes explicitly present in the source and supplied contract. Do not invent context fields or alternate model names. If authentication context is required by the supplied source, implement it with real React `createContext`, `Provider`, and `useContext`; never use a plain object pretending to be reactive.
+7. SECURITY: If CSRF or another request-security mechanism is present in the supplied evidence, preserve its verified token delivery endpoint, header/field name, and failure behavior. Never invent a CSRF endpoint or token shape.
 8. VALIDATION: Every field-level validation rule must have a real user-facing message string. Matching password/confirm-password logic must be implemented in the frontend.
-9. REDIRECT & SUCCESS HANDLING:
-   - For Spring Security form login/registration (which returns 302 redirects), use `fetch` / `HttpClient` with appropriate redirect handling.
-   - On success, trigger a refetch of the current user (e.g., `await refetchMe()` calling `GET /api/me`) to update global auth state.
+9. REDIRECT & SUCCESS HANDLING: Preserve only verified redirect, cookie, token, and response behavior from the supplied evidence. Never default to JWT, bearer tokens, user-profile endpoints, or invented refetch behavior.
 10. LAYOUT & STYLE: Reproduce all container/row/col classes and card wrappers. Preserve all CSS classes and inline styles (as `className` / `style` in React, `class` / `style` in Angular).
 11. HTML ATTRIBUTES: Include `autoFocus`, `autoComplete`, and any other attributes present in the JSP/JSF.
-12. LEADING COMMENT: The first comment in every generated file must contain the exact source inventory, every unmappable JSP construct and substitution, every assumed-new endpoint ("none" unless explicitly supplied), and every incomplete-contract assumption.
-13. OUTPUT DISCIPLINE: Generate only files required for this one source page. Do not create generic Header, Button, InputField, CRUD, dashboard, registration, or document-list components unless the supplied JSP literally includes or requires them.
+12. FILE CONSISTENCY: Every input must be controlled with `value={state.field}` and an `onChange` that updates through the matching setter. Every referenced variable, prop, state value, context value, service, and handler must be declared in the file or supplied by a real parent/context in the generated files.
+13. UI SCOPE: Do not invent domain display components or generic CRUD, dashboard, registration, list, header, button, or input components unless the supplied source literally includes or requires them. Generate only files required for this one source page.
+14. OUTPUT FILE CLASSIFICATION: Label only frontend files in the required multi-file format. If the input includes backend source, do not reproduce it, summarize it as a separate code block, or label it as frontend. A browser-side API client must contain fetch/request functions only and must not import `express`, instantiate backend models, or implement server handlers.
+15. LEADING COMMENT: After the verification block and before each generated file, include: (a) every JSP element with no 1:1 target-framework equivalent and its substitution; (b) every endpoint touched here that was not previously confirmed, marked `UNCONFIRMED`; (c) every incomplete-contract assumption. Do not add an endpoint that is not present in the JSP or confirmed contract.
 
 STRICT OUTPUT RULES:
-1. ONLY return the leading comment and code blocks. NO conversational filler outside them.
+1. ONLY return the verification block, leading comments, and code blocks. NO conversational filler outside them.
 2. NEVER generate mock data. Use discovered backend data structures.
 3. FINAL FRONTEND-LANGUAGE CHECK: Before returning each file, scan the complete file for Java markers (`package`, `import jakarta.`, `@Entity`, `@Table`, `public class`, getters, setters, `private Long`, and `private Set`). If any marker is present, discard the file and regenerate it from the JSP UI using TypeScript/JSX only. Never return the invalid file or the Java source.
 4. MULTI-FILE FORMAT: If generating multiple files, format EXACTLY as:
@@ -423,6 +510,8 @@ STRICT OUTPUT RULES:
 ```extension
 ... code ...
 ```
+
+The response must contain frontend files only. Do not return backend files, backend code, Java/entity code, Express handlers, or a backend section.
 """
 
 JSP_SOURCE_EXTRACTION_SYSTEM_PROMPT = """You are a literal JSP source extractor. Analyze ONLY the JSP source supplied by the user. Do not generate React, Angular, Java, API designs, backend assumptions, or corrected source.
@@ -630,6 +719,8 @@ def build_ui_modernization_prompt(
 ) -> str:
     return f"""Convert ONLY this one legacy UI file into a modern {target_framework} component. Do not use another page or a generic template.
 
+STOP BEFORE CODE: The concrete legacy source below is the only page to convert. Reuse only backend contracts explicitly confirmed by the supplied evidence; do not request or reinvent facts already confirmed, and do not assume conventional authentication or domain contracts. If the JSP source is empty, truncated, unavailable, or contains an unresolved `{{{{jsp_source}}}}` placeholder, return exactly `BLOCKED: missing [JSP source / backend contract] — paste both before I generate code.` and nothing else. Otherwise, first output the required verification block from the system prompt. Mark any endpoint not previously confirmed as `UNCONFIRMED` and do not invent its shape.
+
 Source file path: {source_file_path}
 
 Legacy Source Code:
@@ -657,13 +748,15 @@ BACKEND CONTRACT (auth, endpoints, methods, encoding, response/failure behavior,
 ```
 
 MANDATORY SOURCE CHECK:
-1. First write the leading source-inventory comment containing the exact title, every form field name+type, and every ${...}/#{{...}} expression found in the source.
-2. If the source contains unresolved placeholders such as {{jsp_source}}, or if the required page markers are absent, return only the blocked comment and no component.
-3. Trace every output element to the source. Preserve all tags, branches, loops, scriptlets, includes, fields, labels, links, buttons, classes, styles, assets, and error paths.
-4. Use the exact supplied entity field names and backend contract. If the contract is incomplete, do not invent an endpoint or response shape; list the gap in the leading comment and use only a typed boundary justified by the source.
-5. Return compilable TypeScript/JSX with no Java syntax, self-imports, unused imports/state, dead handlers, truncated JSX, or unrelated components. Perform the final frontend-language check from the system prompt before returning the code.
+1. First output the verification block, then the leading source-inventory comment containing the exact title, every form field name+type, and every `${...}`/`#{...}` expression found in the source.
+2. Preserve every JSTL/Spring tag construct, conditional, loop, scriptlet/DAO loop, form binding, error binding, static element, meta/title/include, header/nav/footer, container/class/style, asset, field attribute, link, button, and success/failure path. Map each to the target framework or document its exact substitution.
+3. Every input must be controlled: React uses `const [state, setState] = useState(initial)` with `value={{state.field}}` and setter-based `onChange`; Angular uses `FormGroup`/`FormControl` with matching validators.
+4. Resolve every session/model value through the supplied, verified API contract; never hardcode or invent values. Include confirmed request-security delivery on every state-changing request.
+5. Use only submit-payload types for `password` and `passwordConfirm`; never include them in read/display model types or visible markup.
+6. If an endpoint was not confirmed earlier, mark it `UNCONFIRMED` in the leading comment and do not invent request/response fields. Complete all other confirmed behavior.
+7. Return compilable {target_framework} TypeScript with no Java/backend syntax, self-imports, unused imports/state, dead handlers, duplicate files, local/imported name collisions, truncated tags, or comment-only handlers. Perform every output safety check from the system prompt before returning code.
 
-Return ONLY the leading comment and raw {target_framework} code blocks."""
+Return ONLY the verification block, leading comment, and raw {target_framework} code blocks. Nothing else."""
 
 
 def build_jsp_source_extraction_prompt(*, source_code: str) -> str:

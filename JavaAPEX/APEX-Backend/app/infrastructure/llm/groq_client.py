@@ -10,7 +10,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import threading
 from collections.abc import AsyncIterator
 
 import httpx
@@ -19,18 +18,6 @@ from app.core.config import settings
 from app.core.exceptions import ChatLLMNotConfiguredError, ChatLLMServiceError
 
 logger = logging.getLogger(__name__)
-
-_shared_client = None
-_client_lock = threading.Lock()
-
-def _get_client():
-    global _shared_client
-    if _shared_client is None:
-        with _client_lock:
-            if _shared_client is None:
-                _shared_client = httpx.AsyncClient(timeout=settings.chat_llm_request_timeout_seconds)
-    return _shared_client
-
 
 class GroqPermanentError(ChatLLMServiceError):
     """Groq failed with an error that will NOT be fixed by retrying or falling back to Ollama.
@@ -86,15 +73,17 @@ class GroqClient:
         }
 
         max_retries = 3
-        client = _get_client()
-        for attempt in range(max_retries):
-            try:
-                async with client.stream(
-                    "POST",
-                    f"{self._base_url}/chat/completions",
-                    headers=headers,
-                    json=payload,
-                ) as response:
+        # Keep the transport inside the current event loop. A module-global
+        # AsyncClient can retain a closed loop when callers use asyncio.run().
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            for attempt in range(max_retries):
+                try:
+                    async with client.stream(
+                        "POST",
+                        f"{self._base_url}/chat/completions",
+                        headers=headers,
+                        json=payload,
+                    ) as response:
                         if response.status_code != 200:
                             await response.aread()
                             body_preview = (response.text or "")[:300]
@@ -144,18 +133,18 @@ class GroqClient:
                                 self.last_usage = usage
                             if delta:
                                 yield delta
-                # Successful response, exit retry loop
-                return
-            except (GroqPermanentError, ChatLLMNotConfiguredError):
-                raise  # permanent errors must not be swallowed or retried
-            except httpx.HTTPError as exc:
-                logger.error(
-                    "[GROQ] Connection failed | URL: %s | Model: %s | Cause: %s",
-                    self._base_url,
-                    self._model,
-                    type(exc).__name__,
-                )
-                raise ChatLLMServiceError("Groq API could not be reached.") from exc
+                    # Successful response, exit retry loop
+                    return
+                except (GroqPermanentError, ChatLLMNotConfiguredError):
+                    raise  # permanent errors must not be swallowed or retried
+                except httpx.HTTPError as exc:
+                    logger.error(
+                        "[GROQ] Connection failed | URL: %s | Model: %s | Cause: %s",
+                        self._base_url,
+                        self._model,
+                        type(exc).__name__,
+                    )
+                    raise ChatLLMServiceError("Groq API could not be reached.") from exc
         raise ChatLLMServiceError("Groq API request failed after retries.")
 
 
