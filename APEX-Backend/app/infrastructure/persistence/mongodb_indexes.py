@@ -56,6 +56,13 @@ async def setup_mongodb_indexes(db: AsyncIOMotorDatabase):
         await db.pending_signups.create_index([("email", pymongo.ASCENDING)], unique=True)
         await db.pending_signups.create_index([("expires_at", pymongo.ASCENDING)], expireAfterSeconds=0)
 
+        # 8. Password Reset / Email Verification Tokens (legacy)
+        await db.password_reset_tokens.create_index([("token_hash", pymongo.ASCENDING)], unique=True)
+        await db.password_reset_tokens.create_index([("expires_at", pymongo.ASCENDING)], expireAfterSeconds=0)
+
+        await db.email_verification_tokens.create_index([("token_hash", pymongo.ASCENDING)], unique=True)
+        await db.email_verification_tokens.create_index([("expires_at", pymongo.ASCENDING)], expireAfterSeconds=0)
+
         logger.info("MongoDB indexes verified/created successfully.")
     except Exception as e:
         logger.error("Failed to setup MongoDB indexes: %s", e)

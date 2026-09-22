@@ -108,7 +108,7 @@ export interface RepoAnalysis {
   }[];
   test_file_list?: { path: string; tool: string }[];
   dependencies: DependencyInfo[];
-  api_endpoints?: {
+  api_endpoints: {
     id: string;
     httpMethod: string;
     path: string;

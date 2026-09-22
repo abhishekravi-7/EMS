@@ -129,7 +129,6 @@ async def connect_repository(
         ),
     )
 
-
 def _format_relative_time(dt) -> str:
     """Helper to convert datetime to human readable relative time."""
     if not dt:
