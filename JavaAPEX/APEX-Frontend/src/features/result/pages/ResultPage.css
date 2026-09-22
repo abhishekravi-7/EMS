@@ -1,0 +1,959 @@
+/* ================================================================
+   Result Page (Steps 5–7) – Premium UI Enhancement
+   3D transforms · Rich animations · Symbol highlights
+   ================================================================ */
+
+/* ── Page entry ─────────────────────────────────────────────────── */
+.page-result {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  box-sizing: border-box;
+  animation: resultPageIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes resultPageIn {
+  from { opacity: 0; transform: translateY(26px) scale(0.984); }
+  to   { opacity: 1; transform: translateY(0)    scale(1); }
+}
+
+/* ── Staggered children ─────────────────────────────────────────── */
+.page-result > *:nth-child(1) { animation: resultFadeUp 0.45s 0.05s ease-out both; }
+.page-result > *:nth-child(2) { animation: resultFadeUp 0.45s 0.10s ease-out both; }
+.page-result > *:nth-child(3) { animation: resultFadeUp 0.45s 0.15s ease-out both; }
+.page-result > *:nth-child(4) { animation: resultFadeUp 0.45s 0.20s ease-out both; }
+.page-result > *:nth-child(5) { animation: resultFadeUp 0.45s 0.25s ease-out both; }
+.page-result > *:nth-child(6) { animation: resultFadeUp 0.45s 0.30s ease-out both; }
+
+@keyframes resultFadeUp {
+  from { opacity: 0; transform: translateY(18px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0)    scale(1); }
+}
+
+/* ================================================================
+   STEP 5 – Migration Animation Phase
+   ================================================================ */
+
+.page-result .result-animation-phase {
+  transition: opacity 0.45s ease, transform 0.45s ease;
+}
+
+.page-result .result-animation-phase.is-complete {
+  opacity: 0.65;
+}
+
+/* ── Orb / spinner – multi-ring pulse ───────────────────────────── */
+.page-result .result-progress-orb {
+  animation: resultOrbPulse 2s ease-in-out infinite;
+  position: relative;
+}
+
+@keyframes resultOrbPulse {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0   rgba(37,99,235,0.45),
+                0 0 0 0   rgba(37,99,235,0.18),
+                0 12px 40px rgba(37,99,235,0.2);
+  }
+  50% {
+    transform: scale(1.07);
+    box-shadow: 0 0 0 14px rgba(37,99,235,0),
+                0 0 0 28px rgba(37,99,235,0),
+                0 16px 56px rgba(37,99,235,0.3);
+  }
+}
+
+/* ================================================================
+   STEP 6 – Migration Progress View
+   ================================================================ */
+
+/* Step header slide-in */
+.page-result [style*="stepHeader"] {
+  animation: resultHeaderSlide 0.5s 0.08s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes resultHeaderSlide {
+  from { opacity: 0; transform: translateX(-18px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* Stat boxes – 3D perspective grid */
+.page-result [style*="statsGrid"] {
+  perspective: 900px;
+}
+
+.page-result [style*="statBox"] {
+  animation: statBoxIn 0.48s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  transition: transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1),
+              box-shadow 0.28s ease;
+  transform-style: preserve-3d;
+  position: relative;
+  overflow: hidden;
+}
+
+.page-result [style*="statBox"]:nth-child(1) { animation-delay: 0.08s; }
+.page-result [style*="statBox"]:nth-child(2) { animation-delay: 0.15s; }
+.page-result [style*="statBox"]:nth-child(3) { animation-delay: 0.22s; }
+.page-result [style*="statBox"]:nth-child(4) { animation-delay: 0.29s; }
+
+@keyframes statBoxIn {
+  from { opacity: 0; transform: translateY(20px) rotateX(-12deg) scale(0.9); }
+  to   { opacity: 1; transform: translateY(0)    rotateX(0deg)   scale(1); }
+}
+
+/* Shimmer sweep on statBox hover */
+.page-result [style*="statBox"]::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    120deg,
+    transparent 30%,
+    rgba(255,255,255,0.45) 50%,
+    transparent 70%
+  );
+  transform: translateX(-120%);
+  pointer-events: none;
+}
+
+.page-result [style*="statBox"]:hover::before {
+  transform: translateX(120%);
+  transition: transform 0.55s ease;
+}
+
+.page-result [style*="statBox"]:hover {
+  transform: translateY(-6px) rotateX(5deg) scale(1.04);
+  box-shadow: 0 20px 48px rgba(15, 23, 42, 0.13),
+              0 4px 12px rgba(15, 23, 42, 0.06) !important;
+}
+
+/* Stat values count-up highlight */
+.page-result [style*="statValue"] {
+  animation: statValuePop 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  transition: transform 0.2s ease;
+}
+
+@keyframes statValuePop {
+  from { transform: scale(0.6); opacity: 0; }
+  to   { transform: scale(1);   opacity: 1; }
+}
+
+.page-result [style*="statBox"]:hover [style*="statValue"] {
+  transform: scale(1.08);
+}
+
+/* Progress bar – animated gradient shimmer */
+.page-result .result-progress-bar,
+.page-result [style*="progressFill"],
+.page-result [style*="progressBar"] > div {
+  transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+  background: linear-gradient(90deg, #2563eb 0%, #6366f1 55%, #7c3aed 100%);
+  background-size: 200% 100%;
+  animation: resultProgressGlow 2.2s ease-in-out infinite;
+  border-radius: 99px;
+  position: relative;
+  overflow: hidden;
+}
+
+@keyframes resultProgressGlow {
+  0%, 100% { background-position: 0% 0%; }
+  50%       { background-position: 100% 0%; }
+}
+
+/* "Migration Completed!" success box */
+.page-result [style*="successBox"] {
+  animation: successBoxReveal 0.6s 0.2s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  position: relative;
+  overflow: hidden;
+}
+
+@keyframes successBoxReveal {
+  from { opacity: 0; transform: scale(0.92) translateY(12px); }
+  to   { opacity: 1; transform: scale(1)    translateY(0); }
+}
+
+/* Repo link CTA hover */
+.page-result [style*="repoLink"] {
+  transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1),
+              box-shadow 0.22s ease !important;
+  position: relative;
+  overflow: hidden;
+}
+
+.page-result [style*="repoLink"]:hover {
+  transform: translateY(-3px) scale(1.02) !important;
+  box-shadow: 0 10px 28px rgba(37, 99, 235, 0.28) !important;
+}
+
+/* ================================================================
+   STEP 7 – Final Migration Report
+   ================================================================ */
+
+/* Hero banner ──────────────────────────────────────────────────── */
+.page-result .result-report-hero {
+  border-radius: 24px;
+  overflow: hidden;
+  animation: resultHeroReveal 0.65s 0.1s cubic-bezier(0.16, 1, 0.3, 1) both;
+  position: relative;
+}
+
+@keyframes resultHeroReveal {
+  from { opacity: 0; transform: translateY(18px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0)    scale(1); }
+}
+
+/* Animated gradient shimmer across hero */
+.page-result .result-report-hero::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    115deg,
+    transparent 30%,
+    rgba(255,255,255,0.12) 50%,
+    transparent 70%
+  );
+  animation: heroShimmer 3.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes heroShimmer {
+  0%   { transform: translateX(-120%); }
+  100% { transform: translateX(120%); }
+}
+
+/* ── Success banner – celebration pulse ─────────────────────────── */
+.page-result .result-success-banner {
+  background: linear-gradient(135deg, #dcfce7 0%, #d1fae5 100%);
+  border: 1px solid #86efac;
+  border-radius: 20px;
+  text-align: center;
+  padding: 28px;
+  animation: successGlow 3s ease-in-out infinite,
+             successBannerIn 0.65s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Confetti sparkle orbs */
+.page-result .result-success-banner::before {
+  content: '✦';
+  position: absolute;
+  font-size: 32px;
+  color: rgba(34,197,94,0.18);
+  top: 8px; right: 20px;
+  animation: sparkleFloat 2.4s ease-in-out infinite;
+}
+
+.page-result .result-success-banner::after {
+  content: '★';
+  position: absolute;
+  font-size: 22px;
+  color: rgba(34,197,94,0.14);
+  bottom: 10px; left: 22px;
+  animation: sparkleFloat 2.8s 0.5s ease-in-out infinite;
+}
+
+@keyframes sparkleFloat {
+  0%, 100% { transform: translateY(0) rotate(0deg);   opacity: 0.7; }
+  50%       { transform: translateY(-8px) rotate(20deg); opacity: 1; }
+}
+
+@keyframes successBannerIn {
+  from { transform: scale(0.9) translateY(10px); opacity: 0; }
+  to   { transform: scale(1)   translateY(0);    opacity: 1; }
+}
+
+@keyframes successGlow {
+  0%, 100% { box-shadow: 0 0 0 0   rgba(34,197,94,0.2),  0 8px 24px rgba(34,197,94,0.08); }
+  50%       { box-shadow: 0 0 0 14px rgba(34,197,94,0),  0 16px 40px rgba(34,197,94,0.15); }
+}
+
+/* ── Report sections – 3D card hover ───────────────────────────── */
+.page-result .result-report-section {
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+              box-shadow 0.3s ease;
+  transform-style: preserve-3d;
+  position: relative;
+  overflow: hidden;
+}
+
+.page-result .result-report-section::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    115deg,
+    transparent 30%,
+    rgba(255,255,255,0.3) 50%,
+    transparent 70%
+  );
+  transform: translateX(-120%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.page-result .result-report-section:hover::before {
+  transform: translateX(120%);
+  transition: transform 0.55s ease;
+}
+
+.page-result .result-report-section:hover {
+  transform: translateY(-4px) rotateX(3deg);
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.1) !important;
+}
+
+/* ── Sonar category cards – rich 3D ────────────────────────────── */
+.page-result .result-sonar-card {
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+              box-shadow 0.3s ease;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  transform-style: preserve-3d;
+  animation: sonarCardIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+.page-result .result-sonar-card:nth-child(1) { animation-delay: 0.05s; }
+.page-result .result-sonar-card:nth-child(2) { animation-delay: 0.12s; }
+.page-result .result-sonar-card:nth-child(3) { animation-delay: 0.19s; }
+.page-result .result-sonar-card:nth-child(4) { animation-delay: 0.26s; }
+
+@keyframes sonarCardIn {
+  from { opacity: 0; transform: translateY(18px) rotateX(-10deg) scale(0.92); }
+  to   { opacity: 1; transform: translateY(0)    rotateX(0deg)   scale(1); }
+}
+
+/* Shimmer sweep */
+.page-result .result-sonar-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    120deg,
+    transparent 30%,
+    rgba(255,255,255,0.38) 50%,
+    transparent 70%
+  );
+  transform: translateX(-120%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.page-result .result-sonar-card:hover::before {
+  transform: translateX(120%);
+  transition: transform 0.5s ease;
+}
+
+.page-result .result-sonar-card:hover {
+  transform: translateY(-6px) rotateX(5deg) scale(1.03);
+  box-shadow: 0 22px 52px rgba(15, 23, 42, 0.13),
+              0 4px 12px rgba(15, 23, 42, 0.06) !important;
+}
+
+/* Active selected card */
+.page-result .result-sonar-card.is-active {
+  box-shadow: 0 0 0 2px rgba(37,99,235,0.28),
+              0 10px 24px rgba(37,99,235,0.14) !important;
+  animation: sonarCardIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both,
+             activeCardPulse 2.5s ease-in-out infinite;
+}
+
+@keyframes activeCardPulse {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(37,99,235,0.28), 0 10px 24px rgba(37,99,235,0.14); }
+  50%       { box-shadow: 0 0 0 5px rgba(37,99,235,0.12), 0 14px 32px rgba(37,99,235,0.2); }
+}
+
+/* ── Stat cards – 3D bounce ─────────────────────────────────────── */
+.page-result .result-stat-card {
+  text-align: center;
+  animation: statBoxIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+              box-shadow 0.3s ease;
+  transform-style: preserve-3d;
+  position: relative;
+  overflow: hidden;
+}
+
+.page-result .result-stat-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.35), transparent);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+
+.page-result .result-stat-card:hover::before { opacity: 1; }
+
+.page-result .result-stat-card:hover {
+  transform: translateY(-7px) rotateX(5deg) scale(1.05);
+  box-shadow: 0 20px 46px rgba(15, 23, 42, 0.12) !important;
+}
+
+/* ── Action buttons – shimmer + 3D lift ─────────────────────────── */
+.page-result .result-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.page-result .result-actions button,
+.page-result .result-actions a {
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1),
+              box-shadow 0.28s ease;
+  transform-style: preserve-3d;
+}
+
+.page-result .result-actions button::after,
+.page-result .result-actions a::after {
+  content: '';
+  position: absolute;
+  top: 0; left: -100%;
+  width: 100%; height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.22), transparent);
+  animation: resultBtnShimmer 2.5s ease-in-out infinite;
+}
+
+@keyframes resultBtnShimmer {
+  0%   { left: -100%; }
+  100% { left: 100%; }
+}
+
+.page-result .result-actions button:hover:not(:disabled),
+.page-result .result-actions a:hover {
+  transform: translateY(-4px) rotateX(4deg) scale(1.02);
+  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.18);
+}
+
+/* Primary action CTA – extra glow */
+.page-result [style*="primaryBtn"] {
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1),
+              box-shadow 0.28s ease !important;
+  transform-style: preserve-3d;
+}
+
+.page-result [style*="primaryBtn"]::after {
+  content: '';
+  position: absolute;
+  top: 0; left: -100%;
+  width: 100%; height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.25), transparent);
+  animation: resultBtnShimmer 2.2s ease-in-out infinite;
+}
+
+.page-result [style*="primaryBtn"]:hover {
+  transform: translateY(-5px) rotateX(5deg) scale(1.02) !important;
+  box-shadow: 0 18px 44px rgba(37,99,235,0.32) !important;
+}
+
+/* ── Sonar finding cards ─────────────────────────────────────────── */
+.page-result [style*="sonarFindingCard"] {
+  animation: findingCardIn 0.4s ease both;
+  transition: transform 0.22s ease,
+              box-shadow 0.22s ease;
+}
+
+.page-result [style*="sonarFindingCard"]:hover {
+  transform: translateX(4px);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.08) !important;
+}
+
+@keyframes findingCardIn {
+  from { opacity: 0; transform: translateX(-12px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* Sonar badge pill hover */
+.page-result [style*="sonarFindingBadge"] {
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.page-result [style*="sonarFindingBadge"]:hover {
+  transform: scale(1.08);
+}
+
+/* ── Dependencies section ────────────────────────────────────────── */
+.page-result [style*="dependenc"] tr,
+.page-result tr {
+  transition: background-color 0.18s ease,
+              transform 0.18s ease;
+}
+
+.page-result tr:hover {
+  background-color: #f0f7ff !important;
+  transform: translateX(2px);
+}
+
+/* ── Accordion toggles ───────────────────────────────────────────── */
+.page-result [style*="accordion"],
+.page-result [class*="accordion"] {
+  transition: background-color 0.2s ease,
+              border-color 0.2s ease;
+}
+
+.page-result [style*="accordion"]:hover,
+.page-result [class*="accordion"]:hover {
+  background-color: #f8fafc !important;
+}
+
+/* ── Download/action icon buttons ───────────────────────────────── */
+.page-result button svg,
+.page-result a svg {
+  transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.page-result button:hover svg,
+.page-result a:hover svg {
+  transform: scale(1.2) rotate(6deg);
+}
+
+/* ── Code diff lines ─────────────────────────────────────────────── */
+.page-result [class*="diff-line"]:hover,
+.page-result [class*="code-line"]:hover {
+  background-color: rgba(37,99,235,0.05);
+  transition: background-color 0.15s ease;
+}
+
+/* ── Tab underline expand ────────────────────────────────────────── */
+.page-result [role="tab"] {
+  transition: color 0.2s ease,
+              border-color 0.2s ease,
+              background-color 0.2s ease;
+  position: relative;
+}
+
+.page-result [role="tab"]::after {
+  content: '';
+  position: absolute;
+  bottom: 0; left: 50%; right: 50%;
+  height: 2px;
+  background: #2563eb;
+  transition: left 0.25s ease, right 0.25s ease;
+  border-radius: 2px;
+}
+
+.page-result [role="tab"]:hover::after {
+  left: 0; right: 0;
+}
+
+/* ── Icons in report headings ────────────────────────────────────── */
+.page-result [style*="FaCheckCircle"],
+.page-result [style*="FaCode"],
+.page-result [style*="FaShieldAlt"],
+.page-result [style*="FaTools"],
+.page-result [style*="FaStopwatch"] {
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.page-result div:hover > [style*="FaCheckCircle"],
+.page-result div:hover > [style*="FaCode"],
+.page-result div:hover > [style*="FaShieldAlt"],
+.page-result div:hover > [style*="FaTools"] {
+  transform: rotate(12deg) scale(1.2);
+}
+
+/* ── MigrationTimer numbers ──────────────────────────────────────── */
+.page-result [class*="timer"],
+.page-result [class*="Timer"] {
+  font-variant-numeric: tabular-nums;
+  animation: timerFadeIn 0.4s ease both;
+}
+
+@keyframes timerFadeIn {
+  from { opacity: 0; transform: scale(0.8); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* ── Custom scrollbar ────────────────────────────────────────────── */
+.page-result ::-webkit-scrollbar { width: 5px; height: 5px; }
+.page-result ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 99px; }
+.page-result ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+/* ── General card / panel hover lift ────────────────────────────── */
+.page-result [class*="card"],
+.page-result [class*="panel"] {
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+              box-shadow 0.25s ease;
+}
+
+.page-result [class*="card"]:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.09);
+}
+
+/* ── SecondaryBtn ────────────────────────────────────────────────── */
+.page-result [style*="secondaryBtn"] {
+  transition: transform 0.2s ease !important;
+}
+
+.page-result [style*="secondaryBtn"]:hover {
+  transform: translateX(-4px) !important;
+}
+
+/* Results dashboard refresh: scoped to the report content only. */
+.result-report-view {
+  width: 100% !important;
+  max-width: 1440px;
+  margin: 0 auto !important;
+  padding: 18px 22px 28px !important;
+  box-sizing: border-box;
+  color: #0f172a;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+.result-report-view,
+.result-report-view * {
+  box-sizing: border-box;
+}
+
+.result-report-header {
+  display: flex !important;
+  align-items: center !important;
+  gap: 14px !important;
+  margin: 0 0 14px !important;
+  padding: 0 2px !important;
+}
+
+.result-report-header h2 {
+  margin: 0 !important;
+  color: #0f172a !important;
+  font-size: clamp(20px, 2vw, 28px) !important;
+  letter-spacing: -0.035em;
+}
+
+.result-report-header p {
+  margin: 3px 0 0 !important;
+  color: #64748b !important;
+  font-size: 13px !important;
+}
+
+.result-report-container {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 14px !important;
+}
+
+.result-report-hero {
+  border: 1px solid #dbe7f5 !important;
+  border-radius: 16px !important;
+  background: linear-gradient(135deg, #eff6ff 0%, #ffffff 58%, #f8fafc 100%) !important;
+  box-shadow: 0 8px 24px rgba(30, 64, 175, 0.07) !important;
+  overflow: hidden;
+  animation: none !important;
+}
+
+.result-report-hero > div:first-child {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  gap: 18px !important;
+  align-items: center !important;
+  padding: 18px 20px !important;
+}
+
+.result-report-hero > div:first-child h3 {
+  margin: 0 !important;
+  color: #0f172a !important;
+  font-size: clamp(18px, 2vw, 25px) !important;
+  letter-spacing: -0.03em;
+}
+
+.result-report-hero > div:first-child p {
+  margin: 6px 0 0 !important;
+  color: #475569 !important;
+  font-size: 13px !important;
+}
+
+.result-report-hero > div:last-child {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 10px !important;
+  padding: 0 20px 18px !important;
+}
+
+.result-report-hero > div:last-child > div {
+  min-width: 0;
+  padding: 13px 14px !important;
+  border-radius: 11px !important;
+  box-shadow: none !important;
+}
+
+.result-report-hero > div:last-child > div:hover,
+.result-report-view .result-report-section:hover,
+.result-report-view .result-stat-card:hover {
+  transform: none !important;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.07) !important;
+}
+
+.result-report-hero > div:last-child span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.result-report-section {
+  width: 100% !important;
+  margin: 0 !important;
+  padding: 17px 18px !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 14px !important;
+  background: #ffffff !important;
+  box-shadow: 0 5px 18px rgba(15, 23, 42, 0.045) !important;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease !important;
+  transform: none !important;
+  overflow: hidden;
+}
+
+.result-report-section::before,
+.result-report-section::after,
+.result-report-hero::after {
+  display: none !important;
+}
+
+.result-report-section h3 {
+  margin: 0 0 13px !important;
+  padding: 0 0 10px !important;
+  border-bottom: 1px solid #edf2f7 !important;
+  color: #172554 !important;
+  font-size: 15px !important;
+  line-height: 1.3 !important;
+  letter-spacing: -0.015em;
+}
+
+.result-report-section h3 + div {
+  min-width: 0;
+}
+
+.result-report-view a {
+  overflow-wrap: anywhere;
+}
+
+.result-report-view table {
+  width: 100% !important;
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+}
+
+.result-report-view th {
+  padding: 9px 10px !important;
+  background: #f8fafc !important;
+  color: #64748b !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.result-report-view td {
+  padding: 9px 10px !important;
+  color: #334155 !important;
+  font-size: 12px !important;
+  border-top: 1px solid #eef2f7 !important;
+  vertical-align: middle;
+  overflow-wrap: anywhere;
+}
+
+.result-report-view tr:hover {
+  background: #f8fbff !important;
+  transform: none !important;
+}
+
+.result-report-view button,
+.result-report-view a {
+  transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease !important;
+}
+
+.result-report-view button:hover:not(:disabled),
+.result-report-view a:hover {
+  transform: none !important;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.12) !important;
+}
+
+.result-report-view button::before,
+.result-report-view button::after,
+.result-report-view a::before,
+.result-report-view a::after {
+  animation: none !important;
+}
+
+.result-report-view [style*="reportGrid"] {
+  gap: 10px !important;
+}
+
+.result-report-view [style*="reportGrid"] > div,
+.result-report-view [style*="changesGrid"] > div,
+.result-report-view [style*="jmeterGrid"] > div,
+.result-report-view [style*="sonarqubeGrid"] > div,
+.result-report-view [style*="qualityMetrics"] > div {
+  min-width: 0;
+  border: 1px solid #e5eaf1 !important;
+  border-radius: 11px !important;
+  background: #f8fafc !important;
+  box-shadow: none !important;
+}
+
+.result-report-view [style*="changesGrid"] {
+  gap: 10px !important;
+}
+
+.result-report-view [style*="changeItem"] {
+  padding: 13px !important;
+}
+
+.result-report-view [style*="changeTitle"] {
+  color: #172554 !important;
+  font-weight: 700 !important;
+}
+
+.result-report-view [style*="changeValue"] {
+  color: #64748b !important;
+  font-size: 12px !important;
+}
+
+.result-report-view [style*="dependencyReportItem"] {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1.4fr) minmax(130px, 1fr) auto !important;
+  align-items: center;
+  gap: 12px !important;
+  padding: 10px 12px !important;
+  border-bottom: 1px solid #edf2f7 !important;
+}
+
+.result-report-view [style*="dependencyReportItem"]:last-child {
+  border-bottom: 0 !important;
+}
+
+.result-report-view [style*="dependencyName"] {
+  min-width: 0;
+  color: #1e3a8a !important;
+  overflow-wrap: anywhere;
+}
+
+.result-report-view [style*="dependencyStatus"] {
+  justify-self: end;
+  border-radius: 999px !important;
+  padding: 4px 9px !important;
+  font-size: 10px !important;
+  font-weight: 800 !important;
+}
+
+.result-report-view [style*="reportPagerBar"] {
+  gap: 10px !important;
+  margin-bottom: 10px !important;
+  padding: 9px 11px !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 10px !important;
+  background: #f8fafc !important;
+}
+
+.result-report-view [style*="reportAccordionToggle"] {
+  width: 100% !important;
+  padding: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  text-align: left;
+}
+
+.result-report-view [style*="reportAccordionToggle"]:hover {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.result-report-view [style*="logsContainer"] {
+  border-radius: 10px !important;
+  border: 1px solid #1e293b !important;
+}
+
+.result-report-view [style*="issueItem"],
+.result-report-view [style*="noIssues"] {
+  border-radius: 10px !important;
+}
+
+.result-report-actions {
+  display: flex !important;
+  justify-content: flex-end !important;
+  gap: 9px !important;
+  margin: 0 !important;
+  padding: 2px 0 0 !important;
+}
+
+.result-report-actions button,
+.result-report-actions a {
+  min-height: 38px !important;
+  border-radius: 9px !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+}
+
+@media (max-width: 1000px) {
+  .result-report-view {
+    padding: 14px !important;
+  }
+
+  .result-report-hero > div:first-child {
+    grid-template-columns: 1fr !important;
+  }
+
+  .result-report-hero > div:last-child {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .result-report-view [style*="dependencyReportItem"] {
+    grid-template-columns: 1fr auto !important;
+  }
+
+  .result-report-view [style*="dependencyChange"] {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 680px) {
+  .result-report-view {
+    padding: 10px !important;
+  }
+
+  .result-report-header {
+    align-items: flex-start !important;
+  }
+
+  .result-report-hero > div:last-child {
+    grid-template-columns: 1fr !important;
+  }
+
+  .result-report-section {
+    padding: 14px !important;
+  }
+
+  .result-report-view [style*="changesGrid"],
+  .result-report-view [style*="reportGrid"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  .result-report-view [style*="jmeterGrid"],
+  .result-report-view [style*="qualityMetrics"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .result-report-actions {
+    justify-content: stretch !important;
+    flex-direction: column !important;
+  }
+
+  .result-report-actions button,
+  .result-report-actions a {
+    width: 100% !important;
+  }
+}

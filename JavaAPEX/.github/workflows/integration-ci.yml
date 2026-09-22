@@ -1,0 +1,353 @@
+name: Integration CI
+
+on:
+  push:
+    branches:
+      - dev
+      - "feature/**"
+      - "feat/**"
+      - "fix/**"
+
+  pull_request:
+    branches:
+      - dev
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: integration-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "20"
+  PYTHON_VERSION: "3.11"
+
+jobs:
+
+  frontend:
+    name: Frontend quality gates
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: ./APEX-Frontend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: APEX-Frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: npm dependency audit
+        run: |
+          set -o pipefail
+          npm audit \
+            --audit-level=moderate \
+            --json \
+            2>&1 | tee npm-audit-report.json
+
+      - name: ESLint
+        run: |
+          set -o pipefail
+          npm run lint 2>&1 | tee eslint.log
+
+      - name: TypeScript check
+        run: |
+          set -o pipefail
+          npm run typecheck 2>&1 | tee typecheck.log
+
+      - name: Frontend unit tests
+        run: |
+          set -o pipefail
+
+          if find . -type f \( -name "*.test.*" -o -name "*.spec.*" \) | grep -q .; then
+            npm test -- --run 2>&1 | tee unit-tests.log
+          else
+            echo "No frontend unit tests detected."
+            exit 1
+          fi
+
+      - name: Vite production build
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee vite-build.log
+
+      - name: Upload frontend reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-frontend-reports
+          path: |
+            APEX-Frontend/npm-audit-report.json
+            APEX-Frontend/eslint.log
+            APEX-Frontend/typecheck.log
+            APEX-Frontend/unit-tests.log
+            APEX-Frontend/vite-build.log
+          if-no-files-found: ignore
+          retention-days: 30
+
+
+  backend:
+    name: Backend quality gates
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: ./APEX-Backend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: APEX-Backend/requirements.txt
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio pytest-cov respx ruff bandit pip-audit
+
+      - name: pip dependency audit
+        run: |
+          pip-audit \
+            -r requirements.txt \
+            -f json \
+            -o pip-audit-report.json
+
+      - name: Ruff lint
+        run: |
+          set -o pipefail
+          ruff check . 2>&1 | tee ruff.log
+
+      - name: Pytest with coverage
+        run: |
+          set -o pipefail
+
+          pytest -q \
+            --cov=app \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml \
+            2>&1 | tee pytest.log
+
+      - name: Bandit security scan
+        run: |
+          set -o pipefail
+          bandit \
+            -r app \
+            -f txt \
+            -o bandit.log
+
+      - name: Upload backend reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-backend-reports
+          path: |
+            APEX-Backend/pip-audit-report.json
+            APEX-Backend/ruff.log
+            APEX-Backend/pytest.log
+            APEX-Backend/bandit.log
+            APEX-Backend/coverage.xml
+          if-no-files-found: ignore
+          retention-days: 30
+
+
+  security:
+    name: Security scans
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Gitleaks secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Trivy filesystem scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: table
+          output: trivy-results.txt
+          severity: MEDIUM,HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+          version: v0.70.0
+          cache: true
+
+      - name: Upload security reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-security-reports
+          path: trivy-results.txt
+          if-no-files-found: ignore
+          retention-days: 30
+
+
+  integration-validation:
+    name: Integration validation
+    runs-on: ubuntu-latest
+
+    needs:
+      - frontend
+      - backend
+      - security
+
+    if: always()
+
+    steps:
+      - name: Validate integration gates
+        shell: bash
+        run: |
+          echo "Frontend : ${{ needs.frontend.result }}"
+          echo "Backend  : ${{ needs.backend.result }}"
+          echo "Security : ${{ needs.security.result }}"
+
+          if [[ "${{ needs.frontend.result }}" != "success" ||
+                "${{ needs.backend.result }}" != "success" ||
+                "${{ needs.security.result }}" != "success" ]]; then
+
+            echo "Integration validation FAILED."
+            exit 1
+          fi
+
+          echo "Integration validation PASSED."
+
+
+  notify:
+    name: Teams notification
+    runs-on: ubuntu-latest
+
+    if: always()
+
+    needs:
+      - frontend
+      - backend
+      - security
+      - integration-validation
+
+    env:
+      TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+
+    steps:
+      - name: Send Teams notification
+        if: ${{ env.TEAMS_WEBHOOK_URL != '' }}
+
+        env:
+          FRONTEND_RESULT: ${{ needs.frontend.result }}
+          BACKEND_RESULT: ${{ needs.backend.result }}
+          SECURITY_RESULT: ${{ needs.security.result }}
+          VALIDATION_RESULT: ${{ needs.integration-validation.result }}
+
+        shell: bash
+
+        run: |
+          if [[ "$VALIDATION_RESULT" == "success" ]]; then
+            STATUS="Passed"
+            COLOR="Good"
+          else
+            STATUS="Failed"
+            COLOR="Attention"
+          fi
+
+          payload=$(jq -n \
+            --arg status "$STATUS" \
+            --arg color "$COLOR" \
+            --arg repo "${{ github.repository }}" \
+            --arg branch "${{ github.ref_name }}" \
+            --arg event "${{ github.event_name }}" \
+            --arg frontend "$FRONTEND_RESULT" \
+            --arg backend "$BACKEND_RESULT" \
+            --arg security "$SECURITY_RESULT" \
+            --arg validation "$VALIDATION_RESULT" \
+            --arg run_url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            '{
+              type: "message",
+              attachments: [{
+                contentType: "application/vnd.microsoft.card.adaptive",
+                content: {
+                  "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                  type: "AdaptiveCard",
+                  version: "1.5",
+                  body: [
+                    {
+                      type: "TextBlock",
+                      text: ("JavaAPEX Integration CI " + $status),
+                      weight: "Bolder",
+                      size: "Medium",
+                      color: $color
+                    },
+                    {
+                      type: "FactSet",
+                      facts: [
+                        {
+                          title: "Repository",
+                          value: $repo
+                        },
+                        {
+                          title: "Branch",
+                          value: $branch
+                        },
+                        {
+                          title: "Event",
+                          value: $event
+                        },
+                        {
+                          title: "Frontend",
+                          value: $frontend
+                        },
+                        {
+                          title: "Backend",
+                          value: $backend
+                        },
+                        {
+                          title: "Security",
+                          value: $security
+                        },
+                        {
+                          title: "Integration Validation",
+                          value: $validation
+                        },
+                        {
+                          title: "Run URL",
+                          value: $run_url
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }]
+            }')
+
+          curl \
+            --fail-with-body \
+            --header "Content-Type: application/json" \
+            --data "$payload" \
+            "$TEAMS_WEBHOOK_URL"

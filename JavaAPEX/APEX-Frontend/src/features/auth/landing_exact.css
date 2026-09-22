@@ -1,0 +1,780 @@
+/* ==========================================================================
+   Java APEX - High-End Design System & Refined Auth Layout
+   Matches user requirements:
+   - Reduced gap between logo and "Accelerate your modernization journey" (moved content to the top)
+   - Increased login card size (both height and width)
+   - Human avatar icon in pure WHITE with glowing blue animated outline
+   - 3D rounded isometric hero diagram with interactive hover and floating physics
+   ========================================================================== */
+
+/* ── Global Reset & Page Canvas ── */
+.apex-exact-viewport {
+  width: 100vw;
+  min-height: 100vh;
+  position: relative;
+  box-sizing: border-box;
+  margin: 0;
+  /* 28px top padding, 24px left padding (moved 1/2 inch to the left) */
+  padding: 28px 180px 28px 24px;
+  /*
+   * Base canvas: very clean pale lavender-blue matching the reference image.
+   * The dominant decorative color comes from the SVG wave overlays, not this base.
+   * This is nearly white with just a hint of cool lavender.
+   */
+  background: linear-gradient(145deg,
+    #F4F7FD 0%,
+    #F6F8FE 25%,
+    #F2F4FC 55%,
+    #EFF1FA 80%,
+    #EEF0FB 100%
+  );
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color: #0F172A;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+.apex-exact-viewport * {
+  box-sizing: border-box;
+}
+
+/* ── Full-Page Ambient Background Layer (Matching Reference Image) ── */
+.apex-full-bg-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 1;
+  overflow: hidden;
+}
+
+.apex-full-bg-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* ── Main Constraint Wrapper ── */
+.apex-exact-wrapper {
+  width: 100%;
+  max-width: 1560px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  position: relative;
+  z-index: 10;
+}
+
+/* ── Standalone Logo at Top-Left (Equal whitespace above and below) ── */
+.apex-top-logo-only-bar {
+  display: flex;
+  align-items: center;
+  margin-top: 0;
+  /* Equal 24px whitespace above (from viewport padding) and 24px below (to headline) */
+  margin-bottom: 24px;
+  cursor: pointer;
+  width: fit-content;
+  user-select: none;
+  transition: transform 0.2s ease;
+}
+
+.apex-top-logo-only-bar:hover {
+  transform: scale(1.02);
+}
+
+/* ── Two-Column Hero Grid (52% Left, 48% Right, aligned to flex-start) ── */
+.apex-exact-grid {
+  flex: 1;
+  width: 100%;
+  display: grid;
+  grid-template-columns: 52% 48%;
+  gap: 36px;
+  align-items: stretch;
+}
+
+/* ── Left Column (Marketing Content Moved to Top) ── */
+.apex-exact-left-col {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+}
+
+.apex-exact-left-top {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  flex-grow: 1;
+}
+
+/* Headline */
+.apex-exact-headline {
+  margin-bottom: 4px;
+}
+
+.apex-exact-headline-line1 {
+  font-size: 50px;
+  font-weight: 900;
+  color: #0F172A;
+  letter-spacing: -0.03em;
+  line-height: 1.08;
+  margin: 0;
+}
+
+.apex-exact-headline-line2 {
+  font-size: 50px;
+  font-weight: 900;
+  letter-spacing: -0.03em;
+  line-height: 1.08;
+  margin: 0;
+  background: linear-gradient(90deg, #3730A3 0%, #4F46E5 45%, #7C3AED 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Subtext */
+.apex-exact-subtext {
+  font-size: 15px;
+  color: #64748B;
+  line-height: 1.5;
+  margin: 6px 0 16px 0;
+  font-weight: 400;
+}
+
+/* ── 3 Features Row (Closer compact spacing) ── */
+.apex-exact-features-row {
+  display: flex;
+  flex-direction: row;
+  gap: 26px;
+  align-items: flex-start;
+  margin-bottom: 10px;
+  width: 100%;
+}
+
+.apex-exact-feature-item {
+  display: flex;
+  flex-direction: column;
+  width: 150px;
+}
+
+/* 3D Animated Feature Icon Box */
+.apex-exact-feature-icon-box {
+  width: 42px;
+  height: 42px;
+  border-radius: 13px;
+  background: linear-gradient(145deg, #FFFFFF 0%, #EEF2FF 100%);
+  border: 1px solid rgba(199, 210, 254, 0.95);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #4F46E5;
+  font-size: 16px;
+  margin-bottom: 8px;
+  box-shadow: 0 6px 14px -2px rgba(79, 70, 229, 0.15), inset 0 1px 2px #FFFFFF, 0 1px 3px rgba(0, 0, 0, 0.03);
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  cursor: default;
+}
+
+.apex-exact-features-row .apex-exact-feature-item:nth-child(1) .apex-exact-feature-icon-box {
+  animation: featureIconFloat1 3.6s ease-in-out infinite alternate;
+}
+
+.apex-exact-features-row .apex-exact-feature-item:nth-child(2) .apex-exact-feature-icon-box {
+  animation: featureIconFloat2 4s ease-in-out infinite alternate 0.4s;
+}
+
+.apex-exact-features-row .apex-exact-feature-item:nth-child(3) .apex-exact-feature-icon-box {
+  animation: featureIconFloat3 3.8s ease-in-out infinite alternate 0.8s;
+}
+
+@keyframes featureIconFloat1 {
+  0% { transform: translateY(0px); }
+  100% { transform: translateY(-5px); }
+}
+
+@keyframes featureIconFloat2 {
+  0% { transform: translateY(0px); }
+  100% { transform: translateY(-6px); }
+}
+
+@keyframes featureIconFloat3 {
+  0% { transform: translateY(0px); }
+  100% { transform: translateY(-5px); }
+}
+
+.apex-exact-feature-icon-box:hover {
+  transform: translateY(-6px) scale(1.1) !important;
+  box-shadow: 0 12px 22px -2px rgba(79, 70, 229, 0.3), inset 0 1px 2px #FFFFFF !important;
+  border-color: #6366F1 !important;
+  color: #4338CA !important;
+}
+
+.apex-exact-feature-title {
+  font-size: 14px;
+  font-weight: 800;
+  color: #0F172A;
+  margin-bottom: 2px;
+}
+
+.apex-exact-feature-caption {
+  font-size: 11.5px;
+  color: #64748B;
+  line-height: 1.4;
+}
+
+/* ── 3D Isometric Rounded Diagram Area ── */
+.apex-exact-visual-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+  margin-top: 2px;
+  flex-grow: 1;
+}
+
+.apex-exact-diagram-box {
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.apex-isometric-container {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  perspective: 1200px;
+}
+
+.apex-isometric-svg {
+  width: 100%;
+  height: auto;
+  min-height: 340px;
+  overflow: visible;
+  display: block;
+}
+
+/* Central LLM Levitation Animation */
+.apex-3d-llm-platform {
+  animation: floatLlm 4.2s cubic-bezier(0.45, 0, 0.55, 1) infinite alternate;
+  transform-origin: 270px 230px;
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.apex-3d-llm-platform:hover {
+  transform: scale(1.10) translateY(-8px) !important;
+  cursor: pointer;
+}
+
+@keyframes floatLlm {
+  0%   { transform: translateY(0px) scale(1); }
+  50%  { transform: translateY(-5px) scale(1.02); }
+  100% { transform: translateY(-10px) scale(1); }
+}
+
+/* Laser Conduit Animated Energy Dash */
+.apex-isometric-beam {
+  animation: beamDash 1.6s linear infinite;
+}
+
+@keyframes beamDash {
+  0% { stroke-dashoffset: 0; }
+  100% { stroke-dashoffset: -20; }
+}
+
+/* 3D Rounded Nodes Floating Animations */
+.apex-node-discovery {
+  animation: floatNode1 3.8s ease-in-out infinite alternate;
+  transform-origin: 270px 78px;
+}
+
+.apex-node-strategy {
+  animation: floatNode2 4.3s ease-in-out infinite alternate;
+  animation-delay: 0.6s;
+  transform-origin: 415px 131px;
+}
+
+.apex-node-modernization {
+  animation: floatNode3 4.0s ease-in-out infinite alternate;
+  animation-delay: 1.1s;
+  transform-origin: 407px 262px;
+}
+
+.apex-node-summary {
+  animation: floatNode4 4.5s ease-in-out infinite alternate;
+  animation-delay: 1.6s;
+  transform-origin: 135px 260px;
+}
+
+.apex-node-connect {
+  animation: floatNode5 3.7s ease-in-out infinite alternate;
+  animation-delay: 0.9s;
+  transform-origin: 127px 130px;
+}
+
+@keyframes floatNode1 {
+  0%   { transform: translateY(0px); }
+  100% { transform: translateY(-10px); }
+}
+@keyframes floatNode2 {
+  0%   { transform: translateY(0px); }
+  100% { transform: translateY(-9px); }
+}
+@keyframes floatNode3 {
+  0%   { transform: translateY(0px); }
+  100% { transform: translateY(-8px); }
+}
+@keyframes floatNode4 {
+  0%   { transform: translateY(0px); }
+  100% { transform: translateY(-10px); }
+}
+@keyframes floatNode5 {
+  0%   { transform: translateY(0px); }
+  100% { transform: translateY(-9px); }
+}
+
+/* Interactive Hover on 3D Rounded Nodes (Expands & glows!) */
+.apex-3d-node {
+  cursor: pointer;
+  transition: transform 0.32s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.32s ease;
+}
+
+.apex-node-discovery:hover {
+  transform: scale(1.20) translateY(-10px) !important;
+  filter: drop-shadow(0 0 16px rgba(56, 189, 248, 0.7)) drop-shadow(0 14px 24px rgba(2, 132, 199, 0.45)) !important;
+}
+
+.apex-node-strategy:hover {
+  transform: scale(1.20) translateY(-10px) !important;
+  filter: drop-shadow(0 0 16px rgba(244, 114, 182, 0.7)) drop-shadow(0 14px 24px rgba(190, 24, 93, 0.45)) !important;
+}
+
+.apex-node-modernization:hover {
+  transform: scale(1.20) translateY(-10px) !important;
+  filter: drop-shadow(0 0 16px rgba(251, 146, 60, 0.7)) drop-shadow(0 14px 24px rgba(194, 65, 12, 0.45)) !important;
+}
+
+.apex-node-summary:hover {
+  transform: scale(1.20) translateY(-10px) !important;
+  filter: drop-shadow(0 0 16px rgba(52, 211, 153, 0.7)) drop-shadow(0 14px 24px rgba(4, 120, 87, 0.45)) !important;
+}
+
+.apex-node-connect:hover {
+  transform: scale(1.20) translateY(-10px) !important;
+  filter: drop-shadow(0 0 16px rgba(129, 140, 248, 0.7)) drop-shadow(0 14px 24px rgba(67, 56, 202, 0.45)) !important;
+}
+
+/* ── Right Column: Moved half inch (48px) to bottom ── */
+.apex-exact-right-col {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* Shifted half inch (48px) down from -12px to 36px */
+  margin-top: 69px;
+}
+
+/* Card Container with Increased Width (Left & Right) and Height (1 inch higher on top) */
+.apex-exact-login-card {
+  width: 100%;
+  /* Increased max-width from 460px to 520px */
+  max-width: 520px;
+  background: #FFFFFF;
+  border-radius: 30px;
+  box-shadow: 0 20px 50px rgba(79, 70, 229, 0.08), 0 2px 10px rgba(0, 0, 0, 0.02);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  position: relative;
+  overflow: hidden;
+  /* Increased 1 inch on the top: top padding 58px */
+  padding: 58px 44px 38px 44px;
+  display: flex;
+  flex-direction: column;
+  transition: all 0.35s ease;
+}
+
+/* Delicate subtle blue glow when hovering the card */
+.apex-exact-login-card:hover {
+  box-shadow: 0 24px 60px rgba(79, 70, 229, 0.10), 0 0 35px rgba(96, 165, 250, 0.22), 0 0 65px rgba(147, 197, 253, 0.14);
+  border-color: rgba(147, 197, 253, 0.85);
+  transform: translateY(-2px);
+}
+
+.apex-exact-card-inner {
+  position: relative;
+  z-index: 5;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Human Avatar at Top (Pure WHITE human icon with glowing blue outline) ── */
+.apex-card-avatar-wrapper {
+  position: relative;
+  width: 78px;
+  height: 78px;
+  margin: 0 auto 16px auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+/* Ambient soft blue glow halo behind avatar */
+.apex-avatar-glow-halo {
+  position: absolute;
+  inset: -14px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(96, 165, 250, 0.35) 0%, rgba(99, 102, 241, 0.14) 50%, transparent 70%);
+  filter: blur(14px);
+  pointer-events: none;
+  animation: avatarHaloPulse 3.5s ease-in-out infinite alternate;
+  transition: all 0.35s ease;
+}
+
+@keyframes avatarHaloPulse {
+  0% { transform: scale(0.92); opacity: 0.75; }
+  100% { transform: scale(1.12); opacity: 0.95; }
+}
+
+/* Avatar Circle: Royal blue background with white human silhouette inside */
+.apex-card-avatar-circle {
+  width: 66px;
+  height: 66px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #4338CA 0%, #4F46E5 100%);
+  border: 2px solid rgba(147, 197, 253, 0.85);
+  box-shadow: 0 8px 20px rgba(79, 70, 229, 0.22);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  transition: all 0.3s ease;
+}
+
+/* Subtle Animated Blue Outline Ring */
+.apex-avatar-pulse-ring {
+  position: absolute;
+  inset: -5px;
+  border-radius: 50%;
+  border: 2px solid rgba(96, 165, 250, 0.55);
+  animation: outlineRingPulse 2.6s cubic-bezier(0.25, 1, 0.5, 1) infinite;
+  pointer-events: none;
+  transition: border-color 0.3s ease;
+}
+
+@keyframes outlineRingPulse {
+  0% { transform: scale(0.95); opacity: 0.85; }
+  50% { transform: scale(1.07); opacity: 0.3; }
+  100% { transform: scale(0.95); opacity: 0.85; }
+}
+
+/* Pure WHITE Human Silhouette Icon */
+.apex-card-avatar-icon {
+  color: #FFFFFF !important;
+  font-size: 24px;
+}
+
+/* Delicate blue light glow on avatar hover */
+.apex-card-avatar-wrapper:hover .apex-card-avatar-circle {
+  transform: scale(1.05);
+  border-color: #93C5FD;
+  box-shadow: 0 0 22px rgba(59, 130, 246, 0.5), 0 0 40px rgba(96, 165, 250, 0.3);
+}
+
+.apex-card-avatar-wrapper:hover .apex-avatar-pulse-ring {
+  border-color: rgba(96, 165, 250, 0.85);
+}
+
+.apex-card-avatar-wrapper:hover .apex-avatar-glow-halo {
+  opacity: 1;
+  transform: scale(1.18);
+  background: radial-gradient(circle, rgba(59, 130, 246, 0.5) 0%, rgba(96, 165, 250, 0.25) 55%, transparent 75%);
+}
+
+/* Card Header */
+.apex-exact-card-header {
+  text-align: center;
+  margin-bottom: 22px;
+}
+
+.apex-exact-card-title {
+  font-size: 27px;
+  font-weight: 800;
+  color: #0F172A;
+  letter-spacing: -0.02em;
+  margin: 0 0 6px 0;
+}
+
+.apex-exact-card-subtitle {
+  font-size: 13.5px;
+  color: #64748B;
+  line-height: 1.45;
+  margin: 0;
+}
+
+/* Form Styles (Comfortable, spacious layout) */
+.apex-exact-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+}
+
+.apex-exact-field {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.apex-exact-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1E293B;
+  margin-bottom: 6px;
+}
+
+.apex-exact-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.apex-exact-input-icon {
+  position: absolute;
+  left: 15px;
+  color: #94A3B8;
+  font-size: 14px;
+  pointer-events: none;
+}
+
+.apex-exact-input {
+  width: 100%;
+  height: 46px;
+  border-radius: 11px;
+  border: 1px solid #CBD5E1 !important;
+  background: #FFFFFF !important;
+  padding: 0 15px 0 42px !important;
+  font-size: 14px !important;
+  color: #0F172A !important;
+  outline: none !important;
+  transition: all 0.15s ease;
+}
+
+.apex-exact-input:focus {
+  border-color: #4F46E5 !important;
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12) !important;
+}
+
+.apex-exact-input-pass {
+  padding-right: 42px !important;
+}
+
+.apex-exact-eye-btn {
+  position: absolute;
+  right: 12px;
+  background: none;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  color: #94A3B8;
+  display: flex;
+  align-items: center;
+  transition: color 0.15s;
+}
+
+.apex-exact-eye-btn:hover {
+  color: #475569;
+}
+
+/* Remember Me & Forgot Password Row */
+.apex-remember-forgot-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 2px 0 4px 0;
+  font-size: 13px;
+}
+
+.apex-remember-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #475569;
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.apex-remember-checkbox {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1px solid #CBD5E1;
+  accent-color: #4F46E5;
+  cursor: pointer;
+}
+
+.apex-exact-forgot-link {
+  font-size: 13px;
+  font-weight: 700;
+  color: #4F46E5;
+  text-decoration: none;
+  transition: color 0.15s;
+}
+
+.apex-exact-forgot-link:hover {
+  color: #3730A3;
+  text-decoration: underline;
+}
+
+/* Primary Login Button */
+.apex-login-primary-btn {
+  width: 100%;
+  height: 46px;
+  border-radius: 11px;
+  background: #4F46E5;
+  border: none;
+  color: #FFFFFF;
+  font-size: 15px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(79, 70, 229, 0.3);
+  transition: all 0.15s ease;
+  margin-top: 4px;
+}
+
+.apex-login-primary-btn:hover {
+  background: #4338CA;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(79, 70, 229, 0.38);
+}
+
+.apex-login-primary-btn:active {
+  transform: translateY(0);
+}
+
+.apex-login-primary-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Divider (or) */
+.apex-exact-divider-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0;
+  width: 100%;
+}
+
+.apex-exact-divider-line {
+  flex: 1;
+  height: 1px;
+  background: #E2E8F0;
+}
+
+.apex-exact-divider-text {
+  font-size: 12.5px;
+  color: #94A3B8;
+  font-weight: 400;
+}
+
+/* Social Buttons */
+.apex-exact-social-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.apex-exact-social-btn {
+  width: 100%;
+  height: 44px;
+  border-radius: 11px;
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  color: #1E293B;
+  font-size: 13.5px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+  transition: all 0.15s ease;
+}
+
+.apex-exact-social-btn:hover {
+  background: #F8FAFC;
+  border-color: #CBD5E1;
+}
+
+/* Card Footer */
+.apex-exact-card-footer {
+  text-align: center;
+  font-size: 13px;
+  color: #64748B;
+  margin-top: 18px;
+}
+
+.apex-exact-signup-link {
+  color: #4F46E5;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.apex-exact-signup-link:hover {
+  text-decoration: underline;
+}
+
+/* ── Responsive Viewport Adjustments ── */
+@media (max-width: 1180px) {
+  .apex-exact-viewport {
+    padding: 20px 24px;
+  }
+
+  .apex-exact-grid {
+    grid-template-columns: 1fr;
+    gap: 36px;
+  }
+
+  .apex-exact-right-col {
+    max-width: 520px;
+    margin: 0 auto;
+    width: 100%;
+  }
+
+  .apex-exact-features-row {
+    flex-wrap: wrap;
+    gap: 20px;
+  }
+
+  .apex-exact-visual-row {
+    margin-top: 16px;
+  }
+}
+
+/* Hide native password reveal */
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear {
+  display: none !important;
+}
+input[type="password"]::-webkit-credentials-auto-fill-button {
+  visibility: hidden;
+  display: none !important;
+}

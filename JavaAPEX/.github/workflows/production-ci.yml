@@ -1,0 +1,677 @@
+name: Production CI/CD
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+  push:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+  packages: write
+
+concurrency:
+  group: production-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: "20"
+  PYTHON_VERSION: "3.11"
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/javaapex
+
+jobs:
+
+  frontend:
+    name: Frontend production gates
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: ./APEX-Frontend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: APEX-Frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: npm dependency audit
+        run: |
+          set -o pipefail
+
+          npm audit \
+            --audit-level=moderate \
+            --json \
+            2>&1 | tee npm-audit-report.json
+
+      - name: ESLint
+        run: |
+          set -o pipefail
+
+          npm run lint \
+            2>&1 | tee eslint.log
+
+      - name: TypeScript check
+        run: |
+          set -o pipefail
+
+          npm run typecheck \
+            2>&1 | tee typecheck.log
+
+      - name: Frontend unit tests
+        run: |
+          set -o pipefail
+
+          if find . -type f \( -name "*.test.*" -o -name "*.spec.*" \) | grep -q .; then
+            npm test -- --run 2>&1 | tee unit-tests.log
+          else
+            echo "No frontend unit tests detected."
+            exit 1
+          fi
+
+      - name: Vite production build
+        run: |
+          set -o pipefail
+
+          npm run build \
+            2>&1 | tee vite-build.log
+
+      - name: Upload frontend reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-production-reports-${{ github.run_id }}
+          path: |
+            APEX-Frontend/npm-audit-report.json
+            APEX-Frontend/eslint.log
+            APEX-Frontend/typecheck.log
+            APEX-Frontend/unit-tests.log
+            APEX-Frontend/vite-build.log
+          if-no-files-found: ignore
+          retention-days: 30
+
+
+  backend:
+    name: Backend production gates
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: ./APEX-Backend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: APEX-Backend/requirements.txt
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+
+          pip install -r requirements.txt
+
+          pip install \
+            pytest \
+            pytest-asyncio \
+            pytest-cov \
+            respx \
+            ruff \
+            bandit \
+            pip-audit
+
+      - name: pip dependency audit
+        run: |
+          pip-audit \
+            -r requirements.txt \
+            -f json \
+            -o pip-audit-report.json
+
+      - name: Ruff lint
+        run: |
+          set -o pipefail
+
+          ruff check . \
+            2>&1 | tee ruff.log
+
+      - name: Pytest with coverage
+        run: |
+          set -o pipefail
+
+          pytest -q \
+            --cov=app \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml \
+            2>&1 | tee pytest.log
+
+      - name: Bandit security scan
+        run: |
+          set -o pipefail
+
+          bandit \
+            -r app \
+            -f txt \
+            -o bandit.log
+
+      - name: Upload backend reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-production-reports-${{ github.run_id }}
+          path: |
+            APEX-Backend/pip-audit-report.json
+            APEX-Backend/ruff.log
+            APEX-Backend/pytest.log
+            APEX-Backend/bandit.log
+            APEX-Backend/coverage.xml
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Upload backend coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage-${{ github.run_id }}
+          path: APEX-Backend/coverage.xml
+          if-no-files-found: ignore
+          retention-days: 30
+
+
+  security:
+    name: Production security scans
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Gitleaks secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Trivy filesystem scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: table
+          output: trivy-results.txt
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+          version: v0.70.0
+          cache: true
+
+      - name: Upload security reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-production-reports-${{ github.run_id }}
+          path: trivy-results.txt
+          if-no-files-found: ignore
+          retention-days: 30
+
+
+  semgrep:
+    name: Semgrep SAST
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Semgrep
+        run: |
+          python -m pip install --upgrade pip
+          pip install semgrep
+
+      - name: Run Semgrep SAST
+        run: |
+          semgrep scan \
+            --config auto \
+            APEX-Backend/app \
+            APEX-Frontend/src \
+            --error \
+            --json \
+            --output semgrep-report.json
+
+      - name: Generate readable Semgrep report
+        if: always()
+        shell: bash
+        run: |
+          python <<'PYTHON'
+          import json
+          from pathlib import Path
+          from collections import Counter
+
+          source = Path("semgrep-report.json")
+          target = Path("semgrep-report.txt")
+
+          if not source.exists():
+              target.write_text(
+                  "Semgrep report was not generated.\n",
+                  encoding="utf-8"
+              )
+              raise SystemExit(0)
+
+          data = json.loads(
+              source.read_text(encoding="utf-8")
+          )
+
+          results = data.get("results", [])
+          errors = data.get("errors", [])
+
+          counts = Counter(
+              item.get("extra", {})
+                  .get("severity", "UNKNOWN")
+                  .upper()
+              for item in results
+          )
+
+          lines = [
+              "SEMGREP SAST REPORT",
+              "",
+              f"Total findings: {len(results)}",
+              f"ERROR: {counts.get('ERROR', 0)}",
+              f"WARNING: {counts.get('WARNING', 0)}",
+              f"INFO: {counts.get('INFO', 0)}",
+              f"Parser warnings: {len(errors)}",
+              "",
+          ]
+
+          for index, result in enumerate(results, start=1):
+
+              extra = result.get("extra", {})
+              metadata = extra.get("metadata", {})
+
+              lines.extend([
+                  f"Finding #{index}",
+                  f"Severity: {extra.get('severity', 'UNKNOWN')}",
+                  f"File: {result.get('path', 'Unknown')}",
+                  f"Line: {result.get('start', {}).get('line', '?')}",
+                  f"Rule: {result.get('check_id', 'Unknown')}",
+                  f"CWE: {metadata.get('cwe', '')}",
+                  f"OWASP: {metadata.get('owasp', '')}",
+                  f"Description: {extra.get('message', '')}",
+                  "",
+              ])
+
+          target.write_text(
+              "\n".join(lines),
+              encoding="utf-8"
+          )
+
+          print("\n".join(lines))
+          PYTHON
+
+      - name: Upload Semgrep reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: semgrep-sast-reports-${{ github.run_id }}
+          path: |
+            semgrep-report.json
+            semgrep-report.txt
+          if-no-files-found: ignore
+          retention-days: 30
+
+
+  sonar:
+    name: SonarCloud Quality Gate
+    runs-on: ubuntu-latest
+
+    needs:
+      - backend
+
+    if: always()
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download backend coverage
+        if: ${{ needs.backend.result == 'success' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-coverage-${{ github.run_id }}
+          path: APEX-Backend
+
+      - name: SonarCloud analysis
+        uses: SonarSource/sonarqube-scan-action@v6
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectBaseDir: .
+          args: >
+            -Dsonar.qualitygate.wait=true
+            -Dsonar.qualitygate.timeout=300
+
+
+  production-validation:
+    name: Production validation
+    runs-on: ubuntu-latest
+
+    needs:
+      - frontend
+      - backend
+      - security
+      - semgrep
+      - sonar
+
+    if: always()
+
+    steps:
+      - name: Validate required production gates
+        shell: bash
+        run: |
+          echo "Frontend : ${{ needs.frontend.result }}"
+          echo "Backend  : ${{ needs.backend.result }}"
+          echo "Security : ${{ needs.security.result }}"
+          echo "Semgrep  : ${{ needs.semgrep.result }}"
+          echo "Sonar    : ${{ needs.sonar.result }}"
+
+          if [[ "${{ needs.frontend.result }}" != "success" ||
+                "${{ needs.backend.result }}" != "success" ||
+                "${{ needs.security.result }}" != "success" ||
+                "${{ needs.semgrep.result }}" != "success" ||
+                "${{ needs.sonar.result }}" != "success" ]]; then
+
+            echo ""
+            echo "Production validation FAILED."
+            echo "Docker image will NOT be built."
+            echo "DigitalOcean deployment will NOT run."
+
+            exit 1
+          fi
+
+          echo ""
+          echo "Production validation PASSED."
+
+
+  docker-image:
+    name: Build and push production image
+    runs-on: ubuntu-latest
+
+    needs:
+      - production-validation
+
+    if: >-
+      ${{
+        github.event_name == 'push' &&
+        github.ref == 'refs/heads/main' &&
+        needs.production-validation.result == 'success'
+      }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=sha
+            type=raw,value=latest
+
+      - name: Build and push production image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+
+  deploy:
+    name: Deploy to DigitalOcean App Platform
+    runs-on: ubuntu-latest
+
+    environment:
+      name: production
+
+    needs:
+      - docker-image
+
+    if: >-
+      ${{
+        github.event_name == 'push' &&
+        github.ref == 'refs/heads/main' &&
+        needs.docker-image.result == 'success'
+      }}
+
+    steps:
+      - name: Set up DigitalOcean CLI
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DO_API_TOKEN }}
+
+      - name: Validate DigitalOcean App
+        env:
+          DO_APP_ID: ${{ secrets.DO_APP_ID }}
+        run: |
+          test -n "$DO_APP_ID"
+          doctl apps get "$DO_APP_ID"
+
+      - name: Deploy existing DigitalOcean App Platform app
+        env:
+          DO_APP_ID: ${{ secrets.DO_APP_ID }}
+        run: |
+          doctl apps create-deployment \
+            "$DO_APP_ID" \
+            --wait
+
+
+  notify:
+    name: Teams notification
+    runs-on: ubuntu-latest
+
+    if: always()
+
+    needs:
+      - frontend
+      - backend
+      - security
+      - semgrep
+      - sonar
+      - production-validation
+      - docker-image
+      - deploy
+
+    env:
+      TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+      FRONTEND_RESULT: ${{ needs.frontend.result }}
+      BACKEND_RESULT: ${{ needs.backend.result }}
+      SECURITY_RESULT: ${{ needs.security.result }}
+      SEMGREP_RESULT: ${{ needs.semgrep.result }}
+      SONAR_RESULT: ${{ needs.sonar.result }}
+      VALIDATION_RESULT: ${{ needs.production-validation.result }}
+      DOCKER_RESULT: ${{ needs.docker-image.result }}
+      DEPLOY_RESULT: ${{ needs.deploy.result }}
+
+    steps:
+      - name: Send Teams notification
+        shell: bash
+        run: |
+          if [[ -z "$TEAMS_WEBHOOK_URL" ]]; then
+            echo "TEAMS_WEBHOOK_URL is not available."
+            echo "Skipping Teams notification."
+            exit 0
+          fi
+
+          if [[ "$VALIDATION_RESULT" == "success" ]]; then
+
+            if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+              STATUS="Passed"
+              COLOR="Good"
+
+            elif [[ "$DOCKER_RESULT" == "success" &&
+                    "$DEPLOY_RESULT" == "success" ]]; then
+
+              STATUS="Passed"
+              COLOR="Good"
+
+            else
+              STATUS="Failed"
+              COLOR="Attention"
+            fi
+
+          else
+
+            STATUS="Failed"
+            COLOR="Attention"
+
+          fi
+
+          echo "Production status: $STATUS"
+
+          payload=$(jq -n \
+            --arg status "$STATUS" \
+            --arg color "$COLOR" \
+            --arg repo "${{ github.repository }}" \
+            --arg branch "${{ github.ref_name }}" \
+            --arg event "${{ github.event_name }}" \
+            --arg frontend "$FRONTEND_RESULT" \
+            --arg backend "$BACKEND_RESULT" \
+            --arg security "$SECURITY_RESULT" \
+            --arg semgrep "$SEMGREP_RESULT" \
+            --arg sonar "$SONAR_RESULT" \
+            --arg validation "$VALIDATION_RESULT" \
+            --arg docker "$DOCKER_RESULT" \
+            --arg deploy "$DEPLOY_RESULT" \
+            --arg run_url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            '{
+              type: "message",
+              attachments: [
+                {
+                  contentType: "application/vnd.microsoft.card.adaptive",
+                  content: {
+                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                    type: "AdaptiveCard",
+                    version: "1.5",
+                    body: [
+                      {
+                        type: "TextBlock",
+                        text: ("JavaAPEX Production CI/CD " + $status),
+                        weight: "Bolder",
+                        size: "Medium",
+                        color: $color
+                      },
+                      {
+                        type: "FactSet",
+                        facts: [
+                          {
+                            title: "Repository",
+                            value: $repo
+                          },
+                          {
+                            title: "Branch",
+                            value: $branch
+                          },
+                          {
+                            title: "Event",
+                            value: $event
+                          },
+                          {
+                            title: "Frontend",
+                            value: $frontend
+                          },
+                          {
+                            title: "Backend",
+                            value: $backend
+                          },
+                          {
+                            title: "Security",
+                            value: $security
+                          },
+                          {
+                            title: "Semgrep",
+                            value: $semgrep
+                          },
+                          {
+                            title: "SonarCloud",
+                            value: $sonar
+                          },
+                          {
+                            title: "Production Validation",
+                            value: $validation
+                          },
+                          {
+                            title: "Docker / GHCR",
+                            value: $docker
+                          },
+                          {
+                            title: "DigitalOcean",
+                            value: $deploy
+                          },
+                          {
+                            title: "Run URL",
+                            value: $run_url
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                }
+              ]
+            }')
+
+          curl \
+            --fail-with-body \
+            --silent \
+            --show-error \
+            --header "Content-Type: application/json" \
+            --data "$payload" \
+            "$TEAMS_WEBHOOK_URL"
+
+          echo ""
+          echo "Teams notification sent successfully."

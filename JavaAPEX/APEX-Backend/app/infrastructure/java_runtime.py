@@ -1,0 +1,402 @@
+"""Java runtime environment helpers for external build tools.
+
+Multiple JDKs are commonly installed side by side on a dev/CI machine (e.g.
+JDK 8, 11, 17, 21 under ``C:\\Program Files\\Java``) while a single ambient
+``JAVA_HOME``/``PATH`` only points at one of them. Rather than always using
+whatever the ambient environment happens to resolve to, this module can
+discover the other installed JDKs and pick the one that actually matches the
+selected migration target, so the migration engine and the build-validation step run
+under a JDK capable of the requested ``--release``.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+import re
+from dataclasses import dataclass
+from pathlib import Path
+
+from app.core.config import settings
+from app.shared.command_runner import resolve_executable, run_command
+
+logger = logging.getLogger(__name__)
+
+# Directories commonly used by JDK installers/IDEs. Each immediate child
+# directory is treated as a candidate JDK home.
+_WINDOWS_JDK_SEARCH_ROOTS = (
+    r"C:\Program Files\Java",
+    r"C:\Program Files\Eclipse Adoptium",
+    r"C:\Program Files\Microsoft",
+    r"C:\Program Files\AdoptOpenJDK",
+    r"C:\Program Files\Amazon Corretto",
+    r"C:\Program Files\Zulu",
+)
+_POSIX_JDK_SEARCH_ROOTS = (
+    "/usr/lib/jvm",
+    "/opt/java",
+)
+
+_JAVA_HOME_ENV_PATTERN = re.compile(r"^JAVA_HOME(_\d+)?(_X\d+)?$", re.IGNORECASE)
+
+
+@dataclass(frozen=True)
+class JavaRuntimeInfo:
+    executable: str | None
+    java_home: str | None
+    version_text: str
+    major_version: int | None
+
+
+def build_tool_env(target_major: int | None = None) -> dict[str, str]:
+    """Return an environment for Maven/Gradle subprocesses.
+
+    When ``target_major`` is given, prefers an installed JDK that can satisfy
+    that release (closest match at or above it) over the ambient/configured
+    default, so the subprocess actually compiles at the requested level.
+    """
+    env = os.environ.copy()
+    tool_dirs: list[Path] = []
+
+    java_home: str | None = None
+    if target_major is not None:
+        selected = _select_jdk_for_target(target_major)
+        if selected and selected.java_home and _configured_java_executable(selected.java_home):
+            java_home = selected.java_home
+
+    if not java_home:
+        # Check configured BUILD_JAVA_HOME if valid on this host
+        configured = (settings.build_java_home or "").strip() or None
+        if configured and _configured_java_executable(configured):
+            java_home = configured
+
+    if not java_home:
+        # Fall back to default runtime JDK (discovered from environment/system)
+        default_runtime = build_java_runtime()
+        if default_runtime and default_runtime.java_home:
+            java_home = default_runtime.java_home
+
+    if not java_home:
+        env["PATH"] = _prepend_tool_dirs(env.get("PATH", ""), *tool_dirs)
+        return env
+
+    java_home_path = Path(java_home)
+    java_executable = java_home_path / "bin" / ("java.exe" if os.name == "nt" else "java")
+    if not java_executable.is_file():
+        logger.warning("Configured/selected JAVA_HOME does not contain a Java executable: %s", java_home)
+        env["PATH"] = _prepend_tool_dirs(env.get("PATH", ""), *tool_dirs)
+        return env
+
+    tool_dirs.append(java_home_path / "bin")
+    env["JAVA_HOME"] = str(java_home_path)
+    env["PATH"] = _prepend_tool_dirs(env.get("PATH", ""), *tool_dirs)
+    return env
+
+
+def resolve_gradle_executable(project_dir: Path) -> str | None:
+    """Resolve Gradle from wrapper, GRADLE_HOME, or ambient PATH."""
+    wrapper = project_dir / ("gradlew.bat" if os.name == "nt" else "gradlew")
+    if wrapper.is_file():
+        return str(wrapper)
+
+    gradle_home = (settings.gradle_home or "").strip()
+    if gradle_home:
+        gradle_executable = Path(gradle_home) / "bin" / ("gradle.bat" if os.name == "nt" else "gradle")
+        if gradle_executable.is_file():
+            return str(gradle_executable)
+        logger.warning("Configured GRADLE_HOME does not contain a Gradle executable: %s", gradle_home)
+
+    return resolve_executable("gradle")
+
+
+def build_java_runtime() -> JavaRuntimeInfo:
+    """Detect the JDK Maven/Gradle subprocesses use by default (no target)."""
+    configured_home = (settings.build_java_home or "").strip() or None
+    executable = _configured_java_executable(configured_home)
+    java_home = configured_home if executable else None
+
+    # If configured path is invalid or absent, check ambient JAVA_HOME
+    if not executable:
+        ambient_home = (os.environ.get("JAVA_HOME") or "").strip() or None
+        executable = _configured_java_executable(ambient_home)
+        if executable:
+            java_home = ambient_home
+
+    # Fall back to PATH java executable and infer its JDK home
+    if not executable:
+        executable = resolve_executable("java")
+        if executable:
+            java_home = _infer_java_home(executable)
+
+    if not executable:
+        return JavaRuntimeInfo(
+            executable=None,
+            java_home=None,
+            version_text="Java runtime not found",
+            major_version=None,
+        )
+
+    result = run_command([executable, "-version"], timeout=10)
+    output = "\n".join(part for part in (result.stdout, result.stderr) if part).strip()
+    version_text = output.splitlines()[0] if output else "Java version unavailable"
+    return JavaRuntimeInfo(
+        executable=executable,
+        java_home=java_home,
+        version_text=version_text,
+        major_version=_parse_runtime_major(output),
+    )
+
+
+def log_java_runtime_diagnostics() -> None:
+    """Log safe diagnostics about the detected Java environment at startup."""
+    runtime = build_java_runtime()
+    logger.info(
+        "[JAVA RUNTIME] OS=%s Java=%s JAVA_HOME=%s Executable=%s (Valid=%s)",
+        os.name,
+        runtime.major_version or "unknown",
+        runtime.java_home or "none",
+        runtime.executable or "none",
+        runtime.executable is not None,
+    )
+
+
+def build_compatible_java_target(target_java_version: str | None) -> tuple[str | None, str | None]:
+    """Return the user-selected target Java version, unchanged.
+
+    The migration always targets exactly what the user selected — the platform
+    never silently downgrades it to match whatever JDK happens to be
+    installed. If a locally installed JDK can satisfy the target (even if it
+    isn't the ambient default), the migration run and build validation use
+    that JDK automatically (see :func:`build_tool_env`). Only when *no*
+    installed JDK can satisfy the target does this return an informational
+    message; the migration target itself is never changed.
+    """
+    requested = _parse_major(target_java_version)
+    if requested is None:
+        return target_java_version, None
+
+    selected = _select_jdk_for_target(requested)
+    if selected is None or selected.major_version is None or selected.major_version < requested:
+        closest = selected.version_text if selected else "no JDK found"
+        message = (
+            f"Target Java {requested} selected, but no local JDK {requested}+ "
+            f"was found (closest available: {closest}). Migration/build "
+            f"validation may fail to compile at this release. The migrated "
+            f"project's build configuration still targets Java {requested} as "
+            f"selected; install a JDK {requested}+ locally (or set "
+            f"BUILD_JAVA_HOME) to validate the build on this machine."
+        )
+        return str(requested), message
+    return str(requested), None
+
+
+def gradle_runtime_major(project_dir: Path, target_major: int | None) -> int | None:
+    """Cap ``target_major`` to the highest JDK the project's Gradle wrapper can run under.
+
+    Old Gradle versions crash outright (rather than merely failing to compile)
+    when launched on a JDK newer than they support -- e.g. Gradle 7.x's
+    bundled ASM can't parse Java 21 class files, so it fails during its own
+    build-script analysis before the project's source is even touched. Both
+    the migration run and the post-migration build validation must launch
+    Gradle under a JDK the wrapper's own version actually supports.
+    """
+    version = _gradle_wrapper_version(project_dir)
+    if version is None:
+        return target_major
+
+    max_runtime = _max_supported_java_for_gradle(version)
+    if max_runtime is None:
+        return target_major
+    if target_major is None:
+        return max_runtime
+    return min(target_major, max_runtime)
+
+
+def _gradle_wrapper_version(project_dir: Path) -> tuple[int, int] | None:
+    properties = project_dir / "gradle" / "wrapper" / "gradle-wrapper.properties"
+    if not properties.is_file():
+        return None
+    text = properties.read_text(encoding="utf-8", errors="ignore")
+    match = re.search(r"gradle-(\d+)\.(\d+)(?:[.\-][^/\\]+)?-(?:bin|all)\.zip", text)
+    if not match:
+        return None
+    return int(match.group(1)), int(match.group(2))
+
+
+def _max_supported_java_for_gradle(version: tuple[int, int]) -> int | None:
+    major, minor = version
+    if major < 5:
+        return 8
+    if major < 7 or (major == 7 and minor < 3):
+        return 11
+    if major < 8 or (major == 8 and minor < 5):
+        return 17
+    return None
+
+
+def max_available_java_major() -> int | None:
+    """Highest Java major version available from any discovered/configured JDK."""
+    candidates = list(_discover_jdks())
+    default_runtime = build_java_runtime()
+    if default_runtime.major_version is not None:
+        candidates.append(default_runtime)
+    majors = [c.major_version for c in candidates if c.major_version is not None]
+    return max(majors) if majors else None
+
+
+# -- JDK discovery ------------------------------------------------------------ #
+
+
+def _select_jdk_for_target(target_major: int) -> JavaRuntimeInfo | None:
+    """Pick the installed JDK best suited to compile at ``target_major``.
+
+    Prefers the closest JDK at or above the target (a JDK can compile to any
+    older ``--release`` but not a newer one). Falls back to the newest
+    available JDK when none meets the target.
+    """
+    candidates = list(_discover_jdks())
+    default_runtime = build_java_runtime()
+    if default_runtime.major_version is not None:
+        candidates.append(default_runtime)
+    if not candidates:
+        return None
+
+    eligible = [c for c in candidates if c.major_version is not None and c.major_version >= target_major]
+    if eligible:
+        return min(eligible, key=lambda c: c.major_version)
+    return max(candidates, key=lambda c: c.major_version or 0)
+
+
+def _discover_jdks() -> list[JavaRuntimeInfo]:
+    found: dict[int, JavaRuntimeInfo] = {}
+    for directory in _candidate_jdk_dirs():
+        java_executable = directory / "bin" / ("java.exe" if os.name == "nt" else "java")
+        if not java_executable.is_file():
+            continue
+        major = _infer_major_from_name(directory.name)
+        if major is None or major in found:
+            continue
+        found[major] = JavaRuntimeInfo(
+            executable=str(java_executable),
+            java_home=str(directory),
+            version_text=f"JDK {major} ({directory})",
+            major_version=major,
+        )
+    return list(found.values())
+
+
+def _candidate_jdk_dirs() -> list[Path]:
+    roots = list(_WINDOWS_JDK_SEARCH_ROOTS if os.name == "nt" else _POSIX_JDK_SEARCH_ROOTS)
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if local_app_data:
+        roots.append(str(Path(local_app_data) / "Programs" / "Microsoft"))
+    user_profile = os.environ.get("USERPROFILE") or os.environ.get("HOME")
+    if user_profile:
+        roots.append(str(Path(user_profile) / ".jdks"))
+
+    dirs: list[Path] = []
+    for root in roots:
+        root_path = Path(root)
+        if not root_path.is_dir():
+            continue
+        try:
+            children = [child for child in root_path.iterdir() if child.is_dir()]
+        except OSError:
+            continue
+        dirs.extend(children)
+
+    # Per-version env vars some CI runners set (JAVA_HOME_17_X64, JDK_21, ...).
+    for key, value in os.environ.items():
+        if _JAVA_HOME_ENV_PATTERN.match(key) and value:
+            path = Path(value)
+            if path.is_dir():
+                dirs.append(path)
+
+    # Ambient JAVA_HOME if set and exists on disk
+    ambient_home = (os.environ.get("JAVA_HOME") or "").strip()
+    if ambient_home and Path(ambient_home).is_dir():
+        dirs.append(Path(ambient_home))
+
+    configured = (settings.build_java_home or "").strip()
+    if configured:
+        try:
+            conf_path = Path(configured)
+            if conf_path.is_dir():
+                dirs.append(conf_path)
+        except OSError:
+            pass
+
+    return dirs
+
+
+def _infer_major_from_name(name: str) -> int | None:
+    """Best-effort major-version guess from a JDK directory name.
+
+    Handles both modern (``jdk-21.0.10``, ``jdk-17``) and legacy
+    (``jdk1.8.0_482``, ``corretto-1.8.0_482``, ``jre1.8.0_491``) naming.
+    """
+    match = re.search(r"(\d+)(?:\.(\d+))?(?:\.(\d+))?", name)
+    if not match:
+        return None
+    first = int(match.group(1))
+    if first == 1 and match.group(2) and match.group(2).isdigit():
+        return int(match.group(2))
+    return first
+
+
+def _configured_java_executable(java_home: str | None) -> str | None:
+    if not java_home:
+        return None
+    try:
+        java_home_path = Path(java_home)
+        java_executable = java_home_path / "bin" / ("java.exe" if os.name == "nt" else "java")
+        return str(java_executable) if java_executable.is_file() else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _infer_java_home(executable: str | None) -> str | None:
+    """Infer JDK/JRE home directory from a resolved java executable path."""
+    if not executable:
+        return None
+    try:
+        exec_path = Path(executable).resolve()
+        if exec_path.parent.name.lower() == "bin":
+            candidate = exec_path.parent.parent
+            if (candidate / "bin").is_dir():
+                return str(candidate)
+    except (OSError, ValueError):
+        pass
+    ambient_home = (os.environ.get("JAVA_HOME") or "").strip()
+    if ambient_home and Path(ambient_home).is_dir():
+        return ambient_home
+    return None
+
+
+def _prepend_tool_dirs(path_value: str, *tool_dirs: Path) -> str:
+    parts = [str(path) for path in tool_dirs if path.is_dir()]
+    gradle_home = (settings.gradle_home or "").strip()
+    if gradle_home:
+        gradle_bin = Path(gradle_home) / "bin"
+        if gradle_bin.is_dir():
+            parts.append(str(gradle_bin))
+    parts.append(path_value)
+    return os.pathsep.join(part for part in parts if part)
+
+
+def _parse_major(version: str | None) -> int | None:
+    if not version:
+        return None
+    text = version.strip().lower().replace("java", "").strip()
+    if text.startswith("1."):
+        text = text.split(".", 1)[1]
+    text = text.split(".", 1)[0]
+    return int(text) if text.isdigit() else None
+
+
+def _parse_runtime_major(output: str) -> int | None:
+    match = re.search(r'version\s+"([^"]+)"', output or "")
+    if not match:
+        match = re.search(r"\b(?:openjdk|java)\s+(\d+(?:\.\d+)*)", (output or "").lower())
+    version = match.group(1) if match else ""
+    return _parse_major(version)
