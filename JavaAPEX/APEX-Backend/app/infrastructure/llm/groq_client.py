@@ -75,8 +75,8 @@ class GroqClient:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            "temperature": 0.2,
-            "max_tokens": max_tokens or 800,
+            "temperature": settings.chat_llm_temperature,
+            "max_tokens": max_tokens if max_tokens is not None else settings.chat_llm_max_tokens,
             "stream": True,
             "stream_options": {"include_usage": True},
         }

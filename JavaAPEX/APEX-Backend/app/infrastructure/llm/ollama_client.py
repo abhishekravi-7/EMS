@@ -179,8 +179,8 @@ class OllamaClient:
             ],
             "stream": True,
             "options": {
-                "temperature": 0.2,
-                "num_predict": max_tokens or 800,
+                "temperature": settings.chat_llm_temperature,
+                "num_predict": max_tokens if max_tokens is not None else settings.chat_llm_max_tokens,
             },
         }
 

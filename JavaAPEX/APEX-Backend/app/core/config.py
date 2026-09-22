@@ -58,6 +58,8 @@ class Settings(BaseSettings):
     # LLM_1-authorized chat model can be swapped in without a code change.
     huggingface_api_base_url: str = "https://router.huggingface.co/v1"
     huggingface_model: str = "meta-llama/Llama-3.1-8B-Instruct:novita"
+    huggingface_temperature: float = Field(default=0.1, ge=0.0, le=2.0)
+    huggingface_max_tokens: int = Field(default=512, ge=1)
     # Read from the provider-neutral LLM_1 env var. Leave empty to disable AI
     # recommendations (the endpoint then reports itself as unavailable rather
     # than fabricating a recommendation).
@@ -69,7 +71,7 @@ class Settings(BaseSettings):
     # from the provider-neutral LLM_2 env var; leave empty to disable GROQ and
     # fall straight through to Ollama.
     groq_api_key: str = Field(default="", alias="LLM_2")
-    groq_model: str = "llama-3.3-70b-versatile"
+    groq_model: str = "llama-3.1-8b-instant"
     groq_base_url: str = "https://api.groq.com/openai/v1"
     # Fallback LLM: a local Ollama server. Used only when GROQ is unavailable.
     ollama_base_url: str = "http://localhost:11434"
@@ -104,6 +106,8 @@ class Settings(BaseSettings):
     chat_llm_request_timeout_seconds: float = 60.0
     # Timeout (seconds) to wait for the first token before falling back to next provider.
     chat_llm_fallback_timeout_seconds: float = 45.0
+    chat_llm_temperature: float = Field(default=0.3, ge=0.0, le=2.0)
+    chat_llm_max_tokens: int = Field(default=800, ge=1)
 
     # --- Git / clone ---------------------------------------------------------
     # Timeout (seconds) for a `git clone` during Discovery.

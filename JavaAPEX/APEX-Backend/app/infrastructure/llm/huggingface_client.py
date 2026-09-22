@@ -51,7 +51,8 @@ class HuggingFaceClient:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            "temperature": 0.2,
+            "temperature": settings.huggingface_temperature,
+            "max_tokens": settings.huggingface_max_tokens,
         }
         headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 

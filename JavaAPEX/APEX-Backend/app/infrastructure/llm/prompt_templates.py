@@ -376,6 +376,9 @@ Evaluate each dependency above. Return ONLY the strict JSON object with 'overall
 
 UI_MODERNIZATION_SYSTEM_PROMPT = """You are an exact-source migration engineer. Convert ONLY the single JSP/JSF source supplied in the user prompt into a production-ready React TypeScript or Angular component. Never substitute another page, reuse an unrelated template, invent CRUD behavior, or fill missing contract details from generic assumptions.
 
+JAVA-TO-FRONTEND HARD STOP:
+The BACKEND CONTEXT and REAL BACKEND MODEL / ENTITY DEFINITIONS are reference-only inputs. Extract field names and verified endpoint facts from them, but never copy Java source into generated frontend files. A `.ts` or `.tsx` file must contain only TypeScript/JSX syntax. It must never contain `package`, `import jakarta.*`, `@Entity`, `@Table`, `public class`, Java getters, Java setters, persistence annotations, or Java class bodies. `User`, `Role`, and `Document` are backend models, not React components. If a requested page source is missing, generate only the required blocked/TODO React placeholder; do not reproduce the supplied backend source.
+
 SOURCE-LOCK GATE (MUST RUN BEFORE WRITING CODE):
 1. Read the supplied JSP/JSF source literally.
 2. In the leading comment block, restate the exact <title> text (or "none found"), every form field exact name and type, and every ${...} or #{...} EL expression found.
@@ -413,7 +416,8 @@ MANDATORY MIGRATION REQUIREMENTS:
 STRICT OUTPUT RULES:
 1. ONLY return the leading comment and code blocks. NO conversational filler outside them.
 2. NEVER generate mock data. Use discovered backend data structures.
-3. MULTI-FILE FORMAT: If generating multiple files, format EXACTLY as:
+3. FINAL FRONTEND-LANGUAGE CHECK: Before returning each file, scan the complete file for Java markers (`package`, `import jakarta.`, `@Entity`, `@Table`, `public class`, getters, setters, `private Long`, and `private Set`). If any marker is present, discard the file and regenerate it from the JSP UI using TypeScript/JSX only. Never return the invalid file or the Java source.
+4. MULTI-FILE FORMAT: If generating multiple files, format EXACTLY as:
 
 ### FILE: path/to/filename.ext
 ```extension
@@ -638,10 +642,14 @@ BACKEND CONTEXT (Controllers, Services, Models):
 {backend_context}
 ```
 
+IMPORTANT: The Java block above is not output material. Read it only to identify explicitly supported field names, mappings, and response facts. Never quote, translate, or reproduce Java declarations, annotations, imports, getters, setters, or entity class bodies in the React output.
+
 REAL BACKEND MODEL / ENTITY DEFINITIONS (exact field names; do not alter):
 ```text
 {entity_definitions}
 ```
+
+IMPORTANT: Entity definitions are metadata only. Map their fields to TypeScript interfaces or local form state when the JSP uses them; do not emit the Java definitions themselves. For example, use fields such as `username`, `password`, `passwordConfirm`, `roles`, `title`, `link`, `description`, `userId`, and `id` without copying their Java declarations.
 
 BACKEND CONTRACT (auth, endpoints, methods, encoding, response/failure behavior, CSRF):
 ```text
@@ -653,7 +661,7 @@ MANDATORY SOURCE CHECK:
 2. If the source contains unresolved placeholders such as {{jsp_source}}, or if the required page markers are absent, return only the blocked comment and no component.
 3. Trace every output element to the source. Preserve all tags, branches, loops, scriptlets, includes, fields, labels, links, buttons, classes, styles, assets, and error paths.
 4. Use the exact supplied entity field names and backend contract. If the contract is incomplete, do not invent an endpoint or response shape; list the gap in the leading comment and use only a typed boundary justified by the source.
-5. Return compilable code with no self-imports, unused imports/state, dead handlers, truncated JSX, or unrelated components.
+5. Return compilable TypeScript/JSX with no Java syntax, self-imports, unused imports/state, dead handlers, truncated JSX, or unrelated components. Perform the final frontend-language check from the system prompt before returning the code.
 
 Return ONLY the leading comment and raw {target_framework} code blocks."""
 
