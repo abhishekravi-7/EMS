@@ -134,9 +134,9 @@ def _detect_in_file(java_path: Path) -> list[dict[str, Any]]:
 class ApiEndpointDetector:
     """Detects Spring REST API endpoints by scanning the Java source tree.
 
-    This is a pure-Python implementation.  It does NOT require the
-    migration-engine JAR or any external tool.  The migration-engine JAR
-    is only relevant during the Migration phase, not during Discovery.
+    Uses a pure-Python Spring annotation scanner to extract endpoint counts
+    directly from source code without requiring a JVM or external tool.
+    (Legacy support remains if a custom migration-engine JAR is provided).
     """
 
     def detect(self, project_root: Path) -> List[dict[str, Any]]:
@@ -165,6 +165,7 @@ class ApiEndpointDetector:
             return []
 
         logger.info(
+            "Using native Python Spring annotation scanner for API endpoint detection."
             "Scanning %d Java files for REST endpoint annotations under %s",
             len(java_files),
             file_utils.to_plain_path_str(project_root),
