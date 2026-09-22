@@ -445,7 +445,7 @@ export default function AdminConsolePage() {
           <div className="user-config-card">
             <TestCasesUserSettings
               settings={userSettings}
-              isAdminEnabled={settings.test_cases_playwright_enabled === true || settings.test_cases_playwright_enabled === "true"}
+              adminSettings={settings}
               onChange={(key, value) => {
                 setUserSettings((prev) => ({
                   ...prev,

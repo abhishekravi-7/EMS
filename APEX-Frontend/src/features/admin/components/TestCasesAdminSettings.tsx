@@ -11,6 +11,12 @@ interface TestCasesAdminSettingsProps {
 export function TestCasesAdminSettings({ settings, onChange }: TestCasesAdminSettingsProps) {
   const playwrightEnabled = settings.test_cases_playwright_enabled === true || settings.test_cases_playwright_enabled === "true";
   const playwrightCommand = settings.test_cases_playwright_command || "npx playwright test";
+  
+  const cypressEnabled = settings.test_cases_cypress_enabled === true || settings.test_cases_cypress_enabled === "true";
+  const cypressCommand = settings.test_cases_cypress_command || "npx cypress run";
+  
+  const seleniumEnabled = settings.test_cases_selenium_enabled === true || settings.test_cases_selenium_enabled === "true";
+  const seleniumCommand = settings.test_cases_selenium_command || "pytest";
 
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ status: "success" | "error"; message: string } | null>(null);
@@ -74,6 +80,88 @@ export function TestCasesAdminSettings({ settings, onChange }: TestCasesAdminSet
               onChange={(e) => onChange("test_cases_playwright_command", e.target.value)}
               disabled={!playwrightEnabled}
               placeholder="npx playwright test"
+              style={{ width: "100%", maxWidth: "400px" }}
+            />
+          </div>
+        </div>
+
+        {/* Cypress Enable Toggle */}
+        <div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+            <div>
+              <h4 style={{ margin: 0, fontSize: "1.1rem", color: "#1e293b", fontWeight: 600 }}>Enable Cypress</h4>
+              <p style={{ margin: "4px 0 0", fontSize: "0.875rem", color: "#64748b" }}>
+                Allow users to configure and run Cypress tests against their application.
+              </p>
+            </div>
+            <div className="switch-row-modern" style={{ marginTop: 0 }}>
+              <label className="switch-modern">
+                <input
+                  type="checkbox"
+                  checked={cypressEnabled}
+                  onChange={(e) => onChange("test_cases_cypress_enabled", e.target.checked)}
+                />
+                <span className="slider-modern"></span>
+              </label>
+              <span className="switch-label-modern" style={{ minWidth: "100px" }}>
+                {cypressEnabled ? "Enabled" : "Disabled"}
+              </span>
+            </div>
+          </div>
+
+          {/* Cypress Command Config */}
+          <div style={{ pointerEvents: cypressEnabled ? "auto" : "none", opacity: cypressEnabled ? 1 : 0.6 }}>
+            <label style={{ display: "block", marginBottom: "8px", fontSize: "0.9rem", color: "#334155", fontWeight: 500 }}>
+              Cypress Test Command
+            </label>
+            <input
+              type="text"
+              className="input-modern"
+              value={cypressCommand}
+              onChange={(e) => onChange("test_cases_cypress_command", e.target.value)}
+              disabled={!cypressEnabled}
+              placeholder="npx cypress run"
+              style={{ width: "100%", maxWidth: "400px" }}
+            />
+          </div>
+        </div>
+
+        {/* Selenium Enable Toggle */}
+        <div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+            <div>
+              <h4 style={{ margin: 0, fontSize: "1.1rem", color: "#1e293b", fontWeight: 600 }}>Enable Selenium</h4>
+              <p style={{ margin: "4px 0 0", fontSize: "0.875rem", color: "#64748b" }}>
+                Allow users to configure and run Selenium tests against their application.
+              </p>
+            </div>
+            <div className="switch-row-modern" style={{ marginTop: 0 }}>
+              <label className="switch-modern">
+                <input
+                  type="checkbox"
+                  checked={seleniumEnabled}
+                  onChange={(e) => onChange("test_cases_selenium_enabled", e.target.checked)}
+                />
+                <span className="slider-modern"></span>
+              </label>
+              <span className="switch-label-modern" style={{ minWidth: "100px" }}>
+                {seleniumEnabled ? "Enabled" : "Disabled"}
+              </span>
+            </div>
+          </div>
+
+          {/* Selenium Command Config */}
+          <div style={{ pointerEvents: seleniumEnabled ? "auto" : "none", opacity: seleniumEnabled ? 1 : 0.6 }}>
+            <label style={{ display: "block", marginBottom: "8px", fontSize: "0.9rem", color: "#334155", fontWeight: 500 }}>
+              Selenium Test Command
+            </label>
+            <input
+              type="text"
+              className="input-modern"
+              value={seleniumCommand}
+              onChange={(e) => onChange("test_cases_selenium_command", e.target.value)}
+              disabled={!seleniumEnabled}
+              placeholder="pytest"
               style={{ width: "100%", maxWidth: "400px" }}
             />
           </div>

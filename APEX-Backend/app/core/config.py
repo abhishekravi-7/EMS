@@ -185,6 +185,10 @@ class Settings(BaseSettings):
     # --- Test Cases ----------------------------------------------------------
     test_cases_playwright_enabled: bool = False
     test_cases_playwright_command: str = "npx playwright test"
+    test_cases_cypress_enabled: bool = False
+    test_cases_cypress_command: str = "npx cypress run"
+    test_cases_selenium_enabled: bool = False
+    test_cases_selenium_command: str = "pytest"
 
     # --- Storage -------------------------------------------------------------
     # Root folder where per-job artifacts (reports, etc.) are written.

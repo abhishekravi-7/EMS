@@ -20,6 +20,10 @@ export interface SystemSettings {
   quality_checks_config?: string;
   test_cases_playwright_enabled?: string | boolean;
   test_cases_playwright_command?: string;
+  test_cases_cypress_enabled?: string | boolean;
+  test_cases_cypress_command?: string;
+  test_cases_selenium_enabled?: string | boolean;
+  test_cases_selenium_command?: string;
   llm_enabled?: string | boolean;
   llm_features?: string; // JSON array of features
   groq_models?: string; // JSON array of groq models
