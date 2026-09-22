@@ -55,13 +55,12 @@ import {
   type MigrationJobSummary,
   type MigrationResult,
 } from "@/features/result/services/resultService";
-import { scanExistingTests } from "@/features/modernization/services/existingTestService";
+import { scanExistingTests, clearCachedExistingTests } from "@/features/modernization/services/existingTestService";
 import type {
   RepoAnalysis,
   DependencyInfo,
   MicroserviceEligibilityResult,
   MicroserviceServiceCandidate,
-  RepoInfo,
 } from "@/shared/types/domain";
 import {
   previewMigration,
@@ -77,10 +76,14 @@ import {
   writeSessionValue,
   removeSessionValue,
   getScopedStepUnlockKey,
+  WIZARD_REPO_URL_KEY,
   WIZARD_DISCOVERY_COMPLETED_KEY,
   WIZARD_STRATEGY_COMPLETED_KEY,
+  WIZARD_MIGRATION_COMPLETED_KEY,
+  WIZARD_MIGRATION_JOB_KEY,
   WIZARD_JOB_ID_KEY,
   WIZARD_SELECTED_REPO_KEY,
+
   type PersistedWizardFormState,
   WIZARD_FORM_STATE_KEY,
 } from "@/shared/utils/migrationWizardStorage";
@@ -89,7 +92,7 @@ import { useMigrationWizardPersistence } from "@/shared/hooks/useMigrationWizard
 import { isPrivateRepoAccessError } from "@/shared/utils/repoAccessError";
 import { buildWizardAccentVars } from "@/shared/components/wizard";
 import { useRepositoryConnect } from "@/features/connect/hooks/useRepositoryConnect";
-import { useDiscoveryState, INITIAL_DISCOVERY_STAGES } from "@/features/discovery/hooks/useDiscoveryState";
+import { useDiscoveryState } from "@/features/discovery/hooks/useDiscoveryState";
 import { useStrategyState, type MigrationApproachValue } from "@/features/strategy/hooks/useStrategyState";
 import { useModernizationState } from "@/features/modernization/hooks/useModernizationState";
 import { useMigrationExecution } from "@/features/result/hooks/useMigrationExecution";
@@ -230,13 +233,13 @@ const isTerminalMigrationStatus = (status: string | null | undefined): boolean =
 
 const getMigrationPollingDelayMs = (status: string | null | undefined, startedAt?: string | null): number => {
   const normalizedStatus = (status || "").toLowerCase();
-  
+
   const startedAtMs = startedAt ? Date.parse(startedAt) : Number.NaN;
   const elapsedMs = Number.isNaN(startedAtMs) ? 0 : Math.max(0, Date.now() - startedAtMs);
-  
+
   // Progressive backoff based on elapsed time and status
   let baseDelayMs: number;
-  
+
   if (normalizedStatus === "queued" || normalizedStatus === "pending") {
     // Queue: start at 8s, increase to 15s after 60s
     baseDelayMs = elapsedMs >= 60_000 ? 15000 : 8000;
@@ -1081,7 +1084,9 @@ export function useWizardController() {
         const targetRoute = STEP_ROUTES[nextStep] || "/connect";
         const currentRoute = location.pathname.replace(/\/+$/, "") || "/";
         if (currentRoute !== targetRoute) {
-          navigate(targetRoute, { replace: nextStep === 7 });
+          setTimeout(() => {
+            navigate(targetRoute, { replace: nextStep === 7 });
+          }, 0);
         }
         return nextStep;
       });
@@ -1316,13 +1321,6 @@ export function useWizardController() {
     isPrivateRepo,
     setIsPrivateRepo,
     patToken,
-    setPatToken,
-    githubToken,
-    setGithubToken,
-    repoVisibility,
-    setRepoVisibility,
-    isPatModeOpen,
-    setIsPatModeOpen,
     setRepoAccessCheckLoading,
     setAccessTokenValidationState,
     setAccessTokenValidationMessage,
@@ -1331,10 +1329,6 @@ export function useWizardController() {
     currentToken,
     resetAccessTokenValidationState,
     jobId,
-    setJobId,
-    setLocalProjectUploadFiles,
-    setLocalProjectUploadError,
-    setLocalProjectUploadWarning,
   } = connectState;
   const currentMigrationApproach =
     !isPrivateRepo && migrationApproach === "branch"
@@ -1473,7 +1467,7 @@ export function useWizardController() {
     ].filter(Boolean).join(", ");
     const playwrightTag = playwrightConf >= 70 ? "Highly Recommended"
       : playwrightConf >= 35 ? "Potential Fit"
-      : "Not Detected";
+        : "Not Detected";
     const playwrightReason = playwrightConf >= 70
       ? `Highly Recommended: Detected ${uiFrameworks || "UI assets"} in project.`
       : playwrightConf >= 35
@@ -1497,7 +1491,7 @@ export function useWizardController() {
 
     const restAssuredTag = restAssuredConf >= 70 ? "Highly Recommended"
       : restAssuredConf >= 40 ? "Potential Fit"
-      : "Low Match";
+        : "Low Match";
     const restAssuredReason = restAssuredConf >= 70
       ? `Highly Recommended: Found ${endpointCount} REST endpoint${endpointCount !== 1 ? "s" : ""} across project controllers.`
       : restAssuredConf >= 40
@@ -1536,7 +1530,7 @@ export function useWizardController() {
 
     const mockMvcTag = mockMvcConf >= 70 ? "Highly Recommended"
       : mockMvcConf >= 40 ? "Integration Ready"
-      : "Low Match";
+        : "Low Match";
     const mockMvcReason = mockMvcConf >= 70
       ? "Highly Recommended: Spring MVC and spring-test detected — MockMvc is ideal for controller-level testing."
       : mockMvcConf >= 40
@@ -1558,7 +1552,7 @@ export function useWizardController() {
 
     const _schemathesisTag = schemathesisConf >= 70 ? "Highly Recommended"
       : schemathesisConf >= 40 ? "Spec Available"
-      : hasRest ? "Spec Not Found" : "Not Applicable";
+        : hasRest ? "Spec Not Found" : "Not Applicable";
     const _schemathesisReason = schemathesisConf >= 70
       ? "Highly Recommended: OpenAPI/Swagger specification found in the repository."
       : schemathesisConf >= 40
@@ -1693,7 +1687,7 @@ export function useWizardController() {
 
   const _recommendedTool = useMemo(() => {
     if (!functionalTestingTools || functionalTestingTools.length === 0) return "REST_ASSURED";
-    
+
     // Find the tool with the highest confidence score
     const bestTool = [...functionalTestingTools].sort((a, b) => b.confidence - a.confidence)[0];
     return bestTool?.id || "REST_ASSURED";
@@ -1765,15 +1759,15 @@ export function useWizardController() {
       icon: React.ReactNode;
       color: string;
     }> = [
-      {
-        value: "fork",
-        label: "Create New Repository",
-        desc: "Push migrated code to a new repository under the Javaapex GitHub owner",
-        tooltip: "Creates an entirely new repository with the migrated code under the Javaapex GitHub owner by default.",
-        icon: <FaRocket />,
-        color: "#f59e0b",
-      },
-    ];
+        {
+          value: "fork",
+          label: "Create New Repository",
+          desc: "Push migrated code to a new repository under the Javaapex GitHub owner",
+          tooltip: "Creates an entirely new repository with the migrated code under the Javaapex GitHub owner by default.",
+          icon: <FaRocket />,
+          color: "#f59e0b",
+        },
+      ];
 
     if (isPrivateRepo) {
       options.push({
@@ -2011,53 +2005,53 @@ export function useWizardController() {
       const generatedAsset = prefetchedAssetReady
         ? prefetchedBrdDocument
         : await (async () => {
-            if (activePrefetchPromise) {
-              const prefetchedAsset = await activePrefetchPromise;
-              if (prefetchedAsset) {
-                return prefetchedAsset;
-              }
+          if (activePrefetchPromise) {
+            const prefetchedAsset = await activePrefetchPromise;
+            if (prefetchedAsset) {
+              return prefetchedAsset;
             }
+          }
 
-            const result = isLocalRepoRef(repoReference)
-              ? await generateLocalProjectDocument({
-                  repo_url: repoReference,
-                  repository_url: repoReference,
-                  source_repo_url: repoReference,
-                  source_repo: selectedRepo?.name || repoAnalysis?.name || repoReference,
-                  target_repo: migrationJob?.target_repo || null,
-                  source_java_version: repoAnalysis?.java_version || selectedSourceVersion || undefined,
-                  target_java_version: effectiveTargetVersion || undefined,
-                  document_type: "BRD",
-                  analysis: repoAnalysis as unknown as Record<string, unknown>,
-                })
-              : await generateGithubDocument("brd", {
-                  repo_url: repoReference,
-                  repository_url: repoReference,
-                  source_repo_url: repoReference,
-                  token: currentToken || undefined,
-                  github_token: currentToken || undefined,
-                  job_id: jobId || migrationJob?.job_id || undefined,
-                  migration_job_id: migrationJob?.job_id || undefined,
-                  source_repo: migrationJob?.source_repo || repoReference,
-                  target_repo: migrationJob?.target_repo || null,
-                  source_java_version: repoAnalysis?.java_version || selectedSourceVersion || undefined,
-                  target_java_version: effectiveTargetVersion || undefined,
-                  document_type: "BRD",
-                  analysis: repoAnalysis as unknown as Record<string, unknown>,
-                });
+          const result = isLocalRepoRef(repoReference)
+            ? await generateLocalProjectDocument({
+              repo_url: repoReference,
+              repository_url: repoReference,
+              source_repo_url: repoReference,
+              source_repo: selectedRepo?.name || repoAnalysis?.name || repoReference,
+              target_repo: migrationJob?.target_repo || null,
+              source_java_version: repoAnalysis?.java_version || selectedSourceVersion || undefined,
+              target_java_version: effectiveTargetVersion || undefined,
+              document_type: "BRD",
+              analysis: repoAnalysis as unknown as Record<string, unknown>,
+            })
+            : await generateGithubDocument("brd", {
+              repo_url: repoReference,
+              repository_url: repoReference,
+              source_repo_url: repoReference,
+              token: currentToken || undefined,
+              github_token: currentToken || undefined,
+              job_id: jobId || migrationJob?.job_id || undefined,
+              migration_job_id: migrationJob?.job_id || undefined,
+              source_repo: migrationJob?.source_repo || repoReference,
+              target_repo: migrationJob?.target_repo || null,
+              source_java_version: repoAnalysis?.java_version || selectedSourceVersion || undefined,
+              target_java_version: effectiveTargetVersion || undefined,
+              document_type: "BRD",
+              analysis: repoAnalysis as unknown as Record<string, unknown>,
+            });
 
-            const resolvedAsset = await resolveGeneratedDocumentAsset(result);
-            const filename = buildHtmlFilename(result.filename, technicalDocumentFallbackRepoName);
+          const resolvedAsset = await resolveGeneratedDocumentAsset(result);
+          const filename = buildHtmlFilename(result.filename, technicalDocumentFallbackRepoName);
 
-            if (resolvedAsset.html) {
-              return {
-                filename,
-                html: resolvedAsset.html,
-              } satisfies PrefetchedBrdDocument;
-            }
+          if (resolvedAsset.html) {
+            return {
+              filename,
+              html: resolvedAsset.html,
+            } satisfies PrefetchedBrdDocument;
+          }
 
-            throw new Error("Generated BRD document did not include HTML content or a download URL.");
-          })();
+          throw new Error("Generated BRD document did not include HTML content or a download URL.");
+        })();
 
       if (!prefetchedAssetReady) {
         setPrefetchedBrdDocument(generatedAsset);
@@ -2857,19 +2851,19 @@ export function useWizardController() {
       const destination: MigrationConfigPayload["destination"] =
         mode === "CREATE_NEW_REPO"
           ? {
+            mode,
+            targetOwner: targetRepositoryOwner,
+            targetHost: targetRepositoryHost,
+            targetRepoUrl: finalTargetName,
+            targetRepoName: finalTargetName.split("/").pop() || finalTargetName,
+          }
+          : mode === "EXISTING_REPO_BRANCH"
+            ? {
               mode,
               targetOwner: targetRepositoryOwner,
               targetHost: targetRepositoryHost,
-              targetRepoUrl: finalTargetName,
-              targetRepoName: finalTargetName.split("/").pop() || finalTargetName,
+              targetBranch: finalTargetName,
             }
-          : mode === "EXISTING_REPO_BRANCH"
-            ? {
-                mode,
-                targetOwner: targetRepositoryOwner,
-                targetHost: targetRepositoryHost,
-                targetBranch: finalTargetName,
-              }
             : { mode, localFolder: finalTargetName };
 
       const configPayload: MigrationConfigPayload = {
@@ -2889,8 +2883,9 @@ export function useWizardController() {
     }
 
     const activeKey = getScopedStepUnlockKey(WIZARD_STRATEGY_COMPLETED_KEY, jobId || selectedRepo?.url);
-    writeSessionValue(activeKey, "true");
-    writeSessionValue(WIZARD_STRATEGY_COMPLETED_KEY, "true");
+    if (activeKey) {
+      writeSessionValue(activeKey, "true");
+    }
     setStrategyCompleted(true);
     setStep(nextStep);
   };
@@ -2964,7 +2959,7 @@ export function useWizardController() {
           </div>
           <div style={styles.categorizedDependencyVersion}>
             {(dep.resolvedVersion && dep.resolvedVersion !== "Unknown version") ||
-            (dep.current_version && dep.current_version !== "Unknown version")
+              (dep.current_version && dep.current_version !== "Unknown version")
               ? dep.resolvedVersion || dep.current_version
               : "Version unavailable"}
             {dep.versionSource && (
@@ -3244,14 +3239,14 @@ export function useWizardController() {
     documentGenerationLoading === "brd"
       ? "Generating Document..."
       : documentPrefetchStatus === "loading"
-          ? "Preparing Document..."
-          : "Generate Document";
+        ? "Preparing Document..."
+        : "Generate Document";
 
   const technicalSpecificationHelperText = documentPrefetchStatus === "loading"
-      ? "Preparing the Technical Specification Document in the background."
-      : documentPrefetchStatus === "ready"
-          ? "The Technical Specification Document is ready to download."
-          : "The Technical Specification Document will be generated when you choose to download it.";
+    ? "Preparing the Technical Specification Document in the background."
+    : documentPrefetchStatus === "ready"
+      ? "The Technical Specification Document is ready to download."
+      : "The Technical Specification Document will be generated when you choose to download it.";
 
   useEffect(() => {
     let retryTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -3280,72 +3275,132 @@ export function useWizardController() {
     };
   }, [setTargetVersions]);
 
-  // Step 1: Connect completed
-  const isConnectCompleted = Boolean(
-    (selectedRepo && (selectedRepo.url || selectedRepo.name)) ||
-    (connectState?.jobId && repoUrl) ||
-    Boolean(connectState?.jobId) ||
-    Boolean(selectedRepo)
-  );
+  // Step 1: Connect completed ONLY if there is an active connected repository with url or local ref in the current session
+  const activeRepo = selectedRepo || readSessionJson<RepoInfo>(WIZARD_SELECTED_REPO_KEY);
+  const activeJobId = jobId || connectState?.jobId || readPersistedValue(WIZARD_JOB_ID_KEY) || "";
+  const hasValidActiveRepo = Boolean(activeRepo && (activeRepo.url || activeRepo.name));
+  const isConnectCompleted = Boolean(hasValidActiveRepo && (activeJobId || Boolean(selectedRepo)));
+  const activeSessionKey = hasValidActiveRepo ? (activeJobId || activeRepo?.url || null) : null;
 
-  // Track milestone completion across steps and backward navigation
+  // Track milestone completion across steps and backward navigation for the CURRENT session key
   const [discoveryCompleted, setDiscoveryCompleted] = useState<boolean>(() => {
-    const activeJobId = readPersistedValue(WIZARD_JOB_ID_KEY);
-    const activeRepo = readSessionJson<RepoInfo>(WIZARD_SELECTED_REPO_KEY);
-    const scopedKey = getScopedStepUnlockKey(WIZARD_DISCOVERY_COMPLETED_KEY, activeJobId || activeRepo?.url);
-    const persisted = readPersistedValue(scopedKey) || readPersistedValue(WIZARD_DISCOVERY_COMPLETED_KEY);
-    if (persisted === "true") return true;
-    const initialRouteStep = typeof window !== "undefined" ? getStepFromPath(window.location.pathname) : 1;
-    return initialRouteStep >= 3;
+    if (!activeSessionKey) return false;
+    const scopedKey = getScopedStepUnlockKey(WIZARD_DISCOVERY_COMPLETED_KEY, activeSessionKey);
+    return readPersistedValue(scopedKey) === "true";
   });
   const [strategyCompleted, setStrategyCompleted] = useState<boolean>(() => {
-    const activeJobId = readPersistedValue(WIZARD_JOB_ID_KEY);
-    const activeRepo = readSessionJson<RepoInfo>(WIZARD_SELECTED_REPO_KEY);
-    const scopedKey = getScopedStepUnlockKey(WIZARD_STRATEGY_COMPLETED_KEY, activeJobId || activeRepo?.url);
-    const persisted = readPersistedValue(scopedKey) || readPersistedValue(WIZARD_STRATEGY_COMPLETED_KEY);
-    if (persisted === "true") return true;
-    const initialRouteStep = typeof window !== "undefined" ? getStepFromPath(window.location.pathname) : 1;
-    return initialRouteStep >= 4;
+    if (!activeSessionKey) return false;
+    const scopedKey = getScopedStepUnlockKey(WIZARD_STRATEGY_COMPLETED_KEY, activeSessionKey);
+    return readPersistedValue(scopedKey) === "true";
   });
 
+  // Keep milestone unlock flags in sync if activeSessionKey changes
+  useEffect(() => {
+    if (!activeSessionKey) {
+      setDiscoveryCompleted(false);
+      setStrategyCompleted(false);
+      setIsMigrationFinishedState(false);
+      return;
+    }
+    const scopedDisc = readPersistedValue(getScopedStepUnlockKey(WIZARD_DISCOVERY_COMPLETED_KEY, activeSessionKey));
+    const scopedStrat = readPersistedValue(getScopedStepUnlockKey(WIZARD_STRATEGY_COMPLETED_KEY, activeSessionKey));
+    setDiscoveryCompleted(scopedDisc === "true");
+    setStrategyCompleted(scopedStrat === "true");
+  }, [activeSessionKey]);
+
+  // Keep migration execution state isolated per activeJobId to prevent stale data leaks
+  useEffect(() => {
+    if (!activeJobId) {
+      setMigrationJob(null);
+      setMigrationLogs([]);
+      setFossaResult(null);
+      setMigrationPreview(null);
+      setCodeChanges([]);
+      setIsMigrationFinishedState(false);
+      setMigrationDetailLoadedJobId(null);
+      removeSessionValue(WIZARD_MIGRATION_JOB_KEY);
+      return;
+    }
+
+    // If current migrationJob belongs to a different job, purge it immediately
+    if (migrationJob && migrationJob.job_id !== activeJobId && (migrationJob as any).jobId !== activeJobId) {
+      setMigrationJob(null);
+      setMigrationLogs([]);
+      setFossaResult(null);
+      setMigrationPreview(null);
+      setCodeChanges([]);
+      setIsMigrationFinishedState(false);
+      setMigrationDetailLoadedJobId(null);
+      removeSessionValue(WIZARD_MIGRATION_JOB_KEY);
+    }
+  }, [activeJobId, migrationJob?.job_id]);
+
   const continueToStrategy = useCallback(() => {
-    const activeKey = getScopedStepUnlockKey(WIZARD_DISCOVERY_COMPLETED_KEY, jobId || selectedRepo?.url);
-    writeSessionValue(activeKey, "true");
-    writeSessionValue(WIZARD_DISCOVERY_COMPLETED_KEY, "true");
+    const key = jobId || selectedRepo?.url;
+    if (key) {
+      const activeKey = getScopedStepUnlockKey(WIZARD_DISCOVERY_COMPLETED_KEY, key);
+      writeSessionValue(activeKey, "true");
+    }
     setDiscoveryCompleted(true);
     setStep(3);
   }, [jobId, selectedRepo?.url, setStep]);
 
-  useEffect(() => {
-    if (!isConnectCompleted) {
-      setDiscoveryCompleted(false);
-      setStrategyCompleted(false);
+  const navigateToResults = useCallback(() => {
+    const key = jobId || activeJobId;
+    if (key) {
+      const activeKey = getScopedStepUnlockKey(WIZARD_MIGRATION_COMPLETED_KEY, key);
+      writeSessionValue(activeKey, "true");
     }
-  }, [isConnectCompleted]);
+    setIsMigrationFinishedState(true);
+    setStep(7);
+  }, [jobId, activeJobId, setStep]);
 
-  // Step 2: Discovery completed (strictly when repoAnalysis is ready AND user explicitly clicked Continue to Strategy or has unlocked/visited Strategy)
+  const persistedDiscoveryFlag = Boolean(
+    activeSessionKey &&
+    readPersistedValue(getScopedStepUnlockKey(WIZARD_DISCOVERY_COMPLETED_KEY, activeSessionKey)) === "true"
+  );
+
+  const persistedStrategyFlag = Boolean(
+    activeSessionKey &&
+    readPersistedValue(getScopedStepUnlockKey(WIZARD_STRATEGY_COMPLETED_KEY, activeSessionKey)) === "true"
+  );
+
+  const persistedMigrationCompletedFlag = Boolean(
+    activeJobId &&
+    readPersistedValue(getScopedStepUnlockKey(WIZARD_MIGRATION_COMPLETED_KEY, activeJobId)) === "true"
+  );
+
+  const currentRouteStep = getStepFromPath(location.pathname);
+
+  // Step 2: Discovery completed (strictly when Connect is complete, repoAnalysis is ready, AND user explicitly clicked Continue to Strategy for THIS session)
   const isDiscoveryCompleted =
     isConnectCompleted &&
-    (Boolean(repoAnalysis) || discoveryCompleted || step >= 3) &&
-    (discoveryCompleted || step >= 3);
+    Boolean(repoAnalysis && !analysisLoading) &&
+    (discoveryCompleted || persistedDiscoveryFlag);
 
-  // Step 3: Strategy completed (strictly when Discovery completed AND user explicitly clicked Continue to Migration)
-  const isStrategyCompleted = isDiscoveryCompleted && strategyCompleted;
+  // Step 3: Strategy completed (strictly when Discovery completed AND user explicitly clicked Continue to Migration for THIS session)
+  const isStrategyCompleted =
+    isDiscoveryCompleted &&
+    (strategyCompleted || persistedStrategyFlag);
 
-  // Step 4: Migration completed (only after migration process has actually completed or loader finishes)
+  // Step 4: Migration completed (strictly when Strategy completed AND migration actually completed for THIS job)
   const isMigrationCompleted =
     isStrategyCompleted &&
     Boolean(
-      migrationJob?.status === "completed" ||
-      isMigrationFinishedState ||
-      step === 7 ||
-      step === 6
+      activeJobId &&
+      ((migrationJob && (migrationJob.job_id === activeJobId || (migrationJob as any).jobId === activeJobId) && migrationJob.status === "completed") ||
+        (isMigrationFinishedState && migrationJob && (migrationJob.job_id === activeJobId || (migrationJob as any).jobId === activeJobId)) ||
+        persistedMigrationCompletedFlag)
     );
 
-  // Step 5: Results completed (only when viewed/completed at results phase)
+  // Step 5: Results completed (strictly when migration is completed for THIS job)
   const isResultsCompleted =
     isMigrationCompleted &&
-    Boolean(step === 7 || (migrationJob?.status === "completed" && step === 7));
+    Boolean(
+      step === 7 ||
+      currentRouteStep === 7 ||
+      (migrationJob && (migrationJob.job_id === activeJobId || (migrationJob as any).jobId === activeJobId) && migrationJob.status === "completed")
+    );
 
   // Highest completed step number (0 to 5)
   const highestCompletedStep = isResultsCompleted
@@ -3366,8 +3421,12 @@ export function useWizardController() {
 
   const isStepAccessible = (stepId: number): boolean => {
     if (stepId === 1) return true;
+    if (!isConnectCompleted) return false;
+    if (stepId === 2) return isConnectCompleted;
+    if (stepId === 3) return isDiscoveryCompleted;
+    if (stepId === 4) return isStrategyCompleted;
     if (stepId === 5) {
-      return isMigrationCompleted || isMigrationFinishedState || (isStrategyCompleted && step >= 4);
+      return isMigrationCompleted || isMigrationFinishedState || isStrategyCompleted;
     }
     return (stepId - 1) <= highestCompletedStep;
   };
@@ -3411,7 +3470,7 @@ export function useWizardController() {
 
   const persistedWizardFormState = useMemo(
     () =>
-      ({
+    ({
       maxVisitedIndicatorStep,
       isPrivateRepo,
       patToken,
@@ -3443,35 +3502,35 @@ export function useWizardController() {
       analysisCompletedSeconds,
     } satisfies PersistedWizardFormState),
     [
-    maxVisitedIndicatorStep,
-    isPrivateRepo,
-    patToken,
-    currentPath,
-    targetRepoName,
-    targetRepoNamesByApproach,
-    targetRepoNameEditedByApproach,
-    targetRepoTimestamp,
-    selectedSourceVersion,
-    selectedTargetVersion,
-    selectedConversions,
-    runTests,
-    runSonar,
-    runFossa,
-    fixBusinessLogic,
-    functionalTestToolMethod,
-    migrationApproach,
-    riskLevel,
-    selectedFrameworks,
-    isJavaProject,
-    pathHistory,
-    isHighRiskProject,
-    highRiskConfirmed,
-    suggestedJavaVersion,
-    detectedFrameworks,
-    userSelectedVersion,
-    sourceVersionStatus,
-    updateSourceVersion,
-    analysisCompletedSeconds,
+      maxVisitedIndicatorStep,
+      isPrivateRepo,
+      patToken,
+      currentPath,
+      targetRepoName,
+      targetRepoNamesByApproach,
+      targetRepoNameEditedByApproach,
+      targetRepoTimestamp,
+      selectedSourceVersion,
+      selectedTargetVersion,
+      selectedConversions,
+      runTests,
+      runSonar,
+      runFossa,
+      fixBusinessLogic,
+      functionalTestToolMethod,
+      migrationApproach,
+      riskLevel,
+      selectedFrameworks,
+      isJavaProject,
+      pathHistory,
+      isHighRiskProject,
+      highRiskConfirmed,
+      suggestedJavaVersion,
+      detectedFrameworks,
+      userSelectedVersion,
+      sourceVersionStatus,
+      updateSourceVersion,
+      analysisCompletedSeconds,
     ]
   );
 
@@ -3528,23 +3587,23 @@ export function useWizardController() {
         setMigrationJob((prev) =>
           prev
             ? {
-                ...prev,
-                fossa_policy_status: fossa.compliance_status ?? prev.fossa_policy_status,
-                fossa_total_dependencies: fossa.total_dependencies ?? prev.fossa_total_dependencies,
-                fossa_license_issues: fossa.license_issues ?? prev.fossa_license_issues,
-                fossa_vulnerabilities:
-                  typeof fossa.vulnerabilities === "number"
-                    ? fossa.vulnerabilities
-                    : fossa.vulnerabilities && typeof fossa.vulnerabilities === "object"
-                      ? Object.values(fossa.vulnerabilities).reduce((sum, value) => sum + (Number(value) || 0), 0)
-                      : prev.fossa_vulnerabilities,
-                fossa_outdated_dependencies: fossa.outdated_dependencies ?? prev.fossa_outdated_dependencies,
-                fossa_scan_mode: fossa.scan_mode ?? prev.fossa_scan_mode,
-                fossa_real_scan: fossa.real_scan ?? prev.fossa_real_scan,
-                fossa_analysis_url: fossa.analysis_url ?? prev.fossa_analysis_url,
-                fossa_error_message: fossa.error_message ?? prev.fossa_error_message,
-                fossa_report: fossa,
-              }
+              ...prev,
+              fossa_policy_status: fossa.compliance_status ?? prev.fossa_policy_status,
+              fossa_total_dependencies: fossa.total_dependencies ?? prev.fossa_total_dependencies,
+              fossa_license_issues: fossa.license_issues ?? prev.fossa_license_issues,
+              fossa_vulnerabilities:
+                typeof fossa.vulnerabilities === "number"
+                  ? fossa.vulnerabilities
+                  : fossa.vulnerabilities && typeof fossa.vulnerabilities === "object"
+                    ? Object.values(fossa.vulnerabilities).reduce((sum, value) => sum + (Number(value) || 0), 0)
+                    : prev.fossa_vulnerabilities,
+              fossa_outdated_dependencies: fossa.outdated_dependencies ?? prev.fossa_outdated_dependencies,
+              fossa_scan_mode: fossa.scan_mode ?? prev.fossa_scan_mode,
+              fossa_real_scan: fossa.real_scan ?? prev.fossa_real_scan,
+              fossa_analysis_url: fossa.analysis_url ?? prev.fossa_analysis_url,
+              fossa_error_message: fossa.error_message ?? prev.fossa_error_message,
+              fossa_report: fossa,
+            }
             : prev
         );
       })
@@ -3607,7 +3666,7 @@ export function useWizardController() {
         setMigrationJob(job);
         setMigrationDetailLoadedJobId(job.job_id);
       })
-      .catch(() => {});
+      .catch(() => { });
   }, [migrationJob?.job_id, setMigrationDetailLoadedJobId, setMigrationJob, step]);
 
   useEffect(() => {
@@ -3636,7 +3695,7 @@ export function useWizardController() {
         setMigrationJob(job);
         setMigrationDetailLoadedJobId(job.job_id);
       })
-      .catch(() => {});
+      .catch(() => { });
   }, [migrationJob?.job_id, migrationJob?.current_step, migrationJob?.status, setMigrationDetailLoadedJobId, setMigrationJob, step]);
 
   useEffect(() => {
@@ -3674,7 +3733,7 @@ export function useWizardController() {
   //   detectedSourceBuildTool && plannedBuildTool && detectedSourceBuildTool !== plannedBuildTool
   //     ? `${detectedSourceBuildTool} -> ${plannedBuildTool}`
   //     : plannedBuildTool || "Not Detected";
-  
+
   const buildToolDisplayLabel = detectedSourceBuildTool || "Not Detected";
   const strategyRiskExplanation =
     riskExplanation || getDefaultRiskExplanation(riskLevel);
@@ -3833,13 +3892,13 @@ export function useWizardController() {
 
     const recommendation = versionRecommendation
       ? {
-          recommended_target_version: versionRecommendation.recommended_target_version,
-          recommended_versions: versionRecommendation.recommended_versions?.slice(0, 3) ?? [],
-          confidence: versionRecommendation.confidence,
-          rationale: versionRecommendation.rationale.slice(0, 2),
-          alternatives: versionRecommendation.alternatives.slice(0, 2),
-          alternative_options: versionRecommendation.alternative_options?.slice(0, 3) ?? [],
-        }
+        recommended_target_version: versionRecommendation.recommended_target_version,
+        recommended_versions: versionRecommendation.recommended_versions?.slice(0, 3) ?? [],
+        confidence: versionRecommendation.confidence,
+        rationale: versionRecommendation.rationale.slice(0, 2),
+        alternatives: versionRecommendation.alternatives.slice(0, 2),
+        alternative_options: versionRecommendation.alternative_options?.slice(0, 3) ?? [],
+      }
       : undefined;
 
     return {
@@ -3951,27 +4010,27 @@ export function useWizardController() {
   const _plannedCodeRefactoringTooltip = useMemo(() => {
     const previewDescriptions = migrationPreview
       ? Array.from(
-          new Map(
-            Object.values(migrationPreview.changes.file_changes)
-              .flatMap((fileChanges) => fileChanges)
-              .map((change) => [change.description, change])
-          ).values()
-        )
+        new Map(
+          Object.values(migrationPreview.changes.file_changes)
+            .flatMap((fileChanges) => fileChanges)
+            .map((change) => [change.description, change])
+        ).values()
+      )
       : [];
 
     const refactoringSteps = previewDescriptions.length > 0
       ? previewDescriptions.slice(0, 5).map((change) => {
-          const occurrences = change.occurrences && change.occurrences > 1
-            ? ` (${change.occurrences} matches)`
-            : "";
-          return `${change.description}${occurrences}`;
-        })
+        const occurrences = change.occurrences && change.occurrences > 1
+          ? ` (${change.occurrences} matches)`
+          : "";
+        return `${change.description}${occurrences}`;
+      })
       : [
-          `Upgrade Java language and build compatibility from Java ${selectedSourceVersion} to Java ${effectiveTargetVersion || "the selected target version"}`,
-          "Refactor deprecated or incompatible Java APIs to supported equivalents",
-          "Modernize exception handling, imports, and resource-management patterns",
-          "Adjust framework and dependency usage for target-version compatibility",
-        ];
+        `Upgrade Java language and build compatibility from Java ${selectedSourceVersion} to Java ${effectiveTargetVersion || "the selected target version"}`,
+        "Refactor deprecated or incompatible Java APIs to supported equivalents",
+        "Modernize exception handling, imports, and resource-management patterns",
+        "Adjust framework and dependency usage for target-version compatibility",
+      ];
 
     if (migrationPreview?.changes.dependencies_to_update?.length) {
       refactoringSteps.push(
@@ -4016,15 +4075,15 @@ export function useWizardController() {
     const discoveredDependencyCount = repoAnalysis?.dependencies?.length ?? 0;
     const dependencyHighlights = dependencyUpdateCount > 0
       ? migrationPreview!.changes.dependencies_to_update.slice(0, 5).map((dependency) => {
-          const targetVersion = dependency.new_version || "latest compatible version";
-          return `${dependency.dependency}: ${dependency.current_version} -> ${targetVersion}`;
-        })
+        const targetVersion = dependency.new_version || "latest compatible version";
+        return `${dependency.dependency}: ${dependency.current_version} -> ${targetVersion}`;
+      })
       : [
-          `Review ${discoveredDependencyCount} detected dependenc${discoveredDependencyCount === 1 ? "y" : "ies"} for target-version compatibility`,
-          "Upgrade framework, plugin, and build-tool packages that block the migration",
-          "Preserve safe versions while removing deprecated or conflicting transitive libraries",
-          "Validate dependency alignment before code generation and testing",
-        ];
+        `Review ${discoveredDependencyCount} detected dependenc${discoveredDependencyCount === 1 ? "y" : "ies"} for target-version compatibility`,
+        "Upgrade framework, plugin, and build-tool packages that block the migration",
+        "Preserve safe versions while removing deprecated or conflicting transitive libraries",
+        "Validate dependency alignment before code generation and testing",
+      ];
 
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 8, color: "#0f172a" }}>
@@ -4073,15 +4132,15 @@ export function useWizardController() {
   const formattedAnalysisElapsed = `${Math.floor(analysisElapsedSeconds / 60)
     .toString()
     .padStart(2, "0")}:${(analysisElapsedSeconds % 60).toString().padStart(2, "0")}`;
-   
+
   const formattedAnalysisCompleted = `${Math.floor(analysisCompletedSeconds / 60)
-  .toString()
-  .padStart(2, "0")}:${(analysisCompletedSeconds % 60).toString().padStart(2, "0")}`;
+    .toString()
+    .padStart(2, "0")}:${(analysisCompletedSeconds % 60).toString().padStart(2, "0")}`;
   const isDiscoveryPending =
     !error &&
     isJavaProject !== false &&
     (analysisLoading || (step === 2 && selectedRepo && !repoAnalysis));
- 
+
   useEffect(() => {
     if (!isDiscoveryPending) {
       return;
@@ -4241,12 +4300,12 @@ export function useWizardController() {
       try {
         const analyzePromise = isLocalProject
           ? analyzeLocalProject(extractLocalRepoPath(selectedRepo.url))
-              .then(async (result) => enrichAnalysisWithPomVersion(result.analysis, selectedRepo.url, ""))
+            .then(async (result) => enrichAnalysisWithPomVersion(result.analysis, selectedRepo.url, ""))
           : jobId
             ? runDiscovery(jobId, currentToken, isRerun)
-                .then(async (result) => enrichAnalysisWithPomVersion(result.analysis, selectedRepo.url, currentToken))
+              .then(async (result) => enrichAnalysisWithPomVersion(result.analysis, selectedRepo.url, currentToken))
             : analyzeRepoUrl(selectedRepo.url, currentToken, true)
-                .then(async (result) => enrichAnalysisWithPomVersion(result.analysis, selectedRepo.url, currentToken));
+              .then(async (result) => enrichAnalysisWithPomVersion(result.analysis, selectedRepo.url, currentToken));
 
         const analysis = await analyzePromise;
         window.clearTimeout(stageTimer1);
@@ -4319,7 +4378,10 @@ export function useWizardController() {
         if (isPrivateRepoAccessError(message) && !isRerun) {
           discoveryInFlightKeyRef.current = "";
           setIsPrivateRepo(true);
-          setStep(1);
+          const activeRouteStep = getStepFromPath(location.pathname);
+          if (step <= 2 && activeRouteStep <= 2) {
+            setStep(1);
+          }
           setError("");
           if (currentToken.trim()) {
             setAccessTokenValidationState("invalid");
@@ -4895,10 +4957,10 @@ export function useWizardController() {
           setMigrationJob((prev) =>
             prev
               ? {
-                  ...prev,
-                  status: "failed",
-                  current_step: "Migration session expired",
-                }
+                ...prev,
+                status: "failed",
+                current_step: "Migration session expired",
+              }
               : prev
           );
           setError(
@@ -5097,7 +5159,7 @@ export function useWizardController() {
 
         if (job.status === "completed") {
           setStep(5);
-          getMigrationLogs(job.job_id).then((logs) => setMigrationLogs(logs.logs || [])).catch(() => {});
+          getMigrationLogs(job.job_id).then((logs) => setMigrationLogs(logs.logs || [])).catch(() => { });
           return;
         }
 
@@ -5114,48 +5176,55 @@ export function useWizardController() {
   };
 
   const resetWizard = () => {
+    clearWizardStorage();
+    clearCachedExistingTests();
     setStep(1);
     setMaxVisitedIndicatorStep(1);
     setDiscoveryCompleted(false);
     setStrategyCompleted(false);
     removeSessionValue(WIZARD_DISCOVERY_COMPLETED_KEY);
     removeSessionValue(WIZARD_STRATEGY_COMPLETED_KEY);
-    if (jobId || selectedRepo?.url) {
-      removeSessionValue(getScopedStepUnlockKey(WIZARD_DISCOVERY_COMPLETED_KEY, jobId || selectedRepo?.url));
-      removeSessionValue(getScopedStepUnlockKey(WIZARD_STRATEGY_COMPLETED_KEY, jobId || selectedRepo?.url));
+    removeSessionValue(WIZARD_MIGRATION_COMPLETED_KEY);
+    removeSessionValue(WIZARD_MIGRATION_JOB_KEY);
+    if (jobId) {
+      removeSessionValue(getScopedStepUnlockKey(WIZARD_DISCOVERY_COMPLETED_KEY, jobId));
+      removeSessionValue(getScopedStepUnlockKey(WIZARD_STRATEGY_COMPLETED_KEY, jobId));
+      removeSessionValue(getScopedStepUnlockKey(WIZARD_MIGRATION_COMPLETED_KEY, jobId));
+    }
+    if (selectedRepo?.url) {
+      removeSessionValue(getScopedStepUnlockKey(WIZARD_DISCOVERY_COMPLETED_KEY, selectedRepo.url));
+      removeSessionValue(getScopedStepUnlockKey(WIZARD_STRATEGY_COMPLETED_KEY, selectedRepo.url));
+      removeSessionValue(getScopedStepUnlockKey(WIZARD_MIGRATION_COMPLETED_KEY, selectedRepo.url));
     }
     setIsMigrationFinishedState(false);
 
     // Reset connect state & credentials
     setRepoUrl("");
     setSelectedRepo(null);
-    setGithubToken("");
-    setIsPrivateRepo(false);
-    setPatToken("");
-    setRepoVisibility("unknown");
-    setIsPatModeOpen(false);
-    setJobId("");
-    resetAccessTokenValidationState();
-    setLocalProjectUploadFiles([]);
-    setLocalProjectUploadError(null);
-    setLocalProjectUploadWarning(null);
-
-    // Reset discovery state
     setRepoAnalysis(null);
-    setDiscoveryStages(INITIAL_DISCOVERY_STAGES);
     setRepoFiles([]);
     setCurrentPath("");
+    setTargetRepoNamesByApproach({ fork: "", branch: "", local: "" });
+    setTargetRepoNameEditedByApproach({ fork: false, branch: false, local: false });
+    setTargetRepoTimestamp(generateRepoTimestamp());
+    setSelectedSourceVersion("8");
+    setSelectedTargetVersion("");
+    setSelectedConversions(["java_version"]);
+    setRunTests(true);
+    setRunSonar(false);
+    setRunFossa(false);
+    setLoading(false);
     setAnalysisLoading(false);
-    setAnalysisElapsedSeconds(0);
-    setAnalysisCompletedSeconds(0);
-    setMicroserviceResult(null);
-    setMicroserviceLoading(false);
-    setMicroserviceAccordionState(createDefaultMicroserviceAccordionState());
-    setIsMicroserviceEligibilityCollapsed(false);
-    setShowAllMicroserviceServices(false);
-    setActiveScoreTooltip(null);
-    setMicroserviceExpandedSections({});
-    setAnalysisStartedAtMs(null);
+    setMigrationJob(null);
+    setMigrationDetailLoadedJobId(null);
+    setFossaResult(null);
+    setFossaLoading(false);
+    setMigrationPreview(null);
+    setMigrationLogs([]);
+    setError("");
+    setTargetVersionRequiredError(false);
+    setTargetRepoNameError("");
+    setMigrationApproach("fork");
     setRiskLevel("");
     setSelectedFrameworks([]);
     setIsJavaProject(null);
@@ -5165,61 +5234,17 @@ export function useWizardController() {
     setIsEditing(false);
     setPathHistory([""]);
     setShowFileExplorer(true);
+    // Reset high-risk project states
     setIsHighRiskProject(false);
     setHighRiskConfirmed(false);
     setSuggestedJavaVersion("17");
     setDetectedFrameworks([]);
     setViewingFrameworkFile(null);
-    setRepoPreviewInitialized(false);
-    setMicroserviceAssessmentResolved(false);
-    resetDiscoverySelectionState();
-    setConversionDecision(null);
-    setShowFolderStructure(false);
-    setBrdFile(null);
-    setBrdUploadStatus("IDLE");
-    setBrdMetadata(null);
-    setBrdUploadError(null);
-
-    // Reset strategy state
-    setTargetRepoNamesByApproach({ fork: "", branch: "", local: "" });
-    setTargetRepoNameEditedByApproach({ fork: false, branch: false, local: false });
-    setTargetRepoTimestamp(generateRepoTimestamp());
-    setSelectedSourceVersion("8");
-    setSelectedTargetVersion("");
-    setSelectedConversions(["java_version"]);
-    setTargetVersionRequiredError(false);
-    setTargetRepoNameError("");
-    setMigrationApproach("fork");
-    setUserSelectedVersion(null);
-    setSourceVersionStatus("idle");
-    setRiskExplanation(null);
-    setRiskExplanationLoading(false);
-    setDependencyAnalysis(null);
-    setDependencyAnalysisLoading(false);
-
-    // Reset modernization / test state
-    setRunTests(true);
-    setRunSonar(false);
-    setRunFossa(false);
-
-    // Reset execution & report state
-    setLoading(false);
-    setMigrationJob(null);
-    setMigrationDetailLoadedJobId(null);
-    setMigrationLogs([]);
-    setFossaResult(null);
-    setFossaLoading(false);
-    setMigrationPreview(null);
+    // Reset code diff states
     setCodeChanges([]);
     setSelectedDiffFile(null);
     setShowCodeChanges(true);
     setVisibleReportDiffCount(REPORT_DIFFS_PAGE_SIZE);
-    setReportDependencyPage(1);
-    setDocumentGenerationLoading(null);
-    setDocumentPrefetchStatus("idle");
-    setPrefetchedBrdDocument(null);
-    setAnimationProgress(0);
-    setError("");
 
     clearWizardStorage();
   };
@@ -5236,61 +5261,61 @@ export function useWizardController() {
         const isIndicatorLocked = !isUnlocked; // never visited yet
 
         return (
-        <React.Fragment key={s.id}>
-          <div 
-            style={{ 
-              display: "flex", 
-              flexDirection: "column", 
-              alignItems: "center", 
-              gap: 8,
-              opacity: 1,
-              // Completed (unlocked): pointer — free jump in any direction.
-              // Never-visited (locked): not-allowed.
-              // Current (active): default (no-op).
-              cursor: canClickIndicator ? "pointer" : isIndicatorLocked ? "not-allowed" : "default",
-              transition: "all 0.3s ease"
-            }} 
-            onClick={() => canClickIndicator && setStep(s.id)}
-          >
+          <React.Fragment key={s.id}>
             <div
-              className={`wizard-step-circle${isCompleted ? " is-complete" : isActive ? " is-active" : ""}`}
-              style={buildWizardAccentVars(s.accent)}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: 8,
+                opacity: 1,
+                // Completed (unlocked): pointer — free jump in any direction.
+                // Never-visited (locked): not-allowed.
+                // Current (active): default (no-op).
+                cursor: canClickIndicator ? "pointer" : isIndicatorLocked ? "not-allowed" : "default",
+                transition: "all 0.3s ease"
+              }}
+              onClick={() => canClickIndicator && setStep(s.id)}
             >
-              {s.icon}
-            </div>
-            <div style={{ textAlign: "center" }}>
-              <div style={{ 
-                fontWeight: isActive ? 700 : 500, 
-                fontSize: 13, 
-                color: isActive ? "#3b82f6" : isCompleted ? "#22c55e" : "#64748b",
-                marginBottom: 2
-              }}>
-                {s.name}
+              <div
+                className={`wizard-step-circle${isCompleted ? " is-complete" : isActive ? " is-active" : ""}`}
+                style={buildWizardAccentVars(s.accent)}
+              >
+                {s.icon}
               </div>
-              <div style={{ 
-                fontSize: 10, 
-                color: isActive ? "#64748b" : "#94a3b8",
-                maxWidth: 100,
-                lineHeight: 1.3
-              }}>
-                {s.description}
+              <div style={{ textAlign: "center" }}>
+                <div style={{
+                  fontWeight: isActive ? 700 : 500,
+                  fontSize: 13,
+                  color: isActive ? "#3b82f6" : isCompleted ? "#22c55e" : "#64748b",
+                  marginBottom: 2
+                }}>
+                  {s.name}
+                </div>
+                <div style={{
+                  fontSize: 10,
+                  color: isActive ? "#64748b" : "#94a3b8",
+                  maxWidth: 100,
+                  lineHeight: 1.3
+                }}>
+                  {s.description}
+                </div>
               </div>
             </div>
-          </div>
-          {/* Connector Line */}
-          {index < MIGRATION_STEPS.length - 1 && (
-            <div style={{
-              flex: 1,
-              height: 3,
-              backgroundColor: currentIndicatorStep > s.id ? "#22c55e" : "#e5e7eb",
-              marginTop: -50,
-              marginLeft: -10,
-              marginRight: -10,
-              borderRadius: 2,
-              transition: "background-color 0.3s ease"
-            }} />
-          )}
-        </React.Fragment>
+            {/* Connector Line */}
+            {index < MIGRATION_STEPS.length - 1 && (
+              <div style={{
+                flex: 1,
+                height: 3,
+                backgroundColor: currentIndicatorStep > s.id ? "#22c55e" : "#e5e7eb",
+                marginTop: -50,
+                marginLeft: -10,
+                marginRight: -10,
+                borderRadius: 2,
+                transition: "background-color 0.3s ease"
+              }} />
+            )}
+          </React.Fragment>
         );
       })}
     </div>
@@ -5363,6 +5388,7 @@ export function useWizardController() {
     targetRepositoryOwner,
     continueToStrategy,
     continueWithTargetVersion,
+    navigateToResults,
     setDiscoveryCompleted,
     setStrategyCompleted,
     modernizationState,

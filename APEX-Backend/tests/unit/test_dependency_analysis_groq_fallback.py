@@ -440,7 +440,7 @@ async def test_controller_endpoint_returns_200_on_heuristic_fallback(sample_requ
     fallback_use_case = AnalyzeDependenciesUseCase(llm_client=mock_hf, chat_llm=mock_chat)
 
     with patch("app.api.v1.endpoints.java_version_controller._dependency_analysis_use_case", fallback_use_case):
-        response = await analyze_dependencies(payload=sample_request, current_user=None, db=None)
+        response = await analyze_dependencies(payload=sample_request, current_user=None)
         assert response.status_code == 200
         data = json.loads(response.body.decode("utf-8"))
         assert data["provider_used"] == "heuristic"

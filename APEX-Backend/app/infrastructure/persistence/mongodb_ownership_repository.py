@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timezone
 from typing import Optional
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
@@ -18,9 +19,7 @@ async def record_job_owner(
     repository_name: Optional[str] = None,
 ):
     """Record the owner of a migration job in MongoDB."""
-    from datetime import datetime, timezone
-    
-    update_doc = {"$set": {"user_id": user_id}}
+    update_doc = {"$set": {"user_id": str(user_id)}}
     
     set_on_insert = {
         "last_updated": datetime.now(timezone.utc)
@@ -47,7 +46,6 @@ async def record_job_owner(
 def sync_update_job_last_updated(job_id: str) -> None:
     """Synchronously update the last_updated timestamp for a migration job in MongoDB."""
     from app.infrastructure.persistence.mongodb import mongodb_manager
-    from datetime import datetime, timezone
     try:
         db = mongodb_manager.get_sync_db()
         if db is not None:

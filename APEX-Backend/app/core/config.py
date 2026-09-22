@@ -226,48 +226,7 @@ class Settings(BaseSettings):
     # downloaded once and reused across jobs, instead of every job re-fetching
     # them from services.gradle.org and being exposed to network timeouts.
     gradle_shared_cache_dir: Path = BACKEND_ROOT / "storage" / ".gradle-cache"
-
-    # --- Email / SMTP (Support tickets, best-effort) --------------------------
-    # All blank by default — support ticket submission always succeeds and
-    # persists the ticket even with zero SMTP configuration. Set these env vars
-    # to also send a notification email when a ticket is submitted.
-    smtp_host: str = Field(default="", alias="SMTP_HOST")
-    smtp_port: int = Field(default=587, alias="SMTP_PORT")
-    smtp_username: str = Field(default="", alias="SMTP_USERNAME")
-    smtp_password: str = Field(default="", alias="SMTP_PASSWORD")
-    smtp_use_tls: bool = Field(default=True, alias="SMTP_USE_TLS")
-    smtp_from_address: str = Field(default="", alias="SMTP_FROM_ADDRESS")
     support_notification_recipient: str = Field(default="", alias="SUPPORT_NOTIFICATION_RECIPIENT")
-
-    @property
-    def is_smtp_configured(self) -> bool:
-        return bool(self.smtp_host and self.smtp_from_address and self.support_notification_recipient)
-
-    # --- Database --------------------------------------------------------------
-    # PostgreSQL connection string using the psycopg (v3) driver, e.g.:
-    # postgresql+psycopg://user:password@localhost:5432/java_apex_db
-    database_url: str = ""
-
-    @field_validator("database_url")
-    @classmethod
-    def _normalize_database_url(cls, value: str) -> str:
-        """Force the psycopg (v3) driver onto the connection string.
-
-        Managed PostgreSQL providers hand out `postgresql://...` or
-        `postgres://...`, but SQLAlchemy maps both onto psycopg2 -- which is
-        not installed (requirements.txt pins psycopg v3) -- so `create_engine`
-        fails at import time with a ModuleNotFoundError. Rewriting the scheme
-        here means the URL can be pasted straight from the provider's dashboard
-        without hand-editing it every time the database is recreated.
-        """
-        url = (value or "").strip()
-        for prefix in ("postgresql+psycopg://", "postgresql+psycopg2://"):
-            if url.startswith(prefix):
-                return url
-        for prefix in ("postgresql://", "postgres://"):
-            if url.startswith(prefix):
-                return "postgresql+psycopg://" + url[len(prefix):]
-        return url
 
     # --- Authentication (JWT + cookies) -----------------------------------------
     # HMAC signing secret for access/refresh JWTs. Must be set in .env — the
@@ -321,12 +280,19 @@ class Settings(BaseSettings):
     environment: str = Field(default="development", alias="ENVIRONMENT")
 
     # --- SMTP / Email Configuration -------------------------------------------
-    smtp_host: str | None = Field(default=None, alias="SMTP_HOST")
+    smtp_host: str = Field(default="", alias="SMTP_HOST")
     smtp_port: int = Field(default=587, alias="SMTP_PORT")
-    smtp_username: str | None = Field(default=None, alias="SMTP_USERNAME")
-    smtp_password: str | None = Field(default=None, alias="SMTP_PASSWORD")
+    smtp_username: str = Field(default="", alias="SMTP_USERNAME")
+    smtp_password: str = Field(default="", alias="SMTP_PASSWORD")
     smtp_use_tls: bool = Field(default=True, alias="SMTP_USE_TLS")
-    smtp_from_address: str | None = Field(default=None, alias="SMTP_FROM_ADDRESS")
+    smtp_from_address: str = Field(default="", alias="SMTP_FROM_ADDRESS")
+
+    @property
+    def smtp_password_clean(self) -> str:
+        """Return SMTP password with spaces stripped (e.g. for Gmail 16-char app passwords)."""
+        if not self.smtp_password:
+            return ""
+        return self.smtp_password.replace(" ", "").strip()
 
     @property
     def is_smtp_configured(self) -> bool:
@@ -392,15 +358,8 @@ class Settings(BaseSettings):
         nothing secret reaches the startup log.
         """
         missing = []
-        # PostgreSQL is required if database is enabled and it's the active backend
-        if self.database_enabled and self.persistence_backend == "postgres":
-            if not self.database_url:
-                missing.append("DATABASE_URL")
-
-        # MongoDB is required if it's the active provider or backend
-        if self.auth_provider == "mongodb" or self.persistence_backend == "mongodb":
-            if not self.mongodb_uri:
-                missing.append("MONGODB_URI")
+        if not self.mongodb_uri:
+            missing.append("MONGODB_URI")
 
         if not self.jwt_secret_key:
             missing.append("JWT_SECRET_KEY")

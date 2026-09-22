@@ -564,10 +564,25 @@ export function ModernizationStepView({
     }
   }, [existingLogs]);
 
+  // Reset previous execution, logs, and report states when jobId changes
+  useEffect(() => {
+    setExistingExecResult(null);
+    setExistingLogs([]);
+    setHasExistingTestsRun(false);
+    setShowValidationReport(false);
+    setIsRunningExisting(false);
+    setExistingElapsedTime(0);
+    setTestDetailReport(null);
+    setShowTestDetailModal(false);
+  }, [jobId]);
+
   // Scan existing tests from repository on mount or when jobId changes
   useEffect(() => {
     if (!jobId) {
       setIsLoadingDiscoveredTests(false);
+      setExistingTotal(null);
+      setExistingFramework(null);
+      setDiscoveredTests([]);
       return;
     }
 

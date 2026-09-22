@@ -119,6 +119,7 @@ export default function MigrationWizardPage() {
     selectedLLMProvider,
     useLLMTests,
     continueToStrategy,
+    navigateToResults,
     setDiscoveryCompleted,
     setStrategyCompleted,
     maxVisitedIndicatorStep,
@@ -509,13 +510,7 @@ export default function MigrationWizardPage() {
               technicalSpecificationHelperText={technicalSpecificationHelperText}
               onBack={() => setStep(1)}
               onChooseDifferentRepository={() => {
-                setDiscoveryCompleted(false);
-                setStrategyCompleted(false);
-                setStep(1);
-                setSelectedRepo(null);
-                setRepoAnalysis(null);
-                setRepoUrl("");
-                setError("");
+                resetWizard();
               }}
               onContinueToStrategy={continueToStrategy}
               onError={setError}
@@ -594,14 +589,8 @@ export default function MigrationWizardPage() {
               repoAnalysis={repoAnalysis}
               codeChanges={resultExecState.codeChanges}
               fossaResult={resultExecState.fossaResult}
-              onMigrationComplete={() => {
-                setIsMigrationFinishedState(true);
-                setStep(7);
-              }}
-              onViewReport={() => {
-                setIsMigrationFinishedState(true);
-                setStep(7);
-              }}
+              onMigrationComplete={navigateToResults}
+              onViewReport={navigateToResults}
               onRetry={handleStartMigration}
             />
           </ResultPage>
@@ -615,10 +604,7 @@ export default function MigrationWizardPage() {
                 setError("");
                 resetWizard();
               }}
-              onViewReport={() => {
-                setIsMigrationFinishedState(true);
-                setStep(7);
-              }}
+              onViewReport={navigateToResults}
             />
           </ResultPage>
         )}
@@ -628,6 +614,7 @@ export default function MigrationWizardPage() {
               resultExec={resultExecState}
               runSonar={runSonar}
               runFossa={runFossa}
+              runTests={runTests}
               selectedLLMProvider={selectedLLMProvider}
               useLLMTests={useLLMTests}
               resetWizard={resetWizard}

@@ -97,3 +97,33 @@ async def exchange_code_for_profile(*, code: str, code_verifier: str) -> GoogleU
         full_name=profile_data.get("name"),
         profile_image=profile_data.get("picture"),
     )
+
+
+async def verify_id_token(credential: str) -> GoogleUserProfile:
+    """Verify a Google Identity Services OpenID Connect ID token and return user profile."""
+    if not settings.google_client_id:
+        raise OAuthProviderError("Google OAuth is not configured.")
+
+    try:
+        from google.auth.transport import requests as google_requests
+        from google.oauth2 import id_token as google_id_token
+
+        request_adapter = google_requests.Request()
+        id_info = google_id_token.verify_oauth2_token(
+            credential, request_adapter, audience=settings.google_client_id
+        )
+    except Exception as exc:
+        raise OAuthProviderError("Invalid or expired Google ID token.") from exc
+
+    provider_user_id = id_info.get("sub")
+    if not provider_user_id:
+        raise OAuthProviderError("Invalid Google identity.")
+
+    return GoogleUserProfile(
+        provider_user_id=str(provider_user_id),
+        email=id_info.get("email"),
+        email_verified=bool(id_info.get("email_verified", False)),
+        full_name=id_info.get("name"),
+        profile_image=id_info.get("picture"),
+    )
+

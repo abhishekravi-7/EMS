@@ -23,9 +23,9 @@ def test_normalize_repo_url():
 
 def test_build_auth_url():
     token = "ghp_secretToken12345"
-    url = "https://github.com/Ganga-balaguru16/leave-management.git/"
+    url = "https://github.com/Javaapex-owner/leave-management.git/"
     auth_url = RepoPusher._build_auth_url(url, token)
-    assert auth_url == "https://x-access-token:ghp_secretToken12345@github.com/Ganga-balaguru16/leave-management.git"
+    assert auth_url == "https://x-access-token:ghp_secretToken12345@github.com/Javaapex-owner/leave-management.git"
 
 
 def test_branch_creator_success(tmp_path: Path):

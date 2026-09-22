@@ -4,18 +4,18 @@ from datetime import datetime, timezone
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.api.deps import get_current_user
-from app.infrastructure.persistence.models import User
+from app.api.deps import User, get_current_user
+from app.infrastructure.persistence.mongodb import get_mongodb
 
 @pytest.fixture
 def mock_user():
-    user = User()
-    user.id = "user_123"
-    user.full_name = "Test User"
-    user.email = "test@example.com"
-    user.role = "USER"
-    user.is_active = True
-    return user
+    return User(
+        id="user_123",
+        full_name="Test User",
+        email="test@example.com",
+        role="USER",
+        is_active=True,
+    )
 
 @pytest.fixture
 def client(mock_user):
@@ -117,47 +117,95 @@ async def test_recent_repositories_owner_and_components_all_states(client, mock_
     def mock_read_discovery(job_id):
         return reports.get(job_id)
 
-    with patch("app.infrastructure.persistence.mongodb.get_mongodb", AsyncMock(return_value=mock_db)), \
-         patch("app.infrastructure.persistence.job_repository.JobRepository.read_discovery_report", side_effect=mock_read_discovery), \
-         patch("app.infrastructure.persistence.job_repository.JobRepository.read_connect_report", return_value={"repoVisibility": "PUBLIC"}):
-        
-        response = client.get("/api/v1/connect/recent-repositories")
+    app.dependency_overrides[get_mongodb] = lambda: mock_db
+    try:
+        with patch("app.infrastructure.persistence.job_repository.JobRepository.read_discovery_report", side_effect=mock_read_discovery), \
+             patch("app.infrastructure.persistence.job_repository.JobRepository.read_connect_report", return_value={"repoVisibility": "PUBLIC"}):
+            
+            response = client.get("/api/v1/connect/recent-repositories")
+            assert response.status_code == 200
+            repos = response.json()["repositories"]
+            assert len(repos) == 7
+    finally:
+        app.dependency_overrides.pop(get_mongodb, None)
+
+    by_id = {r["jobId"]: r for r in repos}
+
+    # 1. Completed with 0 -> "0 APIs", "Sarah Connor"
+    assert by_id["job_completed_zero"]["owner"] == "Sarah Connor"
+    assert by_id["job_completed_zero"]["componentsCount"] == "0 APIs"
+    assert by_id["job_completed_zero"]["status"] == "Analyzed"
+
+    # 2. Completed with 1 -> "1 API", "Owner unavailable" (was whitespace)
+    assert by_id["job_completed_single"]["owner"] == "Owner unavailable"
+    assert by_id["job_completed_single"]["componentsCount"] == "1 API"
+    assert by_id["job_completed_single"]["status"] == "Analyzed"
+
+    # 3. Completed with 15 -> "15 APIs", "John Doe"
+    assert by_id["job_completed_multi"]["owner"] == "John Doe"
+    assert by_id["job_completed_multi"]["componentsCount"] == "15 APIs"
+    assert by_id["job_completed_multi"]["status"] == "Analyzed"
+
+    # 4. Not started -> "Not analyzed", "Alice Smith"
+    assert by_id["job_not_started"]["owner"] == "Alice Smith"
+    assert by_id["job_not_started"]["componentsCount"] == "Not analyzed"
+    assert by_id["job_not_started"]["status"] == "Connected"
+
+    # 5. Running -> "Analyzing…", "Bob Builder"
+    assert by_id["job_running"]["owner"] == "Bob Builder"
+    assert by_id["job_running"]["componentsCount"] == "Analyzing…"
+    assert by_id["job_running"]["status"] == "Analyzing"
+
+    # 6. Failed -> "Analysis failed", "Charlie Chaplin"
+    assert by_id["job_failed"]["owner"] == "Charlie Chaplin"
+    assert by_id["job_failed"]["componentsCount"] == "Analysis failed"
+    assert by_id["job_failed"]["status"] == "Failed"
+
+    # 7. Unsupported/missing metrics -> "Unavailable", "Owner unavailable" (was None)
+    assert by_id["job_unsupported"]["owner"] == "Owner unavailable"
+    assert by_id["job_unsupported"]["componentsCount"] == "Unavailable"
+    assert by_id["job_unsupported"]["status"] == "Analyzed"
+
+
+@pytest.mark.asyncio
+async def test_connect_repository_success_persists_owner_in_mongodb(client, mock_user):
+    from app.application.pipelines.connect_pipeline import ConnectResult
+
+    mock_db = MagicMock()
+    mock_db.migration_job_owners.update_one = AsyncMock(return_value=None)
+    app.dependency_overrides[get_mongodb] = lambda: mock_db
+
+    fake_result = ConnectResult(
+        job_id="job_test_123",
+        repo_url="https://github.com/abhishekravi-7/EMS",
+        owner="abhishekravi-7",
+        repo_name="EMS",
+        repo_visibility="PUBLIC",
+        access_status="ACCESS_GRANTED",
+        message="Connected to GitHub repository.",
+        created_at="2026-09-22T12:00:00Z",
+    )
+
+    with patch("app.api.v1.endpoints.connect_controller._pipeline.run", AsyncMock(return_value=fake_result)), \
+         patch("app.api.v1.endpoints.connect_controller.get_mongodb", AsyncMock(return_value=mock_db)):
+        response = client.post(
+            "/api/v1/connect",
+            json={"repo_url": "https://github.com/abhishekravi-7/EMS", "github_token": ""},
+        )
         assert response.status_code == 200
-        repos = response.json()["repositories"]
-        assert len(repos) == 7
+        data = response.json()
+        assert data["jobId"] == "job_test_123"
+        assert data["accessStatus"] == "ACCESS_GRANTED"
 
-        by_id = {r["jobId"]: r for r in repos}
+        # Verify update_one was called with user_id, owner_name, owner_email, repository_name
+        mock_db.migration_job_owners.update_one.assert_called_once()
+        call_args = mock_db.migration_job_owners.update_one.call_args
+        filter_query = call_args[0][0]
+        update_payload = call_args[0][1]
 
-        # 1. Completed with 0 -> "0 APIs", "Sarah Connor"
-        assert by_id["job_completed_zero"]["owner"] == "Sarah Connor"
-        assert by_id["job_completed_zero"]["componentsCount"] == "0 APIs"
-        assert by_id["job_completed_zero"]["status"] == "Analyzed"
+        assert filter_query == {"job_id": "job_test_123"}
+        assert update_payload["$set"]["user_id"] == "user_123"
+        assert update_payload["$set"]["repository_name"] == "abhishekravi-7/EMS"
+        assert update_payload["$setOnInsert"]["owner_name"] == "Test User"
+        assert update_payload["$setOnInsert"]["owner_email"] == "test@example.com"
 
-        # 2. Completed with 1 -> "1 API", "Owner unavailable" (was whitespace)
-        assert by_id["job_completed_single"]["owner"] == "Owner unavailable"
-        assert by_id["job_completed_single"]["componentsCount"] == "1 API"
-        assert by_id["job_completed_single"]["status"] == "Analyzed"
-
-        # 3. Completed with 15 -> "15 APIs", "John Doe"
-        assert by_id["job_completed_multi"]["owner"] == "John Doe"
-        assert by_id["job_completed_multi"]["componentsCount"] == "15 APIs"
-        assert by_id["job_completed_multi"]["status"] == "Analyzed"
-
-        # 4. Not started -> "Not analyzed", "Alice Smith"
-        assert by_id["job_not_started"]["owner"] == "Alice Smith"
-        assert by_id["job_not_started"]["componentsCount"] == "Not analyzed"
-        assert by_id["job_not_started"]["status"] == "Connected"
-
-        # 5. Running -> "Analyzing…", "Bob Builder"
-        assert by_id["job_running"]["owner"] == "Bob Builder"
-        assert by_id["job_running"]["componentsCount"] == "Analyzing…"
-        assert by_id["job_running"]["status"] == "Analyzing"
-
-        # 6. Failed -> "Analysis failed", "Charlie Chaplin"
-        assert by_id["job_failed"]["owner"] == "Charlie Chaplin"
-        assert by_id["job_failed"]["componentsCount"] == "Analysis failed"
-        assert by_id["job_failed"]["status"] == "Failed"
-
-        # 7. Unsupported/missing metrics -> "Unavailable", "Owner unavailable" (was None)
-        assert by_id["job_unsupported"]["owner"] == "Owner unavailable"
-        assert by_id["job_unsupported"]["componentsCount"] == "Unavailable"

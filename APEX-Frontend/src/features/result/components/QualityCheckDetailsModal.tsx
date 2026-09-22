@@ -135,22 +135,6 @@ export const QualityCheckDetailsModal: React.FC<QualityCheckDetailsModalProps> =
   const renderContent = () => {
     switch (category) {
       case "sonarqube": {
-        if (!migrationState.qualityChecks?.sonar?.executed) {
-          return (
-            <div className="qc-modal-content-body">
-              <div className="qc-status-banner" style={{ background: "rgba(30, 41, 59, 0.6)", borderColor: "rgba(148, 163, 184, 0.25)" }}>
-                <BsShieldCheck style={{ color: "#94a3b8", fontSize: 24, flexShrink: 0 }} />
-                <div>
-                  <strong style={{ color: "#f1f5f9" }}>SonarQube analysis was not executed for this migration.</strong>
-                  <div className="qc-banner-sub" style={{ color: "#94a3b8" }}>
-                    Code quality gate, security inspection, and test coverage analysis were not enabled during the migration configuration.
-                  </div>
-                </div>
-              </div>
-            </div>
-          );
-        }
-
         const isSonarInProgress =
           migrationState.currentStep < 4 ||
           (migrationState.currentStep === 4 &&
@@ -302,22 +286,6 @@ export const QualityCheckDetailsModal: React.FC<QualityCheckDetailsModalProps> =
       }
 
       case "fossa": {
-        if (!migrationState.qualityChecks?.fossa?.executed) {
-          return (
-            <div className="qc-modal-content-body">
-              <div className="qc-status-banner" style={{ background: "rgba(30, 41, 59, 0.6)", borderColor: "rgba(148, 163, 184, 0.25)" }}>
-                <FaShieldAlt style={{ color: "#94a3b8", fontSize: 24, flexShrink: 0 }} />
-                <div>
-                  <strong style={{ color: "#f1f5f9" }}>FOSSA license and dependency scan was not executed for this migration.</strong>
-                  <div className="qc-banner-sub" style={{ color: "#94a3b8" }}>
-                    Open-source license compliance and third-party vulnerability checks were not enabled during the migration configuration.
-                  </div>
-                </div>
-              </div>
-            </div>
-          );
-        }
-
         const isFossaInProgress =
           migrationState.currentStep < 4 ||
           (migrationState.currentStep === 4 &&
@@ -453,6 +421,23 @@ export const QualityCheckDetailsModal: React.FC<QualityCheckDetailsModalProps> =
       }
 
       case "junit": {
+        const isJunitExec = Boolean(migrationState.qualityChecks?.junit?.executed);
+        if (!isJunitExec) {
+          return (
+            <div className="qc-modal-content-body">
+              <div className="qc-status-banner" style={{ background: "rgba(30, 41, 59, 0.6)", borderColor: "rgba(148, 163, 184, 0.25)" }}>
+                <SiJunit5 style={{ color: "#94a3b8", fontSize: 24, flexShrink: 0 }} />
+                <div>
+                  <strong style={{ color: "#f1f5f9" }}>Unit test suite was not executed for this migration.</strong>
+                  <div className="qc-banner-sub" style={{ color: "#94a3b8" }}>
+                    Automated unit test execution and regression suite validation were not enabled during the migration configuration.
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        }
+
         const testDetails = migrationState.unitTests.methodDetails || [];
 
         return (
@@ -517,38 +502,9 @@ export const QualityCheckDetailsModal: React.FC<QualityCheckDetailsModalProps> =
                     </div>
                   ))
                 ) : (
-                  <>
-                    <div className="test-method-row">
-                      <div className="method-info">
-                        <span className="method-name">contextLoads()</span>
-                        <span className="method-class">SystemApplicationTests.java</span>
-                      </div>
-                      <div className="method-meta">
-                        <span className="method-duration">42ms</span>
-                        <span className="method-status-pill pill-passed">PASSED</span>
-                      </div>
-                    </div>
-                    <div className="test-method-row">
-                      <div className="method-info">
-                        <span className="method-name">testApplicationStartupConfiguration()</span>
-                        <span className="method-class">SystemApplicationTests.java</span>
-                      </div>
-                      <div className="method-meta">
-                        <span className="method-duration">18ms</span>
-                        <span className="method-status-pill pill-passed">PASSED</span>
-                      </div>
-                    </div>
-                    <div className="test-method-row">
-                      <div className="method-info">
-                        <span className="method-name">testSpringSecurityCompatibility()</span>
-                        <span className="method-class">SecurityConfigTests.java</span>
-                      </div>
-                      <div className="method-meta">
-                        <span className="method-duration">28ms</span>
-                        <span className="method-status-pill pill-passed">PASSED</span>
-                      </div>
-                    </div>
-                  </>
+                  <div style={{ padding: "16px", textAlign: "center", color: "#94a3b8", fontSize: "13px" }}>
+                    No executed test method telemetry recorded.
+                  </div>
                 )}
               </div>
             </div>
@@ -612,40 +568,38 @@ export const QualityCheckDetailsModal: React.FC<QualityCheckDetailsModalProps> =
   // Header Title & Icon
   const getHeaderInfo = () => {
     switch (category) {
-      case "sonarqube": {
-        const isSonarExec = migrationState.qualityChecks?.sonar?.executed;
+      case "sonarqube":
         return {
           title: "SonarQube Code Quality & Security Inspection",
           subtitle: "Automated static analysis, bugs, vulnerabilities, and quality gate telemetry.",
-          icon: <BsShieldCheck size={22} color={isSonarExec ? "#38bdf8" : "#94a3b8"} />,
-          badge: isSonarExec ? (sonarGate || "PASSED") : "NOT EXECUTED",
-          badgeColor: isSonarExec ? (sonarGate === "PASSED" || sonarGate === "OK" ? "badge-green" : "badge-blue") : "badge-gray",
-          externalUrl: isSonarExec ? sonarAnalysisUrl : null,
-          externalLabel: isSonarExec ? "Open SonarQube Dashboard" : null,
+          icon: <BsShieldCheck size={22} color="#38bdf8" />,
+          badge: sonarGate || "PASSED",
+          badgeColor: sonarGate === "PASSED" || sonarGate === "OK" ? "badge-green" : "badge-blue",
+          externalUrl: sonarAnalysisUrl,
+          externalLabel: "Open SonarQube Dashboard",
         };
-      }
-      case "fossa": {
-        const isFossaExec = migrationState.qualityChecks?.fossa?.executed;
+      case "fossa":
         return {
           title: "FOSSA License & Dependency Compliance Scan",
           subtitle: "Third-party dependency license governance, policy checks, and CVE audits.",
-          icon: <FaShieldAlt size={22} color={isFossaExec ? "#38bdf8" : "#94a3b8"} />,
-          badge: isFossaExec ? (fossaPolicy || "COMPLIANT") : "NOT EXECUTED",
-          badgeColor: isFossaExec ? "badge-green" : "badge-gray",
-          externalUrl: isFossaExec ? fossaAnalysisUrl : null,
-          externalLabel: isFossaExec ? "Open FOSSA Dashboard" : null,
+          icon: <FaShieldAlt size={22} color="#38bdf8" />,
+          badge: fossaPolicy || "COMPLIANT",
+          badgeColor: "badge-green",
+          externalUrl: fossaAnalysisUrl,
+          externalLabel: "Open FOSSA Dashboard",
         };
-      }
-      case "junit":
+      case "junit": {
+        const isJunitExec = Boolean(migrationState.qualityChecks?.junit?.executed);
         return {
           title: "JUnit 5 Test Execution & Quality Verification",
           subtitle: "Unit and integration test results for modernized Java application components.",
-          icon: <SiJunit5 size={22} color="#38bdf8" />,
-          badge: `${testsPassed} / ${totalTests} PASSED`,
-          badgeColor: "badge-green",
+          icon: <SiJunit5 size={22} color={isJunitExec ? "#38bdf8" : "#94a3b8"} />,
+          badge: isJunitExec ? `${testsPassed} / ${totalTests} PASSED` : "NOT EXECUTED",
+          badgeColor: isJunitExec ? "badge-green" : "badge-gray",
           externalUrl: null,
           externalLabel: null,
         };
+      }
       case "deprecation":
         return {
           title: "Java Deprecation & Obsolete API Analysis",
@@ -714,7 +668,7 @@ export const QualityCheckDetailsModal: React.FC<QualityCheckDetailsModalProps> =
         {/* Footer Actions */}
         <div className="qc-modal-footer">
           <div className="qc-footer-left">
-            {category === "junit" && onOpenSourceCode && (
+            {category === "junit" && Boolean(migrationState.qualityChecks?.junit?.executed) && onOpenSourceCode && (
               <button
                 type="button"
                 className="qc-btn-secondary"
