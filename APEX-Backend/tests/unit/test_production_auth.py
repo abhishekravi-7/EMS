@@ -919,6 +919,176 @@ async def test_signup_email_format_validation(mongodb_db, monkeypatch):
             assert resp.status_code == 422, f"Expected 422 for invalid email: {bad_email}, got {resp.status_code}"
 
 
+@pytest.mark.asyncio
+async def test_forgot_password_digitalocean_url(mongodb_db, monkeypatch):
+    """DigitalOcean production FRONTEND_URL correctly constructs the full reset link with domain."""
+    monkeypatch.setattr("app.api.v1.endpoints.auth_controller.get_mongodb", AsyncMock(return_value=mongodb_db))
+    monkeypatch.setattr("app.infrastructure.persistence.mongodb.get_mongodb", AsyncMock(return_value=mongodb_db))
+
+    from app.core.config import settings
+    from app.core.security import hash_password
+
+    # Seed an active verified user
+    await mongodb_db.users.insert_one({
+        "_id": 101,
+        "email": "do.user@example.com",
+        "full_name": "DO User",
+        "password_hash": hash_password("OldPassword@123"),
+        "role": "engineer",
+        "is_active": True,
+        "is_email_verified": True,
+        "created_at": datetime.now(timezone.utc),
+    })
+
+    captured_links = []
+    async def mock_send_reset(to_email, user_name, reset_link):
+        captured_links.append({"to_email": to_email, "user_name": user_name, "link": reset_link})
+        return True
+
+    monkeypatch.setattr("app.infrastructure.email.email_service.send_password_reset_email", mock_send_reset)
+    monkeypatch.setattr("app.application.services.mongodb_auth_service.send_password_reset_email", mock_send_reset)
+    monkeypatch.setattr(settings, "frontend_url", "https://apex-frontend.ondigitalocean.app")
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/api/auth/forgot-password",
+            json={"email": "do.user@example.com"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["message"] == "If that email is in our system, we sent a password reset link."
+
+    assert len(captured_links) == 1
+    sent_link = captured_links[0]["link"]
+    assert sent_link.startswith("https://apex-frontend.ondigitalocean.app/reset-password?token=")
+    assert "localhost" not in sent_link
+    assert not sent_link.startswith("/reset-password")
+
+    # Verify token stored in DB
+    reset_doc = await mongodb_db.password_resets.find_one({"user_id": 101})
+    assert reset_doc is not None
+    assert reset_doc["token"] in sent_link
+
+
+@pytest.mark.asyncio
+async def test_forgot_password_local_url(mongodb_db, monkeypatch):
+    """Local development FRONTEND_URL constructs localhost link."""
+    monkeypatch.setattr("app.api.v1.endpoints.auth_controller.get_mongodb", AsyncMock(return_value=mongodb_db))
+    monkeypatch.setattr("app.infrastructure.persistence.mongodb.get_mongodb", AsyncMock(return_value=mongodb_db))
+
+    from app.core.config import settings
+    from app.core.security import hash_password
+
+    await mongodb_db.users.insert_one({
+        "_id": 102,
+        "email": "local.user@example.com",
+        "full_name": "Local User",
+        "password_hash": hash_password("OldPassword@123"),
+        "role": "engineer",
+        "is_active": True,
+        "is_email_verified": True,
+        "created_at": datetime.now(timezone.utc),
+    })
+
+    captured_links = []
+    async def mock_send_reset(to_email, user_name, reset_link):
+        captured_links.append({"to_email": to_email, "user_name": user_name, "link": reset_link})
+        return True
+
+    monkeypatch.setattr("app.infrastructure.email.email_service.send_password_reset_email", mock_send_reset)
+    monkeypatch.setattr("app.application.services.mongodb_auth_service.send_password_reset_email", mock_send_reset)
+    monkeypatch.setattr(settings, "frontend_url", "http://localhost:5173")
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/api/auth/forgot-password",
+            json={"email": "local.user@example.com"},
+        )
+        assert resp.status_code == 200
+
+    assert len(captured_links) == 1
+    sent_link = captured_links[0]["link"]
+    assert sent_link.startswith("http://localhost:5173/reset-password?token=")
+
+
+@pytest.mark.asyncio
+async def test_reset_password_full_lifecycle(mongodb_db, monkeypatch):
+    """Reset password changes hash, deletes token, allows sign-in with new password, and blocks token reuse."""
+    monkeypatch.setattr("app.api.v1.endpoints.auth_controller.get_mongodb", AsyncMock(return_value=mongodb_db))
+    monkeypatch.setattr("app.infrastructure.persistence.mongodb.get_mongodb", AsyncMock(return_value=mongodb_db))
+
+    from app.core.security import hash_password
+
+    await mongodb_db.users.insert_one({
+        "_id": 103,
+        "email": "reset.lifecycle@example.com",
+        "full_name": "Lifecycle User",
+        "password_hash": hash_password("OldPassword@123"),
+        "role": "engineer",
+        "is_active": True,
+        "is_email_verified": True,
+        "created_at": datetime.now(timezone.utc),
+    })
+
+    token = "test_secure_reset_token_xyz_12345"
+    await mongodb_db.password_resets.insert_one({
+        "user_id": 103,
+        "token": token,
+        "expires_at": datetime.now(timezone.utc) + timedelta(minutes=30),
+        "created_at": datetime.now(timezone.utc),
+    })
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # 1. Reset password
+        reset_resp = await client.post(
+            "/api/auth/reset-password",
+            json={
+                "token": token,
+                "newPassword": "NewStrongPassword@2026",
+            },
+        )
+        assert reset_resp.status_code == 200
+        assert reset_resp.json()["message"] == "Password successfully reset."
+
+        # 2. Token must be invalidated/deleted from DB
+        token_doc = await mongodb_db.password_resets.find_one({"token": token})
+        assert token_doc is None
+
+        # 3. Cannot reuse same token
+        reuse_resp = await client.post(
+            "/api/auth/reset-password",
+            json={
+                "token": token,
+                "newPassword": "AnotherPassword@2026",
+            },
+        )
+        assert reuse_resp.status_code == 401
+
+        # 4. Sign in with old password fails
+        old_login = await client.post(
+            "/api/auth/login",
+            json={
+                "email": "reset.lifecycle@example.com",
+                "password": "OldPassword@123",
+            },
+        )
+        assert old_login.status_code == 401
+
+        # 5. Sign in with new password succeeds
+        new_login = await client.post(
+            "/api/auth/login",
+            json={
+                "email": "reset.lifecycle@example.com",
+                "password": "NewStrongPassword@2026",
+            },
+        )
+        assert new_login.status_code == 200
+        assert "access_token" in new_login.cookies
+
+
+
 
 
 

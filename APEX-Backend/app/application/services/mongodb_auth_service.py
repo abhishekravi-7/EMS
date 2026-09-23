@@ -322,7 +322,13 @@ class MongoDBAuthService:
             expires_at=expires_at
         )
 
-        reset_link = f"{frontend_url.rstrip('/')}/reset-password?token={token}"
+        base_fe = (frontend_url or "").strip().rstrip("/")
+        if not base_fe or not (base_fe.startswith("http://") or base_fe.startswith("https://")):
+            base_fe = (settings.frontend_url or "http://localhost:5173").strip().rstrip("/")
+            if not (base_fe.startswith("http://") or base_fe.startswith("https://")):
+                base_fe = f"https://{base_fe.lstrip('/')}"
+        
+        reset_link = f"{base_fe}/reset-password?token={token}"
         
         # Here we would send the email.
         # We will integrate an email service to send the specific template.

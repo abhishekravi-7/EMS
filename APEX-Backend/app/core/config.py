@@ -272,7 +272,10 @@ class Settings(BaseSettings):
 
 
     # Frontend origin this deployment's auth cookies/CORS trust.
-    frontend_url: str = "http://localhost:5173"
+    frontend_url: str = Field(
+        default="http://localhost:5173",
+        validation_alias=AliasChoices("FRONTEND_URL", "frontend_url"),
+    )
     backend_url: str = Field(default="http://localhost:8000", alias="BACKEND_URL")
 
     # Use True to enforce JWT cookies having Secure flag
@@ -373,15 +376,23 @@ class Settings(BaseSettings):
 
     # --- CORS ----------------------------------------------------------------
     # Comma-separated list of allowed origins for the frontend dev/prod hosts.
-    cors_origins: str = (
-        "http://localhost:5173,http://127.0.0.1:5173,"
-        "http://localhost:3000,http://127.0.0.1:3000,"
-        "http://localhost:8000,http://127.0.0.1:8000"
+    cors_origins: str = Field(
+        default=(
+            "http://localhost:5173,http://127.0.0.1:5173,"
+            "http://localhost:3000,http://127.0.0.1:3000,"
+            "http://localhost:8000,http://127.0.0.1:8000"
+        ),
+        validation_alias=AliasChoices("CORS_ORIGINS", "cors_origins"),
     )
 
     @property
     def cors_origins_list(self) -> list[str]:
-        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+        origins = [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+        if self.frontend_url and self.frontend_url.strip():
+            clean_fe = self.frontend_url.strip().rstrip("/")
+            if clean_fe and clean_fe not in origins:
+                origins.append(clean_fe)
+        return origins
 
 
 @lru_cache

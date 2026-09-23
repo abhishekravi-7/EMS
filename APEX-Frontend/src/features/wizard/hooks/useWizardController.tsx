@@ -76,6 +76,7 @@ import {
   writeSessionValue,
   removeSessionValue,
   getScopedStepUnlockKey,
+  getScopedRepoAnalysisKey,
   WIZARD_REPO_URL_KEY,
   WIZARD_DISCOVERY_COMPLETED_KEY,
   WIZARD_STRATEGY_COMPLETED_KEY,
@@ -5176,43 +5177,99 @@ export function useWizardController() {
   };
 
   const resetWizard = () => {
+    // 1. Clear session and legacy storage
     clearWizardStorage();
     clearCachedExistingTests();
-    setStep(1);
-    setMaxVisitedIndicatorStep(1);
-    setDiscoveryCompleted(false);
-    setStrategyCompleted(false);
+
+    // 2. Clear scoped completion keys
     removeSessionValue(WIZARD_DISCOVERY_COMPLETED_KEY);
     removeSessionValue(WIZARD_STRATEGY_COMPLETED_KEY);
     removeSessionValue(WIZARD_MIGRATION_COMPLETED_KEY);
     removeSessionValue(WIZARD_MIGRATION_JOB_KEY);
+    removeSessionValue(WIZARD_JOB_ID_KEY);
+    removeSessionValue(WIZARD_REPO_URL_KEY);
+    removeSessionValue(WIZARD_SELECTED_REPO_KEY);
+    removeSessionValue(WIZARD_FORM_STATE_KEY);
+
     if (jobId) {
       removeSessionValue(getScopedStepUnlockKey(WIZARD_DISCOVERY_COMPLETED_KEY, jobId));
       removeSessionValue(getScopedStepUnlockKey(WIZARD_STRATEGY_COMPLETED_KEY, jobId));
       removeSessionValue(getScopedStepUnlockKey(WIZARD_MIGRATION_COMPLETED_KEY, jobId));
+      removeSessionValue(getScopedRepoAnalysisKey(jobId));
     }
     if (selectedRepo?.url) {
       removeSessionValue(getScopedStepUnlockKey(WIZARD_DISCOVERY_COMPLETED_KEY, selectedRepo.url));
       removeSessionValue(getScopedStepUnlockKey(WIZARD_STRATEGY_COMPLETED_KEY, selectedRepo.url));
       removeSessionValue(getScopedStepUnlockKey(WIZARD_MIGRATION_COMPLETED_KEY, selectedRepo.url));
+      removeSessionValue(getScopedRepoAnalysisKey(selectedRepo.url));
     }
+
+    // 3. Reset step & indicator states
+    setStep(1);
+    setMaxVisitedIndicatorStep(1);
+    setDiscoveryCompleted(false);
+    setStrategyCompleted(false);
     setIsMigrationFinishedState(false);
 
-    // Reset connect state & credentials
+    // 4. Reset connect & repo selection state
+    connectState.setJobId("");
     setRepoUrl("");
     setSelectedRepo(null);
-    setRepoAnalysis(null);
-    setRepoFiles([]);
-    setCurrentPath("");
-    setTargetRepoNamesByApproach({ fork: "", branch: "", local: "" });
-    setTargetRepoNameEditedByApproach({ fork: false, branch: false, local: false });
+    connectState.setIsPrivateRepo(false);
+    connectState.setPatToken("");
+    connectState.setGithubToken("");
+    connectState.setRepoVisibility("unknown");
+    connectState.setIsPatModeOpen(false);
+    connectState.resetAccessTokenValidationState();
+    connectState.setLocalProjectUploadFiles([]);
+    connectState.setLocalProjectUploadError("");
+    connectState.setLocalProjectUploadWarning("");
+
+    // 5. Reset discovery state
+    resetDiscoverySelectionState();
+    setBrdFile(null);
+    setBrdUploadStatus("IDLE");
+    setBrdMetadata(null);
+    setBrdUploadError(null);
+    setConversionDecision(null);
+    setShowFolderStructure(false);
+    setAnalysisElapsedSeconds(0);
+    setAnalysisCompletedSeconds(0);
+    setAnalysisStartedAtMs(null);
+    setRiskLevel("");
+    setSelectedFrameworks([]);
+    setIsHighRiskProject(false);
+    setHighRiskConfirmed(false);
+    setSuggestedJavaVersion("17");
+    setViewingFrameworkFile(null);
+    setFrameworkFileLoading(false);
+
+    // 6. Reset strategy state
+    resetTargetRepoNaming();
     setTargetRepoTimestamp(generateRepoTimestamp());
     setSelectedSourceVersion("8");
     setSelectedTargetVersion("");
     setSelectedConversions(["java_version"]);
-    setRunTests(true);
-    setRunSonar(false);
-    setRunFossa(false);
+    setTargetVersionRequiredError(false);
+    setTargetRepoNameError("");
+    setMigrationApproach("fork");
+    setUserSelectedVersion(null);
+    setSourceVersionStatus("unknown");
+    setRiskExplanation(null);
+    setRiskExplanationLoading(false);
+    strategyState.setDependencyAnalysisStatus("idle");
+
+    // 7. Reset modernization state
+    modernizationState.setRunTests(true);
+    modernizationState.setUseLLMTests(true);
+    modernizationState.setSelectedLLMProvider("groq");
+    modernizationState.setRunSonar(true);
+    modernizationState.setRunFossa(false);
+    modernizationState.setFixBusinessLogic(true);
+    modernizationState.setSelectedTestSources({ llm: true, functionalDoc: false, existing: true });
+    setFunctionalTestToolMethod([]);
+
+    // 8. Reset migration execution & result state
     setLoading(false);
     setAnalysisLoading(false);
     setMigrationJob(null);
@@ -5221,31 +5278,26 @@ export function useWizardController() {
     setFossaLoading(false);
     setMigrationPreview(null);
     setMigrationLogs([]);
-    setError("");
-    setTargetVersionRequiredError(false);
-    setTargetRepoNameError("");
-    setMigrationApproach("fork");
-    setRiskLevel("");
-    setSelectedFrameworks([]);
-    setIsJavaProject(null);
-    setSelectedFile(null);
-    setFileContent("");
-    setEditedContent("");
-    setIsEditing(false);
-    setPathHistory([""]);
-    setShowFileExplorer(true);
-    // Reset high-risk project states
-    setIsHighRiskProject(false);
-    setHighRiskConfirmed(false);
-    setSuggestedJavaVersion("17");
-    setDetectedFrameworks([]);
-    setViewingFrameworkFile(null);
-    // Reset code diff states
     setCodeChanges([]);
     setSelectedDiffFile(null);
     setShowCodeChanges(true);
     setVisibleReportDiffCount(REPORT_DIFFS_PAGE_SIZE);
+    setReportDependencyPage(1);
+    setDocumentGenerationLoading(null);
+    setDocumentPrefetchStatus("idle");
+    setPrefetchedBrdDocument(null);
+    setAnimationProgress(0);
+    resultExecState.resetDocumentPrefetchState();
 
+    // 9. Reset document prefetch refs
+    documentPrefetchKeyRef.current = "";
+    documentPrefetchPromiseRef.current = null;
+    discoveryInFlightKeyRef.current = "";
+
+    // 10. Reset errors
+    setError("");
+
+    // 11. Final storage sweep
     clearWizardStorage();
   };
 
