@@ -15,11 +15,13 @@ import {
   FaGithub,
   FaCopy,
   FaCheck,
+  FaExternalLinkAlt,
 } from "react-icons/fa";
 import { wizardStyles as styles } from "@/shared/components/wizard/wizardStyles";
 import { renderWizardIconBadge } from "@/shared/components/wizard";
 import {
   downloadUnitTestReport,
+  getMigrationFileDiff,
   getMigrationLogs,
   rerunMigrationTests,
   type SonarIssueDetail,
@@ -47,6 +49,7 @@ import {
 } from "../utils/reportFormatting";
 import { getMigrationElapsedSeconds } from "../utils/migrationTiming";
 import type { useMigrationExecution } from "../hooks/useMigrationExecution";
+import { ReactPageSandbox } from "./ReactPageSandbox";
 
 const MigrationFossaSection = React.lazy(async () => {
   const module = await import("./MigrationReportSections");
@@ -155,7 +158,14 @@ export function ResultReportView({
   }
 
   const [selectedDiffIndex, setSelectedDiffIndex] = useState<number>(0);
+  const [loadedFileDiffs, setLoadedFileDiffs] = useState<Record<string, {
+    beforeLines: Array<{ num: number; text: string; type: string }>;
+    afterLines: Array<{ num: number; text: string; type: string }>;
+  }>>({});
+  const [fileDiffError, setFileDiffError] = useState<string | null>(null);
+  const [fileDiffLoading, setFileDiffLoading] = useState(false);
   const [copiedDiffCode, setCopiedDiffCode] = useState(false);
+  const [sandboxEntry, setSandboxEntry] = useState<{ fileName: string; code: Array<{ text: string }>; css: string } | null>(null);
   const [dependencySearchQuery, setDependencySearchQuery] = useState("");
   const [sonarFindingFilter, setSonarFindingFilter] = useState<SonarFindingFilter>("all");
   const [codeSmellSeverityFilter, setCodeSmellSeverityFilter] = useState<CodeSmellSeverityFilter>("all");
@@ -176,6 +186,28 @@ export function ResultReportView({
       window.setTimeout(() => setCopiedDiffCode(false), 1600);
     } catch {
       setCopiedDiffCode(false);
+    }
+  };
+
+  const loadFileDiff = async (path: string) => {
+    const normalizedPath = path.replace(/\\/g, "/");
+    if (!normalizedPath || loadedFileDiffs[normalizedPath] || !migrationJob?.job_id) return;
+
+    setFileDiffLoading(true);
+    setFileDiffError(null);
+    try {
+      const diff = await getMigrationFileDiff(migrationJob.job_id, normalizedPath);
+      setLoadedFileDiffs((previous) => ({
+        ...previous,
+        [normalizedPath]: {
+          beforeLines: diff.beforeLines ?? [],
+          afterLines: diff.afterLines ?? [],
+        },
+      }));
+    } catch {
+      setFileDiffError(`Unable to load the diff for ${normalizedPath}.`);
+    } finally {
+      setFileDiffLoading(false);
     }
   };
 
@@ -233,6 +265,23 @@ export function ResultReportView({
     } catch (err) {
       onError(err instanceof Error ? err.message : "Failed to download unit test report");
     }
+  };
+
+  const handleShowReactUi = (entry: { file?: string; afterLines?: Array<{ text: string }> }) => {
+    if (!entry.afterLines?.length) {
+      onError("The generated React page has no previewable markup.");
+      return;
+    }
+    const css = (migrationJob.uiTransformations ?? [])
+      .filter((transformation: any) => String(transformation.targetSourceFile ?? transformation.file ?? "").toLowerCase().endsWith(".css"))
+      .flatMap((transformation: any) => transformation.afterLines ?? [])
+      .map((line: { text?: string }) => line.text ?? "")
+      .join("\n");
+    setSandboxEntry({
+      fileName: entry.file ?? "MigratedPage.tsx",
+      code: entry.afterLines,
+      css,
+    });
   };
 
   // ── Test summary derivation (from migrationJob only) ──
@@ -1257,13 +1306,15 @@ export function ResultReportView({
                 const rawFileDiffs: any[] = migrationJob?.file_diffs ?? [];
                 const javaFileDiffEntries = rawFileDiffs.map((fd: any) => {
                   const changeType: string = (fd.changeType ?? "MODIFIED").toUpperCase();
+                  const relativePath = (fd.relativePath ?? fd.fileName ?? "").replace(/\\/g, "/");
+                  const loadedDiff = loadedFileDiffs[relativePath];
                   const status: "Modified" | "Added" | "Removed" =
                     changeType === "ADDED" ? "Added" :
                     changeType === "DELETED" ? "Removed" :
                     "Modified";
                   return {
                     file: fd.fileName ?? fd.relativePath ?? "",
-                    relativePath: fd.relativePath ?? "",
+                    relativePath,
                     label: fd.label,
                     status,
                     additions: fd.addedLineCount ?? 0,
@@ -1273,8 +1324,8 @@ export function ResultReportView({
                     // shows what is available (currently no inline diff content for
                     // Java files – the before/after panel will be empty unless the
                     // backend embeds it in a future enhancement).
-                    beforeLines: (fd.beforeLines ?? []) as Array<{ num: number; text: string; type: string }>,
-                    afterLines: (fd.afterLines ?? []) as Array<{ num: number; text: string; type: string }>,
+                    beforeLines: (loadedDiff?.beforeLines ?? fd.beforeLines ?? []) as Array<{ num: number; text: string; type: string }>,
+                    afterLines: (loadedDiff?.afterLines ?? fd.afterLines ?? []) as Array<{ num: number; text: string; type: string }>,
                   };
                 });
 
@@ -1355,7 +1406,12 @@ export function ResultReportView({
                         ) : diffData.map((file, idx) => (
                           <div
                             key={idx}
-                            onClick={() => setSelectedDiffIndex(idx)}
+                            onClick={() => {
+                              setSelectedDiffIndex(idx);
+                              if (!file.category && file.relativePath) {
+                                void loadFileDiff(file.relativePath);
+                              }
+                            }}
                             style={{
                               padding: "12px 24px",
                               display: "flex",
@@ -1473,11 +1529,44 @@ export function ResultReportView({
                               >
                                 {copiedDiffCode ? <FaCheck size={12} /> : <FaCopy size={12} />}
                               </button>
+                              <button
+                                type="button"
+                                onClick={() => handleShowReactUi(current)}
+                                title="Show the migrated React page UI"
+                                aria-label="Show the migrated React page UI"
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: 6,
+                                  height: 30,
+                                  padding: "0 10px",
+                                  border: "1px solid #bfdbfe",
+                                  borderRadius: 6,
+                                  background: "#eff6ff",
+                                  color: "#1d4ed8",
+                                  cursor: "pointer",
+                                  fontSize: 12,
+                                  fontWeight: 700,
+                                }}
+                              >
+                                <FaExternalLinkAlt size={11} />
+                                View UI
+                              </button>
                             </div>
                           </div>
 
                           {/* Content Area */}
                           <div style={{ flex: 1, overflow: "auto", background: "#ffffff" }}>
+                            {fileDiffLoading && !current.beforeLines?.length && !current.afterLines?.length ? (
+                              <div style={{ padding: 32, color: "#64748b", textAlign: "center" }}>
+                                Loading file diff...
+                              </div>
+                            ) : fileDiffError && !current.beforeLines?.length && !current.afterLines?.length ? (
+                              <div style={{ padding: 32, color: "#b91c1c", textAlign: "center" }}>
+                                {fileDiffError}
+                              </div>
+                            ) : (
+                            <>
                             <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "'JetBrains Mono', monospace", fontSize: 12 }}>
                               <tbody>
                                 {[
@@ -1505,6 +1594,8 @@ export function ResultReportView({
                               <div style={{ padding: 60, textAlign: "center", color: "#94a3b8", fontStyle: "italic" }}>
                                 Select a modified file from the sidebar to view detailed transformations.
                               </div>
+                            )}
+                            </>
                             )}
                           </div>
                         </>
@@ -1645,6 +1736,14 @@ export function ResultReportView({
           onDownloadUnitTestReport={handleDownloadUnitTestReport}
           styles={{...styles, reportActionsBar: { ...styles.reportActionsBar, marginTop: 4, padding: "8px 0" }}}
         />
+        {sandboxEntry && (
+          <ReactPageSandbox
+            fileName={sandboxEntry.fileName}
+            code={sandboxEntry.code}
+            css={sandboxEntry.css}
+            onClose={() => setSandboxEntry(null)}
+          />
+        )}
       </React.Suspense>
     </div>
   );

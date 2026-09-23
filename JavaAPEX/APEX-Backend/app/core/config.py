@@ -71,7 +71,7 @@ class Settings(BaseSettings):
     # from the provider-neutral LLM_2 env var; leave empty to disable GROQ and
     # fall straight through to Ollama.
     groq_api_key: str = Field(default="", alias="LLM_2")
-    groq_model: str = Field(default="llama-3.3-70b-versatile", alias="GROQ_MODEL")
+    groq_model: str = Field(default="openai/gpt-oss-20b", alias="GROQ_MODEL")
     groq_base_url: str = "https://api.groq.com/openai/v1"
     # Fallback LLM: a local Ollama server. Used only when GROQ is unavailable.
     ollama_base_url: str = "http://localhost:11434"

@@ -93,8 +93,8 @@ class UIMigrationHandler:
             shared_includes=shared_includes,
             endpoint_list=endpoints,
             entity_list=java_entities,
-            auth_requirement="user-session",
-            csrf_yes_no="yes",
+            auth_requirement="Not pre-detected; infer only from supplied JSP/JSF and backend evidence.",
+            csrf_yes_no="Not pre-detected; infer only from supplied backend evidence.",
             target_framework=self.target_framework,
         )
 
