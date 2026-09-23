@@ -60,7 +60,7 @@ async def get_admin_settings(
     current_user: User = Depends(get_current_user),  # noqa: B008
 ) -> SystemSettingsResponse:
     """Fetch the current effective system settings."""
-     if current_user.role not in ("SUPERADMIN",):
+    if current_user.role not in ("SUPERADMIN",):
         logger.warning("User %s attempted to access admin settings without SUPERADMIN role", current_user.email)
         raise HTTPException(status_code=403, detail="Forbidden")
 

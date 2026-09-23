@@ -17,7 +17,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 
 from app.api.deps import github_token_from_header, get_current_user
-from app.infrastructure.persistence.models import User
+from app.api.deps import User
 from app.application.use_cases.analyze_repo_url import AnalyzeRepoUrlUseCase
 from app.application.use_cases.connect_repository import parse_github_url
 from app.application.use_cases.generate_technical_document import GenerateTechnicalDocumentUseCase
