@@ -1024,6 +1024,23 @@ export async function sendMessage({
       signal,
     });
 
+    if (!response.ok) {
+      const errText = await response.text();
+      let errObj: any = {};
+      try { errObj = JSON.parse(errText); } catch (e) {}
+      
+      if (
+        errObj.error === "LLM_NOT_CONFIGURED" || 
+        errObj.detail === "LLM_NOT_CONFIGURED" || 
+        (typeof errObj.detail === "string" && errObj.detail.toLowerCase().includes("llm is not configured")) ||
+        errText.toLowerCase().includes("llm is not configured") ||
+        errText.toLowerCase().includes("llm not configured")
+      ) {
+        throw new Error("LLM_NOT_CONFIGURED");
+      }
+      throw new Error(`HTTP ${response.status}`);
+    }
+
     if (response.ok && response.body) {
       const reader = response.body.getReader();
       const decoder = new TextDecoder("utf-8");
@@ -1090,6 +1107,9 @@ export async function sendMessage({
     }
   } catch (err: unknown) {
     if (signal?.aborted || (err instanceof Error && err.name === "AbortError")) {
+      throw err;
+    }
+    if (err instanceof Error && err.message === "LLM_NOT_CONFIGURED") {
       throw err;
     }
     backendSucceeded = false;

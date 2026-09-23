@@ -524,6 +524,36 @@ async def github_callback(request: Request) -> RedirectResponse:
 
     try:
         profile = await github_client.exchange_code_for_profile(code=code)
+        
+        if settings.auth_provider == "mongodb":
+            from app.infrastructure.persistence.mongodb import get_mongodb
+            from app.application.services.mongodb_auth_service import MongoDBAuthService
+            mongo_db = await get_mongodb()
+            service = MongoDBAuthService(mongo_db)
+            user_data = await service.authenticate_with_oauth(
+                provider="github",
+                provider_user_id=profile.provider_user_id,
+                email=profile.email,
+                email_verified=profile.email_verified,
+                full_name=profile.full_name,
+                profile_image=profile.profile_image,
+                github_account=profile.github_account,
+            )
+            access_token, refresh_token = await service.create_login_session(user_data)
+            user_id_for_log = user_data["_id"]
+        else:
+            service = AuthService(db)
+            user = service.authenticate_with_oauth(
+                provider="github",
+                provider_user_id=profile.provider_user_id,
+                email=profile.email,
+                email_verified=profile.email_verified,
+                full_name=profile.full_name,
+                profile_image=profile.profile_image,
+                github_account=profile.github_account,
+            )
+            access_token, refresh_token = service.create_login_session(user)
+            user_id_for_log = user.id
         mongo_db = await get_mongodb()
         if mongo_db is None:
             return _oauth_error_redirect("server_error", intent=intent)

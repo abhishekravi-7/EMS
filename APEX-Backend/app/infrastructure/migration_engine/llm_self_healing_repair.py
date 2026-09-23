@@ -102,7 +102,7 @@ class LlmSelfHealingRepair:
                 else:
                     logs.append(f"LLM Self-Healing produced no valid diff for {rel_path}.")
 
-            except (ChatLLMNotConfiguredError, ChatLLMServiceError) as exc:
+            except ChatLLMServiceError as exc:
                 logger.warning("LLM Self-Healing unavailable or failed for %s: %s", rel_path, exc)
                 return RepairResult(
                     success=False,

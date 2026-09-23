@@ -65,7 +65,11 @@ async def connect_repository(
 
     try:
         t_pipe = time.perf_counter()
-        result = await _pipeline.run(payload.repo_url, payload.github_token)
+        
+        from app.api.deps import resolve_github_token
+        normalized_token = await resolve_github_token(payload.github_token, current_user)
+
+        result = await _pipeline.run(payload.repo_url, normalized_token)
         logger.info(
             "[CONNECT PIPELINE DONE] elapsed=%.3fs job_id=%s visibility=%s status=%s",
             time.perf_counter() - t_pipe,

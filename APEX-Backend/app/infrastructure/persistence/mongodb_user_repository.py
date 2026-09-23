@@ -157,6 +157,160 @@ async def sync_oauth_accounts_user_ids(db: AsyncIOMotorDatabase) -> None:
 
 
 
+
+async def get_next_sequence_value(db: AsyncIOMotorDatabase, sequence_name: str = "users") -> int:
+    """Atomically increment and return the next sequential integer ID.
+    
+    If counter document doesn't exist yet, it is created and the first sequence value is 1.
+    """
+    result = await db.counters.find_one_and_update(
+        {"_id": sequence_name},
+        {"$inc": {"seq": 1}},
+        upsert=True,
+        return_document=ReturnDocument.AFTER,
+    )
+    return int(result["seq"])
+
+
+async def migrate_to_numeric_id(db: AsyncIOMotorDatabase) -> None:
+    """Safely migrate MongoDB users collection so that _id itself is a sequential integer.
+    
+    1. Reads legacy users where _id is a string/UUID.
+    2. Determines target integer _id (using existing numeric user_id if valid, or generating next sequence).
+    3. Replaces document with numeric _id and removes separate user_id field.
+    4. Updates references in dependent collections (auth_sessions, oauth_accounts, password_resets, etc.).
+    5. Verifies replacement exists before deleting old document.
+    6. Synchronizes counters sequence to max(_id).
+    """
+    try:
+        cursor = db.users.find({"_id": {"$type": "string"}}).sort("created_at", pymongo.ASCENDING)
+        legacy_users = await cursor.to_list(length=10000)
+
+        if legacy_users:
+            logger.info("Migrating %d legacy users with string _id to sequential integer _id...", len(legacy_users))
+            
+            # Identify already claimed numeric user IDs
+            existing_numeric_docs = await db.users.find({"_id": {"$type": "number"}}, {"_id": 1}).to_list(length=10000)
+            assigned_ids = {int(d["_id"]) for d in existing_numeric_docs if isinstance(d.get("_id"), (int, float))}
+            for doc in legacy_users:
+                uid = doc.get("user_id")
+                if isinstance(uid, int) and uid > 0:
+                    assigned_ids.add(uid)
+
+            # Sync counter to at least the highest known ID so far
+            if assigned_ids:
+                await db.counters.update_one(
+                    {"_id": "users"},
+                    {"$max": {"seq": max(assigned_ids)}},
+                    upsert=True,
+                )
+
+            for doc in legacy_users:
+                old_uuid = doc["_id"]
+                existing_user_id = doc.get("user_id")
+                if isinstance(existing_user_id, int) and existing_user_id > 0:
+                    target_id = existing_user_id
+                else:
+                    target_id = await get_next_sequence_value(db, "users")
+                    while target_id in assigned_ids:
+                        target_id = await get_next_sequence_value(db, "users")
+                    assigned_ids.add(target_id)
+
+                new_doc = dict(doc)
+                new_doc["_id"] = target_id
+                if "email" in new_doc and isinstance(new_doc["email"], str):
+                    new_doc["email"] = new_doc["email"].strip().lower()
+                new_doc.pop("user_id", None)
+
+                temp_email = f"__migrating__{old_uuid}__{doc.get('email', '')}"
+                await db.users.update_one({"_id": old_uuid}, {"$set": {"email": temp_email}})
+                try:
+                    # Upsert replacement document with integer _id
+                    await db.users.replace_one({"_id": target_id}, new_doc, upsert=True)
+
+                    # Update references in dependent collections
+                    await db.auth_sessions.update_many(
+                        {"$or": [{"user_id": old_uuid}, {"user_id": str(old_uuid)}]},
+                        {"$set": {"user_id": target_id}},
+                    )
+                    await db.oauth_accounts.update_many(
+                        {"$or": [{"user_id": old_uuid}, {"user_id": str(old_uuid)}]},
+                        {"$set": {"user_id": target_id}},
+                    )
+                    await db.password_resets.update_many(
+                        {"$or": [{"user_id": old_uuid}, {"user_id": str(old_uuid)}]},
+                        {"$set": {"user_id": target_id}},
+                    )
+                    await db.migration_job_owners.update_many(
+                        {"user_id": old_uuid},
+                        {"$set": {"user_id": str(target_id)}},
+                    )
+                    await db.llm_token_usage.update_many(
+                        {"user_id": old_uuid},
+                        {"$set": {"user_id": str(target_id)}},
+                    )
+
+                    # Verify replacement exists before deleting old document
+                    verified = await db.users.find_one({"_id": target_id})
+                    if verified:
+                        await db.users.delete_one({"_id": old_uuid})
+                except Exception as exc:
+                    logger.error("Failed to migrate user %s: %s", old_uuid, exc)
+                    await db.users.update_one({"_id": old_uuid}, {"$set": {"email": doc.get("email", "")}})
+                    raise
+
+            logger.info("Successfully migrated legacy user documents to sequential integer _id.")
+
+        # Clean up any residual 'user_id' fields on numeric _id documents
+        await db.users.update_many({"user_id": {"$exists": True}}, {"$unset": {"user_id": ""}})
+
+        # Synchronize oauth_accounts user_id references
+        await sync_oauth_accounts_user_ids(db)
+
+        # Synchronize counters collection to current max _id
+        max_user = await db.users.find_one({"_id": {"$type": "number"}}, sort=[("_id", pymongo.DESCENDING)])
+        if max_user and isinstance(max_user.get("_id"), (int, float)):
+            current_max = int(max_user["_id"])
+            await db.counters.update_one(
+                {"_id": "users"},
+                {"$max": {"seq": current_max}},
+                upsert=True,
+            )
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Failed during migrate_to_numeric_id: %s", exc)
+
+
+async def sync_oauth_accounts_user_ids(db: AsyncIOMotorDatabase) -> None:
+    """Ensure oauth_accounts records have valid, synchronized integer user_id references."""
+    try:
+        oauth_docs = await db.oauth_accounts.find({}).to_list(length=10000)
+        for doc in oauth_docs:
+            p_email = doc.get("provider_email")
+            if p_email and isinstance(p_email, str):
+                norm_email = p_email.strip().lower()
+                user = await db.users.find_one({"email": norm_email})
+                if user and user.get("_id") != doc.get("user_id"):
+                    logger.info(
+                        "Syncing oauth_account for %s: user_id %s -> %s",
+                        norm_email,
+                        doc.get("user_id"),
+                        user["_id"],
+                    )
+                    await db.oauth_accounts.update_one(
+                        {"_id": doc["_id"]},
+                        {"$set": {"user_id": user["_id"], "provider_email": norm_email}},
+                    )
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Failed during sync_oauth_accounts_user_ids: %s", exc)
+
+
+
+def _get_query_id(user_id: str):
+    query_ids = [user_id]
+    if isinstance(user_id, str) and user_id.isdigit():
+        query_ids.append(int(user_id))
+    return {"$in": query_ids}
+
 async def get_user_by_email(db: AsyncIOMotorDatabase, email: str) -> Optional[dict]:
     if not email or not isinstance(email, str):
         return None
@@ -172,7 +326,7 @@ async def get_user_by_id(db: AsyncIOMotorDatabase, user_id: Any) -> Optional[dic
             if doc:
                 return doc
         return await db.users.find_one({"_id": user_id})
-    return await db.users.find_one({"_id": user_id})
+    return await db.users.find_one({"_id": _get_query_id(user_id)})
 
 
 async def create_user(
@@ -281,6 +435,7 @@ async def create_oauth_user(
     provider_user_id: str,
     profile_image: Optional[str] = None,
     is_email_verified: bool = False,
+    github_account: Optional[str] = None,
 ) -> dict:
     numeric_id = await get_next_sequence_value(db, "users")
     now = datetime.now(timezone.utc)
@@ -293,6 +448,7 @@ async def create_oauth_user(
         "auth_providers": [auth_provider],
         "provider_user_id": provider_user_id,
         "profile_image": profile_image,
+        "github_account": github_account,
         "role": "USER",
         "is_active": True,
         "is_email_verified": is_email_verified,
