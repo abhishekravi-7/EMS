@@ -34,21 +34,21 @@ import { TestCasesUserSettings } from "../components/TestCasesUserSettings";
 import { LlmAdminSettings } from "../components/LlmAdminSettings";
 import { LlmUserSettings } from "../components/LlmUserSettings";
 import "./AdminConsolePage.css";
-
+ 
 const ADMIN_RAIL_TABS = [
   { id: "github", label: "GitHub", icon: FaGithub, category: "Infrastructure" },
   { id: "quality", label: "Quality Checks", icon: FaShieldAlt, category: "Validation" },
   { id: "testcases", label: "Test Cases", icon: FaShieldAlt, category: "Testing" },
   { id: "ai", label: "Intelligence", icon: FaBrain, category: "Cognitive" },
 ];
-
+ 
 const USER_RAIL_TABS = [
   { id: "github", label: "GitHub", icon: FaGithub, category: "Personal Settings" },
   { id: "user_quality", label: "Quality Checks", icon: FaShieldAlt, category: "Personal Settings" },
   { id: "testcases", label: "Test Cases", icon: FaShieldAlt, category: "Personal Settings" },
   { id: "ai", label: "Intelligence", icon: FaBrain, category: "Personal Settings" },
 ];
-
+ 
 const INITIAL_SETTINGS: SystemSettings = {
   github_token: "",
   github_api_base_url: "",
@@ -67,7 +67,7 @@ const INITIAL_SETTINGS: SystemSettings = {
   jwt_secret_key: "",
   quality_checks_config: "",
 };
-
+ 
 const INITIAL_USER_SETTINGS: FullUserSettings = {
   github_config: {
     github_account: "",
@@ -79,29 +79,29 @@ const INITIAL_USER_SETTINGS: FullUserSettings = {
   },
   quality_checks_values: {}
 };
-
+ 
 export default function AdminConsolePage() {
   const navigate = useNavigate();
   const { currentUser } = useAuth();
-  
+ 
   const isSuperAdmin = currentUser?.role === "SUPERADMIN";
-
+ 
   const [showSecrets, setShowSecrets] = useState<{ [key: string]: boolean }>({});
-  
+ 
   // State for SUPERADMIN
   const [settings, setSettings] = useState<SystemSettings>(INITIAL_SETTINGS);
   // State for USER
   const [userSettings, setUserSettings] = useState<FullUserSettings>(INITIAL_USER_SETTINGS);
-  
+ 
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
+ 
   const [availableRepos, setAvailableRepos] = useState<GithubRepo[]>([]);
   const [availableBranches, setAvailableBranches] = useState<GithubBranch[]>([]);
   const [isLoadingRepos, setIsLoadingRepos] = useState(false);
   const [isLoadingBranches, setIsLoadingBranches] = useState(false);
-
+ 
   useEffect(() => {
     async function fetchSettings() {
       try {
@@ -112,6 +112,11 @@ export default function AdminConsolePage() {
         } else {
           const userData = await getUserSettings();
           setUserSettings(userData);
+          // Pass test cases flags into the settings object so TestCasesUserSettings can read them
+          setSettings(prev => ({
+            ...prev,
+            ...(userData.system_test_cases_config || {})
+          }));
         }
       } catch (err) {
         setError("Failed to load settings. Please check your permissions.");
@@ -124,7 +129,7 @@ export default function AdminConsolePage() {
       fetchSettings();
     }
   }, [isSuperAdmin, currentUser]);
-
+ 
   useEffect(() => {
     if (!isSuperAdmin && userSettings.github_config?.pat) {
       setIsLoadingRepos(true);
@@ -134,7 +139,7 @@ export default function AdminConsolePage() {
         .finally(() => setIsLoadingRepos(false));
     }
   }, [isSuperAdmin, userSettings.github_config?.pat]);
-
+ 
   useEffect(() => {
     if (!isSuperAdmin && userSettings.github_config?.repository && availableRepos.length > 0) {
       const selectedRepo = availableRepos.find(r => r.full_name === userSettings.github_config?.repository);
@@ -147,26 +152,26 @@ export default function AdminConsolePage() {
       }
     }
   }, [isSuperAdmin, userSettings.github_config?.repository, availableRepos, userSettings.github_config?.pat]);
-
+ 
   const toggleSecret = (id: string) => {
     setShowSecrets(prev => ({ ...prev, [id]: !prev[id] }));
   };
-
+ 
   const handleFieldChange = (key: keyof SystemSettings, value: string | boolean) => {
     setSettings(prev => ({ ...prev, [key]: value }));
   };
-
+ 
   const handleUserFieldChange = (key: keyof UserGitHubConfig, value: string) => {
     setUserSettings(prev => ({
       ...prev,
       github_config: { ...prev.github_config, [key]: value }
     }));
   };
-
+ 
   const handleUserSettingChange = (key: keyof FullUserSettings, value: any) => {
     setUserSettings(prev => ({ ...prev, [key]: value }));
   };
-
+ 
   const handleDeploy = async () => {
     setIsSaving(true);
     setError(null);
@@ -185,7 +190,7 @@ export default function AdminConsolePage() {
       setIsSaving(false);
     }
   };
-
+ 
   const handleTestConnection = async () => {
     setIsSaving(true);
     setError(null);
@@ -208,7 +213,7 @@ export default function AdminConsolePage() {
       setIsSaving(false);
     }
   };
-
+ 
   const renderContent = () => {
     if (isLoading) {
       return (
@@ -218,7 +223,7 @@ export default function AdminConsolePage() {
         </div>
       );
     }
-
+ 
     if (isSuperAdmin) {
       return (
         <div className="admin-content-stacked">
@@ -270,7 +275,7 @@ export default function AdminConsolePage() {
                   onChange={(e) => handleFieldChange("github_target_owner", e.target.value)}
                 />
               </div>
-
+ 
               <div className="field-modern">
                 <label className="label-modern">Default Branch</label>
                 <input
@@ -287,19 +292,19 @@ export default function AdminConsolePage() {
                </button>
             </div>
           </div>
-
+ 
           {/* Quality Checks Section */}
           <div className="admin-config-card">
             <h3 className="card-heading-modern">
               <FaShieldAlt style={{ color: "#2563eb", marginRight: "8px" }} />
               Quality Checks Configuration
             </h3>
-            <QualityChecksSettings 
-              configString={settings.quality_checks_config || ""} 
-              onChange={(newConfig) => handleFieldChange("quality_checks_config", newConfig)} 
+            <QualityChecksSettings
+              configString={settings.quality_checks_config || ""}
+              onChange={(newConfig) => handleFieldChange("quality_checks_config", newConfig)}
             />
           </div>
-
+ 
           {/* Test Cases Section */}
           <div className="admin-config-card">
             <TestCasesAdminSettings
@@ -307,15 +312,15 @@ export default function AdminConsolePage() {
               onChange={handleFieldChange}
             />
           </div>
-
+ 
           {/* AI / LLM Section */}
           <div className="admin-config-card">
-            <LlmAdminSettings 
+            <LlmAdminSettings
               settings={settings}
               onChange={handleFieldChange}
             />
           </div>
-          
+         
           <div className="admin-config-card">
             <h3 className="card-heading-modern">
               <FaLink style={{ color: "#2563eb", marginRight: "8px" }} />
@@ -385,7 +390,7 @@ export default function AdminConsolePage() {
                   </div>
                 </div>
               </div>
-
+ 
               <div className="field-modern">
                 <label className="label-modern">Default Repository</label>
                 <select
@@ -433,13 +438,13 @@ export default function AdminConsolePage() {
                </button>
             </div>
           </div>
-
+ 
           {/* Quality Checks Section */}
-          <UserQualityChecksSettings 
-            settings={userSettings} 
+          <UserQualityChecksSettings
+            settings={userSettings}
             onChange={setUserSettings}
           />
-
+ 
           {/* Test Cases Section */}
           <div className="user-config-card">
             <TestCasesUserSettings
@@ -453,14 +458,14 @@ export default function AdminConsolePage() {
               }}
             />
           </div>
-
+ 
           {/* AI / LLM Section */}
           <div className="user-config-card">
-            <LlmUserSettings 
+            <LlmUserSettings
               settings={userSettings}
               onChange={handleUserSettingChange}
               isAdminEnabled={
-                userSettings.system_llm_config?.llm_enabled === true || 
+                userSettings.system_llm_config?.llm_enabled === true ||
                 userSettings.system_llm_config?.llm_enabled === "true"
               }
               allowedGroqModelsStr={userSettings.system_llm_config?.groq_models}
@@ -471,7 +476,7 @@ export default function AdminConsolePage() {
       );
     }
   };
-
+ 
   return (
     <div className="admin-console-layout">
       <main className="admin-main-surface">
@@ -486,7 +491,7 @@ export default function AdminConsolePage() {
               </h2>
             </div>
           </div>
-
+ 
           <div className="header-actions">
             <button
               className="deploy-btn-modern"
@@ -506,7 +511,7 @@ export default function AdminConsolePage() {
             </button>
           </div>
         </header>
-
+ 
         {error && (
           <div className="admin-error-banner">
             <FaShieldAlt />
@@ -514,7 +519,7 @@ export default function AdminConsolePage() {
             <button onClick={() => setError(null)}>×</button>
           </div>
         )}
-
+ 
         <div className="admin-scroll-canvas">
           {renderContent()}
         </div>

@@ -1,5 +1,5 @@
 import { requestJson } from "@/services/http/client";
-
+ 
 export interface SystemSettings {
   github_token: string;
   github_api_base_url: string;
@@ -28,11 +28,11 @@ export interface SystemSettings {
   groq_models?: string; // JSON array of groq models
   huggingface_models?: string; // JSON array of hugging face models
 }
-
+ 
 export interface SystemSettingsResponse {
   settings: SystemSettings;
 }
-
+ 
 /**
  * Fetch all system settings from the backend.
  */
@@ -43,7 +43,7 @@ export async function getAdminSettings(): Promise<SystemSettings> {
   );
   return response.settings;
 }
-
+ 
 /**
  * Update system settings. Only the provided keys will be updated.
  */
@@ -54,7 +54,7 @@ export async function updateAdminSettings(settings: Partial<SystemSettings>): Pr
       stringifiedSettings[key] = String(value);
     }
   }
-
+ 
   const response = await requestJson<SystemSettingsResponse>(
     "/v1/admin/settings",
     "Failed to update admin settings",
@@ -65,7 +65,7 @@ export async function updateAdminSettings(settings: Partial<SystemSettings>): Pr
   );
   return response.settings;
 }
-
+ 
 export async function testAdminPlaywrightConnection(): Promise<{ status: string; message: string }> {
   return requestJson<{ status: string; message: string }>(
     "/v1/admin/settings/test-cases/playwright/test",
@@ -73,7 +73,7 @@ export async function testAdminPlaywrightConnection(): Promise<{ status: string;
     { method: "POST" }
   );
 }
-
+ 
 export interface UserGitHubConfig {
   github_account?: string;
   pat?: string;
@@ -82,7 +82,7 @@ export interface UserGitHubConfig {
   branch?: string;
   user_access?: string;
 }
-
+ 
 export interface UserSettingsResponse {
   github_config: UserGitHubConfig;
   quality_checks_values?: Record<string, any>;
@@ -93,8 +93,13 @@ export interface UserSettingsResponse {
     groq_models?: string;
     huggingface_models?: string;
   };
+  system_test_cases_config?: {
+    test_cases_playwright_enabled?: boolean | string;
+    test_cases_cypress_enabled?: boolean | string;
+    test_cases_selenium_enabled?: boolean | string;
+  };
 }
-
+ 
 export interface FullUserSettings {
   github_config: UserGitHubConfig;
   quality_checks_values: Record<string, any>;
@@ -105,8 +110,13 @@ export interface FullUserSettings {
     groq_models?: string;
     huggingface_models?: string;
   };
+  system_test_cases_config?: {
+    test_cases_playwright_enabled?: boolean | string;
+    test_cases_cypress_enabled?: boolean | string;
+    test_cases_selenium_enabled?: boolean | string;
+  };
 }
-
+ 
 export async function getUserSettings(): Promise<FullUserSettings> {
   const response = await requestJson<UserSettingsResponse>(
     "/v1/user/settings/github",
@@ -118,9 +128,10 @@ export async function getUserSettings(): Promise<FullUserSettings> {
     test_cases_values: response.test_cases_values || {},
     llm_values: response.llm_values || {},
     system_llm_config: response.system_llm_config || {},
+    system_test_cases_config: response.system_test_cases_config || {},
   };
 }
-
+ 
 export async function updateUserSettings(
   github_config: UserGitHubConfig,
   quality_checks_values?: Record<string, any>,
@@ -137,7 +148,7 @@ export async function updateUserSettings(
   if (llm_values) {
     body.llm_values = llm_values;
   }
-  
+ 
   const response = await requestJson<UserSettingsResponse>(
     "/v1/user/settings/github",
     "Failed to update user settings",
@@ -151,27 +162,29 @@ export async function updateUserSettings(
     quality_checks_values: response.quality_checks_values || {},
     test_cases_values: response.test_cases_values || {},
     llm_values: response.llm_values || {},
+    system_llm_config: response.system_llm_config || {},
+    system_test_cases_config: response.system_test_cases_config || {},
   };
 }
-
+ 
 export async function testUserPlaywrightConnection(baseUrl: string): Promise<{ status: string; message: string }> {
   return requestJson<{ status: string; message: string }>(
     "/v1/user/settings/test-cases/playwright/test",
     "Failed to test User Playwright connection",
-    { 
+    {
       method: "POST",
       body: { base_url: baseUrl }
     }
   );
 }
-
+ 
 export async function getQualityChecksAdminConfig(): Promise<{quality_checks_config: string}> {
   return requestJson<{quality_checks_config: string}>(
     "/v1/user/settings/quality-checks-config",
     "Failed to fetch Quality Checks Admin Configuration"
   );
 }
-
+ 
 export async function testAdminGithubConnection(): Promise<{status: string, message: string}> {
   return requestJson<{status: string, message: string}>(
     "/v1/admin/settings/github/test",
@@ -179,7 +192,7 @@ export async function testAdminGithubConnection(): Promise<{status: string, mess
     { method: "POST" }
   );
 }
-
+ 
 export async function testUserGithubConnection(): Promise<{status: string, message: string}> {
   return requestJson<{status: string, message: string}>(
     "/v1/user/settings/github/test",
@@ -187,7 +200,7 @@ export async function testUserGithubConnection(): Promise<{status: string, messa
     { method: "POST" }
   );
 }
-
+ 
 export interface GithubRepo {
   id: number;
   name: string;
@@ -195,21 +208,22 @@ export interface GithubRepo {
   owner: string;
   private: boolean;
 }
-
+ 
 export interface GithubBranch {
   name: string;
 }
-
+ 
 export async function fetchUserGithubRepos(): Promise<GithubRepo[]> {
   return requestJson<GithubRepo[]>(
     "/v1/user/settings/github/repos",
     "Failed to fetch GitHub repositories"
   );
 }
-
+ 
 export async function fetchUserGithubBranches(owner: string, repo: string): Promise<GithubBranch[]> {
   return requestJson<GithubBranch[]>(
     `/v1/user/settings/github/repos/${owner}/${repo}/branches`,
     "Failed to fetch GitHub branches"
   );
 }
+ 

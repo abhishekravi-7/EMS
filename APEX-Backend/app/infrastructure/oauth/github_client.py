@@ -43,7 +43,7 @@ class GithubUserProfile:
     email_verified: bool
     full_name: str | None
     profile_image: str | None
-    github_account: str | None
+    github_account: str | None = None
 
 
 def build_authorization_url(*, state: str) -> str:

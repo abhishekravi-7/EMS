@@ -75,7 +75,9 @@ async function parseJsonResponse<T>(response: Response, fallbackMessage: string)
     const detail = data?.detail;
     const errorMessage = typeof data?.error === "string" && data.error.trim()
       ? data.error
-      : getErrorMessage(detail, fallbackMessage);
+      : typeof data?.message === "string" && data.message.trim()
+        ? data.message
+        : getErrorMessage(detail, fallbackMessage);
     const errorCode =
       detail && typeof detail === "object" && !Array.isArray(detail)
         ? (detail as Record<string, unknown>).code

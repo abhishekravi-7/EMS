@@ -29,11 +29,11 @@ import { ResultReportView } from "@/features/result/components/ResultReportView"
 import "./MigrationWizardPage.css";
 
 const WIZARD_SIDEBAR_STEPS = [
-   { id: 1, number: 1, title: "Connect", subtitle: "", icon: FaLink },
-    { id: 2, number: 2, title: "Discovery", subtitle: "", icon: FaSearch },
-    { id: 3, number: 3, title: "Strategy", subtitle: "", icon: FaProjectDiagram },
-    { id: 4, number: 4, title: "Migration", subtitle: "", icon: FaRocket },
-    { id: 5, number: 5, title: "Results", subtitle: "", icon: FaChartBar },
+  { id: 1, number: 1, title: "Connect", subtitle: "", icon: FaLink },
+  { id: 2, number: 2, title: "Discovery", subtitle: "", icon: FaSearch },
+  { id: 3, number: 3, title: "Strategy", subtitle: "", icon: FaProjectDiagram },
+  { id: 4, number: 4, title: "Migration", subtitle: "", icon: FaRocket },
+  { id: 5, number: 5, title: "Results", subtitle: "", icon: FaChartBar },
 ];
 
 export default function MigrationWizardPage() {
@@ -373,7 +373,7 @@ export default function MigrationWizardPage() {
       {/* Left Sidebar Step Navigation */}
       <aside className={`wizard-sidebar ${isSidebarExpanded ? "is-expanded" : ""}`}>
         {/* Sidebar header spacer — logo lives in the top app header */}
-               <div className="wizard-sidebar-header" aria-hidden="true" />
+        <div className="wizard-sidebar-header" aria-hidden="true" />
         <div className="wizard-steps-list">
           {WIZARD_SIDEBAR_STEPS.map((s, index) => {
             const isCurrent = activeSidebarStepId === s.id;
@@ -390,7 +390,7 @@ export default function MigrationWizardPage() {
                   className={`wizard-step-item ${isCurrent ? "is-active" : ""} ${isCompleted && !isCurrent ? "is-completed" : ""} ${isAvailable ? "is-available" : ""} ${isLocked ? "is-locked" : ""}`}
                   onClick={() => {
                     if (canClick) {
-                     setStep(s.id === 5 ? 7 : s.id);
+                      setStep(s.id === 5 ? 7 : s.id);
                     }
                   }}
                   style={{
@@ -530,7 +530,7 @@ export default function MigrationWizardPage() {
               riskExplanationLoading={riskExplanationLoading}
               dependencyAnalysis={dependencyAnalysis}
               dependencyAnalysisLoading={dependencyAnalysisLoading}
-              
+
               buildToolDisplayLabel={buildToolDisplayLabel}
               renderCategorizedDependencies={renderCategorizedDependencies}
               effectiveTargetVersion={effectiveTargetVersion}

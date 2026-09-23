@@ -18,7 +18,7 @@ import {
   FaLock,
   FaBiohazard,
   FaFire,
-  FaTimes
+  FaRocket
 } from "react-icons/fa";
 export { MigrationProposedTestSection } from "./MigrationProposedTestSection";
 import { API_BASE_URL } from "@/services/config/env";
@@ -772,6 +772,7 @@ interface MigrationReportActionsProps {
 
 export function MigrationReportActions({
   migrationJob,
+  resetWizard,
   onDownloadUnitTestReport,
 }: MigrationReportActionsProps & { onDownloadUnitTestReport: () => void }) {
   const jobId = migrationJob?.job_id;
@@ -807,26 +808,47 @@ export function MigrationReportActions({
   };
 
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0", marginTop: 4, borderTop: "1px solid #eef2f6" }}>
-      <div style={{ display: "flex", gap: 12 }}>
-         <button onClick={() => handleDownload("project")} style={{ background: "#fff", border: "1px solid #e2e8f0", padding: "10px 20px", borderRadius: 10, fontSize: 13, fontWeight: 700, color: "#334155", display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-            <FaFileArchive style={{ color: "#d97706" }} /> Download ZIP
-          </button>
-          <button onClick={onDownloadUnitTestReport} style={{ background: "#fff", border: "1px solid #e2e8f0", padding: "10px 20px", borderRadius: 10, fontSize: 13, fontWeight: 700, color: "#334155", display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-            <FaExternalLinkAlt style={{ color: "#2563eb" }} /> Open Full Report
-          </button>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0", marginTop: 4, borderTop: "1px solid #eef2f6", flexWrap: "wrap", gap: 12 }}>
+      <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+        <button onClick={() => handleDownload("project")} style={{ background: "#fff", border: "1px solid #e2e8f0", padding: "10px 20px", borderRadius: 10, fontSize: 13, fontWeight: 700, color: "#334155", display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+          <FaFileArchive style={{ color: "#d97706" }} /> Download ZIP
+        </button>
+        <button onClick={onDownloadUnitTestReport} style={{ background: "#fff", border: "1px solid #e2e8f0", padding: "10px 20px", borderRadius: 10, fontSize: 13, fontWeight: 700, color: "#334155", display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+          <FaExternalLinkAlt style={{ color: "#2563eb" }} /> Open Full Report
+        </button>
       </div>
 
-      <div style={{ display: "flex", gap: 12 }}>
-          <button onClick={() => handleDownload("markdown")} style={{ background: "#fff", border: "1px solid #e2e8f0", padding: "10px 20px", borderRadius: 10, fontSize: 13, fontWeight: 700, color: "#334155", display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-            <FaMarkdown style={{ color: "#7c3aed" }} /> Download Markdown Report
-          </button>
-          <button onClick={() => handleDownload("testcases")} style={{ background: "#fff", border: "1px solid #e2e8f0", padding: "10px 20px", borderRadius: 10, fontSize: 13, fontWeight: 700, color: "#334155", display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-            <FaCode style={{ color: "#059669" }} /> Download Testcases & Changes
-          </button>
-          <button onClick={() => handleDownload("html")} style={{ background: "#fff", border: "1px solid #e2e8f0", padding: "10px 20px", borderRadius: 10, fontSize: 13, fontWeight: 700, color: "#334155", display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-            <FaFileCode style={{ color: "#0284c7" }} /> Download Testcase HTML
-          </button>
+      <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+        <button onClick={() => handleDownload("markdown")} style={{ background: "#fff", border: "1px solid #e2e8f0", padding: "10px 20px", borderRadius: 10, fontSize: 13, fontWeight: 700, color: "#334155", display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+          <FaMarkdown style={{ color: "#7c3aed" }} /> Download Markdown Report
+        </button>
+        <button onClick={() => handleDownload("testcases")} style={{ background: "#fff", border: "1px solid #e2e8f0", padding: "10px 20px", borderRadius: 10, fontSize: 13, fontWeight: 700, color: "#334155", display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+          <FaCode style={{ color: "#059669" }} /> Download Testcases & Changes
+        </button>
+        <button onClick={() => handleDownload("html")} style={{ background: "#fff", border: "1px solid #e2e8f0", padding: "10px 20px", borderRadius: 10, fontSize: 13, fontWeight: 700, color: "#334155", display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+          <FaFileCode style={{ color: "#0284c7" }} /> Download Testcase HTML
+        </button>
+        <button
+          type="button"
+          onClick={resetWizard}
+          style={{
+            background: "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)",
+            border: "1px solid #1d4ed8",
+            padding: "10px 20px",
+            borderRadius: 10,
+            fontSize: 13,
+            fontWeight: 700,
+            color: "#ffffff",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            cursor: "pointer",
+            boxShadow: "0 2px 8px rgba(37, 99, 235, 0.25)",
+            transition: "all 0.2s ease",
+          }}
+        >
+          <FaRocket style={{ color: "#ffffff" }} /> Start New Migration
+        </button>
       </div>
     </div>
   );

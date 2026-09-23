@@ -350,17 +350,16 @@ class StartMigrationUseCase:
                     import asyncio
                     from app.application.use_cases.run_unit_tests import RunUnitTestSuiteUseCase
                     from app.schemas.unit_test import UnitTestGenerateAndRunRequest
-                    from app.core.context import user_id_ctx
                     
                     quality_checks_values = {}
-                    current_user_id = user_id_ctx.get()
-                    if current_user_id:
+                    active_user_id = user_id_ctx.get()
+                    if active_user_id:
                         import pymongo
                         from app.core.config import settings
                         try:
                             sync_client = pymongo.MongoClient(settings.mongodb_uri, serverSelectionTimeoutMS=5000)
                             sync_db = sync_client[settings.mongodb_database]
-                            user_doc = sync_db.users.find_one({"_id": str(current_user_id)})
+                            user_doc = sync_db.users.find_one({"_id": str(active_user_id)})
                             if user_doc:
                                 quality_checks_values = user_doc.get("quality_checks_values", {})
                             sync_client.close()
@@ -392,32 +391,18 @@ class StartMigrationUseCase:
 
                     orig_repo = paths.original_repo_dir if paths.original_repo_dir.exists() else paths.migrated_repo_dir
                     mig_repo = paths.migrated_repo_dir
-                    orig_repo = paths.original_repo_dir if paths.original_repo_dir.exists() else paths.migrated_repo_dir
-                    mig_repo = paths.migrated_repo_dir
 
-                    orig_test_dir = orig_repo / "src" / "test" / "java"
-                    orig_test_files = list(orig_test_dir.rglob("*.java")) if orig_test_dir.exists() else []
-                    existing_test_files = len(orig_test_files)
                     orig_test_dir = orig_repo / "src" / "test" / "java"
                     orig_test_files = list(orig_test_dir.rglob("*.java")) if orig_test_dir.exists() else []
                     existing_test_files = len(orig_test_files)
 
                     mig_test_dir = mig_repo / "src" / "test" / "java"
                     mig_test_files = list(mig_test_dir.rglob("*.java")) if mig_test_dir.exists() else []
-                    mig_test_dir = mig_repo / "src" / "test" / "java"
-                    mig_test_files = list(mig_test_dir.rglob("*.java")) if mig_test_dir.exists() else []
 
                     orig_rel_set = {str(f.relative_to(orig_repo)).replace("\\", "/") for f in orig_test_files}
                     new_test_files_list = [f for f in mig_test_files if str(f.relative_to(mig_repo)).replace("\\", "/") not in orig_rel_set]
                     new_test_files = len(new_test_files_list)
-                    orig_rel_set = {str(f.relative_to(orig_repo)).replace("\\", "/") for f in orig_test_files}
-                    new_test_files_list = [f for f in mig_test_files if str(f.relative_to(mig_repo)).replace("\\", "/") not in orig_rel_set]
-                    new_test_files = len(new_test_files_list)
 
-                    total_repo_files = len(list(mig_repo.rglob("*.java")))
-                    exist_count = len(test_result.existing_test_results) or (existing_test_files if existing_test_files > 0 else 1)
-                    gen_count = len(test_result.generated_test_results) or (new_test_files * 4 if new_test_files > 0 else 40)
-                    total_cases = exist_count + gen_count
                     total_repo_files = len(list(mig_repo.rglob("*.java")))
                     exist_count = len(test_result.existing_test_results) or (existing_test_files if existing_test_files > 0 else 1)
                     gen_count = len(test_result.generated_test_results) or (new_test_files * 4 if new_test_files > 0 else 40)
