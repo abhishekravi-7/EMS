@@ -28,6 +28,7 @@ class MigrationExecutionPipeline:
         request: dict[str, Any] | None,
         *,
         current_user_id: int | None = None,
+        github_token: str | None = None,
     ) -> dict[str, Any]:
         """Validate + queue, launch the background run, return the initial result."""
         report = self._use_case.prepare(job_id, request)
@@ -35,7 +36,7 @@ class MigrationExecutionPipeline:
 
         thread = threading.Thread(
             target=context.run,
-            args=(self._use_case.run, job_id, current_user_id),
+            args=(self._use_case.run, job_id, current_user_id, github_token),
             name=f"migration-{job_id}",
             daemon=True,
         )

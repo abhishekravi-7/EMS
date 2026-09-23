@@ -39,14 +39,15 @@ class FossaScanResult:
 class DependencyCheckRunner:
     """Runs FOSSA analysis when a FOSSA API key is configured."""
 
-    def run(self, project_dir: Path, *, job_id: str, project_name: str | None = None) -> FossaScanResult:
-        api_key = settings.fossa_api_key.strip()
+    def run(self, project_dir: Path, *, job_id: str, project_name: str | None = None, quality_checks_values: dict | None = None) -> FossaScanResult:
+        qc_config = quality_checks_values or {}
+        api_key = (qc_config.get("fossa_api_key") or "").strip()
         if not api_key:
             return FossaScanResult(
                 policy_status="UNAVAILABLE",
                 scan_mode="missing_token",
-                error_message="Set FOSSA_API_KEY in .env to enable FOSSA quality gate scans.",
-                log_lines=["FOSSA skipped: FOSSA_API_KEY is not configured."],
+                error_message="FOSSA API key missing. Configure it in User Settings.",
+                log_lines=["FOSSA skipped: API key is not configured in user settings."],
             )
 
         cli = self._resolve_command(settings.fossa_cli_command)
@@ -68,6 +69,12 @@ class DependencyCheckRunner:
                 error_message=error_msg,
                 log_lines=[error_msg],
             )
+            
+        project = self._project_name(job_id, project_name or project_dir.name)
+        fossa_ep = (qc_config.get("fossa_endpoint") or "").strip()
+        host_url = (fossa_ep if fossa_ep else "https://app.fossa.com").rstrip("/")
+        # analysis_url is a fallback; the real URL will be extracted from CLI output after `fossa analyze` runs
+        fallback_url = self._analysis_url(project)
 
         is_maven = (project_dir / "pom.xml").exists()
         is_gradle = (project_dir / "build.gradle").exists() or (project_dir / "build.gradle.kts").exists()
@@ -76,8 +83,8 @@ class DependencyCheckRunner:
         # Build execution environment (preserves system environment, JDK and tool paths)
         env = build_tool_env()
         env["FOSSA_API_KEY"] = api_key
-        if settings.fossa_endpoint.strip():
-            env["FOSSA_ENDPOINT"] = settings.fossa_endpoint.strip()
+        if fossa_ep:
+            env["FOSSA_ENDPOINT"] = fossa_ep
         env["PATHEXT"] = os.environ.get("PATHEXT", ".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC")
 
         resolved_maven: str | None = None

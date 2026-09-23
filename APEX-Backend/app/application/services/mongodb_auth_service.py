@@ -202,6 +202,7 @@ class MongoDBAuthService:
         email_verified: bool,
         full_name: str | None,
         profile_image: str | None,
+        github_account: str | None = None,
     ) -> dict:
         """Find-or-create or safely link the local user for a verified provider identity (MongoDB)."""
         normalized_email = email.strip().lower() if email else None
@@ -217,6 +218,12 @@ class MongoDBAuthService:
                 if not self._is_user_active(target_user):
                     logger.warning("OAuth login rejected: account is disabled for user_id=%s", target_user.get("_id"))
                     raise AccountDisabledError()
+            
+            # Update github account if provided and not set
+            if github_account and provider == "github" and user.get("github_account") != github_account:
+                await mongodb_user_repository.update_user(self._db, user["_id"], {"github_account": github_account})
+                user["github_account"] = github_account
+                
 
                 # If OAuth verified the email, ensure user is marked verified
                 if email_verified and not target_user.get("is_email_verified", False):
@@ -268,12 +275,14 @@ class MongoDBAuthService:
                 updates["is_email_verified"] = True
             if provider not in existing_user.get("auth_providers", []):
                 updates["auth_providers"] = existing_user.get("auth_providers", []) + [provider]
-            if profile_image and not existing_user.get("profile_image"):
-                updates["profile_image"] = profile_image
+                
+            if github_account and provider == "github":
+                updates["github_account"] = github_account
+                
             if updates:
                 await mongodb_user_repository.update_user(self._db, existing_user["_id"], updates)
                 existing_user.update(updates)
-
+            
             return existing_user
 
         # 3. Create new user for verified OAuth identity
@@ -286,6 +295,7 @@ class MongoDBAuthService:
             provider_user_id=provider_user_id,
             profile_image=profile_image,
             is_email_verified=True,
+            github_account=github_account,
         )
 
         await self._db.oauth_accounts.delete_many({

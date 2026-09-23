@@ -19,6 +19,7 @@ class UnitTestRunner:
         build_tool: str = "maven",
         target_class_name: str | None = None,
         target_class_names: list[str] | None = None,
+        test_command: str | None = None,
         target_major: int | None = None,
     ) -> UnitTestSuiteResult:
         build_tool_clean = (build_tool or "maven").lower()
@@ -35,7 +36,10 @@ class UnitTestRunner:
         import os
         is_windows = os.name == "nt"
 
-        if build_tool_clean == "gradle":
+        if test_command:
+            import shlex
+            cmd = shlex.split(test_command)
+        elif build_tool_clean == "gradle":
             # Gradle Wrapper Check
             gradlew_bat = project_dir / "gradlew.bat"
             gradlew_sh = project_dir / "gradlew"
