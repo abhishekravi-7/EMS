@@ -293,7 +293,15 @@ class StartMigrationUseCase:
                 ui_mode = report.get("options", {}).get("uiModMode")
                 try:
                     from app.application.pipelines.frontend_migration.ui_migration_handler import UIMigrationHandler
-                    handler = UIMigrationHandler(paths.migrated_repo_dir, ui_target, mode=ui_mode)
+                    # ui_mode: source type (e.g. "JSP→React"), render_ui_mode: UI style (preserve/mui/material)
+                    render_ui_mode = report.get("options", {}).get("renderUiMode") or "preserve"
+                    handler = UIMigrationHandler(
+                        paths.migrated_repo_dir,
+                        ui_target,
+                        mode=ui_mode,
+                        ui_mode=render_ui_mode,
+                        backend_mode="unchanged",
+                    )
                     ui_transformations = handler.run()
                 except Exception as e:
                     logger.error(f"UI Migration failed: {e}")

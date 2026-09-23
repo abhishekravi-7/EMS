@@ -72,6 +72,8 @@ export interface FrameworkRecommendationItem {
   targetVersion: string;
   availableVersions?: string[];
   compatibility: string;
+  architecture?: string;
+  routing?: string;
   isRecommended: boolean;
   reasons: string[];
   constraints: string[];

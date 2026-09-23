@@ -66,9 +66,10 @@ class GroqClient:
             self._model = new_model
         return changed
 
-    async def _discover_model(self, client: httpx.AsyncClient) -> bool:
-        """Select the first active chat model when the configured model is gone."""
-        if self._api_key_overridden and self._model_overridden:
+    async def _discover_model(self, client: httpx.AsyncClient, exclude_models: set[str] | None = None) -> bool:
+        """Select an active chat model from Groq's catalog, avoiding excluded/rate-limited models."""
+        excluded_models = exclude_models or set()
+        if self._api_key_overridden and self._model_overridden and not excluded_models:
             return False
         try:
             response = await client.get(
@@ -81,22 +82,24 @@ class GroqClient:
             candidates = [
                 item.get("id")
                 for item in models
-                if item.get("id") and item.get("active", True)
+                if item.get("id") and item.get("active", True) and item.get("id") not in excluded_models
             ]
             excluded_terms = ("guard", "safeguard", "whisper", "orpheus")
             chat_candidates = [
                 model for model in candidates
                 if not any(term in model.lower() for term in excluded_terms)
             ]
-            preferred = next(
-                (model for model in chat_candidates if model.startswith("openai/gpt-oss-20b")),
-                None,
-            ) or next(
-                (model for model in chat_candidates if model.startswith("openai/gpt-oss-")),
-                None,
-            ) or next(iter(chat_candidates), None)
+            preferred = (
+                next((m for m in chat_candidates if m.startswith("openai/gpt-oss-20b")), None)
+                or next((m for m in chat_candidates if m.startswith("openai/gpt-oss-")), None)
+                or next((m for m in chat_candidates if m.startswith("llama-3.3-70b")), None)
+                or next((m for m in chat_candidates if m.startswith("llama-3.1-8b")), None)
+                or next((m for m in chat_candidates if m.startswith("qwen-2.5")), None)
+                or next((m for m in chat_candidates if m.startswith("mixtral")), None)
+                or next(iter(chat_candidates), None)
+            )
             if preferred and preferred != self._model:
-                logger.warning("[GROQ] Model %s unavailable; switching to %s", self._model, preferred)
+                logger.warning("[GROQ] Model %s rate limited or unavailable; switching model to %s", self._model, preferred)
                 self._model = preferred
                 return True
         except (httpx.HTTPError, ValueError, TypeError, AttributeError) as exc:
@@ -125,7 +128,9 @@ class GroqClient:
             "Content-Type": "application/json",
         }
 
-        max_retries = 3
+        max_retries = 5
+        rate_limited_models: set[str] = set()
+
         # Keep the transport inside the current event loop. A module-global
         # AsyncClient can retain a closed loop when callers use asyncio.run().
         async with httpx.AsyncClient(timeout=self._timeout) as client:
@@ -147,7 +152,7 @@ class GroqClient:
                                 self._model,
                                 body_preview,
                             )
-                            # 429 = rate limit → retry with backoff if short, otherwise fail fast
+                            # 429 = rate limit → switch model if daily limit, or retry with backoff
                             if response.status_code == 429:
                                 import re
                                 wait_match = re.search(r"try again in (\d+(?:\.\d+)?)s", body_preview, re.IGNORECASE)
@@ -161,8 +166,18 @@ class GroqClient:
                                         retry_after = 2 ** attempt
 
                                 if retry_after > 30:
-                                    logger.warning("[GROQ] Daily or long rate limit (%ss) hit for model %s. Failing fast.", retry_after, self._model)
-                                    raise ChatLLMServiceError(f"Groq rate limit exceeded ({body_preview[:120]}).")
+                                    rate_limited_models.add(self._model)
+                                    logger.warning(
+                                        "[GROQ] Daily or long rate limit (%ss) hit for model %s. Attempting model failover.",
+                                        retry_after,
+                                        self._model,
+                                    )
+                                    model_switched = await self._discover_model(client, exclude_models=rate_limited_models)
+                                    if model_switched:
+                                        payload["model"] = self._model
+                                        logger.info("[GROQ] Retrying request with fallback model %s", self._model)
+                                        continue
+                                    raise ChatLLMServiceError(f"Groq rate limit exceeded on model {self._model} ({body_preview[:120]}).")
                                 if attempt < max_retries - 1:
                                     logger.warning(
                                         "[GROQ] Rate limited (429). Retrying in %ss (attempt %s/%s)",

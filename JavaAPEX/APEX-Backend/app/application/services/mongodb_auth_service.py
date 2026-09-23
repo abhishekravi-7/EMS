@@ -56,13 +56,13 @@ class MongoDBAuthService:
         """Consolidated session creation for MongoDB users."""
         user_id = user["_id"]
         await mongodb_user_repository.update_last_login(self._db, user_id)
-        
+
         access_token = security.create_access_token(user_id)
         refresh_token = security.create_refresh_token(user_id)
-        
+
         # Store refresh token hash
         await self._store_refresh_token(user_id, refresh_token)
-        
+
         return access_token, refresh_token
 
     async def _store_refresh_token(self, user_id: str, token: str):
@@ -71,7 +71,7 @@ class MongoDBAuthService:
         from datetime import timedelta
         from app.core.config import settings
         expires_at = datetime.now(timezone.utc) + timedelta(days=settings.refresh_token_expire_days)
-        
+
         await self._db.auth_sessions.insert_one({
             "user_id": user_id,
             "token_hash": token_hash,
@@ -87,7 +87,7 @@ class MongoDBAuthService:
 
         token_hash = security.hash_refresh_token(refresh_token)
         session = await self._db.auth_sessions.find_one({"token_hash": token_hash, "user_id": user_id})
-        
+
         if not session:
             # Token might have been reused or revoked.
             # Security best practice: revoke all sessions for this user?
@@ -95,7 +95,7 @@ class MongoDBAuthService:
 
         # Rotate: delete old session
         await self._db.auth_sessions.delete_one({"_id": session["_id"]})
-        
+
         user = await mongodb_user_repository.get_user_by_id(self._db, user_id)
         if not user or not user.get("is_active", True):
              raise NotAuthenticatedError("User not found or inactive.")
@@ -103,7 +103,7 @@ class MongoDBAuthService:
         new_access = security.create_access_token(user_id)
         new_refresh = security.create_refresh_token(user_id)
         await self._store_refresh_token(user_id, new_refresh)
-        
+
         return new_access, new_refresh
 
     async def logout(self, refresh_token: str):
@@ -194,7 +194,7 @@ class MongoDBAuthService:
         if existing_user:
             if not existing_user.get("is_active", True):
                 raise AccountDisabledError()
-            
+
             # Upsert the oauth_account record linking this provider identity to the existing user
             await mongodb_user_repository.create_oauth_account(
                 self._db,
@@ -207,7 +207,7 @@ class MongoDBAuthService:
             if provider not in auth_providers:
                 auth_providers.append(provider)
                 await mongodb_user_repository.update_user(self._db, existing_user["_id"], {"auth_providers": auth_providers})
-            
+
             await mongodb_user_repository.update_last_login(self._db, existing_user["_id"])
             return existing_user
 
@@ -222,7 +222,7 @@ class MongoDBAuthService:
             profile_image=profile_image,
             is_email_verified=True if email_verified is None else email_verified,
         )
-        
+
         await mongodb_user_repository.create_oauth_account(
             self._db,
             user_id=user["_id"],
@@ -245,7 +245,7 @@ class MongoDBAuthService:
 
         token = secrets.token_urlsafe(32)
         expires_at = datetime.now(timezone.utc) + timedelta(minutes=30)
-        
+
         await mongodb_user_repository.create_password_reset_token(
             self._db,
             user_id=user["_id"],
@@ -254,7 +254,7 @@ class MongoDBAuthService:
         )
 
         reset_link = f"{frontend_url.rstrip('/')}/reset-password?token={token}"
-        
+
         # Here we would send the email.
         # We will integrate an email service to send the specific template.
         from app.infrastructure.email.email_service import send_password_reset_email
@@ -275,7 +275,7 @@ class MongoDBAuthService:
 
         user_id = token_doc["user_id"]
         password_hash = security.hash_password(new_password)
-        
+
         await mongodb_user_repository.update_user_password(self._db, user_id, password_hash)
         await mongodb_user_repository.delete_password_reset_token(self._db, token)
 

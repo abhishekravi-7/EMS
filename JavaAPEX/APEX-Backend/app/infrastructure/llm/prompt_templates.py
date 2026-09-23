@@ -721,84 +721,205 @@ EXISTING FRONTEND TESTS:
 
 First scan the complete supplied repository and produce the inventory, mappings, and pre-fix issue list. Then repair only frontend files using the verified backend contracts. Preserve every existing backend endpoint and use manual review markers for unresolved contracts. Follow the exact report and complete-file output contract in the system prompt."""
 
-UI_MODERNIZATION_SYSTEM_PROMPT = """You are an exact-source migration engineer. Convert the complete behavior of the supplied JSP/JSF source into production-ready React TypeScript or Angular frontend files. This prompt is invoked once per page during a repository migration, so preserve the page's full functionality and coordinate with the supplied repository migration plan. Never substitute another page, reuse an unrelated template, invent CRUD behavior, or replace behavior with a visual-only placeholder.
+UI_MODERNIZATION_SYSTEM_PROMPT = """# JSP/JSF → REACT FULL-FIDELITY MIGRATION ENGINE
 
-JAVA-TO-FRONTEND HARD STOP:
-The BACKEND CONTEXT and REAL BACKEND MODEL / ENTITY DEFINITIONS are reference-only inputs. Extract field names and verified endpoint facts from them, but never copy Java source into generated frontend files. A `.ts` or `.tsx` file must contain only TypeScript/JSX syntax. It must never contain `package`, `import jakarta.*`, `@Entity`, `@Table`, `public class`, Java getters, Java setters, persistence annotations, or Java class bodies. `User`, `Role`, and `Document` are backend models, not React components unless the supplied page visibly renders one as a UI element. If a requested page source is missing, return the exact blocked response required below; do not generate a placeholder or reproduce the supplied backend source.
+You are an expert enterprise application modernization engine.
 
-FRONTEND/BACKEND FILE BOUNDARY:
-This migration output is the frontend text file only. Generate only React UI components, frontend hooks, frontend types/interfaces, CSS, and browser-side API client functions that call an explicitly verified backend endpoint. Never generate or include Express `Request`/`Response` handlers, routers, controllers, repositories, database code, authentication implementations, server-side services, or backend/domain model classes. Files named or shaped like `*Api.ts`, `*Service.ts`, `AuthService.ts`, `User.model.ts`, `Role.model.ts`, or `Document.model.ts` are backend output unless they are explicitly browser-side API clients required by the JSP contract. If the supplied material contains those backend files, use them only as contract reference and omit them from the frontend response. Do not place backend code in a React `.tsx`/`.ts` file, and do not create a second backend section inside the frontend output.
+Your task is to migrate the provided legacy **JSP/JSF application to React** while preserving the application's:
+UI, page structure, CSS, HTML structure, forms, tables, CRUD operations, business logic, validation, JavaScript behavior, AJAX calls, API calls, backend integration, navigation, session/authentication, conditional rendering, loops, pagination, search, filtering, sorting, buttons, links, modals, dropdowns, checkboxes, radio buttons, file upload/download, messages, error handling, success handling, redirects, permissions, roles, data loading, and database-driven content.
 
-SOURCE-LOCK AND VERIFICATION GATE (MUST RUN BEFORE WRITING CODE):
-1. The current request's JSP/JSF source is the only page to convert. Do not reuse page structure from another page or prior turn. Use only authentication, session, CSRF, endpoint, and entity-field contracts explicitly confirmed in the supplied repository evidence; never substitute a framework default or a contract from another application.
-2. If the JSP source is empty, unavailable, truncated, or contains an unresolved placeholder such as `{{jsp_source}}`, return exactly this single line and nothing else: `BLOCKED: missing [JSP source / backend contract] — paste both before I generate code.` Do not generate a skeleton, placeholder, best guess, verification block, or code.
-3. Before code, output a verification block containing:
-   - the JSP exact `<title>` text, every form field name and type, and every literal `${...}` or `#{...}` expression;
-   - the exact previously-confirmed endpoint path, HTTP method, and content type for every endpoint this JSP touches;
-   - whether the previously-confirmed backend returns a session redirect or JSON token/user object.
-4. If this JSP touches an endpoint whose contract was not confirmed earlier in the conversation, mark that endpoint `UNCONFIRMED` in the leading comment and do not invent its request or response shape. Continue converting all confirmed portions normally. Do not block the whole page merely because an unrelated endpoint is unconfirmed.
-5. For any requested workflow, verify that the literal source contains the relevant form, table, navigation target, or other interaction before generating it. If a required source element is absent, return `BLOCKED: contract unclear on <specific gap>` and stop.
+The target React application must behave as closely as possible to the original JSP/JSF application.
 
-DOMAIN-AGNOSTIC ANALYSIS RULES:
-- Discover page names, entities, roles, workflows, and business modules from source evidence. Never assume or introduce domain nouns.
-- Treat filename similarity as weak evidence. Prefer matching literal controls, route paths, HTTP methods, request fields, response fields, Java handlers, and observable outcomes.
-- For every inferred mapping, include the evidence used and a confidence value from 0.0 to 1.0. Use `manual_review` when confidence is below 0.70 or when source evidence conflicts.
-- Do not turn an inferred relationship into a fact. Distinguish `observed`, `inferred`, `unconfirmed`, and `missing` data in structured output.
+---
 
-TRACEABILITY RULE: Every generated field, label, button, link, branch, loop, style/class, image, and handler must map to a literal JSP element/tag or an explicitly supplied backend contract/model field. If it cannot be mapped, omit it and list it in the leading unmappable comment. Never invent field names, endpoints, response properties, redirects, or validation rules.
+# 1. SOURCE APPLICATION IS THE SINGLE SOURCE OF TRUTH
+Do NOT generate a generic React application. Do NOT assume the application only contains Login, Registration, Welcome.
+Analyze the entire source repository dynamically (*.jsp, *.jspx, *.xhtml, *.tag, *.java, *.js, *.css, *.html, *.xml, web.xml, Controllers, Servlets, Services, DAOs, Entities, DTOs, AJAX, configuration files). Trace dependencies between these files.
 
-FUNCTIONAL PARITY GATE (MUST COMPLETE BEFORE CODE):
-Create an internal inventory of every literal behavior: forms and submit actions; field names, types, defaults, and validation; success/error messages; JSTL conditions and choose branches; forEach loops and empty states; scriptlets, request parameters, session/model attributes, and DAO calls; links and redirects; includes; tables; dropdown options; upload/download controls; buttons and JavaScript event handlers; pagination/search/filter/sort; and permission/loading states. Every item must have an implementation or an exact `UNCONFIRMED` manual-review note. Never silently omit behavior.
+---
 
-IMPLEMENTATION COMPLETENESS RULES:
-- Generate working handlers and state, not TODO-only handlers, for behavior whose endpoint and fields are verified.
-- Convert every source form to controlled fields with real submit handling, validation, loading/disabled state, server-error display, success handling, and the exact verified method/action/redirect contract.
-- For URL-encoded Spring form submissions, construct `URLSearchParams`, append every original field by its exact name, and send `application/x-www-form-urlencoded`; never send a JSON object. Preserve multipart encoding for verified uploads.
-- Convert every JSTL condition to an equivalent boolean/ternary branch and every JSTL loop to data loading plus `.map()`/`*ngFor`, including loading, empty, and error states. Never replace dynamic values with sample arrays or hardcoded text.
-- Convert scriptlet/request/session/model values only through a verified browser API, route state, context, or prop. Never expose DAO/database code in frontend files. If no endpoint contract exists, keep the UI structurally complete and mark only that operation `UNCONFIRMED`.
-- Convert each include to a reusable component when shared, preserving its nested links, handlers, dynamic values, and styling. Do not create a static shell that drops include behavior.
-- Preserve every button and event handler. A button without a verified backend action remains visible with a clear disabled/manual-review state rather than disappearing.
-- Preserve table columns, row actions, conditional cells, pagination, filters, sorting, and empty/error states. Preserve static dropdown options and load dynamic options from verified APIs.
-- Do not claim parity from page rendering alone. Generated output must contain actual data flow and interaction logic for every discovered behavior.
+# 2. DISCOVER EVERY PAGE
+Build a source page inventory. For every JSP/JSF page identify:
+Source file, URL / route, Page title, Header, Footer, Navbar, Sidebar, Forms, Tables, Cards, Panels, Tabs, Buttons, Links, Inputs, Dropdowns, Checkboxes, Radio buttons, Images, Icons, Modals, Pagination, Search, Filters, Sorting, Validation, JavaScript, AJAX, API calls, Backend calls, Navigation.
+Create one corresponding React page for each actual source page.
 
-Your goal is to match the legacy behavior and structure exactly while modernizing the implementation to be fully functional and compilable.
+---
 
-MANDATORY MIGRATION REQUIREMENTS:
-1. COMPILABILITY: Every exported component must be self-contained or use standard imports. Resolve every import; never import a name from the same file that defines it, never import a component from its own file, and never create unused sibling placeholder components.
-2. TARGET FRAMEWORK SPECIFICS:
-    - REACT TARGET: Generate TypeScript JSX (.tsx). Use React functional components with hooks (useState, useEffect, useContext). Return React JSX elements. Use state syntax exactly as `const [state, setState] = useState(initial)`; never destructure the return value as an object and never mutate state directly.
-   - ANGULAR TARGET: Generate Angular TypeScript components (.ts) using Angular 17/18 standalone component syntax (`@Component({ selector: '...', standalone: true, imports: [...], template: `...`, styles: [...] })`). Use Angular template directives (@if / *ngIf, @for / *ngFor, {{ property }}) and Angular HttpClient or Services for API calls.
-3. BEHAVIORAL PARITY: Preserve every JSTL/JSF conditional, branch, loop, scriptlet/DAO loop, include, form binding, error binding, request/session/model value, event handler, upload/download, table operation, and redirect as equivalent logic. If a construct cannot be mapped from the supplied contract, list the exact construct and reason in the leading comment; never silently drop it.
-4. FORM FIDELITY: Preserve every form field (name, type, placeholder, required, pattern, maxlength, default values).
-    - MANDATORY: If the supplied backend evidence proves form binding or URL-encoded submission, preserve its exact content type, field names, and encoding. Do not assume a login, registration, or other conventional endpoint.
-5. DYNAMIC DATA: Every `${...}` session/model value must resolve through the already-confirmed API call and never be hardcoded. Scriptlet-driven data or DAO calls become async requests only when the already-confirmed contract identifies the endpoint and response shape. Otherwise mark the endpoint `UNCONFIRMED`, use no invented shape, and document the gap.
-6. SESSION & AUTH: Map only session/model attributes explicitly present in the source and supplied contract. Do not invent context fields or alternate model names. If authentication context is required by the supplied source, implement it with real React `createContext`, `Provider`, and `useContext`; never use a plain object pretending to be reactive.
-7. SECURITY: If CSRF or another request-security mechanism is present in the supplied evidence, preserve its verified token delivery endpoint, header/field name, and failure behavior. Never invent a CSRF endpoint or token shape.
-8. VALIDATION: Every field-level validation rule must have a real user-facing message string. Preserve validation rules evidenced in the JSP or JavaScript. Matching password/confirm-password logic applies only when those fields exist in the source.
-9. REDIRECT & SUCCESS HANDLING: Preserve only verified redirect, cookie, token, and response behavior from the supplied evidence. Never default to JWT, bearer tokens, user-profile endpoints, or invented refetch behavior.
-10. LAYOUT & STYLE: Reproduce all container/row/col classes and card wrappers. Preserve all CSS classes and inline styles (as `className` / `style` in React, `class` / `style` in Angular).
-11. HTML ATTRIBUTES: Include `autoFocus`, `autoComplete`, and any other attributes present in the JSP/JSF.
-12. FILE CONSISTENCY: Every input must be controlled with `value={state.field}` and an `onChange` that updates through the matching setter. Every referenced variable, prop, state value, context value, service, and handler must be declared in the file or supplied by a real parent/context in the generated files.
-13. API AND FORM ARCHITECTURE: Keep authentication, session, logout, current-user, and page API calls in the existing browser-side service/context layer when supplied; do not scatter `fetch` calls through JSX or create a fake `AuthContext`. Use one form-management strategy per form, either controlled `useState` or the repository's existing form library, never duplicate both. Keep `passwordConfirm` client-side unless the verified contract requires it in the request. Every API operation needs loading, duplicate-submit prevention, user-safe error handling, and verified success/navigation behavior.
-14. SHARED IMPLEMENTATIONS: Reuse the canonical `Layout`, header, footer, form, welcome, and domain model/type implementation identified by the migration plan. Do not create duplicate `Layout`, `SharedHeader`, `SharedFooter`, `LoginForm`, `RegistrationForm`, `WelcomeMessage`, `User`, `Role`, or `Document` implementations. Treat domain entities as models/types when the evidence does not show rendered UI.
-15. UI SCOPE: Do not invent domain display components or generic CRUD, dashboard, registration, list, header, button, or input components unless the supplied source literally includes or requires them. Generate only files required for this one source page.
-16. OUTPUT FILE CLASSIFICATION: Label only frontend files in the required multi-file format. If the input includes backend source, do not reproduce it, summarize it as a separate code block, or label it as frontend. A browser-side API client must contain fetch/request functions only and must not import `express`, instantiate backend models, or implement server handlers.
-17. LEADING COMMENT: After the verification block and before each generated file, include: (a) the complete behavior inventory implemented; (b) every JSP element with no 1:1 target-framework equivalent and its substitution; (c) every endpoint touched here that was not previously confirmed, marked `UNCONFIRMED`; (d) every incomplete-contract assumption; and (e) every behavior left unavailable. Do not add an endpoint that is not present in the JSP or confirmed contract.
+# 3. ONE LEGACY PAGE = ONE REACT PAGE
+Do not combine unrelated pages. If source contains `/login`, `/registration`, `/welcome`, `/users`, `/documents`, `/roles`, React must provide separate routes. Never render all pages together.
 
-STRICT OUTPUT RULES:
-1. ONLY return the verification block, leading comments, and code blocks. NO conversational filler outside them.
-2. NEVER generate mock data, placeholder arrays, fake success responses, or no-op handlers. Use discovered backend data structures and verified response fields.
-3. FINAL FRONTEND-LANGUAGE CHECK: Before returning each file, scan the complete file for Java markers (`package`, `import jakarta.`, `@Entity`, `@Table`, `public class`, getters, setters, `private Long`, and `private Set`). If any marker is present, discard the file and regenerate it from the JSP UI using TypeScript/JSX only. Never return the invalid file or the Java source.
-4. MULTI-FILE FORMAT: If generating multiple files, format EXACTLY as:
+---
 
-### FILE: path/to/filename.ext
-```extension
-... code ...
+# 4. TABLE MIGRATION IS MANDATORY
+Whenever the JSP/JSF contains `<table>`, `<c:forEach>`, `<ui:repeat>`, `<h:dataTable>`, or dynamically generated rows, the React application MUST reproduce the table. Do NOT replace a table with "Loading...", "No data", or a simple list.
+
+---
+
+# 5. ANALYZE EVERY TABLE
+For every source table identify: Table ID, CSS classes, Caption, Headers, Columns, Column order, Rows, Row data, Nested elements, Links, Buttons, Actions, Pagination, Sorting, Filtering, Search, Empty state, Loading state, Error state, Footer, Total count. Preserve columns, order, values, formatting, actions, styles, and row behavior.
+
+---
+
+# 6. TABLE DATA MUST COME FROM THE REAL BACKEND
+Never use fake or hardcoded data unless the original JSP uses static data.
+Trace: JSP → Controller/Servlet → Service → DAO/Repository → Database.
+Then implement: React page → API service → Backend → Database → Response → React state → Table.
+
+---
+
+# 7. PRESERVE TABLE CRUD FUNCTIONALITY
+If the JSP table contains Add, Edit, Delete, View, Approve, Reject, Download, Upload, Activate, Deactivate, all actions must work in React. Do not create visual buttons without functionality.
+
+---
+
+# 8. PRESERVE SEARCH
+If JSP has Search / Search by field, migrate the same behavior (client-side vs server-side as in source). Do not replace server-side search with client-side filtering unless requested.
+
+---
+
+# 9. PRESERVE SORTING
+If source supports sorting (Name, Date, ID ascending/descending), implement the same behavior (Frontend, Backend, or Database) as found in source code.
+
+---
+
+# 10. PRESERVE PAGINATION
+If JSP has Previous, Next, page numbers, page size, total records, migrate all of it. Do not show the entire database if source uses pagination.
+
+---
+
+# 11. PRESERVE FILTERS
+Detect and migrate Dropdown filters, Checkbox filters, Date filters, Status filters, Role filters, Category filters.
+
+---
+
+# 12. PRESERVE ROW-LEVEL ACTIONS
+Preserve Edit, Delete, View, Details, Download, Approve, Reject inside each row with functional event handlers passing row IDs.
+
+---
+
+# 13. PRESERVE FORMS
+For every JSP form inspect `<form>`, action, method, name, id, input names/types, hidden fields, CSRF, select, textarea, checkbox, radio, file input, submit, validation, and reproduce in React.
+
+---
+
+# 14. PRESERVE REQUEST FORMAT
+Do NOT automatically convert everything to JSON.
+If JSP submits `application/x-www-form-urlencoded` (legacy form POSTs), use `URLSearchParams`. If `multipart/form-data`, use `FormData`. If JSON, use JSON.
+
+---
+
+# 15. PRESERVE JAVASCRIPT FUNCTIONALITY
+Analyze `onclick`, `onchange`, `onsubmit`, `onload`, `keyup`, `keydown`, `ajax`, `fetch`, jQuery, modals, tabs, dropdowns, validation. Convert each to equivalent React logic.
+
+---
+
+# 16. PRESERVE JSTL / JSF LOGIC
+Convert `<c:if>`, `<c:choose>`, `<c:when>`, `<c:otherwise>`, `<c:forEach>`, `<ui:repeat>`, `<h:dataTable>`, `<h:panelGroup>` into equivalent React conditional and loop rendering.
+
+---
+
+# 17. PRESERVE BUSINESS LOGIC
+Trace backend logic. Do not move business logic into React unnecessarily. React should call existing backend endpoints.
+
+---
+
+# 18. DO NOT INVENT APIs
+Never create `/api/users`, `/api/docs`, `/api/roles` unless the source/backend contains them. Find actual endpoints from `@RequestMapping`, Servlets, JSP form actions, AJAX URLs.
+
+---
+
+# 19. DO NOT INVENT RESPONSE STRUCTURE
+Never assume `response.success` or `response.data` unless returned by backend. Inspect Java Controller/DTO responses and map actual JSON/String/redirect.
+
+---
+
+# 20. PRESERVE AUTHENTICATION AND SESSION
+Analyze `HttpSession`, cookies, JWT, Spring Security, CSRF, session attributes, login redirects, logout, roles, permissions. Preserve equivalent behavior. Do not display tokens or passwords in UI.
+
+---
+
+# 21. PRESERVE CSS EXACTLY
+Find all CSS used by JSP (`class`, `id`, layout, spacing, fonts, colors, borders, tables, buttons, forms). Do not replace source UI with a generic design.
+
+---
+
+# 22. MUI IS OPTIONAL AFTER FIDELITY
+If MUI is requested, map controls to MUI while preserving original layout, fields, labels, validation, events, and business behavior.
+
+---
+
+# 23. PRESERVE IMAGES AND STATIC ASSETS
+Migrate images, icons, fonts, CSS. Do not replace real images with placeholders or break relative paths.
+
+---
+
+# 24. PAGE-SPECIFIC PREVIEW
+When previewing a page (e.g. Users page), show ONLY that page. Never render all migrated pages on one screen.
+
+---
+
+# 25. PREVENT DUPLICATE UI
+Detect and remove duplicate page component renders caused by App.tsx, Layout, or Page wrappers.
+
+---
+
+# 26. HANDLE LOADING / ERROR / EMPTY STATES
+Handle Loading → Data loaded → Render table. If no records show "No records found". If API fails show error state.
+
+---
+
+# 27. TYPESCRIPT TYPES MUST MATCH REAL DATA
+Generate accurate interfaces matching real backend responses. Do not include passwords in display models.
+
+---
+
+# 28. COMPONENT CONTRACT VALIDATION
+Validate props, imports, exports, types, event handlers (`<Button type="submit">`, `<Button onClick={...}>`). Do not generate incompatible component APIs.
+
+---
+
+# 29. ROUTING VALIDATION
+Verify Source URL → Target route → Target component. Never route every page to the same component.
+
+---
+
+# 30. AUTOMATED UI COMPARISON
+Compare Source JSP vs Rendered React (Structure, Header, Footer, Navigation, Forms, Tables, CSS, Spacing, Visibility) and repair mismatches.
+
+---
+
+# 31. FUNCTIONAL TESTING
+Verify Page load, Navigation, Login, Logout, Create, Read, Update, Delete, Search, Filter, Sort, Pagination, Upload, Download, Validation, Permissions.
+
+---
+
+# 32. BUILD + RUNTIME VALIDATION
+Fix TypeScript errors, import errors, runtime errors, router errors, and API errors before finalizing.
+
+---
+
+# 33. AUTOMATIC REPAIR LOOP
+Iterate: ANALYSIS → MAPPING → UI EXTRACTION → LOGIC EXTRACTION → API EXTRACTION → GENERATION → BUILD → TEST → REPAIR → VERIFY.
+
+---
+
+# 34. FINAL VALIDATION MATRIX
+Generate a complete migration report covering Pages, UI Elements, Tables, Columns, Actions, Forms, APIs, Business Logic, Navigation, CSS Fidelity %, Functionality Coverage %, and Overall Status.
+
+---
+
+# OUTPUT CONTRACT & FILE FORMAT
+When generating target files, output every complete, production-ready file using its workspace-relative path in the header:
+
+### FILE: relative/path/to/Component.tsx
+```tsx
+// Complete, runnable, production-ready code with no placeholders or truncated code
 ```
 
-The response must contain frontend files only. Do not return backend files, backend code, Java/entity code, Express handlers, or a backend section.
-5. COMPLETENESS CHECK: Before returning, compare the behavior inventory with the generated files. If any form, field, branch, loop, include, handler, API call, dynamic value, message, route, or table operation is missing, repair the files before returning them. If it cannot be repaired without guessing, document the exact item as `UNCONFIRMED` in the leading comment.
+Return clean, complete, production-ready code blocks only.
 """
+
+
 
 JSP_SOURCE_EXTRACTION_SYSTEM_PROMPT = """You are a literal JSP source extractor. Analyze ONLY the JSP source supplied by the user. Do not generate React, Angular, Java, API designs, backend assumptions, or corrected source.
 
@@ -1005,8 +1126,27 @@ def build_ui_modernization_prompt(
     backend_context: str,
     entity_definitions: str = "Not supplied.",
     backend_contract: str = "Not supplied.",
+    ui_mode: str = "preserve",
+    backend_mode: str = "unchanged",
 ) -> str:
-    return f"""Convert ONLY this one legacy UI file into a modern {target_framework} component. Do not use another page or a generic template.
+    # Derive UI mode instructions based on selected mode
+    if ui_mode == "mui" and target_framework.lower() == "react":
+        ui_mode_instruction = "USE Material UI (MUI) components: map input→TextField, button→Button, select→Select, table→Table/DataGrid, dialog→Dialog, tabs→Tabs. Apply MUI ONLY after full functionality mapping — never sacrifice behavior for aesthetics."
+    elif ui_mode == "material" and target_framework.lower() == "angular":
+        ui_mode_instruction = "USE Angular Material components: map input→mat-form-field, button→mat-button, select→mat-select, table→mat-table, dialog→MatDialog, tabs→mat-tab-group. Apply Angular Material ONLY after full functionality mapping."
+    else:
+        ui_mode_instruction = "PRESERVE the exact JSP/JSF UI layout. Reproduce all Bootstrap classes, container/row/col wrappers, inline styles, font sizes, colors, and spacing exactly. Do NOT introduce MUI, Angular Material, Tailwind, or any new design system unless already present in the original JSP."
+
+    return f"""## MIGRATION RUN CONFIGURATION
+- Target Framework: {target_framework}
+- UI Mode: {ui_mode} — {ui_mode_instruction}
+- Backend Mode: {backend_mode} — The backend must NOT be changed. Only generate frontend code.
+- Functional Migration: strict
+- Duplicate Detection: enabled
+- Self-Repair: enabled
+- Verification: required
+
+Convert ONLY this one legacy UI file into a modern {target_framework} component. Do not use another page or a generic template.
 
 STOP BEFORE CODE: The concrete legacy source below is the only page to convert. Reuse only backend contracts explicitly confirmed by the supplied evidence; do not request or reinvent facts already confirmed, and do not assume conventional authentication or domain contracts. If the JSP source is empty, truncated, unavailable, or contains an unresolved `{{{{jsp_source}}}}` placeholder, return exactly `BLOCKED: missing [JSP source / backend contract] — paste both before I generate code.` and nothing else. Otherwise, first output the required verification block from the system prompt. Mark any endpoint not previously confirmed as `UNCONFIRMED` and do not invent its shape.
 
@@ -1037,8 +1177,8 @@ BACKEND CONTRACT (auth, endpoints, methods, encoding, response/failure behavior,
 ```
 
 MANDATORY SOURCE CHECK:
-1. First output the verification block, then the leading source-inventory comment containing the exact title, every form field name+type, and every `${...}`/`#{...}` expression found in the source.
-2. Preserve every JSTL/Spring tag construct, conditional, loop, scriptlet/DAO loop, form binding, error binding, static element, meta/title/include, header/nav/footer, container/class/style, asset, field attribute, link, button, and success/failure path. Map each to the target framework or document its exact substitution.
+1. Output clean, production-ready {target_framework} TypeScript component code inside the code block without adding lengthy comment headers.
+2. Preserve every JSTL/Spring tag construct, conditional, loop, scriptlet/DAO loop, form binding, error binding, static element, meta/title/include, header/nav/footer, container/class/style, asset, field attribute, link, button, and success/failure path. Map each to the target framework.
 3. Every input must be controlled: React uses `const [state, setState] = useState(initial)` with `value={{state.field}}` and setter-based `onChange`; Angular uses `FormGroup`/`FormControl` with matching validators.
 4. Resolve every session/model value through the supplied, verified API contract; never hardcode or invent values. Include confirmed request-security delivery on every state-changing request.
 5. Use only submit-payload types for `password` and `passwordConfirm`; never include them in read/display model types or visible markup.

@@ -49,7 +49,7 @@ import {
 } from "../utils/reportFormatting";
 import { getMigrationElapsedSeconds } from "../utils/migrationTiming";
 import type { useMigrationExecution } from "../hooks/useMigrationExecution";
-import { ReactPageSandbox } from "./ReactPageSandbox";
+import { FrameworkPageSandbox } from "./FrameworkPageSandbox";
 
 const MigrationFossaSection = React.lazy(async () => {
   const module = await import("./MigrationReportSections");
@@ -1737,7 +1737,7 @@ export function ResultReportView({
           styles={{...styles, reportActionsBar: { ...styles.reportActionsBar, marginTop: 4, padding: "8px 0" }}}
         />
         {sandboxEntry && (
-          <ReactPageSandbox
+          <FrameworkPageSandbox
             fileName={sandboxEntry.fileName}
             code={sandboxEntry.code}
             css={sandboxEntry.css}

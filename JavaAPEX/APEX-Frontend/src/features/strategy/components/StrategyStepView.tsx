@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { FaCode, FaCogs, FaJava, FaLeaf, FaProjectDiagram, FaCheckCircle, FaTimesCircle, FaBoxOpen, FaLayerGroup, FaCubes, FaWrench, FaCoffee, FaChevronDown, FaChevronUp, FaTimes, FaInfoCircle, FaFile } from "react-icons/fa";
+import { FaCode, FaCogs, FaJava, FaLeaf, FaProjectDiagram, FaCheckCircle, FaTimesCircle, FaBoxOpen, FaLayerGroup, FaCubes, FaWrench, FaCoffee, FaChevronDown, FaChevronUp, FaTimes, FaInfoCircle, FaFile, FaReact, FaAngular } from "react-icons/fa";
 import { wizardStyles as styles } from "@/shared/components/wizard/wizardStyles";
 import {
   renderWizardIconBadge,
@@ -780,29 +780,30 @@ export function StrategyStepView({
                   const enabled = isModeEnabled(mode);
                   const isSelected = uiModMode === mode && enabled;
                   return (
-                    <button
-                      key={mode}
-                      type="button"
-                      disabled={!enabled}
-                      aria-pressed={isSelected}
-                      aria-label={`Select conversion: ${mode}`}
-                      onClick={() => {
-                        if (!enabled) return;
-                        setUiModMode(mode);
-                        setSelectedConversions((prev) =>
-                          prev.includes("ui_modernization") ? prev : [...prev, "ui_modernization"]
-                        );
-                        const targetFw = mode.includes("React") ? "React" : "Angular";
-                        setUiFrameworkTarget(targetFw);
-                        const targetVer = targetFw === "React"
-                          ? (userReactVersion || frameworkRecs?.react?.targetVersion)
-                          : (userAngularVersion || frameworkRecs?.angular?.targetVersion);
-                        if (targetVer) setUiFrameworkVersion(targetVer);
-                      }}
-                      className={`uimod-conv-btn${isSelected ? " is-selected" : ""}${!enabled ? " is-disabled" : ""}`}
-                    >
-                      {mode}
-                    </button>
+                      <button
+                        key={mode}
+                        type="button"
+                        disabled={!enabled}
+                        aria-pressed={isSelected}
+                        aria-label={`Select conversion: ${mode}`}
+                        onClick={() => {
+                          if (!enabled) return;
+                          setUiModMode(mode);
+                          setSelectedConversions((prev) =>
+                            prev.includes("ui_modernization") ? prev : [...prev, "ui_modernization"]
+                          );
+                          const targetFw = mode.includes("React") ? "React" : "Angular";
+                          setUiFrameworkTarget(targetFw);
+                          const targetVer = targetFw === "React"
+                            ? (userReactVersion || frameworkRecs?.react?.targetVersion)
+                            : (userAngularVersion || frameworkRecs?.angular?.targetVersion);
+                          if (targetVer) setUiFrameworkVersion(targetVer);
+                        }}
+                        className={`uimod-conv-btn${isSelected ? " is-selected" : ""}${!enabled ? " is-disabled" : ""}`}
+                      >
+                        {mode.includes("React") ? <FaReact size={14} style={{ marginRight: 6, color: isSelected ? "#3b82f6" : undefined }} /> : <FaAngular size={14} style={{ marginRight: 6, color: isSelected ? "#e11d48" : undefined }} />}
+                        {mode}
+                      </button>
                   );
                 })}
               </div>
@@ -860,9 +861,15 @@ export function StrategyStepView({
                         </div>
                       </div>
                       <div className="uimod-rec-compat">{primaryRec.compatibility}</div>
+                      {(primaryRec.architecture || primaryRec.routing) && (
+                        <div style={{ fontSize: 12, color: "#334155", marginTop: 4, marginBottom: 8, fontWeight: 500 }}>
+                          {primaryRec.architecture && <span style={{ marginRight: 12 }}>Architecture: {primaryRec.architecture}</span>}
+                          {primaryRec.routing && <span>Routing: {primaryRec.routing}</span>}
+                        </div>
+                      )}
                       {primaryRec.reasons && primaryRec.reasons.length > 0 && (
                         <div className="uimod-rec-badges">
-                          {primaryRec.reasons.slice(0, 3).map((r, i) => (
+                          {primaryRec.reasons.map((r, i) => (
                             <span key={i} className="uimod-badge is-green"><FaCheckCircle size={9} style={{ marginRight: 3 }} />{r}</span>
                           ))}
                         </div>
@@ -904,9 +911,15 @@ export function StrategyStepView({
                         </div>
                       </div>
                       <div className="uimod-rec-compat is-alt">{alternativeRec.compatibility}</div>
+                      {(alternativeRec.architecture || alternativeRec.routing) && (
+                        <div style={{ fontSize: 12, color: "#334155", marginTop: 4, marginBottom: 8, fontWeight: 500 }}>
+                          {alternativeRec.architecture && <span style={{ marginRight: 12 }}>Architecture: {alternativeRec.architecture}</span>}
+                          {alternativeRec.routing && <span>Routing: {alternativeRec.routing}</span>}
+                        </div>
+                      )}
                       {alternativeRec.reasons && alternativeRec.reasons.length > 0 && (
                         <div className="uimod-rec-badges">
-                          {alternativeRec.reasons.slice(0, 3).map((r, i) => (
+                          {alternativeRec.reasons.map((r, i) => (
                             <span key={i} className="uimod-badge is-blue"><FaCheckCircle size={9} style={{ marginRight: 3 }} />{r}</span>
                           ))}
                         </div>

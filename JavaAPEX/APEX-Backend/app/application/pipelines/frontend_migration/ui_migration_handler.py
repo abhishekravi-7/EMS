@@ -18,10 +18,12 @@ logger = logging.getLogger(__name__)
 
 
 class UIMigrationHandler:
-    def __init__(self, migrated_repo_dir: Path, target_framework: str, mode: str | None = None):
+    def __init__(self, migrated_repo_dir: Path, target_framework: str, mode: str | None = None, ui_mode: str = "preserve", backend_mode: str = "unchanged"):
         self.migrated_repo_dir = migrated_repo_dir
         self.target_framework = target_framework
         self.mode = mode
+        self.ui_mode = ui_mode
+        self.backend_mode = backend_mode
         self.llm = ChatLLM()
 
     def run(self) -> list[dict]:
@@ -127,7 +129,7 @@ class UIMigrationHandler:
             except Exception as exc:
                 logger.error(f"Error modernizing file {fp.name}: {exc}")
             await asyncio.sleep(1.0)
-                
+
         return transformations
 
     @staticmethod
@@ -161,7 +163,9 @@ class UIMigrationHandler:
             source_file_path=str(file_path.relative_to(self.migrated_repo_dir)),
             source_code=source_code,
             target_framework=self.target_framework,
-            backend_context=backend_context
+            backend_context=backend_context,
+            ui_mode=self.ui_mode,
+            backend_mode=self.backend_mode,
         )
         
         max_attempts = 2
@@ -307,6 +311,14 @@ class UIMigrationHandler:
             if in_scriptlet:
                 continue
 
+            # Preserve exact Bootstrap layout classes, styling, etc. 
+            # Convert class to className
+            line = re.sub(r'\bclass="', 'className="', line)
+            line = re.sub(r"\bclass='", "className='", line)
+            # Convert for to htmlFor
+            line = re.sub(r'\bfor="', 'htmlFor="', line)
+            line = re.sub(r"\bfor='", "htmlFor='", line)
+
             # Convert c:out -> {expr}
             line = re.sub(r'<c:out\s+value=["\'](?:\$\{)?([^}"\']+)\}?["\']\s*/>', r'{\1}', line)
 
@@ -326,11 +338,7 @@ class UIMigrationHandler:
             line = re.sub(r'\$\{([^}]+)\}', r'{\1}', line)
             line = re.sub(r'#\{([^}]+)\}', r'{\1}', line)
 
-            # Replace class= with className=
-            line = re.sub(r'\bclass="', 'className="', line)
-            line = re.sub(r"\bclass='", "className='", line)
-            # Replace for= with htmlFor=
-            line = re.sub(r'\bfor="', 'htmlFor="', line)
+            # Ensure forms don't trigger full page reload
             line = re.sub(r"<form(\s|>)", r'<form onSubmit={handleSubmit}\1', line, count=1)
             # Ensure void elements are self-closing
             line = re.sub(r'<(input|img|br|hr)([^>]*?[^/])>', r'<\1\2 />', line)
@@ -344,7 +352,7 @@ class UIMigrationHandler:
         model_names = sorted({
             name
             for name in re.findall(r"\{\s*([A-Za-z_$][\w$]*)", jsx_body)
-            if name not in {"true", "false", "null", "undefined"}
+            if name not in {"true", "false", "null", "undefined", "map"}
         })
         model_destructure = ", ".join(model_names)
         model_line = f"    const {{ {model_destructure} }} = data;\n" if model_destructure else ""
@@ -359,10 +367,9 @@ type {comp_name}Props = {{
 export const {comp_name}: React.FC<{comp_name}Props> = ({{ data = {{}}, onSubmit }}) => {{
     const [formData, setFormData] = useState<Record<string, any>>({{}});
 {model_line}
-
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {{
         const {{ name, value }} = e.target;
-        setFormData((prev) => ({{ ...prev, [name]: value }}));
+        if (name) setFormData((prev) => ({{ ...prev, [name]: value }}));
     }};
 
     const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {{
@@ -383,9 +390,21 @@ export default {comp_name};
     def _transpile_to_angular(self, comp_name: str, source_code: str) -> str:
         """Converts JSP/JSF HTML structure into a valid Angular component."""
         lines = []
+        in_scriptlet = False
+        
         for line in source_code.splitlines():
             stripped = line.strip()
             if stripped.startswith("<%@") or stripped.startswith("<%--") or stripped.startswith("<!--"):
+                continue
+            if "<%" in stripped and "%>" in stripped:
+                line = re.sub(r"<%[=]?.*?%>", "", line)
+            elif "<%" in stripped:
+                in_scriptlet = True
+                continue
+            elif "%>" in stripped:
+                in_scriptlet = False
+                continue
+            if in_scriptlet:
                 continue
 
             # Convert c:out -> {{ expr }}
@@ -399,6 +418,10 @@ export default {comp_name};
             line = re.sub(r'<c:if\s+test=["\'](?:\$\{)?([^}"\']+)\}?["\']>', r'<ng-container *ngIf="\1">', line)
             line = line.replace('</c:if>', '</ng-container>')
 
+            # Convert attribute value="${expr}" to value="{{expr}}" in Angular
+            line = re.sub(r'="\$\{([^}]+)\}"', r'="{{\1}}"', line)
+            line = re.sub(r'=\'\$\{([^}]+)\}\'', r'="{{\1}}"', line)
+
             # Convert JSP EL ${expr} and JSF #{expr} to Angular {{ expr }}
             line = re.sub(r'\$\{([^}]+)\}', r'{{ \1 }}', line)
             line = re.sub(r'#\{([^}]+)\}', r'{{ \1 }}', line)
@@ -410,6 +433,9 @@ export default {comp_name};
                 line,
                 count=1,
             )
+
+            # Ensure void elements are self-closing for Angular template parser safety
+            line = re.sub(r'<(input|img|br|hr)([^>]*?[^/])>', r'<\1\2 />', line)
 
             lines.append("    " + line)
             
@@ -427,22 +453,25 @@ import {{ FormsModule }} from '@angular/forms';
   standalone: true,
   imports: [CommonModule, FormsModule],
   template: `
-    <div class="{comp_name.lower()}-container">
-      {template_body}
+    <div class="{comp_name.lower()}-wrapper">
+{template_body}
     </div>
   `,
   styles: [`
-    .{comp_name.lower()}-container {{
-      padding: 1rem;
+    .{comp_name.lower()}-wrapper {{
+      width: 100%;
     }}
   `]
 }})
 export class {comp_name} implements OnInit {{
   formData: Record<string, any> = {{}};
+  data: Record<string, any> = {{}};
 
   ngOnInit(): void {{}}
 
-  onSubmit(): void {{}}
+  onSubmit(): void {{
+      console.log('Submitted', this.formData);
+  }}
 }}
 
 export default {comp_name};
@@ -483,7 +512,7 @@ export default {comp_name};
             code = self._extract_code_block_legacy(response)
             if code.strip():
                 extracted_files["generated_component"] = code.strip()
-            
+
         return extracted_files
 
     def _extract_code_block_legacy(self, response: str) -> str:

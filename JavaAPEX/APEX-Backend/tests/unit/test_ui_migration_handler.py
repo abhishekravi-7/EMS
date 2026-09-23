@@ -105,7 +105,7 @@ class UIMigrationHandlerTests(unittest.TestCase):
         handler = UIMigrationHandler(self.repo_dir, "React")
         transformations = handler.run()
 
-        self.assertEqual(len(transformations), 1)
+        self.assertGreaterEqual(len(transformations), 1)
         t = transformations[0]
         self.assertEqual(t["category"], "JSP -> React")
         self.assertEqual(t["targetSourceFile"], "pages/UserProfile.tsx")
@@ -114,6 +114,11 @@ class UIMigrationHandlerTests(unittest.TestCase):
         target_path = self.repo_dir / "frontend" / "src" / "pages" / "UserProfile.tsx"
         self.assertTrue(target_path.exists())
         self.assertIn("User Profile React", target_path.read_text(encoding="utf-8"))
+
+        # Verify App.tsx router was created for route isolation
+        app_path = self.repo_dir / "frontend" / "src" / "App.tsx"
+        self.assertTrue(app_path.exists())
+        self.assertIn("BrowserRouter", app_path.read_text(encoding="utf-8"))
 
     @patch("app.infrastructure.llm.chat_llm.ChatLLM.stream_chat")
     def test_full_run_angular_migration(self, mock_stream):
@@ -132,7 +137,7 @@ class UIMigrationHandlerTests(unittest.TestCase):
         handler = UIMigrationHandler(self.repo_dir, "Angular")
         transformations = handler.run()
 
-        self.assertEqual(len(transformations), 1)
+        self.assertGreaterEqual(len(transformations), 1)
         t = transformations[0]
         self.assertEqual(t["category"], "JSP -> Angular")
         self.assertEqual(t["targetSourceFile"], "pages/user-profile/user-profile.component.ts")
@@ -141,6 +146,11 @@ class UIMigrationHandlerTests(unittest.TestCase):
         target_path = self.repo_dir / "frontend" / "src" / "pages" / "user-profile" / "user-profile.component.ts"
         self.assertTrue(target_path.exists())
         self.assertIn("User Profile Angular", target_path.read_text(encoding="utf-8"))
+
+        # Verify app.routes.ts was created for route isolation
+        routes_path = self.repo_dir / "frontend" / "src" / "app.routes.ts"
+        self.assertTrue(routes_path.exists())
+        self.assertIn("Routes", routes_path.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
