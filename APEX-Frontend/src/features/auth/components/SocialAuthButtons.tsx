@@ -31,11 +31,10 @@ const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({ mode }) => {
 
     try {
       if (provider === "google") {
-        await signInWithGoogle();
+        await signInWithGoogle(mode);
       } else {
-        await signInWithGithub();
+        await signInWithGithub(mode);
       }
-      navigate("/connect");
     } catch (err) {
       const message = err instanceof Error ? err.message : "Authentication failed.";
       setError(message);

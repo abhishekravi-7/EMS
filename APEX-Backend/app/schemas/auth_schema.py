@@ -11,7 +11,7 @@ import re
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
+from pydantic import BaseModel, EmailStr, Field, computed_field, field_validator, model_validator
 
 # One regex per password rule reads far more clearly than a single giant
 # pattern, and each gives its own error message when it fails.
@@ -24,7 +24,7 @@ _HAS_SPECIAL_CHARACTER = re.compile(r"[^A-Za-z0-9]")
 class SignupRequest(BaseModel):
     """Body for ``POST /api/auth/signup``."""
 
-    full_name: str = Field(..., alias="fullName", min_length=1, max_length=200)
+    full_name: Optional[str] = Field(default=None, alias="fullName", max_length=200)
     email: EmailStr
     password: str = Field(..., min_length=8, max_length=128)
     confirm_password: str = Field(..., alias="confirmPassword", min_length=8, max_length=128)
@@ -33,9 +33,8 @@ class SignupRequest(BaseModel):
         "populate_by_name": True,
         "json_schema_extra": {
             "example": {
-                "fullName": "Pavithra B",
-                "email": "pavithra@example.com",
-                        "password": "StrongPassword@123",  # nosec B105
+                "email": "javaapex@example.com",
+                "password": "StrongPassword@123",  # nosec B105
                 "confirmPassword": "StrongPassword@123",  # nosec B105
             }
         },
@@ -43,11 +42,11 @@ class SignupRequest(BaseModel):
 
     @field_validator("full_name")
     @classmethod
-    def _trim_full_name(cls, value: str) -> str:
+    def _trim_full_name(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
         value = value.strip()
-        if not value:
-            raise ValueError("Full name is required.")
-        return value
+        return value or None
 
     @field_validator("email")
     @classmethod
@@ -81,6 +80,15 @@ class SignupRequest(BaseModel):
         return self
 
 
+class SignupResponse(BaseModel):
+    """Response returned upon successful signup initiation (pending verification)."""
+
+    email: str
+    message: str
+
+    model_config = {"populate_by_name": True}
+
+
 class LoginRequest(BaseModel):
     """Body for ``POST /api/auth/login``."""
 
@@ -90,7 +98,7 @@ class LoginRequest(BaseModel):
     model_config = {
         "populate_by_name": True,
         "json_schema_extra": {
-            "example": {"email": "pavithra@example.com", "password": "StrongPassword@123"}  # nosec B105
+            "example": {"email": "javaapex@example.com", "password": "StrongPassword@123"}  # nosec B105
         },
     }
 
@@ -103,7 +111,7 @@ class LoginRequest(BaseModel):
 class UserResponse(BaseModel):
     """Safe, public view of a user. NEVER includes password_hash."""
 
-    id: str | int
+    id: int | str
     full_name: str = Field(..., alias="fullName")
     email: str
     role: str
@@ -112,10 +120,13 @@ class UserResponse(BaseModel):
     created_at: datetime = Field(..., alias="createdAt")
     last_login_at: Optional[datetime] = Field(default=None, alias="lastLoginAt")
 
-    # `from_attributes=True` lets this schema read straight off the
-    # SQLAlchemy `User` ORM object's attributes (`UserResponse.model_validate(user)`)
-    # instead of requiring a plain dict — like a Java mapper reading bean
-    # getters directly.
+    @computed_field
+    @property
+    def userId(self) -> int | str:
+        return self.id
+
+    # `from_attributes=True` lets this schema read straight off object attributes
+    # (`UserResponse.model_validate(user)`) or dictionaries.
     model_config = {"populate_by_name": True, "from_attributes": True}
 
 
@@ -158,4 +169,56 @@ class ResetPasswordRequest(BaseModel):
         if not _HAS_SPECIAL_CHARACTER.search(value):
             raise ValueError("Password must contain at least one special character.")
         return value
+
+
+class VerifyEmailCodeRequest(BaseModel):
+    """Body for ``POST /api/auth/verify-email-code`` and ``POST /api/auth/verify-email``."""
+
+    email: EmailStr
+    code: str = Field(..., min_length=6, max_length=6)
+
+    @field_validator("email")
+    @classmethod
+    def _normalize_email(cls, value: str) -> str:
+        return value.strip().lower()
+
+    @field_validator("code")
+    @classmethod
+    def _validate_code(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned.isdigit() or len(cleaned) != 6:
+            raise ValueError("Verification code must be exactly 6 digits.")
+        return cleaned
+
+
+class VerifyEmailRequest(BaseModel):
+    """Legacy or alternate body for email verification."""
+
+    email: Optional[EmailStr] = None
+    code: Optional[str] = None
+    token: Optional[str] = None
+
+    @field_validator("email")
+    @classmethod
+    def _normalize_email(cls, value: Optional[str]) -> Optional[str]:
+        return value.strip().lower() if value else None
+
+
+class ResendVerificationRequest(BaseModel):
+    """Body for ``POST /api/auth/resend-verification-code`` and ``POST /api/auth/resend-verification``."""
+
+    email: EmailStr
+
+    @field_validator("email")
+    @classmethod
+    def _normalize_email(cls, value: str) -> str:
+        return value.strip().lower()
+
+
+class GoogleAuthRequest(BaseModel):
+    """Body for ``POST /api/auth/google``."""
+
+    credential: str = Field(..., min_length=1, alias="credential")
+
+    model_config = {"populate_by_name": True}
 

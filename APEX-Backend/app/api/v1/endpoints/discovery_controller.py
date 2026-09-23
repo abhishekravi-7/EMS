@@ -17,9 +17,8 @@ from typing import Any
 from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse, Response
-from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, verify_job_ownership
+from app.api.deps import User, get_current_user, verify_job_ownership
 from app.application.pipelines.discovery_pipeline import DiscoveryPipeline
 from app.application.use_cases.assess_microservice_eligibility import (
     AssessMicroserviceEligibilityUseCase,
@@ -28,9 +27,7 @@ from app.application.use_cases.browse_repository import RepositoryFileBrowser
 from app.application.use_cases.get_dashboard_stats import GetDashboardStatsUseCase
 from app.core.exceptions import DiscoveryError, RepositoryBrowseError
 from app.domain.models.brd_models import BrdMetadata
-from app.infrastructure.persistence.database import get_db_optional
 from app.infrastructure.persistence.job_repository import JobRepository
-from app.infrastructure.persistence.models import User
 from app.infrastructure.workspace.workspace_paths import WorkspacePaths
 from app.schemas.dashboard_schema import DashboardStatsResponse
 from app.schemas.discovery_schema import DiscoveryRequest, DiscoveryResponse
@@ -52,10 +49,9 @@ _dashboard_stats_use_case = GetDashboardStatsUseCase()
 async def get_dashboard_stats_compat(
     job_id: str,
     current_user: User = Depends(get_current_user),  # noqa: B008
-    db: Session | None = Depends(get_db_optional),  # noqa: B008
 ) -> Any:
     """Compatibility route for 'dashboard-stats:1' suffix."""
-    return await get_dashboard_stats(job_id, current_user, db)
+    return await get_dashboard_stats(job_id, current_user)
 
 
 @router.get(
@@ -66,10 +62,9 @@ async def get_dashboard_stats_compat(
 async def get_dashboard_stats(
     job_id: str,
     current_user: User = Depends(get_current_user),  # noqa: B008
-    db: Session | None = Depends(get_db_optional),  # noqa: B008
 ) -> Any:
     try:
-        await verify_job_ownership(db, job_id, current_user)
+        await verify_job_ownership(job_id, current_user)
     except HTTPException as exc:
         # If the job is not found or access is denied, return null to avoid console errors.
         if exc.status_code in (403, 404):
@@ -92,13 +87,12 @@ async def run_discovery(
     job_id: str,
     payload: DiscoveryRequest | None = Body(default=None),  # noqa: B008
     current_user: User = Depends(get_current_user),  # noqa: B008
-    db: Session | None = Depends(get_db_optional),  # noqa: B008
 ) -> JSONResponse:
     """Clone the connected repository and analyze the project.
 
     Read-only after cloning — no migration, build, or file modification happens.
     """
-    await verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(job_id, current_user)
     from app.api.deps import resolve_github_token
     token = await resolve_github_token(payload.github_token if payload else None, current_user)
     force_refresh = payload.force_refresh if payload else False
@@ -125,7 +119,6 @@ async def list_discovery_files(
     job_id: str,
     path: str = Query("", description="Folder path relative to the repository root."),
     current_user: User = Depends(get_current_user),  # noqa: B008
-    db: Session | None = Depends(get_db_optional),  # noqa: B008
 ) -> JSONResponse:
     """Lazily list one directory level of the job's already-cloned repo.
 
@@ -133,7 +126,7 @@ async def list_discovery_files(
     clone Discovery already made, so it works for large repos without extra
     round trips (only the currently expanded folder is listed).
     """
-    await verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(job_id, current_user)
     try:
         entries = await run_in_threadpool(_file_browser.list_directory, job_id, path)
     except RepositoryBrowseError as exc:
@@ -163,9 +156,8 @@ async def get_discovery_file_content(
     job_id: str,
     path: str = Query(..., description="File path relative to the repository root."),
     current_user: User = Depends(get_current_user),  # noqa: B008
-    db: Session | None = Depends(get_db_optional),  # noqa: B008
 ) -> JSONResponse:
-    await verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(job_id, current_user)
     try:
         result = await run_in_threadpool(_file_browser.read_file, job_id, path)
     except RepositoryBrowseError as exc:
@@ -192,10 +184,9 @@ async def get_discovery_file_content(
 async def get_microservice_eligibility_compat(
     job_id: str,
     current_user: User = Depends(get_current_user),  # noqa: B008
-    db: Session | None = Depends(get_db_optional),  # noqa: B008
 ) -> JSONResponse:
     """Compatibility route for 'microservice-eligibility:1' suffix."""
-    return await get_microservice_eligibility(job_id, current_user, db)
+    return await get_microservice_eligibility(job_id, current_user)
 
 
 @router.get(
@@ -205,7 +196,6 @@ async def get_microservice_eligibility_compat(
 async def get_microservice_eligibility(
     job_id: str,
     current_user: User = Depends(get_current_user),  # noqa: B008
-    db: Session | None = Depends(get_db_optional),  # noqa: B008
 ) -> JSONResponse:
     """Real static analysis over the job's cloned repo.
 
@@ -214,7 +204,7 @@ async def get_microservice_eligibility(
     scores each chunk. No re-cloning, no GitHub API calls, no mock data.
     """
     try:
-        await verify_job_ownership(db, job_id, current_user)
+        await verify_job_ownership(job_id, current_user)
     except HTTPException as exc:
         # If the job is not found or access is denied, return null to avoid console errors.
         if exc.status_code in (403, 404):
@@ -250,9 +240,8 @@ async def upload_brd_document(
     job_id: str,
     file: UploadFile = File(...),  # noqa: B008
     current_user: User = Depends(get_current_user),  # noqa: B008
-    db: Session | None = Depends(get_db_optional),  # noqa: B008
 ) -> JSONResponse:
-    await verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(job_id, current_user)
 
     if not file or not file.filename:
         raise HTTPException(status_code=400, detail="No file provided")
@@ -335,10 +324,9 @@ async def upload_brd_document(
 async def get_brd_metadata_compat(
     job_id: str,
     current_user: User = Depends(get_current_user),  # noqa: B008
-    db: Session | None = Depends(get_db_optional),  # noqa: B008
 ) -> JSONResponse:
     """Compatibility route for 'brd:1' suffix seen in some logs."""
-    return await get_brd_document_metadata(job_id, current_user, db)
+    return await get_brd_document_metadata(job_id, current_user)
 
 
 @router.get(
@@ -348,10 +336,9 @@ async def get_brd_metadata_compat(
 async def get_brd_document_metadata(
     job_id: str,
     current_user: User = Depends(get_current_user),  # noqa: B008
-    db: Session | None = Depends(get_db_optional),  # noqa: B008
 ) -> JSONResponse:
     try:
-        await verify_job_ownership(db, job_id, current_user)
+        await verify_job_ownership(job_id, current_user)
     except HTTPException as exc:
         if exc.status_code in (403, 404):
             return JSONResponse(status_code=200, content={"status": "NONE", "job_id": job_id})
@@ -381,9 +368,8 @@ async def get_brd_document_metadata(
 async def delete_brd_document(
     job_id: str,
     current_user: User = Depends(get_current_user),  # noqa: B008
-    db: Session | None = Depends(get_db_optional),  # noqa: B008
 ) -> JSONResponse:
-    await verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(job_id, current_user)
     paths = WorkspacePaths(job_id)
 
     if paths.brd_dir.exists():
@@ -410,9 +396,8 @@ async def delete_brd_document(
 async def view_brd_document(
     job_id: str,
     current_user: User = Depends(get_current_user),  # noqa: B008
-    db: Session | None = Depends(get_db_optional),  # noqa: B008
 ) -> Response:
-    await verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(job_id, current_user)
     paths = WorkspacePaths(job_id)
 
     if not paths.brd_metadata_path.exists():
@@ -473,9 +458,8 @@ async def view_brd_document(
 async def download_brd(
     job_id: str,
     current_user: User = Depends(get_current_user),  # noqa: B008
-    db: Session | None = Depends(get_db_optional),  # noqa: B008
 ) -> FileResponse:
-    await verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(job_id, current_user)
     paths = WorkspacePaths(job_id)
 
     if paths.brd_metadata_path.exists():

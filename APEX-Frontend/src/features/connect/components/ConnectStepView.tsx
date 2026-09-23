@@ -15,7 +15,6 @@ import {
 import { useAuth } from "@/shared/context/AuthContext";
 import { getUserSettings } from "@/features/admin/services/adminService";
 import type { useRepositoryConnect } from "../hooks/useRepositoryConnect";
-import { RecentRepositoriesTable } from "./RecentRepositoriesTable";
 import "../pages/ConnectPage.css";
 
 interface ConnectStepViewProps {
@@ -695,14 +694,6 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
             </div>
           </div>
         </div>
-
-        {/* Dynamic Recent Repositories Section */}
-        <RecentRepositoriesTable
-          onSelectRepo={(url) => {
-            setRepoUrl(url);
-            window.scrollTo({ top: 0, behavior: "smooth" });
-          }}
-        />
 
         {/* Bottom Grid: Project Intelligence & Migration Readiness (Temporarily Hidden) */}
         {/*

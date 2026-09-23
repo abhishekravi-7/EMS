@@ -79,6 +79,7 @@ const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const isStandalonePage =
     normalizedPath === "/signin" ||
     normalizedPath === "/signup" ||
+    normalizedPath === "/verify-email" ||
     normalizedPath === "/reset-password";
 
   const isWizardPage =

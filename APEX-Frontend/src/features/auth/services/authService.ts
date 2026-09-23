@@ -1,13 +1,12 @@
-
 import { requestJson } from "@/services/http/client";
 import { GITHUB_AUTH_LOGIN_URL, GOOGLE_AUTH_LOGIN_URL } from "@/services/config/env";
 import type { UserResponse } from "@/shared/types/domain";
 
 export interface SignUpRequest {
-  fullName: string;
+  fullName?: string;
   email: string;
   password: string;
-  confirmPassword: string;
+  confirmPassword?: string;
 }
 
 export interface SignInRequest {
@@ -17,9 +16,10 @@ export interface SignInRequest {
 
 /**
  * Sign up a new user via the FastAPI backend (MongoDB).
+ * Initiates pending registration and sends 6-digit verification code.
  */
-export async function signUp(payload: SignUpRequest): Promise<UserResponse> {
-  const response = await requestJson<{ user: UserResponse; message: string }>(
+export async function signUp(payload: SignUpRequest): Promise<{ email: string; message: string }> {
+  return requestJson<{ email: string; message: string }>(
     "/auth/signup",
     "Registration failed",
     {
@@ -27,7 +27,6 @@ export async function signUp(payload: SignUpRequest): Promise<UserResponse> {
       body: payload,
     }
   );
-  return response.user;
 }
 
 /**
@@ -47,17 +46,90 @@ export async function signIn(payload: SignInRequest): Promise<UserResponse> {
 }
 
 /**
+ * Sign in with Google Identity Services ID Token (One Tap or Button).
+ */
+export async function signInWithGoogleIdToken(credential: string): Promise<UserResponse> {
+  const response = await requestJson<{ user: UserResponse; message: string }>(
+    "/auth/google",
+    "Google sign in failed",
+    {
+      method: "POST",
+      body: { credential },
+    }
+  );
+  return response.user;
+}
+
+/**
  * Sign in with Google by redirecting to the backend OAuth initiation endpoint.
  */
-export async function signInWithGoogle(): Promise<void> {
-  window.location.href = GOOGLE_AUTH_LOGIN_URL;
+export async function signInWithGoogle(intent: "signin" | "signup" = "signin"): Promise<void> {
+  const url = `${GOOGLE_AUTH_LOGIN_URL}?intent=${encodeURIComponent(intent)}`;
+  window.location.href = url;
 }
 
 /**
  * Sign in with GitHub by redirecting to the backend OAuth initiation endpoint.
  */
-export async function signInWithGithub(): Promise<void> {
-  window.location.href = GITHUB_AUTH_LOGIN_URL;
+export async function signInWithGithub(intent: "signin" | "signup" = "signin"): Promise<void> {
+  const url = `${GITHUB_AUTH_LOGIN_URL}?intent=${encodeURIComponent(intent)}`;
+  window.location.href = url;
+}
+
+/**
+ * Verify user email with a 6-digit verification code.
+ */
+export async function verifyEmailCode(email: string, code: string): Promise<{ user?: UserResponse; message: string }> {
+  return requestJson<{ user?: UserResponse; message: string }>(
+    "/auth/verify-email-code",
+    "Email verification failed",
+    {
+      method: "POST",
+      body: { email, code },
+    }
+  );
+}
+
+/**
+ * Resend 6-digit email verification code.
+ */
+export async function resendVerificationCode(email: string): Promise<{ message: string }> {
+  return requestJson<{ message: string }>(
+    "/auth/resend-verification-code",
+    "Resend verification code failed",
+    {
+      method: "POST",
+      body: { email },
+    }
+  );
+}
+
+/**
+ * Verify user email with a verification token (legacy).
+ */
+export async function verifyEmail(token: string): Promise<{ user?: UserResponse; message: string }> {
+  return requestJson<{ user?: UserResponse; message: string }>(
+    "/auth/verify-email",
+    "Email verification failed",
+    {
+      method: "POST",
+      body: { token },
+    }
+  );
+}
+
+/**
+ * Resend verification email for an unverified account.
+ */
+export async function resendVerification(email: string): Promise<void> {
+  await requestJson(
+    "/auth/resend-verification-code",
+    "Resend verification failed",
+    {
+      method: "POST",
+      body: { email },
+    }
+  );
 }
 
 /**

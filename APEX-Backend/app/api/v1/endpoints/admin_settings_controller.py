@@ -5,11 +5,14 @@ from pathlib import Path
 
 import dotenv
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
+from app.api.deps import User, get_current_user
 from app.core.config import settings
-from app.infrastructure.persistence.models import User
+from app.infrastructure.persistence.mongodb import get_mongodb
+from app.infrastructure.persistence.mongodb_system_settings_repository import (
+    get_all_settings as get_mongo_settings,
+    upsert_setting as upsert_mongo_setting,
+)
 from app.schemas.system_settings_schema import SystemSettingsResponse, SystemSettingsUpdate
 
 router = APIRouter(tags=["admin-settings"])
@@ -27,7 +30,6 @@ EXPOSED_KEYS = {
     "sonarqube_host_url",
     "sonarqube_token",
     "fossa_api_key",
-    "database_url",
     "jwt_secret_key",
     "quality_checks_config",
     "test_cases_playwright_enabled",
@@ -58,11 +60,13 @@ async def get_admin_settings(
     current_user: User = Depends(get_current_user),  # noqa: B008
 ) -> SystemSettingsResponse:
     """Fetch the current effective system settings."""
-    if current_user.role not in ("SUPERADMIN",):
+     if current_user.role not in ("SUPERADMIN",):
         logger.warning("User %s attempted to access admin settings without SUPERADMIN role", current_user.email)
         raise HTTPException(status_code=403, detail="Forbidden")
 
     env_values = _get_live_env_values()
+
+    current_settings = {}
 
     current_settings = {}
     for key in EXPOSED_KEYS:
@@ -92,6 +96,9 @@ async def update_admin_settings(
             continue
 
         _update_env_value(key, value)
+        # Persist to MongoDB
+        if mongo_db is not None:
+            await upsert_mongo_setting(mongo_db, key, value)
 
         # Apply to live settings object dynamically
         if hasattr(settings, key):

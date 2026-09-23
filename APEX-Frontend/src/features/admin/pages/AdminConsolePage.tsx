@@ -64,7 +64,6 @@ const INITIAL_SETTINGS: SystemSettings = {
   sonarqube_host_url: "",
   sonarqube_token: "",
   fossa_api_key: "",
-  database_url: "",
   jwt_secret_key: "",
   quality_checks_config: "",
 };

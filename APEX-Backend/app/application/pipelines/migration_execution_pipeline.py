@@ -33,6 +33,7 @@ class MigrationExecutionPipeline:
         """Validate + queue, launch the background run, return the initial result."""
         report = self._use_case.prepare(job_id, request)
         context = copy_context()
+
         thread = threading.Thread(
             target=context.run,
             args=(self._use_case.run, job_id, current_user_id, github_token),

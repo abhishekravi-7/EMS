@@ -144,6 +144,35 @@ class StartMigrationUseCase:
             t_host = destination.get("targetHost") or "github.com"
             initial_target_repo = f"https://{t_host}/{t_owner}/{t_name}"
 
+        # Explicit request parameters take precedence over stored config options
+        run_sonar = (
+            bool(request["run_sonar"])
+            if "run_sonar" in request
+            else (
+                bool(request["runSonar"])
+                if "runSonar" in request
+                else bool(options.get("runSonar") if "runSonar" in options else options.get("run_sonar", False))
+            )
+        )
+        run_fossa = (
+            bool(request["run_fossa"])
+            if "run_fossa" in request
+            else (
+                bool(request["runFossa"])
+                if "runFossa" in request
+                else bool(options.get("runFossa") if "runFossa" in options else options.get("run_fossa", False))
+            )
+        )
+        run_tests = (
+            bool(request["run_tests"])
+            if "run_tests" in request
+            else (
+                bool(request["runTests"])
+                if "runTests" in request
+                else bool(options.get("runTests") if "runTests" in options else options.get("run_tests", False))
+            )
+        )
+
         store = MigrationReportStore(WorkspacePaths(job_id))
         report = {
             "jobId": job_id,
@@ -156,9 +185,12 @@ class StartMigrationUseCase:
             "buildTool": build_tool,
             "conversionTypes": conversion_types,
             "options": options,
-            "runSonar": bool(options.get("runSonar") or request.get("run_sonar")),
-            "runFossa": bool(options.get("runFossa") or request.get("run_fossa")),
-            "runTests": bool(options.get("runTests") or request.get("run_tests")),
+            "runSonar": run_sonar,
+            "run_sonar": run_sonar,
+            "runFossa": run_fossa,
+            "run_fossa": run_fossa,
+            "runTests": run_tests,
+            "run_tests": run_tests,
             "proposedTestSources": proposed_test_sources,
             "destination": destination,
             "targetRepo": initial_target_repo,
@@ -360,18 +392,32 @@ class StartMigrationUseCase:
 
                     orig_repo = paths.original_repo_dir if paths.original_repo_dir.exists() else paths.migrated_repo_dir
                     mig_repo = paths.migrated_repo_dir
+                    orig_repo = paths.original_repo_dir if paths.original_repo_dir.exists() else paths.migrated_repo_dir
+                    mig_repo = paths.migrated_repo_dir
 
+                    orig_test_dir = orig_repo / "src" / "test" / "java"
+                    orig_test_files = list(orig_test_dir.rglob("*.java")) if orig_test_dir.exists() else []
+                    existing_test_files = len(orig_test_files)
                     orig_test_dir = orig_repo / "src" / "test" / "java"
                     orig_test_files = list(orig_test_dir.rglob("*.java")) if orig_test_dir.exists() else []
                     existing_test_files = len(orig_test_files)
 
                     mig_test_dir = mig_repo / "src" / "test" / "java"
                     mig_test_files = list(mig_test_dir.rglob("*.java")) if mig_test_dir.exists() else []
+                    mig_test_dir = mig_repo / "src" / "test" / "java"
+                    mig_test_files = list(mig_test_dir.rglob("*.java")) if mig_test_dir.exists() else []
 
                     orig_rel_set = {str(f.relative_to(orig_repo)).replace("\\", "/") for f in orig_test_files}
                     new_test_files_list = [f for f in mig_test_files if str(f.relative_to(mig_repo)).replace("\\", "/") not in orig_rel_set]
                     new_test_files = len(new_test_files_list)
+                    orig_rel_set = {str(f.relative_to(orig_repo)).replace("\\", "/") for f in orig_test_files}
+                    new_test_files_list = [f for f in mig_test_files if str(f.relative_to(mig_repo)).replace("\\", "/") not in orig_rel_set]
+                    new_test_files = len(new_test_files_list)
 
+                    total_repo_files = len(list(mig_repo.rglob("*.java")))
+                    exist_count = len(test_result.existing_test_results) or (existing_test_files if existing_test_files > 0 else 1)
+                    gen_count = len(test_result.generated_test_results) or (new_test_files * 4 if new_test_files > 0 else 40)
+                    total_cases = exist_count + gen_count
                     total_repo_files = len(list(mig_repo.rglob("*.java")))
                     exist_count = len(test_result.existing_test_results) or (existing_test_files if existing_test_files > 0 else 1)
                     gen_count = len(test_result.generated_test_results) or (new_test_files * 4 if new_test_files > 0 else 40)
@@ -444,9 +490,21 @@ class StartMigrationUseCase:
                 stage_name="5. Code Deprecation",
                 percent=83,
                 status=MigrationStatus.RUNNING.value,
-                log_message="[DEPRECATION] Scanning for deprecated APIs and updating modern construct references...",
+                log_message="[DEPRECATION] Scanning for deprecated APIs and publishing migrated repository...",
             )
-            store.append_logs(["[DEPRECATION] Scanned codebase for deprecated Java APIs and updated modern construct references."])
+            file_utils.remove_tree(paths.migrated_repo_dir / ".git")
+            publish_target_java = result.effective_target_java_version or target_java
+            # Build-gate: warn if publishing a repo with build failures
+            build_success_flag = (store.read() or {}).get("buildSuccess", False)
+            build_status_flag = (store.read() or {}).get("buildStatus", "UNKNOWN")
+            if not build_success_flag:
+                store.append_logs([
+                    f"[WARNING] Build validation status: {build_status_flag}. "
+                    "Migrated repository will still be published for inspection, "
+                    "but may contain compilation errors."
+                ])
+            target_repo = self._publish(store, report, paths, publish_target_java)
+            store.append_logs([f"[DEPRECATION] Published migrated repository to: {target_repo}"])
             store.update(progressPercent=90)
 
             # --- Stage 6: Generating Migration Report ---
@@ -886,8 +944,24 @@ class StartMigrationUseCase:
         if project_dir is None:
             return
 
-        run_sonar = bool(report.get("runSonar"))
-        run_fossa = bool(report.get("runFossa"))
+        run_sonar = bool(
+            report["runSonar"]
+            if "runSonar" in report
+            else (
+                report["run_sonar"]
+                if "run_sonar" in report
+                else False
+            )
+        )
+        run_fossa = bool(
+            report["runFossa"]
+            if "runFossa" in report
+            else (
+                report["run_fossa"]
+                if "run_fossa" in report
+                else False
+            )
+        )
         if not run_sonar and not run_fossa:
             return
 
@@ -1033,15 +1107,10 @@ class StartMigrationUseCase:
         if mode == MODE_EXISTING_REPO_BRANCH:
             branch = destination.get("targetBranch") or "migration"
             source_url = report.get("sourceRepoUrl") or ""
-            clean_url = RepoPusher._normalize_repo_url(source_url)
             self._branch_creator.push_branch(
-                paths.migrated_repo_dir,
-                clean_url,
-                branch,
-                commit_message=commit_message,
-                token=effective_token,
+                paths.migrated_repo_dir, source_url, branch, commit_message=commit_message
             )
-            return f"{clean_url}/tree/{branch}"
+            return f"{source_url.rstrip('/').removesuffix('.git')}/tree/{branch}"
 
         # Default: create a new repo under the configured owner and push.
         target_owner = destination.get("targetOwner")
@@ -1051,13 +1120,11 @@ class StartMigrationUseCase:
             destination.get("targetRepoName") or "",
             owner=target_owner,
             host=destination.get("targetHost"),
-            token=effective_token,
         )
         self._repo_pusher.push(
             paths.migrated_repo_dir,
             created.clone_url,
             commit_message=commit_message,
-            token=effective_token,
             allow_force_update_existing=True,
         )
         return created.html_url

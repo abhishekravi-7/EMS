@@ -7,11 +7,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
-from sqlalchemy.orm import Session
-
-from app.api.deps import get_current_user, verify_job_ownership
-from app.infrastructure.persistence.database import get_db, get_db_optional
-from app.infrastructure.persistence.models import User
+from app.api.deps import User, get_current_user, verify_job_ownership
 from app.infrastructure.workspace.workspace_paths import WorkspacePaths
 
 logger = logging.getLogger(__name__)
@@ -137,7 +133,6 @@ def _range_stream_video(file_path: Path, request: Request, media_type: str = "vi
 async def serve_ui_test_screenshot(
     job_id: str,
     test_id: str,
-    db: Session = Depends(get_db)  # noqa: B008
 ):
     """Serve the screenshot image for a specific UI test case."""
     paths = WorkspacePaths(job_id)
@@ -251,7 +246,6 @@ async def serve_ui_test_video(
     job_id: str,
     test_id: str,
     request: Request,
-    db: Session = Depends(get_db)  # noqa: B008
 ):
     """Stream the video recording for a specific UI test case with range request support."""
     paths = WorkspacePaths(job_id)
@@ -344,10 +338,9 @@ async def serve_individual_test_report(
     job_id: str,
     test_id: str,
     current_user: User = Depends(get_current_user),  # noqa: B008
-    db: Session = Depends(get_db)  # noqa: B008
 ):
     """Download individual test report JSON / metadata."""
-    await verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(job_id, current_user)
     paths = WorkspacePaths(job_id)
     evidence_dir = paths.reports_dir / "test-evidence"
     
@@ -372,10 +365,9 @@ async def serve_individual_test_logs(
     job_id: str,
     test_id: str,
     current_user: User = Depends(get_current_user),  # noqa: B008
-    db: Session | None = Depends(get_db_optional)  # noqa: B008
 ):
     """Download test execution logs."""
-    await verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(job_id, current_user)
     from app.application.use_cases.existing_test_runner_service import existing_test_runner_service
     
     clean_test_id = urllib.parse.unquote(test_id).replace("\\", "/")
@@ -456,10 +448,9 @@ async def serve_individual_test_logs(
 async def download_full_test_report(
     job_id: str,
     current_user: User = Depends(get_current_user),  # noqa: B008
-    db: Session = Depends(get_db)  # noqa: B008
 ):
     """Download full test report HTML or JSON summary."""
-    await verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(job_id, current_user)
     from app.application.use_cases.existing_test_runner_service import existing_test_runner_service
     status_data = existing_test_runner_service.get_status(job_id)
     
@@ -513,7 +504,6 @@ async def serve_existing_test_report_file(
     job_id: str,
     file_path: str = "",
     current_user: User = Depends(get_current_user),  # noqa: B008
-    db: Session = Depends(get_db)  # noqa: B008
 ):
     """
     Serves report files for a job from multiple possible base directories.
@@ -524,7 +514,7 @@ async def serve_existing_test_report_file(
     This ensures both Playwright and JUnit/Surefire reports are accessible
     regardless of which ran first or whether test-evidence/ exists.
     """
-    await verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(job_id, current_user)
 
     paths = WorkspacePaths(job_id)
 
