@@ -1,4 +1,5 @@
 import React, { useEffect } from "react";
+import { displayError } from "@/shared/utils/llmError";
 import {
   FaTimes,
   FaLink,
@@ -466,7 +467,7 @@ export default function MigrationWizardPage() {
 
       {/* Main Content Area */}
       <main className="wizard-main-content" ref={mainContentRef}>
-        {error && <div style={styles.errorBanner}><span>{error}</span><button style={styles.errorClose} onClick={() => setError("")}><FaTimes /></button></div>}
+        {error && <div style={styles.errorBanner}><span>{displayError(error)}</span><button style={styles.errorClose} onClick={() => setError("")}><FaTimes /></button></div>}
         {step === 1 && (
           <ConnectPage>
             <ConnectStepView

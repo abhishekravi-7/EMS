@@ -14,7 +14,7 @@ from typing import Any
 
 from fastapi import Header, HTTPException, Request
 
-from app.core.context import job_id_ctx, user_id_ctx
+from app.core.context import job_id_ctx, user_id_ctx, llm_values_ctx
 from app.core.exceptions import NotAuthenticatedError
 
 logger = logging.getLogger(__name__)
@@ -141,3 +141,17 @@ def github_token_from_header(authorization: str | None = Header(default=None)) -
     if value.lower().startswith(_BEARER_PREFIX):
         return value[len(_BEARER_PREFIX):].strip()
     return ""
+
+async def resolve_github_token(token: str | None, current_user: User) -> str | None:
+    """Resolve a masked GitHub PAT from MongoDB if necessary."""
+    if not token:
+        return None
+    normalized_token = token.strip()
+    if normalized_token == "********" or normalized_token.startswith("****************"):
+        from app.infrastructure.persistence.mongodb import get_mongodb
+        from app.infrastructure.persistence.mongodb_user_repository import _get_query_id
+        mongo_db = await get_mongodb()
+        user_doc = await mongo_db.users.find_one({"_id": _get_query_id(str(current_user.id))}) or {}
+        github_config = user_doc.get("github_config", {})
+        return github_config.get("pat") or None
+    return normalized_token

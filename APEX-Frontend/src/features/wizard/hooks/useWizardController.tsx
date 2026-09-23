@@ -46,6 +46,7 @@ import {
   type StrategyPageContext,
 } from "@/features/strategy/services/strategyService";
 import { ApiError } from "@/services/http/client";
+import { formatLlmAwareError, isLlmNotConfiguredError } from "@/shared/utils/llmError";
 import {
   getMigrationDetail,
   getMigrationStatusSummary,
@@ -2062,7 +2063,7 @@ export function useWizardController() {
         await downloadHtmlDocument(generatedAsset.html, generatedAsset.filename);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to generate BRD document");
+      setError(formatLlmAwareError(err, "Failed to generate BRD document"));
     } finally {
       setDocumentGenerationLoading(null);
     }
@@ -2141,9 +2142,8 @@ export function useWizardController() {
           : await getMicroserviceEligibility(selectedRepo.url, currentToken, repoAnalysis);
       setMicroserviceResult(result);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      console.error("Failed to fetch microservice eligibility", message);
-      setError("Unable to determine microservice eligibility from backend. Please try again.");
+      console.error("Failed to fetch microservice eligibility", err);
+      setError(formatLlmAwareError(err, "Unable to determine microservice eligibility from backend. Please try again."));
     } finally {
       setMicroserviceAssessmentResolved(true);
       setMicroserviceLoading(false);
@@ -4617,6 +4617,10 @@ export function useWizardController() {
       })
       .catch((err) => {
         if (cancelled) return;
+        if (isLlmNotConfiguredError(err)) {
+          setError(formatLlmAwareError(err));
+          return;
+        }
         console.warn("Dependency analysis fetch error, using client fallback:", err);
       })
       .finally(() => {

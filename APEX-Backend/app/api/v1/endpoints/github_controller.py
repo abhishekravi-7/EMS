@@ -16,7 +16,8 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 
-from app.api.deps import github_token_from_header
+from app.api.deps import github_token_from_header, get_current_user
+from app.infrastructure.persistence.models import User
 from app.application.use_cases.analyze_repo_url import AnalyzeRepoUrlUseCase
 from app.application.use_cases.connect_repository import parse_github_url
 from app.application.use_cases.generate_technical_document import GenerateTechnicalDocumentUseCase
@@ -55,9 +56,10 @@ _analyze_use_case = AnalyzeRepoUrlUseCase()
 async def repo_visibility(
     repo_url: str = Query(..., description="GitHub repository URL to check."),
     token: str = Depends(github_token_from_header),
+    current_user: User = Depends(get_current_user),  # noqa: B008
 ) -> JSONResponse:
-    normalized_token = token.strip() or None
-
+    from app.api.deps import resolve_github_token
+    normalized_token = await resolve_github_token(token, current_user)
     try:
         parsed = parse_github_url(repo_url)
     except InvalidRepositoryUrlError as exc:
@@ -180,14 +182,18 @@ async def list_files(
     repo_url: str = Query(..., description="GitHub repository URL."),
     path: str = Query("", description="Folder path relative to the repository root."),
     token: str = Depends(github_token_from_header),
+    current_user: User = Depends(get_current_user),  # noqa: B008
 ) -> JSONResponse:
     try:
         parsed = parse_github_url(repo_url)
     except InvalidRepositoryUrlError as exc:
         return JSONResponse(status_code=400, content={"detail": exc.message})
 
+    from app.api.deps import resolve_github_token
+    normalized_token = await resolve_github_token(token, current_user)
+
     result = await _github_client.get_contents(
-        parsed.owner, parsed.repo, path, token=token.strip() or None
+        parsed.owner, parsed.repo, path, token=normalized_token
     )
     error = _contents_error_response(result.status_code)
     if error is not None:
@@ -228,14 +234,18 @@ async def file_content(
     repo_url: str = Query(..., description="GitHub repository URL."),
     file_path: str = Query(..., description="File path relative to the repository root."),
     token: str = Depends(github_token_from_header),
+    current_user: User = Depends(get_current_user),  # noqa: B008
 ) -> JSONResponse:
     try:
         parsed = parse_github_url(repo_url)
     except InvalidRepositoryUrlError as exc:
         return JSONResponse(status_code=400, content={"detail": exc.message})
 
+    from app.api.deps import resolve_github_token
+    normalized_token = await resolve_github_token(token, current_user)
+
     result = await _github_client.get_contents(
-        parsed.owner, parsed.repo, file_path, token=token.strip() or None
+        parsed.owner, parsed.repo, file_path, token=normalized_token
     )
     error = _contents_error_response(result.status_code)
     if error is not None:
@@ -278,10 +288,13 @@ async def analyze_url(
     repo_url: str = Query(..., description="GitHub repository URL to analyze."),
     force_refresh: bool = Query(False, description="Accepted for compatibility; no cache layer."),
     token: str = Depends(github_token_from_header),
+    current_user: User = Depends(get_current_user),  # noqa: B008
 ) -> JSONResponse:
+    from app.api.deps import resolve_github_token
+    normalized_token = await resolve_github_token(token, current_user)
     try:
         result = await run_in_threadpool(
-            _analyze_use_case.execute, repo_url, token.strip() or None
+            _analyze_use_case.execute, repo_url, normalized_token
         )
     except InvalidRepositoryUrlError as exc:
         return JSONResponse(status_code=400, content={"detail": exc.message})

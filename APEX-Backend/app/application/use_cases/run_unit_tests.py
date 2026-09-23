@@ -225,14 +225,20 @@ class RunUnitTestSuiteUseCase:
 
             target_files = self.discover_target_classes(project_dir)
 
-            if not target_files:
-                target_major = None
+            target_major = None
             if req.java_version:
                 try:
                     target_major = int(str(req.java_version).strip())
                 except ValueError:
                     pass
-            return self._runner.run(project_dir=project_dir, build_tool=req.build_tool, target_major=target_major)
+
+            if not target_files:
+                return self._runner.run(
+                    project_dir=project_dir, 
+                    build_tool=req.build_tool, 
+                    test_command=req.test_command, 
+                    target_major=target_major
+                )
 
             for target_file in target_files:
                 try:
@@ -261,7 +267,12 @@ class RunUnitTestSuiteUseCase:
                 except Exception:  # noqa: BLE001, S112
                     continue  # nosec B112
 
-            return self._runner.run(project_dir=project_dir, build_tool=req.build_tool, target_major=target_major)
+            return self._runner.run(
+                project_dir=project_dir, 
+                build_tool=req.build_tool, 
+                test_command=req.test_command, 
+                target_major=target_major
+            )
         finally:
             if db:
                 self._generator._chat_llm = original_chat

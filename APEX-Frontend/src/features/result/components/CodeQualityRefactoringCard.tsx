@@ -4,6 +4,7 @@ import {
   getFileImprovementSuggestion,
   type FileAnalysisResult
 } from '@/features/result/services/resultService';
+import { formatLlmAwareError } from '@/shared/utils/llmError';
 
 interface CodeQualityRefactoringCardProps {
   javaFiles: string[];
@@ -63,7 +64,7 @@ export default function CodeQualityRefactoringCard({
     } catch (err) {
       setAnalysis({
         loading: false,
-        error: err instanceof Error ? err.message : 'Failed to analyze with LLM',
+        error: formatLlmAwareError(err, 'Failed to analyze with LLM'),
         results: null,
         llmAvailable: false
       });
@@ -101,6 +102,7 @@ export default function CodeQualityRefactoringCard({
       }));
     } catch (err) {
       console.error('Failed to get improvement suggestion:', err);
+      alert(formatLlmAwareError(err, 'Failed to get improvement suggestion'));
     } finally {
       setLoadingSuggestion(null);
     }

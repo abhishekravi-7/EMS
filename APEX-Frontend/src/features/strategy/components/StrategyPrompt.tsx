@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { queryStrategy } from "@/features/strategy/services/strategyService";
 import type { StrategyAnswerResponse } from "@/features/strategy/services/strategyService";
 import type { RepoAnalysis } from "@/shared/types/domain";
+import { formatLlmAwareError } from "@/shared/utils/llmError";
 
 interface Props {
   repoAnalysis?: RepoAnalysis | null;
@@ -24,7 +25,7 @@ export default function StrategyPrompt({ repoAnalysis, repoUrl }: Props) {
       const res = await queryStrategy({ repo_url: repoUrl || undefined, question: question.trim(), analysis: repoAnalysis || undefined });
       setResponse(res);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(formatLlmAwareError(err));
     } finally {
       setLoading(false);
     }
