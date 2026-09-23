@@ -53,12 +53,10 @@ async def start_migration(
     payload: MigrationStartRequest | None = Body(default=None),  # noqa: B008
     current_user: User = Depends(get_current_user),  # noqa: B008
 ) -> JSONResponse:
-    await verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(job_id, current_user)
     request = payload.model_dump() if payload else {}
     from app.api.deps import resolve_github_token
     github_token = await resolve_github_token(request.get("github_token"), current_user)
-    await verify_job_ownership(job_id, current_user)
-    request = payload.model_dump() if payload else None
     try:
         result = await asyncio.to_thread(
             _pipeline.start, job_id, request, current_user_id=current_user.id, github_token=github_token
@@ -204,7 +202,7 @@ async def rerun_migration_tests(
     )
 
     try:
-        result = await use_case.execute_project_suite(req, db=db)
+        result = await use_case.execute_project_suite(req, db=None)
         score = 92.5
 
         orig_repo = paths.original_repo_dir if paths.original_repo_dir.exists() else project_dir
