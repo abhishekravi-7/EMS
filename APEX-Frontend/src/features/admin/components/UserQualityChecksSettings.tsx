@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from "react";
 import { FaShieldAlt, FaEye, FaEyeSlash } from "react-icons/fa";
 import { getQualityChecksAdminConfig, type FullUserSettings } from "../services/adminService";
-
+ 
 interface UserQualityChecksSettingsProps {
   settings: FullUserSettings;
   onChange: React.Dispatch<React.SetStateAction<FullUserSettings>>;
 }
-
+ 
 export default function UserQualityChecksSettings({
   settings,
   onChange,
@@ -15,16 +15,34 @@ export default function UserQualityChecksSettings({
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showSecrets, setShowSecrets] = useState<{ [key: string]: boolean }>({});
-
+ 
   useEffect(() => {
     const fetchAdminConfig = async () => {
       try {
         const response = await getQualityChecksAdminConfig();
-        if (response.quality_checks_config) {
-          const parsed = JSON.parse(response.quality_checks_config);
-          // Convert from Record<string, QualityCheckConfig> to array
-          const configArray = Array.isArray(parsed) ? parsed : Object.values(parsed);
+        const rawConfig = response.quality_checks_config;
+        if (rawConfig) {
+          let parsed: any = rawConfig;
+          if (typeof parsed === "string") {
+            try {
+              parsed = JSON.parse(parsed);
+            } catch (pErr) {
+              console.warn("First JSON.parse failed, rawConfig:", rawConfig);
+            }
+          }
+          if (typeof parsed === "string") {
+            try {
+              parsed = JSON.parse(parsed);
+            } catch (pErr) {
+              console.warn("Second JSON.parse failed:", parsed);
+            }
+          }
+          const configArray = Array.isArray(parsed)
+            ? parsed
+            : (typeof parsed === "object" && parsed !== null ? Object.values(parsed) : []);
           setAdminConfig(configArray);
+        } else {
+          setAdminConfig([]);
         }
       } catch (err: any) {
         console.error("Failed to fetch quality checks admin config:", err);
@@ -33,16 +51,16 @@ export default function UserQualityChecksSettings({
         setIsLoading(false);
       }
     };
-
+ 
     fetchAdminConfig();
   }, []);
-
+ 
   // Pre-fill default values into the state
   useEffect(() => {
     if (!isLoading && adminConfig.length > 0) {
       let changed = false;
       const newValues = { ...(settings.quality_checks_values || {}) };
-
+ 
       adminConfig.forEach((check: any) => {
         if (check.enabled && Array.isArray(check.fields)) {
           check.fields.forEach((field: any) => {
@@ -53,7 +71,7 @@ export default function UserQualityChecksSettings({
           });
         }
       });
-
+ 
       if (changed) {
         onChange((prev) => ({
           ...prev,
@@ -62,7 +80,7 @@ export default function UserQualityChecksSettings({
       }
     }
   }, [isLoading, adminConfig, settings.quality_checks_values, onChange]);
-
+ 
   const handleValueChange = (id: string, value: string) => {
     onChange((prev) => ({
       ...prev,
@@ -72,11 +90,11 @@ export default function UserQualityChecksSettings({
       },
     }));
   };
-
+ 
   const toggleSecret = (id: string) => {
     setShowSecrets((prev) => ({ ...prev, [id]: !prev[id] }));
   };
-
+ 
   if (isLoading) {
     return (
       <div className="admin-loading-state">
@@ -85,13 +103,13 @@ export default function UserQualityChecksSettings({
       </div>
     );
   }
-
+ 
   if (error) {
     return <div style={{ color: "#ef4444", padding: "16px" }}>{error}</div>;
   }
-
+ 
   const enabledChecks = Array.isArray(adminConfig) ? adminConfig.filter((check: any) => check.enabled) : [];
-
+ 
   if (enabledChecks.length === 0) {
     return (
       <div className="admin-content-stacked">
@@ -107,12 +125,12 @@ export default function UserQualityChecksSettings({
       </div>
     );
   }
-
+ 
   return (
     <div className="admin-content-stacked">
       {enabledChecks.map((check: any, index: number) => {
         const visibleFields = Array.isArray(check.fields) ? check.fields.filter((f: any) => f.visible) : [];
-
+ 
         return (
           <div key={check.id || index} className="user-config-card">
             <h3 className="card-heading-modern">
@@ -124,7 +142,7 @@ export default function UserQualityChecksSettings({
                 {check.description}
               </p>
             )}
-
+ 
             {visibleFields.length === 0 ? (
               <p style={{ color: "#64748b", fontSize: "0.875rem" }}>
                 No configuration fields required for this check.
@@ -132,22 +150,22 @@ export default function UserQualityChecksSettings({
             ) : (
               <div className="field-grid-three">
                 {visibleFields.map((field: any) => {
-                  const isSecret = field.id.toLowerCase().includes("token") || 
-                                   field.id.toLowerCase().includes("key") || 
+                  const isSecret = field.id.toLowerCase().includes("token") ||
+                                   field.id.toLowerCase().includes("key") ||
                                    field.id.toLowerCase().includes("secret") ||
                                    field.id.toLowerCase().includes("password");
-
-                  const value = settings.quality_checks_values?.[field.id] !== undefined 
-                                  ? settings.quality_checks_values[field.id] 
+ 
+                  const value = settings.quality_checks_values?.[field.id] !== undefined
+                                  ? settings.quality_checks_values[field.id]
                                   : (field.defaultValue || "");
-
+ 
                   return (
                     <div className="field-modern" key={field.id}>
                       <label className="label-modern">
                         {field.name}
                         {field.required && <span style={{ color: "#ef4444", marginLeft: "4px" }}>*</span>}
                       </label>
-                      
+                     
                       {isSecret ? (
                         <div className="input-wrap-modern">
                           <input
@@ -184,3 +202,4 @@ export default function UserQualityChecksSettings({
     </div>
   );
 }
+ 

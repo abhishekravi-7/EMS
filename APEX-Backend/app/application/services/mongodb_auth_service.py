@@ -218,23 +218,24 @@ class MongoDBAuthService:
                 if not self._is_user_active(target_user):
                     logger.warning("OAuth login rejected: account is disabled for user_id=%s", target_user.get("_id"))
                     raise AccountDisabledError()
-            
-            # Update github account if provided and not set
-            if github_account and provider == "github" and user.get("github_account") != github_account:
-                await mongodb_user_repository.update_user(self._db, user["_id"], {"github_account": github_account})
-                user["github_account"] = github_account
-                
+
+                updates: dict[str, Any] = {}
+
+                # Update github account if provided and changed
+                if github_account and provider == "github" and target_user.get("github_account") != github_account:
+                    updates["github_account"] = github_account
 
                 # If OAuth verified the email, ensure user is marked verified
                 if email_verified and not target_user.get("is_email_verified", False):
-                    await mongodb_user_repository.verify_user_email(self._db, target_user["_id"])
-                    target_user["is_email_verified"] = True
+                    updates["is_email_verified"] = True
 
                 # Ensure provider is in auth_providers list
                 if provider not in target_user.get("auth_providers", []):
-                    updates = {"auth_providers": target_user.get("auth_providers", []) + [provider]}
+                    updates["auth_providers"] = target_user.get("auth_providers", []) + [provider]
+
+                if updates:
                     await mongodb_user_repository.update_user(self._db, target_user["_id"], updates)
-                    target_user["auth_providers"] = updates["auth_providers"]
+                    target_user.update(updates)
 
                 return target_user
             else:
@@ -275,14 +276,14 @@ class MongoDBAuthService:
                 updates["is_email_verified"] = True
             if provider not in existing_user.get("auth_providers", []):
                 updates["auth_providers"] = existing_user.get("auth_providers", []) + [provider]
-                
-            if github_account and provider == "github":
+
+            if github_account and provider == "github" and existing_user.get("github_account") != github_account:
                 updates["github_account"] = github_account
-                
+
             if updates:
                 await mongodb_user_repository.update_user(self._db, existing_user["_id"], updates)
                 existing_user.update(updates)
-            
+
             return existing_user
 
         # 3. Create new user for verified OAuth identity

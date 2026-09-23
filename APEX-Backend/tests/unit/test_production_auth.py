@@ -589,6 +589,210 @@ async def test_github_oauth_redirect_flow(mongodb_db, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_github_oauth_existing_user_login_and_session(mongodb_db, monkeypatch):
+    """Logging in with an already linked GitHub account succeeds without UnboundLocalError and establishes session."""
+    from app.infrastructure.oauth.github_client import GithubUserProfile
+
+    monkeypatch.setattr("app.api.v1.endpoints.auth_controller.get_mongodb", AsyncMock(return_value=mongodb_db))
+    monkeypatch.setattr("app.infrastructure.persistence.mongodb.get_mongodb", AsyncMock(return_value=mongodb_db))
+    monkeypatch.setattr("app.core.config.settings.github_client_id", "mock-github-id")
+    monkeypatch.setattr("app.core.config.settings.github_client_secret", "mock-github-secret")
+
+    # 1. Create existing user
+    user = await mongodb_user_repository.create_user(
+        mongodb_db,
+        full_name="Existing GH User",
+        email="existing.gh@domain.com",
+        is_email_verified=True,
+    )
+    user_id = user["_id"]
+
+    # 2. Link oauth_account for GitHub
+    await mongodb_user_repository.create_oauth_account(
+        mongodb_db,
+        user_id=user_id,
+        provider="github",
+        provider_user_id="gh-existing-999",
+        provider_email="existing.gh@domain.com",
+    )
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # 3. Initiate login to get valid state
+        login_resp = await client.get("/api/auth/github/login", follow_redirects=False)
+        assert login_resp.status_code == 302
+        from urllib.parse import parse_qs, urlparse
+        parsed = urlparse(login_resp.headers["location"])
+        state = parse_qs(parsed.query)["state"][0]
+
+        # 4. Mock GitHub profile
+        mock_profile = GithubUserProfile(
+            provider_user_id="gh-existing-999",
+            email="existing.gh@domain.com",
+            email_verified=True,
+            full_name="Existing GH User",
+            profile_image="https://avatars.github.com/u/999",
+            github_account="existinghandle",
+        )
+        monkeypatch.setattr(
+            "app.infrastructure.oauth.github_client.exchange_code_for_profile",
+            AsyncMock(return_value=mock_profile),
+        )
+
+        # 5. Callback completes without UnboundLocalError
+        callback_resp = await client.get(
+            f"/api/auth/github/callback?code=mock_code&state={state}",
+            follow_redirects=False,
+        )
+        assert callback_resp.status_code == 302
+        assert "/connect" in callback_resp.headers["location"]
+        assert "access_token" in callback_resp.cookies
+        assert "refresh_token" in callback_resp.cookies
+
+        # 6. Verify /api/auth/me returns 200 OK with session cookies
+        me_resp = await client.get("/api/auth/me", cookies=callback_resp.cookies)
+        assert me_resp.status_code == 200
+        me_data = me_resp.json()
+        assert me_data["id"] == user_id
+        assert me_data["email"] == "existing.gh@domain.com"
+
+        # 7. Ensure no duplicate user was created
+        user_count = await mongodb_db.users.count_documents({})
+        assert user_count == 1
+
+
+@pytest.mark.asyncio
+async def test_github_oauth_existing_user_updates_handle(mongodb_db, monkeypatch):
+    """Logging in with existing GitHub account updates github_account handle if changed."""
+    from app.infrastructure.oauth.github_client import GithubUserProfile
+
+    auth_service = MongoDBAuthService(mongodb_db)
+
+    # 1. Create existing user with initial handle
+    user = await mongodb_user_repository.create_user(
+        mongodb_db,
+        full_name="Handle User",
+        email="handle@domain.com",
+        is_email_verified=True,
+    )
+    user_id = user["_id"]
+    await mongodb_user_repository.update_user(mongodb_db, user_id, {"github_account": "oldhandle"})
+
+    # 2. Link oauth_account
+    await mongodb_user_repository.create_oauth_account(
+        mongodb_db,
+        user_id=user_id,
+        provider="github",
+        provider_user_id="gh-handle-111",
+        provider_email="handle@domain.com",
+    )
+
+    # 3. Authenticate with new handle
+    result = await auth_service.authenticate_with_oauth(
+        provider="github",
+        provider_user_id="gh-handle-111",
+        email="handle@domain.com",
+        email_verified=True,
+        full_name="Handle User",
+        profile_image=None,
+        github_account="newhandle",
+    )
+    assert result["_id"] == user_id
+    assert result["github_account"] == "newhandle"
+
+    # 4. Check MongoDB persistence
+    updated = await mongodb_db.users.find_one({"_id": user_id})
+    assert updated["github_account"] == "newhandle"
+
+
+@pytest.mark.asyncio
+async def test_github_oauth_links_existing_local_user_by_verified_email(mongodb_db, monkeypatch):
+    """Existing local user without oauth_account is safely linked when GitHub returns matching verified email."""
+    from app.infrastructure.oauth.github_client import GithubUserProfile
+
+    auth_service = MongoDBAuthService(mongodb_db)
+
+    # 1. Create local user
+    user = await mongodb_user_repository.create_user(
+        mongodb_db,
+        full_name="Local User",
+        email="local.user@domain.com",
+        is_email_verified=True,
+    )
+    user_id = user["_id"]
+
+    # 2. Authenticate with GitHub matching verified email
+    result = await auth_service.authenticate_with_oauth(
+        provider="github",
+        provider_user_id="gh-new-mapping-555",
+        email="local.user@domain.com",
+        email_verified=True,
+        full_name="Local User",
+        profile_image="https://avatar.url",
+        github_account="localghuser",
+    )
+    assert result["_id"] == user_id
+    assert "github" in result.get("auth_providers", [])
+    assert result.get("github_account") == "localghuser"
+
+    # 3. Ensure oauth_accounts record created
+    oauth_acc = await mongodb_db.oauth_accounts.find_one({"provider": "github", "provider_user_id": "gh-new-mapping-555"})
+    assert oauth_acc is not None
+    assert oauth_acc["user_id"] == user_id
+
+    # 4. Ensure no duplicate user was created
+    user_count = await mongodb_db.users.count_documents({})
+    assert user_count == 1
+
+
+@pytest.mark.asyncio
+async def test_github_oauth_regression_unbound_local_user(mongodb_db):
+    """Direct regression test: authenticate_with_oauth with existing oauth_account must not raise UnboundLocalError."""
+    auth_service = MongoDBAuthService(mongodb_db)
+
+    user = await mongodb_user_repository.create_user(
+        mongodb_db,
+        full_name="Regression User",
+        email="regression.user@domain.com",
+        is_email_verified=True,
+    )
+    user_id = user["_id"]
+
+    await mongodb_user_repository.create_oauth_account(
+        mongodb_db,
+        user_id=user_id,
+        provider="github",
+        provider_user_id="gh-regression-777",
+        provider_email="regression.user@domain.com",
+    )
+
+    # Call with github_account handle provided
+    res1 = await auth_service.authenticate_with_oauth(
+        provider="github",
+        provider_user_id="gh-regression-777",
+        email="regression.user@domain.com",
+        email_verified=True,
+        full_name="Regression User",
+        profile_image=None,
+        github_account="ghhandle",
+    )
+    assert res1["_id"] == user_id
+
+    # Call with github_account=None
+    res2 = await auth_service.authenticate_with_oauth(
+        provider="github",
+        provider_user_id="gh-regression-777",
+        email="regression.user@domain.com",
+        email_verified=True,
+        full_name="Regression User",
+        profile_image=None,
+        github_account=None,
+    )
+    assert res2["_id"] == user_id
+
+
+
+@pytest.mark.asyncio
 async def test_oauth_stale_mapping_resolves_and_does_not_disable_account(mongodb_db, monkeypatch):
     """An oauth_account pointing to a non-existent user_id does NOT raise AccountDisabledError, but self-heals by verified email."""
     auth_service = MongoDBAuthService(mongodb_db)
@@ -1086,6 +1290,90 @@ async def test_reset_password_full_lifecycle(mongodb_db, monkeypatch):
         )
         assert new_login.status_code == 200
         assert "access_token" in new_login.cookies
+
+
+@pytest.mark.asyncio
+async def test_github_oauth_existing_user_subsequent_login_no_unbound_local_error(mongodb_db):
+    """Subsequent GitHub OAuth login for already mapped user must not raise UnboundLocalError and updates target_user."""
+    auth_service = MongoDBAuthService(mongodb_db)
+
+    # 1. Initial OAuth login (creates user + oauth_accounts mapping)
+    user1 = await auth_service.authenticate_with_oauth(
+        provider="github",
+        provider_user_id="github-uid-existing-123",
+        email="github.existing@domain.com",
+        email_verified=True,
+        full_name="Existing GitHub User",
+        profile_image="https://avatars.github.com/u/123",
+        github_account="githubuser1",
+    )
+    assert user1["_id"] is not None
+    assert user1.get("github_account") == "githubuser1"
+
+    # 2. Subsequent OAuth login (exercises existing_account branch where user was previously UnboundLocalError)
+    user2 = await auth_service.authenticate_with_oauth(
+        provider="github",
+        provider_user_id="github-uid-existing-123",
+        email="github.existing@domain.com",
+        email_verified=True,
+        full_name="Existing GitHub User",
+        profile_image="https://avatars.github.com/u/123",
+        github_account="githubuser1_updated",
+    )
+    assert user2["_id"] == user1["_id"]
+    assert user2.get("github_account") == "githubuser1_updated"
+
+
+@pytest.mark.asyncio
+async def test_github_oauth_full_flow_sets_cookies_and_allows_me_endpoint(mongodb_db, monkeypatch):
+    """Full GitHub OAuth flow sets cookies and subsequent GET /api/auth/me returns 200 OK."""
+    from app.infrastructure.oauth.github_client import GithubUserProfile
+
+    monkeypatch.setattr("app.api.v1.endpoints.auth_controller.get_mongodb", AsyncMock(return_value=mongodb_db))
+    monkeypatch.setattr("app.infrastructure.persistence.mongodb.get_mongodb", AsyncMock(return_value=mongodb_db))
+    monkeypatch.setattr("app.core.config.settings.github_client_id", "mock-github-id")
+    monkeypatch.setattr("app.core.config.settings.github_client_secret", "mock-github-secret")
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # 1. Initiate login
+        login_resp = await client.get("/api/auth/github/login", follow_redirects=False)
+        assert login_resp.status_code == 302
+        from urllib.parse import parse_qs, urlparse
+        qs = parse_qs(urlparse(login_resp.headers["location"]).query)
+        state = qs["state"][0]
+
+        # 2. Mock GitHub profile
+        mock_profile = GithubUserProfile(
+            provider_user_id="github-full-flow-999",
+            email="fullflow@domain.com",
+            email_verified=True,
+            full_name="Full Flow User",
+            profile_image="https://avatars.github.com/u/999",
+            github_account="fullflowuser",
+        )
+        monkeypatch.setattr(
+            "app.infrastructure.oauth.github_client.exchange_code_for_profile",
+            AsyncMock(return_value=mock_profile),
+        )
+
+        # 3. Callback
+        callback_resp = await client.get(
+            f"/api/auth/github/callback?code=mock_code&state={state}",
+            follow_redirects=False,
+        )
+        assert callback_resp.status_code == 302
+        assert "access_token" in callback_resp.cookies
+        assert "refresh_token" in callback_resp.cookies
+
+        # 4. Access /api/auth/me with the received cookies
+        client.cookies = callback_resp.cookies
+        me_resp = await client.get("/api/auth/me")
+        assert me_resp.status_code == 200
+        me_data = me_resp.json()
+        assert me_data["email"] == "fullflow@domain.com"
+        assert me_data["isEmailVerified"] is True
+
 
 
 

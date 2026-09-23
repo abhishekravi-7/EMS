@@ -2132,25 +2132,21 @@ export function useWizardController() {
       setShowAllMicroserviceServices(false);
       setActiveScoreTooltip(null);
       setMicroserviceExpandedSections({});
-      // GitHub repos: analyze the clone Discovery already made on disk (real
-      // controllers/services/repositories/entities from the actual source,
-      // no GitHub API calls). Falls back to the direct GitHub endpoint only
-      // if no job id is available (edge case).
+      const effectiveJobId = jobId || connectState?.jobId || readPersistedValue(WIZARD_JOB_ID_KEY) || "";
       const result = isLocalRepoRef(selectedRepo.url)
         ? await getLocalProjectMicroserviceEligibility(extractLocalRepoPath(selectedRepo.url), repoAnalysis)
-        : jobId
-          ? await getDiscoveryMicroserviceEligibility(jobId)
-          : await getMicroserviceEligibility(selectedRepo.url, currentToken, repoAnalysis);
+        : effectiveJobId
+          ? await getDiscoveryMicroserviceEligibility(effectiveJobId)
+          : null;
       setMicroserviceResult(result);
     } catch (err) {
-      console.error("Failed to fetch microservice eligibility", err);
-      setError(formatLlmAwareError(err, "Unable to determine microservice eligibility from backend. Please try again."));
+      console.warn("Failed to fetch microservice eligibility:", err);
     } finally {
       setMicroserviceAssessmentResolved(true);
       setMicroserviceLoading(false);
     }
   }, [
-    currentToken,
+    connectState?.jobId,
     jobId,
     repoAnalysis,
     selectedRepo?.url,
@@ -4138,9 +4134,8 @@ export function useWizardController() {
     .toString()
     .padStart(2, "0")}:${(analysisCompletedSeconds % 60).toString().padStart(2, "0")}`;
   const isDiscoveryPending =
-    !error &&
     isJavaProject !== false &&
-    (analysisLoading || (step === 2 && selectedRepo && !repoAnalysis));
+    (analysisLoading || (step === 2 && Boolean(selectedRepo) && !repoAnalysis));
 
   useEffect(() => {
     if (!isDiscoveryPending) {
@@ -4206,16 +4201,18 @@ export function useWizardController() {
   }, [migrationJob, migrationJob?.progress_percent, migrationJob?.status, setAnimationProgress, step]);
 
   useEffect(() => {
-    if (step === 2 && jobId) {
-      void fetchBrdMetadata(jobId);
+    const effectiveJobId = jobId || connectState?.jobId || readPersistedValue(WIZARD_JOB_ID_KEY) || "";
+    if (step === 2 && effectiveJobId) {
+      void fetchBrdMetadata(effectiveJobId);
     }
-  }, [step, jobId, fetchBrdMetadata]);
+  }, [step, jobId, connectState?.jobId, fetchBrdMetadata]);
 
   const executeAnalysis = useCallback(
     async (isRerun = false) => {
       if (!selectedRepo) return;
       const isLocalProject = isLocalRepoRef(selectedRepo.url);
-      const discoveryKey = `${selectedRepo.url}::${jobId || ""}::${currentToken || ""}`;
+      const effectiveJobId = jobId || connectState?.jobId || readPersistedValue(WIZARD_JOB_ID_KEY) || "";
+      const discoveryKey = `${selectedRepo.url}::${effectiveJobId || ""}::${currentToken || ""}`;
 
       if (discoveryInFlightKeyRef.current === discoveryKey && analysisLoading) {
         return;
@@ -4302,8 +4299,8 @@ export function useWizardController() {
         const analyzePromise = isLocalProject
           ? analyzeLocalProject(extractLocalRepoPath(selectedRepo.url))
             .then(async (result) => enrichAnalysisWithPomVersion(result.analysis, selectedRepo.url, ""))
-          : jobId
-            ? runDiscovery(jobId, currentToken, isRerun)
+          : effectiveJobId
+            ? runDiscovery(effectiveJobId, currentToken, isRerun)
               .then(async (result) => enrichAnalysisWithPomVersion(result.analysis, selectedRepo.url, currentToken))
             : analyzeRepoUrl(selectedRepo.url, currentToken, true)
               .then(async (result) => enrichAnalysisWithPomVersion(result.analysis, selectedRepo.url, currentToken));
@@ -4415,6 +4412,7 @@ export function useWizardController() {
     [
       analysisLoading,
       applyRepositoryAnalysis,
+      connectState?.jobId,
       currentToken,
       enrichAnalysisWithPomVersion,
       extractLocalRepoPath,
@@ -4446,7 +4444,7 @@ export function useWizardController() {
   }, [analysisLoading, isDiscoveryPending, executeAnalysis]);
 
   useEffect(() => {
-    if (step === 2 && selectedRepo && !repoAnalysis && !analysisLoading && !error && isJavaProject !== false) {
+    if (step === 2 && selectedRepo && !repoAnalysis && !analysisLoading && isJavaProject !== false) {
       void executeAnalysis(false);
     }
   }, [
@@ -4454,7 +4452,6 @@ export function useWizardController() {
     selectedRepo,
     repoAnalysis,
     analysisLoading,
-    error,
     isJavaProject,
     executeAnalysis,
   ]);
@@ -4653,13 +4650,14 @@ export function useWizardController() {
   useEffect(() => {
     if (step === 2 && selectedRepo && repoAnalysis && !analysisLoading) {
       const isLocalProject = isLocalRepoRef(selectedRepo.url);
+      const effectiveJobId = jobId || connectState?.jobId || readPersistedValue(WIZARD_JOB_ID_KEY) || "";
       // GitHub repos: read the clone Discovery already made on disk (fast,
       // works for any repo, no GitHub API calls). Falls back to the direct
       // GitHub file-browser only if no job id is available (edge case).
       const filesPromise = isLocalProject
         ? listLocalProjectFiles(extractLocalRepoPath(selectedRepo.url), currentPath)
-        : jobId
-          ? listDiscoveryFiles(jobId, currentPath)
+        : effectiveJobId
+          ? listDiscoveryFiles(effectiveJobId, currentPath)
           : listRepoFiles(selectedRepo.url, currentToken, currentPath);
 
       setRepoFilesLoading(true);
@@ -4672,7 +4670,7 @@ export function useWizardController() {
         .catch((err) => {
           setRepoFiles([]);
           const message = err?.message || "Failed to load repository files.";
-          if (isLocalProject || jobId) {
+          if (isLocalProject || effectiveJobId) {
             setRepoFilesError(message);
           }
           // No job id and no local project (rare): quietly show empty rather
@@ -4687,6 +4685,7 @@ export function useWizardController() {
     }
   }, [
     analysisLoading,
+    connectState?.jobId,
     currentPath,
     currentToken,
     jobId,
@@ -4706,10 +4705,11 @@ export function useWizardController() {
       return;
     }
 
+    const effectiveJobId = jobId || connectState?.jobId || readPersistedValue(WIZARD_JOB_ID_KEY) || "";
     const prefetchKey = [
       repoReference,
       currentToken || "",
-      jobId || migrationJob?.job_id || "",
+      effectiveJobId || migrationJob?.job_id || "",
       repoAnalysis?.java_version || "",
       String(repoAnalysis?.java_files?.length || 0),
       String(repoAnalysis?.dependencies?.length || 0),
@@ -4732,7 +4732,7 @@ export function useWizardController() {
       source_repo_url: repoReference,
       token: currentToken || undefined,
       github_token: currentToken || undefined,
-      job_id: jobId || migrationJob?.job_id || undefined,
+      job_id: effectiveJobId || migrationJob?.job_id || undefined,
       migration_job_id: migrationJob?.job_id || undefined,
       source_repo: migrationJob?.source_repo || repoReference,
       target_repo: migrationJob?.target_repo || null,
@@ -4794,6 +4794,7 @@ export function useWizardController() {
       cancelled = true;
     };
   }, [
+    connectState?.jobId,
     currentToken,
     effectiveTargetVersion,
     jobId,
@@ -4812,12 +4813,13 @@ export function useWizardController() {
 
   // Background pre-fetch existing tests as soon as a valid repository session/jobId is available
   useEffect(() => {
-    if (jobId) {
-      scanExistingTests(jobId).catch((err) => {
+    const effectiveJobId = jobId || connectState?.jobId || readPersistedValue(WIZARD_JOB_ID_KEY) || "";
+    if (effectiveJobId) {
+      scanExistingTests(effectiveJobId).catch((err) => {
         console.debug("Background prefetch of existing tests:", err);
       });
     }
-  }, [jobId]);
+  }, [jobId, connectState?.jobId]);
 
   // Auto-fill target names for each migration approach until the user customizes them.
   useEffect(() => {
