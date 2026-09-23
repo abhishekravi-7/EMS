@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.api.deps import get_current_user
-from app.infrastructure.persistence.models import User
+from app.api.deps import User
 from app.schemas.user_settings_schema import UserSettingsResponse, UserSettingsUpdate, UserGitHubConfig
 from app.infrastructure.persistence.mongodb import get_mongodb
 from app.infrastructure.persistence.mongodb_user_repository import _get_query_id
