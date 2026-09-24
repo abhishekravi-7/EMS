@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef, useMemo, type Dispatch, type SetStateAction } from "react";
 import { createPortal } from "react-dom";
-import { FaRocket, FaInfoCircle, FaSearch, FaShieldAlt, FaVial, FaPen, FaFileAlt } from "react-icons/fa";
+import { FaRocket, FaInfoCircle, FaSearch, FaShieldAlt, FaVial, FaPen, FaFileAlt, FaFlask } from "react-icons/fa";
 import {
   scanExistingTests,
   getCachedExistingTests,
@@ -195,6 +195,8 @@ export function ModernizationStepView({
     setRunSonar,
     runFossa,
     setRunFossa,
+    runFunctionalTests,
+    setRunFunctionalTests,
   } = modernization;
 
   const { isLocalRepoRef, extractLocalRepoPath } = repoUtils;
@@ -967,6 +969,58 @@ export function ModernizationStepView({
               RECOMMENDED
             </span>
           </div>
+
+          {/* 4. Functional Testing */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              padding: "14px 18px",
+              borderRadius: 12,
+              border: `2px solid ${runFunctionalTests ? "#6366f1" : "#e2e8f0"}`,
+              background: runFunctionalTests ? "#eef2ff" : "#f8fafc",
+              cursor: "pointer",
+              transition: "all 0.15s ease",
+              minHeight: 88,
+            }}
+            onClick={() => setRunFunctionalTests(!runFunctionalTests)}
+          >
+            <input
+              type="checkbox"
+              checked={runFunctionalTests}
+              onChange={(e) => {
+                e.stopPropagation();
+                setRunFunctionalTests(e.target.checked);
+              }}
+              style={{ width: 18, height: 18, accentColor: "#6366f1", cursor: "pointer", flexShrink: 0 }}
+            />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a", display: "flex", alignItems: "center", gap: 8 }}>
+                <FaFlask style={{ fontSize: 12, color: runFunctionalTests ? "#4338ca" : "#64748b", flexShrink: 0 }} />
+                <span>Functional Testing</span>
+              </div>
+              <div style={{ fontSize: 12, color: "#64748b", marginTop: 2, lineHeight: 1.3 }}>
+                {runFunctionalTests
+                  ? "Upload & run functional test scenarios from a document."
+                  : "Functional testing disabled — document upload hidden."}
+              </div>
+            </div>
+            <span
+              style={{
+                marginLeft: "auto",
+                fontSize: 10,
+                fontWeight: 700,
+                padding: "3px 10px",
+                borderRadius: 6,
+                background: runFunctionalTests ? "#e0e7ff" : "#f1f5f9",
+                color: runFunctionalTests ? "#4338ca" : "#64748b",
+                flexShrink: 0,
+              }}
+            >
+              {runFunctionalTests ? "ENABLED" : "DISABLED"}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -983,8 +1037,8 @@ export function ModernizationStepView({
         }}
       />
 
-      {/* Functional Testing Document Upload Section */}
-      <FunctionalTestingDocumentCard jobId={jobId} />
+      {/* Functional Testing Document Upload Section — only shown when enabled */}
+      {runFunctionalTests && <FunctionalTestingDocumentCard jobId={jobId} />}
 
       {/* Test Validation Report Modal */}
       {showValidationReport && existingExecResult && (
