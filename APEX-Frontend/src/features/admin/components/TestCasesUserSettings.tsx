@@ -10,9 +10,24 @@ interface TestCasesUserSettingsProps {
 }
 
 export function TestCasesUserSettings({ settings, onChange, adminSettings }: TestCasesUserSettingsProps) {
-  const playwrightEnabled = adminSettings.test_cases_playwright_enabled === true || adminSettings.test_cases_playwright_enabled === "true";
-  const cypressEnabled = adminSettings.test_cases_cypress_enabled === true || adminSettings.test_cases_cypress_enabled === "true";
-  const seleniumEnabled = adminSettings.test_cases_selenium_enabled === true || adminSettings.test_cases_selenium_enabled === "true";
+  const sysTestConfig = settings.system_test_cases_config || {};
+  const playwrightEnabled = 
+    adminSettings.test_cases_playwright_enabled === true || 
+    adminSettings.test_cases_playwright_enabled === "true" ||
+    sysTestConfig.test_cases_playwright_enabled === true ||
+    sysTestConfig.test_cases_playwright_enabled === "true";
+
+  const cypressEnabled = 
+    adminSettings.test_cases_cypress_enabled === true || 
+    adminSettings.test_cases_cypress_enabled === "true" ||
+    sysTestConfig.test_cases_cypress_enabled === true ||
+    sysTestConfig.test_cases_cypress_enabled === "true";
+
+  const seleniumEnabled = 
+    adminSettings.test_cases_selenium_enabled === true || 
+    adminSettings.test_cases_selenium_enabled === "true" ||
+    sysTestConfig.test_cases_selenium_enabled === true ||
+    sysTestConfig.test_cases_selenium_enabled === "true";
   
   const playwrightBaseUrl = settings.test_cases_values?.playwright_base_url || "";
   const cypressBaseUrl = settings.test_cases_values?.cypress_base_url || "";
@@ -20,17 +35,6 @@ export function TestCasesUserSettings({ settings, onChange, adminSettings }: Tes
 
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ status: "success" | "error"; message: string } | null>(null);
-
-  if (!playwrightEnabled && !cypressEnabled && !seleniumEnabled) {
-    return (
-      <div style={{ display: "flex", flexDirection: "column", gap: "16px", marginTop: "16px", padding: "24px", border: "1px solid #e2e8f0", borderRadius: "8px", background: "#f8fafc", textAlign: "center" }}>
-        <h3 style={{ margin: 0, fontSize: "1.1rem", color: "#1e293b", fontWeight: 600 }}>Test Cases Configuration</h3>
-        <p style={{ margin: "4px 0 0", fontSize: "0.875rem", color: "#64748b" }}>
-          No test frameworks are enabled by the system administrator. Please contact your admin to enable testing features.
-        </p>
-      </div>
-    );
-  }
 
   const handleTestConnection = async () => {
     if (!playwrightBaseUrl) {
@@ -50,8 +54,6 @@ export function TestCasesUserSettings({ settings, onChange, adminSettings }: Tes
     }
   };
 
-
-
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "24px", marginTop: "16px" }}>
       <div>
@@ -59,9 +61,14 @@ export function TestCasesUserSettings({ settings, onChange, adminSettings }: Tes
           <FaShieldAlt style={{ color: "#2563eb", marginRight: "8px" }} />
           Test Cases Configuration
         </h3>
+        <p style={{ color: "#64748b", fontSize: "0.875rem", marginTop: "4px" }}>
+          Configure end-to-end framework URLs (Playwright, Cypress, Selenium) for UI testing.
+        </p>
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+
+
         {playwrightEnabled && (
           <div>
             <h4 style={{ margin: 0, fontSize: "1.05rem", color: "#1e293b", fontWeight: 600, marginBottom: "8px" }}>Playwright</h4>

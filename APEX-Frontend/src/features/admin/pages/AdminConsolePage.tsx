@@ -38,14 +38,14 @@ import "./AdminConsolePage.css";
 const ADMIN_RAIL_TABS = [
   { id: "github", label: "GitHub", icon: FaGithub, category: "Infrastructure" },
   { id: "quality", label: "Quality Checks", icon: FaShieldAlt, category: "Validation" },
-  { id: "testcases", label: "Test Cases", icon: FaShieldAlt, category: "Testing" },
+  { id: "testcases", label: "Test Cases Configuration", icon: FaShieldAlt, category: "Testing" },
   { id: "ai", label: "Intelligence", icon: FaBrain, category: "Cognitive" },
 ];
  
 const USER_RAIL_TABS = [
   { id: "github", label: "GitHub", icon: FaGithub, category: "Personal Settings" },
   { id: "user_quality", label: "Quality Checks", icon: FaShieldAlt, category: "Personal Settings" },
-  { id: "testcases", label: "Test Cases", icon: FaShieldAlt, category: "Personal Settings" },
+  { id: "testcases", label: "Test Cases Configuration", icon: FaShieldAlt, category: "Personal Settings" },
   { id: "ai", label: "Intelligence", icon: FaBrain, category: "Personal Settings" },
 ];
  
@@ -131,27 +131,29 @@ export default function AdminConsolePage() {
   }, [isSuperAdmin, currentUser]);
  
   useEffect(() => {
-    if (!isSuperAdmin && userSettings.github_config?.pat) {
+    if (!isSuperAdmin) {
       setIsLoadingRepos(true);
       fetchUserGithubRepos()
         .then(repos => setAvailableRepos(repos))
         .catch(err => console.error("Failed to fetch repos", err))
         .finally(() => setIsLoadingRepos(false));
     }
-  }, [isSuperAdmin, userSettings.github_config?.pat]);
- 
+  }, [isSuperAdmin]);
+
   useEffect(() => {
-    if (!isSuperAdmin && userSettings.github_config?.repository && availableRepos.length > 0) {
-      const selectedRepo = availableRepos.find(r => r.full_name === userSettings.github_config?.repository);
-      if (selectedRepo && userSettings.github_config?.pat) {
+    if (!isSuperAdmin && userSettings.github_config?.repository) {
+      const repoFullName = userSettings.github_config.repository;
+      const parts = repoFullName.split("/");
+      if (parts.length === 2) {
+        const [owner, repoName] = parts;
         setIsLoadingBranches(true);
-        fetchUserGithubBranches(selectedRepo.owner, selectedRepo.name)
+        fetchUserGithubBranches(owner, repoName)
           .then(branches => setAvailableBranches(branches))
           .catch(err => console.error("Failed to fetch branches", err))
           .finally(() => setIsLoadingBranches(false));
       }
     }
-  }, [isSuperAdmin, userSettings.github_config?.repository, availableRepos, userSettings.github_config?.pat]);
+  }, [isSuperAdmin, userSettings.github_config?.repository]);
  
   const toggleSecret = (id: string) => {
     setShowSecrets(prev => ({ ...prev, [id]: !prev[id] }));
@@ -397,9 +399,12 @@ export default function AdminConsolePage() {
                   className="input-modern"
                   value={userSettings.github_config.repository || ""}
                   onChange={(e) => handleUserFieldChange("repository", e.target.value)}
-                  disabled={isLoadingRepos || availableRepos.length === 0}
+                  disabled={isLoadingRepos}
                 >
-                  <option value="">{isLoadingRepos ? "Loading..." : "Select Repository"}</option>
+                  <option value="">{isLoadingRepos ? "Loading Repositories..." : "Select Repository"}</option>
+                  {userSettings.github_config.repository && !availableRepos.some(r => r.full_name === userSettings.github_config.repository) && (
+                    <option value={userSettings.github_config.repository}>{userSettings.github_config.repository}</option>
+                  )}
                   {availableRepos.map(repo => (
                     <option key={repo.id} value={repo.full_name}>{repo.full_name}</option>
                   ))}
@@ -411,9 +416,12 @@ export default function AdminConsolePage() {
                   className="input-modern"
                   value={userSettings.github_config.branch || ""}
                   onChange={(e) => handleUserFieldChange("branch", e.target.value)}
-                  disabled={isLoadingBranches || availableBranches.length === 0}
+                  disabled={isLoadingBranches || !userSettings.github_config.repository}
                 >
-                  <option value="">{isLoadingBranches ? "Loading..." : "Select Branch"}</option>
+                  <option value="">{isLoadingBranches ? "Loading Branches..." : "Select Branch"}</option>
+                  {userSettings.github_config.branch && !availableBranches.some(b => b.name === userSettings.github_config.branch) && (
+                    <option value={userSettings.github_config.branch}>{userSettings.github_config.branch}</option>
+                  )}
                   {availableBranches.map(branch => (
                     <option key={branch.name} value={branch.name}>{branch.name}</option>
                   ))}
@@ -466,7 +474,8 @@ export default function AdminConsolePage() {
               onChange={handleUserSettingChange}
               isAdminEnabled={
                 userSettings.system_llm_config?.llm_enabled === true ||
-                userSettings.system_llm_config?.llm_enabled === "true"
+                String(userSettings.system_llm_config?.llm_enabled).toLowerCase() === "true" ||
+                userSettings.system_llm_config?.llm_enabled === "1"
               }
               allowedGroqModelsStr={userSettings.system_llm_config?.groq_models}
               allowedHuggingFaceModelsStr={userSettings.system_llm_config?.huggingface_models}
