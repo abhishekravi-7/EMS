@@ -227,25 +227,58 @@ export async function fetchUserGithubBranches(owner: string, repo: string): Prom
   );
 }
 
+export interface PredefinedJUnitPrompt {
+  id: string;
+  title: string;
+  prompt: string;
+  description: string;
+}
+
+export async function getPredefinedJUnitPrompts(): Promise<PredefinedJUnitPrompt[]> {
+  return requestJson<PredefinedJUnitPrompt[]>(
+    "/v1/unit-tests/predefined-prompts",
+    "Failed to fetch predefined JUnit prompts"
+  );
+}
+
 export interface TestingPromptAnalysisResult {
   user_prompt?: string;
   testing_focus: string;
+  testing_objective?: string;
+  coverage_target?: string;
   target_areas: string[];
   target_classes: string[];
   target_methods: string[];
-  priority: string[];
-  scenarios: string[];
+  business_logic_areas?: string[];
+  execution_paths?: string[];
+  branches?: string[];
   edge_cases: string[];
+  negative_scenarios?: string[];
+  exception_scenarios?: string[];
+  coverage_gaps?: string[];
+  priority: string[];
+  priority_areas?: string[];
+  scenarios: string[];
+  additional_tests_required?: string[];
 }
 
-export async function analyzeTestingPrompt(prompt: string, projectContext?: string): Promise<TestingPromptAnalysisResult> {
+export async function analyzeTestingPrompt(
+  manualPrompt?: string,
+  selectedPredefinedPrompts?: string[],
+  projectContext?: string
+): Promise<TestingPromptAnalysisResult> {
   return requestJson<TestingPromptAnalysisResult>(
     "/v1/unit-tests/analyze-prompt",
     "Failed to analyze testing prompt",
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt, project_context: projectContext }),
+      body: JSON.stringify({
+        manual_prompt: manualPrompt,
+        selected_predefined_prompts: selectedPredefinedPrompts,
+        prompt: manualPrompt,
+        project_context: projectContext,
+      }),
     }
   );
 }
