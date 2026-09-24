@@ -22,18 +22,21 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class FossaScanResult:
     policy_status: str | None = None
-    total_dependencies: int = 0
-    license_issues: int = 0
-    denied_license_issues: int = 0
-    flagged_license_issues: int = 0
-    vulnerabilities: int = 0
-    outdated_dependencies: int = 0
+    total_dependencies: int | None = None
+    license_issues: int | None = None
+    denied_license_issues: int | None = None
+    flagged_license_issues: int | None = None
+    vulnerabilities: int | None = None
+    outdated_dependencies: int | None = None
     scan_mode: str = "skipped"
     real_scan: bool = False
     analysis_url: str | None = None
     error_message: str | None = None
     report: dict[str, Any] | None = None
     log_lines: list[str] = field(default_factory=list)
+
+
+ANSI_ESCAPE_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
 
 class DependencyCheckRunner:
@@ -53,12 +56,15 @@ class DependencyCheckRunner:
             or ""
         ).strip()
         if not api_key:
+            logger.info("[FOSSA] API key configured: false")
             return FossaScanResult(
                 policy_status="UNAVAILABLE",
                 scan_mode="missing_token",
                 error_message="FOSSA API key missing. Configure it in User Settings or Set FOSSA_API_KEY in .env.",
                 log_lines=["FOSSA skipped: API key is not configured in user settings or .env."],
             )
+
+        logger.info("[FOSSA] API key configured: true")
 
         cli = self._resolve_command(settings.fossa_cli_command)
         if not cli:
@@ -68,6 +74,9 @@ class DependencyCheckRunner:
                 error_message="FOSSA CLI (fossa) was not found on PATH or known locations.",
                 log_lines=["FOSSA skipped: FOSSA CLI was not found on PATH."],
             )
+
+        fossa_version = self._get_fossa_version(cli)
+        logger.info("[FOSSA] Executable path: %s (version: %s)", cli, fossa_version or "unknown")
 
         project_dir = Path(project_dir).resolve()
         if not project_dir.is_dir():
@@ -133,21 +142,16 @@ class DependencyCheckRunner:
                     log_lines=[error_msg],
                 )
 
-        logger.info("[FOSSA] CLI resolved: %s", cli)
         logger.info("[FOSSA] Project root: %s", project_dir)
+        logger.info("[FOSSA] Project name: %s", project)
         logger.info("[FOSSA] Project type: %s", project_type)
         logger.info("[FOSSA] Maven executable: %s", resolved_maven or "unavailable")
-
-        project = self._project_name(job_id, project_name or project_dir.name)
-        host_url = (settings.fossa_endpoint.strip() if settings.fossa_endpoint.strip() else "https://app.fossa.com").rstrip("/")
-        fallback_url = self._analysis_url(project)
-
         logger.info("[FOSSA] Analysis started for job %s | project=%s | cwd=%s", job_id, project, project_dir)
 
         # Step 1: fossa analyze --json
         analyze_cmd = [cli, "analyze", "--project", project, "--json"]
         safe_analyze_cmd = " ".join([arg.replace(api_key, "***") for arg in analyze_cmd])
-        logger.debug("[FOSSA] Executing FOSSA analyze command: %s", safe_analyze_cmd)
+        logger.info("[FOSSA] Executing command: %s", safe_analyze_cmd)
 
         start_time = time.time()
         analyze = subprocess.run(  # nosec B603  # noqa: S603
@@ -164,6 +168,8 @@ class DependencyCheckRunner:
         analyze_lines = self._redact(analyze_output.splitlines(), api_key)
 
         logger.info("[FOSSA] Analysis finished in %.2f s with exit code %s", duration_analyze, analyze.returncode)
+        analyze_summary = (analyze_lines[0] if analyze_lines else "(empty)")[:200]
+        logger.info("[FOSSA] Analysis output summary: %s", analyze_summary)
 
         # If --json caused a non-zero exit (unsupported flag on this CLI version),
         # retry without --json so the upload still happens.
@@ -185,7 +191,7 @@ class DependencyCheckRunner:
 
         # Try to extract the project locator from the JSON that --json emits.
         fossa_locator: str | None = self._extract_locator(analyze.stdout)
-        logger.info("[FOSSA] Project locator: %s", fossa_locator or "(not found in CLI output)")
+        logger.info("[FOSSA] Project locator resolution status: %s", fossa_locator or "(not found in analyze output)")
 
         # Extract the real dashboard URL from the CLI output
         analysis_url = self._extract_dashboard_url(analyze_output) or (fallback_url if fossa_locator else None)
@@ -220,7 +226,9 @@ class DependencyCheckRunner:
 
         # Step 2: fossa test --format json
         test_cmd = [cli, "test", "--project", project, "--format", "json"]
+        safe_test_cmd = " ".join([arg.replace(api_key, "***") for arg in test_cmd])
         logger.info("[FOSSA] Test started for project %s", project)
+        logger.info("[FOSSA] Executing command: %s", safe_test_cmd)
 
         start_test_time = time.time()
         test = subprocess.run(  # nosec B603  # noqa: S603
@@ -237,15 +245,13 @@ class DependencyCheckRunner:
 
         logger.info("[FOSSA] Test finished in %.2f s with exit code %s", duration_test, test.returncode)
 
-        parsed = self._parse_json_output(test.stdout)
-
         # Exit code semantics for `fossa test`:
         #   0 = policy passed (no issues found)
-        #   1 = policy failed (issues/violations found) — this is a SCAN RESULT, not an error
+        #   1 = policy completed but policy violations were found (SCAN RESULT, NOT an execution error)
         #  >1 = CLI execution failure (bad credentials, network error, invalid command, etc.)
         if test.returncode > 1:
-            logger.info("[FOSSA] Test completed: failure (exit code %s)", test.returncode)
-            error_msg = f"FOSSA test command failed (exit {test.returncode}) — this is a CLI execution error, not a policy result."
+            logger.error("[FOSSA] Test execution failed (exit code %s)", test.returncode)
+            error_msg = f"FOSSA test command execution failed (exit code {test.returncode}) — this is a CLI execution error, not a policy result."
             logger.error("[FOSSA] %s | stdout=%s | stderr=%s", error_msg, test.stdout[:500], test.stderr[:500])
             return FossaScanResult(
                 policy_status="UNAVAILABLE",
@@ -253,17 +259,29 @@ class DependencyCheckRunner:
                 real_scan=False,
                 analysis_url=analysis_url,
                 error_message=error_msg,
-                report={"project": project, "policy_status": "UNAVAILABLE", "analysis_url": analysis_url, "raw": parsed},
+                report={"project": project, "policy_status": "UNAVAILABLE", "analysis_url": analysis_url, "raw": None},
                 log_lines=[
-                    f"FOSSA test CLI error (exit {test.returncode}) — not a policy violation.",
+                    f"FOSSA test CLI execution error (exit {test.returncode}) — not a policy violation.",
                 ] + test_lines[-20:],
             )
+        elif test.returncode == 1:
+            logger.info("[FOSSA] Test completed: policy failed / violations detected (exit code 1)")
+        else:
+            logger.info("[FOSSA] Test completed: policy passed (exit code 0)")
 
-        logger.info("[FOSSA] Test completed: success (exit code %s)", test.returncode)
+        parsed = self._parse_json_output(test.stdout)
+        logger.info("[FOSSA] JSON output parsing status: %s", "success" if parsed is not None else "unparseable/fallback")
 
-        extracted = self._extract_detailed_data(parsed)
+        extracted = self._extract_detailed_data(parsed, raw_text=test.stdout, returncode=test.returncode)
+        logger.info(
+            "[FOSSA] Extracted result fields: license_issues=%s, vulnerabilities=%s, outdated=%s, total_dependencies=%s",
+            extracted["license_issues"],
+            extracted["vulnerabilities"],
+            extracted["outdated_count"],
+            extracted["total_dependencies"],
+        )
 
-        # Fetch dependency count from API if possible
+        # Fetch dependency count from API if possible (only with valid locator)
         api_dep_count = self._fetch_dependency_count(
             host_url=host_url,
             api_key=api_key,
@@ -273,8 +291,13 @@ class DependencyCheckRunner:
         )
         if api_dep_count is not None:
             extracted["total_dependencies"] = api_dep_count
+            logger.info("[FOSSA] Dependency count resolved via API: %d", api_dep_count)
+        else:
+            logger.info("[FOSSA] Dependency count via API: unavailable/skipped")
 
         policy_status = "PASSED" if test.returncode == 0 else "FAILED"
+        logger.info("[FOSSA] Final FOSSA policy status: %s", policy_status)
+
         report = {
             "project": project,
             "policy_status": policy_status,
@@ -316,18 +339,40 @@ class DependencyCheckRunner:
                 "FOSSA analysis completed successfully.",
                 f"FOSSA policy status: {policy_status}",
                 f"FOSSA dashboard: {analysis_url or 'N/A'}",
-                f"Total dependencies: {extracted['total_dependencies']}",
-                f"Vulnerabilities: {extracted['vulnerabilities']} "
-                f"(critical={extracted['vulnerabilities_critical']} "
-                f"high={extracted['vulnerabilities_high']} "
-                f"medium={extracted['vulnerabilities_medium']} "
-                f"low={extracted['vulnerabilities_low']})",
-                f"License issues: {extracted['license_issues']} "
-                f"(denied={extracted['denied_license_issues']} "
-                f"flagged={extracted['flagged_license_issues']})",
-                f"Outdated dependencies: {extracted['outdated_count']}",
+                f"Total dependencies: {extracted['total_dependencies'] if extracted['total_dependencies'] is not None else 'N/A'}",
+                f"Vulnerabilities: {extracted['vulnerabilities'] if extracted['vulnerabilities'] is not None else 'N/A'} "
+                f"(critical={extracted['vulnerabilities_critical'] if extracted['vulnerabilities_critical'] is not None else 'N/A'} "
+                f"high={extracted['vulnerabilities_high'] if extracted['vulnerabilities_high'] is not None else 'N/A'} "
+                f"medium={extracted['vulnerabilities_medium'] if extracted['vulnerabilities_medium'] is not None else 'N/A'} "
+                f"low={extracted['vulnerabilities_low'] if extracted['vulnerabilities_low'] is not None else 'N/A'})",
+                f"License issues: {extracted['license_issues'] if extracted['license_issues'] is not None else 'N/A'} "
+                f"(denied={extracted['denied_license_issues'] if extracted['denied_license_issues'] is not None else 'N/A'} "
+                f"flagged={extracted['flagged_license_issues'] if extracted['flagged_license_issues'] is not None else 'N/A'})",
+                f"Outdated dependencies: {extracted['outdated_count'] if extracted['outdated_count'] is not None else 'N/A'}",
             ] + analyze_lines[-5:] + test_lines[-10:],
         )
+
+    @staticmethod
+    def _strip_ansi(text: str) -> str:
+        if not text:
+            return ""
+        return ANSI_ESCAPE_RE.sub("", text)
+
+    @staticmethod
+    def _get_fossa_version(cli: str) -> str | None:
+        try:
+            res = subprocess.run(  # nosec B603 # noqa: S603
+                [cli, "--version"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+            if res.returncode == 0 and res.stdout:
+                return res.stdout.strip().splitlines()[0]
+        except Exception:
+            pass
+        return None
 
     @staticmethod
     def _resolve_command(command: str | None = None) -> str | None:
@@ -462,8 +507,7 @@ class DependencyCheckRunner:
         """Fallback URL constructed from the project slug.
 
         This is used only when the real URL cannot be extracted from the
-        FOSSA CLI output.  The format mirrors what FOSSA uses for custom
-        integrations, but the organization‑ID component may differ.
+        FOSSA CLI output.
         """
         endpoint = settings.fossa_endpoint.rstrip("/") if settings.fossa_endpoint else "https://app.fossa.com"
         import urllib.parse
@@ -483,8 +527,8 @@ class DependencyCheckRunner:
         """
         if not analyze_stdout:
             return None
-        # Try every line for a JSON object
-        for line in analyze_stdout.splitlines():
+        clean = DependencyCheckRunner._strip_ansi(analyze_stdout)
+        for line in clean.splitlines():
             line = line.strip()
             if not line.startswith("{"):
                 continue
@@ -530,10 +574,10 @@ class DependencyCheckRunner:
 
         # Security check: validate URL scheme
         if not url.startswith("https://") and not url.startswith("http://"):
-            logger.error("Invalid FOSSA API URL: %s", url)
+            logger.error("[FOSSA] Invalid FOSSA API URL: %s", url)
             return None
 
-        logger.info("Fetching FOSSA revisions to resolve locator: %s", url)
+        logger.info("[FOSSA] Fetching revisions to resolve locator: %s", url)
         try:
             req = urllib.request.Request(  # nosec B310  # noqa: S310
                 url,
@@ -554,7 +598,7 @@ class DependencyCheckRunner:
                         return str(val)
             return None
         except Exception as exc:  # noqa: BLE001
-            logger.info("Failed to fetch FOSSA revisions from API: %s", exc)
+            logger.info("[FOSSA] Failed to fetch revisions from API: %s", exc)
             return None
 
     def _fetch_dependency_count(
@@ -565,16 +609,13 @@ class DependencyCheckRunner:
         locator: str | None,
         project: str,
         analysis_url: str | None = None,
+        max_retries: int = 3,
+        retry_delay_seconds: float = 2.0,
     ) -> int | None:
         """Return the total number of dependencies for this project revision.
 
         Calls ``GET /api/revisions/{encoded_locator}/dependencies`` on the FOSSA
-        REST API.  If the response body is a list, returns its length.  If it is a
-        dict with a ``count`` key, returns that value.  Returns ``None`` on any
-        error so the caller can fall back gracefully.
-
-        Only the *count* is fetched — no large payload is stored or surfaced.
-        The call is made with a short timeout (10 s) so it never blocks the scan.
+        REST API. Only called when a valid locator has been resolved.
         """
         import urllib.error
         import urllib.parse
@@ -586,82 +627,97 @@ class DependencyCheckRunner:
             if project_id:
                 resolved_locator = self._fetch_locator_from_api(host_url, api_key, project_id)
 
-        # Fallback using project slug
-        effective_locator = resolved_locator or f"custom+1/{project}"
-        encoded = urllib.parse.quote(effective_locator, safe="")
+        if not resolved_locator:
+            logger.info("[FOSSA] No valid revision locator returned by analyze; skipping dependency count lookup.")
+            return None
+
+        encoded = urllib.parse.quote(resolved_locator, safe="")
         url = f"{host_url}/api/revisions/{encoded}/dependencies"
 
         # Security check: validate URL scheme
         if not url.startswith("https://") and not url.startswith("http://"):
-            logger.error("Invalid FOSSA API URL: %s", url)
+            logger.error("[FOSSA] Invalid FOSSA API URL: %s", url)
             return None
 
-        logger.info("Fetching FOSSA dependency count from: %s", url)
-        try:
-            req = urllib.request.Request(  # nosec B310  # noqa: S310
-                url,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Accept": "application/json",
-                },
-            )
-            with urllib.request.urlopen(req, timeout=10) as resp:  # nosec B310  # noqa: S310
-                raw = resp.read().decode("utf-8", errors="replace")
+        logger.info("[FOSSA] Fetching dependency count for locator '%s' from: %s", resolved_locator, url)
 
-            data = json.loads(raw)
+        for attempt in range(1, max_retries + 1):
+            try:
+                req = urllib.request.Request(  # nosec B310  # noqa: S310
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Accept": "application/json",
+                    },
+                )
+                with urllib.request.urlopen(req, timeout=10) as resp:  # nosec B310  # noqa: S310
+                    raw = resp.read().decode("utf-8", errors="replace")
 
-            # API may return a list of dependency objects or a dict {count: N}
-            if isinstance(data, list):
-                return len(data)
-            if isinstance(data, dict):
-                count = data.get("count") or data.get("total") or data.get("length")
-                if count is not None:
-                    return int(count)
-                # Some responses wrap the list in a key
-                for key in ("dependencies", "items", "results", "data"):
-                    if isinstance(data.get(key), list):
-                        return len(data[key])
+                data = json.loads(raw)
 
-            logger.debug("FOSSA dependency count API response shape unexpected: %s", str(data)[:200])
-            return None
+                # API may return a list of dependency objects or a dict {count: N}
+                if isinstance(data, list):
+                    count = len(data)
+                    logger.info("[FOSSA] Dependency API returned %d dependencies for locator '%s'", count, resolved_locator)
+                    return count
+                if isinstance(data, dict):
+                    count = data.get("count") or data.get("total") or data.get("length")
+                    if count is not None:
+                        logger.info("[FOSSA] Dependency API returned %d dependencies for locator '%s'", int(count), resolved_locator)
+                        return int(count)
+                    for key in ("dependencies", "items", "results", "data"):
+                        if isinstance(data.get(key), list):
+                            count = len(data[key])
+                            logger.info("[FOSSA] Dependency API returned %d dependencies for locator '%s'", count, resolved_locator)
+                            return count
 
-        except urllib.error.HTTPError as exc:
-            logger.info(
-                "FOSSA dependency count API returned HTTP %s for locator %r — "
-                "falling back to None. (This is non-fatal.)",
-                exc.code, effective_locator,
-            )
-            return None
-        except Exception as exc:  # noqa: BLE001
-            logger.info(
-                "FOSSA dependency count API call failed (%s) — falling back to None. (Non-fatal.)",
-                exc,
-            )
-            return None
+                logger.debug("[FOSSA] Dependency API response shape unexpected: %s", str(data)[:200])
+                return None
+
+            except urllib.error.HTTPError as exc:
+                if exc.code == 404:
+                    if attempt < max_retries:
+                        logger.info(
+                            "[FOSSA] Dependency API returned HTTP 404 for locator '%s' (attempt %d/%d - revision may still be processing). Retrying in %.1fs...",
+                            resolved_locator, attempt, max_retries, retry_delay_seconds
+                        )
+                        time.sleep(retry_delay_seconds)
+                        continue
+                    else:
+                        logger.info(
+                            "[FOSSA] Dependency API returned HTTP 404 after %d attempts for locator '%s' (revision may still be processing on FOSSA). Skipping dependency count.",
+                            max_retries, resolved_locator
+                        )
+                        return None
+                else:
+                    logger.info(
+                        "[FOSSA] Dependency API returned HTTP %s for locator '%s' — skipping dependency count lookup. (Non-fatal.)",
+                        exc.code, resolved_locator
+                    )
+                    return None
+            except Exception as exc:  # noqa: BLE001
+                logger.info(
+                    "[FOSSA] Dependency API call failed (%s) for locator '%s' — skipping dependency count lookup. (Non-fatal.)",
+                    exc, resolved_locator
+                )
+                return None
+
+        return None
 
     @staticmethod
     def _extract_dashboard_url(cli_output: str) -> str | None:
-        """Extract the real FOSSA dashboard URL from `fossa analyze` stdout/stderr.
-
-        The FOSSA CLI prints a line similar to one of these patterns:
-            - "View it in FOSSA at: https://app.fossa.com/projects/..."
-            - "Project is available at https://app.fossa.com/projects/..."
-            - Any URL containing 'app.fossa.com/projects' or '<endpoint>/projects'
-
-        We prefer the URL the CLI itself reports because it contains the correct
-        organization‑ID prefix (e.g. ``custom+12345``) that cannot be guessed locally.
-        """
+        """Extract the real FOSSA dashboard URL from `fossa analyze` stdout/stderr."""
         if not cli_output:
             return None
-        # Match any https URL that contains '/projects/' — these are FOSSA project URLs
+        clean = DependencyCheckRunner._strip_ansi(cli_output)
         url_pattern = re.compile(
             r'https?://[\w.\-]*/projects/[^\s\"\']+'  # URL ending at whitespace/quote
         )
-        for line in cli_output.splitlines():
+        for line in clean.splitlines():
             m = url_pattern.search(line)
             if m:
                 url = m.group(0).rstrip(".,;)")  # strip trailing punctuation
-                logger.info("Extracted FOSSA dashboard URL from CLI output: %s", url)
+                logger.info("[FOSSA] Extracted dashboard URL from CLI output: %s", url)
                 return url
         return None
 
@@ -673,37 +729,125 @@ class DependencyCheckRunner:
 
     @staticmethod
     def _parse_json_output(output: str) -> Any:
-        output = (output or "").strip()
-        if not output:
-            return None
-        try:
-            return json.loads(output)
-        except json.JSONDecodeError:
+        """Resiliently parse JSON from FOSSA CLI output.
+
+        Handles:
+        1. Clean JSON strings
+        2. ANSI escape sequences
+        3. Embedded JSON objects or arrays surrounded by CLI banners/text
+        4. Line-by-line JSON objects
+        """
+        clean = DependencyCheckRunner._strip_ansi(output or "").strip()
+        if not clean:
             return None
 
-    def _extract_detailed_data(self, payload: Any) -> dict[str, Any]:
+        # 1. Direct parse attempt
+        try:
+            return json.loads(clean)
+        except json.JSONDecodeError:
+            pass
+
+        # 2. Extract outermost JSON object {...}
+        first_brace = clean.find("{")
+        last_brace = clean.rfind("}")
+        if first_brace != -1 and last_brace > first_brace:
+            candidate = clean[first_brace : last_brace + 1]
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError:
+                pass
+
+        # 3. Extract outermost JSON array [...]
+        first_bracket = clean.find("[")
+        last_bracket = clean.rfind("]")
+        if first_bracket != -1 and last_bracket > first_bracket:
+            candidate = clean[first_bracket : last_bracket + 1]
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError:
+                pass
+
+        # 4. Search line by line for any valid JSON object/array
+        for line in clean.splitlines():
+            line_s = line.strip()
+            if (line_s.startswith("{") and line_s.endswith("}")) or (line_s.startswith("[") and line_s.endswith("]")):
+                try:
+                    return json.loads(line_s)
+                except json.JSONDecodeError:
+                    continue
+
+        return None
+
+    def _extract_textual_data(self, raw_text: str, returncode: int) -> dict[str, Any]:
+        """Fallback to textual extraction when JSON cannot be parsed."""
+        clean = self._strip_ansi(raw_text or "")
+        
+        license_issues: int | None = None
+        vulnerabilities: int | None = None
+        outdated: int | None = None
+        total_deps: int | None = None
+
+        lic_match = re.search(r'(\d+)\s+(?:license|licensing)\s+(?:issue|violation|conflict)s?', clean, re.IGNORECASE)
+        if lic_match:
+            license_issues = int(lic_match.group(1))
+
+        vuln_match = re.search(r'(\d+)\s+(?:vulnerabilit(?:y|ies)|security\s+issue|cve)s?', clean, re.IGNORECASE)
+        if vuln_match:
+            vulnerabilities = int(vuln_match.group(1))
+
+        outdated_match = re.search(r'(\d+)\s+outdated(?:\s+dependenc(?:y|ies)|\s+package)?s?', clean, re.IGNORECASE)
+        if outdated_match:
+            outdated = int(outdated_match.group(1))
+
+        dep_match = re.search(r'(\d+)\s+(?:total\s+)?dependenc(?:y|ies)', clean, re.IGNORECASE)
+        if dep_match:
+            total_deps = int(dep_match.group(1))
+
+        if re.search(r'\b(?:0|no)\s+issues?\s+found\b', clean, re.IGNORECASE):
+            if license_issues is None:
+                license_issues = 0
+            if vulnerabilities is None:
+                vulnerabilities = 0
+            if outdated is None:
+                outdated = 0
+
+        # When exit code is 0 (policy passed), if no violations are indicated, counts are 0
+        if returncode == 0:
+            if license_issues is None:
+                license_issues = 0
+            if vulnerabilities is None:
+                vulnerabilities = 0
+            if outdated is None:
+                outdated = 0
+
+        return {
+            "total_dependencies": total_deps,
+            "license_issues": license_issues,
+            "denied_license_issues": None if license_issues is None else 0,
+            "flagged_license_issues": None if license_issues is None else 0,
+            "vulnerabilities": vulnerabilities,
+            "outdated_count": outdated,
+            "vulnerabilities_critical": 0 if vulnerabilities == 0 else (None if vulnerabilities is None else None),
+            "vulnerabilities_high": 0 if vulnerabilities == 0 else (None if vulnerabilities is None else None),
+            "vulnerabilities_medium": 0 if vulnerabilities == 0 else (None if vulnerabilities is None else None),
+            "vulnerabilities_low": 0 if vulnerabilities == 0 else (None if vulnerabilities is None else None),
+            "dependencies_list": [],
+            "licenses_list": [],
+            "vulnerabilities_list": [],
+            "outdated_list": [],
+        }
+
+    def _extract_detailed_data(self, payload: Any, raw_text: str = "", returncode: int = 0) -> dict[str, Any]:
         """Extract structured dependency, license, vulnerability, and outdated package data.
 
-        The FOSSA CLI (``fossa test --format json``) returns a JSON object whose
-        top‑level key is ``issues``.  Each element in that array has an
-        ``issue_type`` field (not ``type``) with values such as::
-
-            "policy_conflict"          – license denied by policy
-            "unlicensed_dependency"    – dependency has no detected license
-            "denied_license"           – license explicitly denied
-            "flagged_license"          – license flagged for review
-            "vulnerability"            – CVE / security advisory
-            "outdated_dependency"      – newer version available
-
-        The ``revisionId`` field contains the package locator (e.g.
-        ``custom+pip+requests$2.31.0``).  Severity for vulnerabilities is in
-        the nested ``cvssScore`` or ``severity`` field.
-
-        We also handle the older flat format where the top‑level key is ``graph``
-        and each node may have a ``type`` field instead of ``issue_type``.
+        If payload is None, uses textual extraction fallback.
+        If counts cannot be determined, returns None rather than fabricated 0.
         """
+        if payload is None:
+            return self._extract_textual_data(raw_text, returncode)
+
         result: dict[str, Any] = {
-            "total_dependencies": 0,
+            "total_dependencies": None,
             "license_issues": 0,
             "denied_license_issues": 0,
             "flagged_license_issues": 0,
@@ -930,7 +1074,7 @@ class DependencyCheckRunner:
         result["licenses_list"] = list(licenses_map.values())
         result["vulnerabilities_list"] = vulnerabilities_list
         result["outdated_list"] = outdated_list
-        result["total_dependencies"] = len(result["dependencies_list"])
+        result["total_dependencies"] = len(result["dependencies_list"]) if dependencies_map else None
         result["outdated_count"] = len(result["outdated_list"])
 
         return result
