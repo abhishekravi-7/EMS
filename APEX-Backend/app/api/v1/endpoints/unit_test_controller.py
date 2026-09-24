@@ -7,7 +7,10 @@ from fastapi import APIRouter, HTTPException, status
 from app.application.use_cases.run_unit_tests import RunUnitTestSuiteUseCase
 from app.application.use_cases.validate_unit_tests import ValidateUnitTestSuiteUseCase
 from app.core.exceptions import APEXError
+from app.infrastructure.llm.junit_generator import JUnitLLMGenerator
 from app.schemas.unit_test import (
+    TestingPromptAnalysis,
+    TestingPromptAnalysisRequest,
     UnitTestAnalysisRequest,
     UnitTestAnalysisResponse,
     UnitTestGenerateAndRunRequest,
@@ -36,6 +39,29 @@ def analyze_unit_tests(request: UnitTestAnalysisRequest) -> UnitTestAnalysisResp
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"An unexpected error occurred during test analysis: {exc}",
+        ) from exc
+
+
+@router.post(
+    "/analyze-prompt",
+    response_model=TestingPromptAnalysis,
+    summary="Dynamically analyze a natural language user testing focus prompt",
+)
+async def analyze_testing_prompt(
+    request: TestingPromptAnalysisRequest,
+) -> TestingPromptAnalysis:
+    try:
+        generator = JUnitLLMGenerator()
+        return await generator.analyze_testing_prompt(
+            prompt=request.prompt,
+            project_context=request.project_context,
+        )
+    except APEXError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An error occurred during testing prompt analysis: {exc}",
         ) from exc
 
 
@@ -81,3 +107,4 @@ async def generate_and_run_unit_tests(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"An error occurred during test generation and execution: {exc}",
         ) from exc
+

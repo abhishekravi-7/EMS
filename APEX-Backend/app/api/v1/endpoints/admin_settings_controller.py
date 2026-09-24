@@ -49,8 +49,8 @@ ENV_PATH = Path(".env").resolve()
 def _get_live_env_values() -> dict:
     """Reads latest values directly from .env file to ensure dynamic syncing."""
     return dotenv.dotenv_values(ENV_PATH)
- 
-def _update_env_value(key: str, value: Optional[str]) -> None:
+
+def _update_env_value(key: str, value: str) -> None:
     """Writes a value back to the .env file."""
     if value is None:
         value = ""
@@ -65,21 +65,18 @@ async def get_admin_settings(
     if current_user.role not in ("SUPERADMIN",):
         logger.warning("User %s attempted to access admin settings without SUPERADMIN role", current_user.email)
         raise HTTPException(status_code=403, detail="Forbidden")
- 
-    mongo_db = await get_mongodb()
-    db_settings = await get_mongo_settings(mongo_db) if mongo_db is not None else {}
+
     env_values = _get_live_env_values()
- 
+
+    current_settings = {}
+
     current_settings = {}
     for key in EXPOSED_KEYS:
-        # DB override takes precedence, then local .env, then the live settings object
-        if key in db_settings and db_settings[key] is not None:
-            value = db_settings[key]
-        else:
-            value = env_values.get(key.upper())
-            if value is None:
-                value = str(getattr(settings, key, ""))
-           
+        # DB override takes precedence, then the live settings object
+        value = env_values.get(key.upper())
+        if value is None:
+            value = str(getattr(settings, key, ""))
+            
         # Let the UI handle masking via type="password"
         # We want the Super Admin to see the actual token when they click the eye icon.
         current_settings[key] = value
@@ -95,9 +92,9 @@ async def update_admin_settings(
     if current_user.role not in ("SUPERADMIN",):
         logger.warning("User %s attempted to update admin settings without SUPERADMIN role", current_user.email)
         raise HTTPException(status_code=403, detail="Forbidden")
- 
+
     mongo_db = await get_mongodb()
-   
+
     for key, value in payload.settings.items():
         if key not in EXPOSED_KEYS:
             continue

@@ -192,6 +192,7 @@ def build_junit_generation_prompt(
     junit_version: str = "JUnit 5",
     spring_boot_version: str | None = None,
     uncovered_methods: list[str] | None = None,
+    testing_focus_context: dict[str, Any] | None = None,
 ) -> str:
     test_context = (
         f"EXISTING TEST CLASS:\n```java\n{existing_test_code}\n```"
@@ -204,6 +205,28 @@ def build_junit_generation_prompt(
         if uncovered_methods
         else "UNCOVERED METHODS TO PRIORITIZE: Cover all public and protected methods."
     )
+
+    focus_block = ""
+    if testing_focus_context:
+        if isinstance(testing_focus_context, dict):
+            focus = testing_focus_context.get("testing_focus", "")
+            scenarios = testing_focus_context.get("scenarios", [])
+            edge_cases = testing_focus_context.get("edge_cases", [])
+            priority = testing_focus_context.get("priority", [])
+            focus_block = f"""
+USER REQUESTED TESTING FOCUS & SCENARIOS (HIGH PRIORITY):
+- Core Testing Focus: {focus}
+- High-Priority Scenarios: {', '.join(priority) if priority else 'Focus on requested functionality'}
+- Requested Scenarios: {', '.join(scenarios) if scenarios else 'Positive and negative tests'}
+- Target Edge Cases: {', '.join(edge_cases) if edge_cases else 'Boundary and validation error checks'}
+- INSTRUCTION: Ensure the generated test class gives maximum testing attention to the above user-requested focus areas.
+"""
+        else:
+            focus_block = f"""
+USER REQUESTED TESTING FOCUS & SCENARIOS (HIGH PRIORITY):
+{testing_focus_context}
+- INSTRUCTION: Ensure the generated test class gives maximum testing attention to the above user-requested focus areas.
+"""
 
     return f"""Generate a comprehensive JUnit 5 test class named `{target_class_name}Test` for package `{package_name}`.
 
@@ -219,7 +242,7 @@ PROJECT METADATA:
 - Testing Framework: {junit_version}
 - Framework Context: {spring_boot_version or 'Plain Java / Spring Boot'}
 - {uncovered_str}
-
+{focus_block}
 REQUIREMENTS & MANDATORY RULES:
 1. Every test method name MUST strictly follow BDD naming format:
    `given<Condition>_when<Action>_then<ExpectedResult>()`
@@ -402,6 +425,117 @@ DEPENDENCY LIST TO EVALUATE:
 {dep_block}
 
 Evaluate each dependency above. Return ONLY the strict JSON object with 'overall_risk', 'complexity', 'overall_explanation', 'complexity_explanation', and 'dependencies' matching the system prompt schema."""
+
+
+TESTING_PROMPT_ANALYSIS_SYSTEM_PROMPT = """You are an expert Lead QA Automation Architect. \
+Given an arbitrary natural language user testing prompt and a list of available Java classes/components in the software repository, analyze the prompt and dynamically extract the testing focus. \
+You MUST return ONLY a single, strict JSON object and no commentary outside the JSON.
+
+The JSON object must have exactly these keys:
+- "testing_focus": string, a concise 1-2 sentence summary of what the user wants to test.
+- "target_areas": array of short strings representing the functional areas identified (e.g. ["Authentication", "Password Validation", "Error Handling"]).
+- "target_classes": array of class names or simple patterns from the repository matching the requested focus (e.g. ["LoginController", "UserService"]).
+- "target_methods": array of method names or method patterns relevant to the user request.
+- "priority": array of 2-5 high-priority scenario descriptions requested by the user.
+- "scenarios": array of 2-6 specific positive and negative test scenarios to verify.
+- "edge_cases": array of 1-4 boundary conditions, invalid inputs, or error handling scenarios.
+
+Rules:
+1. Dynamically understand whatever testing requirement the user provides.
+2. Do not rely on hardcoded keywords; interpret the natural language intent.
+3. Return only valid JSON."""
+
+
+def build_testing_prompt_analysis_prompt(
+    user_prompt: str | None = None,
+    available_classes: list[dict[str, Any]] | None = None,
+    project_context: str | None = None,
+    prompt: str | None = None,
+) -> str:
+    actual_prompt = (user_prompt or prompt or "").strip()
+    class_lines = []
+    if available_classes:
+        for c in available_classes[:30]:
+            name = c.get("name") or c.get("class_name") or str(c)
+            pkg = c.get("package_name") or ""
+            methods = c.get("methods") or []
+            method_str = f" (methods: {', '.join(methods[:5])})" if methods else ""
+            class_lines.append(f"- {pkg}.{name}{method_str}".strip("."))
+    class_block = "\n".join(class_lines) if class_lines else (project_context or "Repository classes available across project.")
+
+    return f"""Analyze this user testing prompt and determine the dynamic testing focus for the Java project.
+
+USER TESTING PROMPT:
+"{actual_prompt}"
+
+PROJECT REPOSITORY CONTEXT:
+{class_block}
+
+Respond with only the JSON object described in the system prompt."""
+
+
+PROMPT_COVERAGE_EVALUATION_SYSTEM_PROMPT = """You are a Lead Quality Assurance Architect. \
+Given the user's original testing prompt, the dynamic testing focus analysis, and the executed JUnit test suite results and coverage, evaluate whether the user's requested testing focus received sufficient coverage. \
+You MUST return ONLY a single, strict JSON object and no commentary outside the JSON.
+
+The JSON object must have exactly these keys:
+- "user_prompt": string matching the original user testing prompt.
+- "focus_matched": boolean (true if the requested testing focus received adequate attention and tests; false if key scenarios were missed).
+- "coverage_assessment": string giving a clear 1-3 sentence evaluation of how well the executed unit tests met the user's request.
+- "covered_scenarios": array of strings listing specific requested scenarios that were verified by the executed tests.
+- "uncovered_scenarios": array of strings listing requested scenarios or edge cases that still lack test coverage.
+- "recommendations": array of 1-3 actionable recommendations for improving test coverage in alignment with the user prompt."""
+
+
+def build_prompt_coverage_evaluation_prompt(
+    user_prompt: str | None = None,
+    testing_focus_data: dict[str, Any] | None = None,
+    executed_test_details: list[dict[str, Any]] | None = None,
+    line_coverage_pct: float = 0.0,
+    prompt: str | None = None,
+    prompt_analysis: Any | None = None,
+    executed_tests: list[dict[str, Any]] | None = None,
+    analysis_summary: str | None = None,
+    executed_tests_summary: str | None = None,
+    coverage_pct: float = 0.0,
+) -> str:
+    actual_prompt = (user_prompt or prompt or "").strip()
+    actual_coverage = line_coverage_pct or coverage_pct or 0.0
+    details = executed_test_details or executed_tests or []
+
+    test_lines = []
+    for t in details[:30]:
+        c_name = t.get("test_class") or "TestClass"
+        m_name = t.get("test_method") or "testMethod"
+        status = t.get("status") or "PASSED"
+        test_lines.append(f"- [{status}] {c_name} :: {m_name}")
+    test_block = "\n".join(test_lines) if test_lines else (executed_tests_summary or "No test execution details recorded.")
+
+    focus_dict = testing_focus_data if isinstance(testing_focus_data, dict) else {}
+    if not focus_dict and hasattr(prompt_analysis, "dict"):
+        focus_dict = prompt_analysis.dict()
+    elif not focus_dict and isinstance(prompt_analysis, dict):
+        focus_dict = prompt_analysis
+
+    focus_desc = focus_dict.get("testing_focus") or analysis_summary or "General Testing"
+    scenarios = focus_dict.get("scenarios", [])
+
+    return f"""Evaluate whether the executed JUnit test suite satisfied the user's testing prompt requirements.
+
+USER ORIGINAL TESTING PROMPT:
+"{actual_prompt}"
+
+DYNAMIC TESTING FOCUS:
+- Focus Summary: {focus_desc}
+- Target Scenarios: {', '.join(scenarios) if scenarios else 'General scenarios'}
+
+EXECUTED JUNIT TESTS & COVERAGE:
+- Overall Line Coverage: {actual_coverage}%
+- Executed Test Details:
+{test_block}
+
+Respond with only the JSON object described in the system prompt."""
+
 
 
 
