@@ -144,9 +144,7 @@ export function LlmUserSettings({ settings, onChange, isAdminEnabled, allowedGro
                 onChange={(e) => updateLlmValue("groq_model", e.target.value)}
               >
                 <option value="">Select Model</option>
-                {allowedGroqModels
-                  .filter(m => GROQ_MODELS.some(gm => gm.id === m))
-                  .map((m) => (
+                {(allowedGroqModels.length > 0 ? allowedGroqModels : GROQ_MODELS.map(gm => gm.id)).map((m) => (
                   <option key={m} value={m}>{m}</option>
                 ))}
               </select>
@@ -202,9 +200,7 @@ export function LlmUserSettings({ settings, onChange, isAdminEnabled, allowedGro
                 onChange={(e) => updateLlmValue("huggingface_model", e.target.value)}
               >
                 <option value="">Select Model</option>
-                {allowedHuggingFaceModels
-                  .filter(m => HUGGINGFACE_MODELS.some(hm => hm.id === m))
-                  .map((m) => (
+                {(allowedHuggingFaceModels.length > 0 ? allowedHuggingFaceModels : HUGGINGFACE_MODELS.map(hm => hm.id)).map((m) => (
                   <option key={m} value={m}>{m}</option>
                 ))}
               </select>

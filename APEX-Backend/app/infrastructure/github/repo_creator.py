@@ -73,7 +73,6 @@ class RepoCreator:
 
         repo_name = self.clean_repo_name(repo_name)
         profile: TargetProfile = self._profiles.resolve(owner=owner, host=host, token=token)
-        
         auth_user = None
         try:
             auth_user = self._github.get_authenticated_user_sync(token=token)

@@ -64,6 +64,29 @@ class TestExecutionDetail(BaseModel):
     stack_trace: str | None = None
 
 
+class TestingPromptAnalysis(BaseModel):
+    __test__ = False
+    user_prompt: str | None = Field(None, description="Original natural language user testing prompt")
+    testing_focus: str = Field("General Testing Focus", description="Summary of user's requested testing focus")
+    target_areas: list[str] = Field(default_factory=list, description="Target functional areas")
+    target_classes: list[str] = Field(default_factory=list, description="Target class names or patterns")
+    target_methods: list[str] = Field(default_factory=list, description="Target method names")
+    priority: list[str] = Field(default_factory=list, description="High-priority scenarios")
+    scenarios: list[str] = Field(default_factory=list, description="Specific positive and negative test scenarios")
+    edge_cases: list[str] = Field(default_factory=list, description="Edge cases and boundary conditions")
+
+
+
+class PromptCoverageEvaluation(BaseModel):
+    __test__ = False
+    user_prompt: str = Field(..., description="Original natural language user testing prompt")
+    focus_matched: bool = Field(True, description="True if target focus areas received sufficient test coverage")
+    coverage_assessment: str = Field("", description="Concise assessment of prompt-focused test coverage")
+    covered_scenarios: list[str] = Field(default_factory=list, description="List of verified covered scenarios")
+    uncovered_scenarios: list[str] = Field(default_factory=list, description="List of remaining uncovered scenarios")
+    recommendations: list[str] = Field(default_factory=list, description="Actionable testing recommendations")
+
+
 class UnitTestSuiteResult(BaseModel):
     total_run: int = 0
     passed: int = 0
@@ -74,13 +97,15 @@ class UnitTestSuiteResult(BaseModel):
     generated_code: str = ""
     generated_test_file_path: str | None = None
     validation_report: UnitTestValidationReport | None = None
+    prompt_analysis: TestingPromptAnalysis | None = None
+    prompt_coverage_evaluation: PromptCoverageEvaluation | None = None
     raw_logs: list[str] = Field(default_factory=list)
 
 
 class UnitTestGenerateAndRunRequest(BaseModel):
     job_id: str | None = Field(None, description="Migration job ID if running within a migration workflow")
     project_dir: str | None = Field(None, description="Absolute path to target Java project directory if running standalone")
-    relative_source_path: str = Field(..., description="Relative path to source Java file (e.g. src/main/java/com/example/UserService.java)")
+    relative_source_path: str = Field("src/main/java", description="Relative path to source Java file (e.g. src/main/java/com/example/UserService.java)")
     relative_test_path: str | None = Field(None, description="Optional relative path to existing test Java file")
     build_tool: str = Field("maven", description="maven | gradle")
     java_version: str = Field("17", description="Source/Target Java version")
@@ -88,3 +113,11 @@ class UnitTestGenerateAndRunRequest(BaseModel):
     max_reflection_retries: int = Field(3, description="Maximum retries for self-correction reflection loop")
     enable_validation_agent: bool = Field(True, description="Enable Multi-Agent Critic and Smell Detector validation")
     test_command: str | None = Field(None, description="Optional custom test command to run instead of default maven/gradle test")
+    testing_prompt: str | None = Field(None, description="Arbitrary user natural language testing prompt to guide focus")
+
+
+class TestingPromptAnalysisRequest(BaseModel):
+    __test__ = False
+    prompt: str = Field(..., description="Free-form user testing focus prompt")
+    project_context: str | None = Field(None, description="Optional Java project/class context string")
+

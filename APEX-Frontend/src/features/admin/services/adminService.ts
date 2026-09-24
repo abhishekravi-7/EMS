@@ -226,4 +226,28 @@ export async function fetchUserGithubBranches(owner: string, repo: string): Prom
     "Failed to fetch GitHub branches"
   );
 }
+
+export interface TestingPromptAnalysisResult {
+  user_prompt?: string;
+  testing_focus: string;
+  target_areas: string[];
+  target_classes: string[];
+  target_methods: string[];
+  priority: string[];
+  scenarios: string[];
+  edge_cases: string[];
+}
+
+export async function analyzeTestingPrompt(prompt: string, projectContext?: string): Promise<TestingPromptAnalysisResult> {
+  return requestJson<TestingPromptAnalysisResult>(
+    "/v1/unit-tests/analyze-prompt",
+    "Failed to analyze testing prompt",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt, project_context: projectContext }),
+    }
+  );
+}
+
  

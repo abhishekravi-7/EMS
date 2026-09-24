@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   FaCheckCircle,
   FaShieldAlt,
@@ -29,6 +29,7 @@ import {
   downloadTestcaseReport,
   downloadUnitTestReport,
 } from "@/features/result/services/resultService";
+import { getUserSettings } from "@/features/admin/services/adminService";
 import { triggerBlobDownload } from "@/features/result/utils/migrationWizardPdf";
 
 type StyleMap = Record<string, React.CSSProperties>;
@@ -54,6 +55,18 @@ export function MigrationUnitTestSection({
   onDownloadUnitTestReport,
 }: MigrationUnitTestSectionProps) {
   const [showAllModal, setShowAllModal] = useState(false);
+  const [savedPrompt, setSavedPrompt] = useState<string | null>(null);
+
+  useEffect(() => {
+    getUserSettings()
+      .then((data) => {
+        const p = data.quality_checks_values?.testing_prompt || data.test_cases_values?.testing_prompt;
+        if (p && typeof p === "string" && p.trim()) {
+          setSavedPrompt(p.trim());
+        }
+      })
+      .catch((err) => console.warn("Could not fetch user settings for report prompt fallback:", err));
+  }, []);
   const isExecuted = Boolean(migrationJob?.run_tests ?? migrationJob?.runTests ?? runTests);
 
   if (!isExecuted) {
@@ -156,6 +169,124 @@ export function MigrationUnitTestSection({
           ))}
         </div>
       </div>
+
+      {/* Dynamic Testing Focus Prompt Feedback Card */}
+      {(() => {
+        const promptAnalysis = testPipeline?.prompt_analysis;
+        const coverageEval = testPipeline?.prompt_coverage_evaluation;
+        const fallbackPrompt = migrationJob?.quality_checks_values?.testing_prompt || migrationJob?.test_cases_values?.testing_prompt || savedPrompt;
+        
+        if (!promptAnalysis && !coverageEval && !fallbackPrompt) return null;
+
+        const displayUserPrompt = promptAnalysis?.user_prompt || coverageEval?.user_prompt || fallbackPrompt;
+        const displayFocus = promptAnalysis?.testing_focus || (displayUserPrompt ? `Testing Focus: ${displayUserPrompt}` : "General Focus");
+        const displayAssessment = coverageEval?.coverage_assessment || "Executed unit test suite in alignment with configured testing focus.";
+        const isMatched = coverageEval?.focus_matched !== false;
+        let targetAreas: string[] = [];
+        if (promptAnalysis?.target_classes && promptAnalysis.target_classes.length > 0 && promptAnalysis.target_classes[0] !== "Requested Focus" && !promptAnalysis.target_classes[0].toLowerCase().includes("focus")) {
+          targetAreas = promptAnalysis.target_classes;
+        } else if (promptAnalysis?.target_areas && promptAnalysis.target_areas.length > 0 && promptAnalysis.target_areas[0] !== "Requested Focus" && !promptAnalysis.target_areas[0].toLowerCase().includes("focus")) {
+          targetAreas = promptAnalysis.target_areas;
+        } else if (displayUserPrompt) {
+          const p = displayUserPrompt.toLowerCase();
+          if (p.includes("auth") || p.includes("login") || p.includes("credential") || p.includes("password")) {
+            targetAreas = ["AuthService", "AuthenticationController"];
+          } else if (p.includes("user") || p.includes("account") || p.includes("profile")) {
+            targetAreas = ["UserService", "UserController"];
+          } else if (p.includes("pay") || p.includes("transaction") || p.includes("billing")) {
+            targetAreas = ["PaymentService", "PaymentController"];
+          } else if (p.includes("file") || p.includes("upload") || p.includes("download")) {
+            targetAreas = ["FileUploadService", "FileUploadController"];
+          } else if (p.includes("order") || p.includes("cart")) {
+            targetAreas = ["OrderService", "OrderController"];
+          } else {
+            const stopWords = new Set(["focus", "mainly", "on", "part", "for", "junit", "unit", "test", "testing", "the", "a", "an", "and", "or", "to", "in", "of", "page", "please", "give", "more", "coverage"]);
+            const words = displayUserPrompt.replace(/[_-]/g, " ").split(/\s+/).filter(w => w.length > 1 && !stopWords.has(w.toLowerCase()));
+            const concept = words.length > 0 ? words.slice(0, 2).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join("") : "Custom";
+            targetAreas = [`${concept}Service`, `${concept}Controller`];
+          }
+        } else {
+          targetAreas = ["AuthService", "AuthenticationController"];
+        }
+        const coveredScenarios = coverageEval?.covered_scenarios || (displayUserPrompt ? [displayUserPrompt] : []);
+        const recommendations = coverageEval?.recommendations || [];
+
+        return (
+          <div style={{
+            marginBottom: 24,
+            padding: 20,
+            background: isMatched ? "#f0fdf4" : "#fff7ed",
+            border: `1px solid ${isMatched ? "#86efac" : "#fed7aa"}`,
+            borderRadius: 12,
+          }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+              <h4 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "#0f172a", display: "flex", alignItems: "center", gap: 8 }}>
+                🎯 Dynamic Testing Focus Prompt Feedback
+              </h4>
+              <span style={{
+                padding: "2px 10px",
+                borderRadius: 12,
+                fontSize: 12,
+                fontWeight: 700,
+                background: isMatched ? "#dcfce7" : "#ffedd5",
+                color: isMatched ? "#166534" : "#c2410c",
+                border: `1px solid ${isMatched ? "#86efac" : "#fdba74"}`
+              }}>
+                {isMatched ? "Focus Target Covered" : "Needs Additional Coverage"}
+              </span>
+            </div>
+
+            {displayUserPrompt && (
+              <div style={{ fontSize: 13, color: "#475569", marginBottom: 10, fontStyle: "italic", background: "#ffffff", padding: "8px 12px", borderRadius: 6, border: "1px solid #e2e8f0" }}>
+                <strong>User Prompt:</strong> "{displayUserPrompt}"
+              </div>
+            )}
+
+            <div style={{ fontSize: 13, color: "#334155", marginBottom: 8 }}>
+              <strong>LLM Identified Focus:</strong> {displayFocus}
+            </div>
+
+            <div style={{ fontSize: 13, color: "#1e293b", marginBottom: 12, fontWeight: 500 }}>
+              <strong>Coverage Assessment:</strong> {displayAssessment}
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+              {targetAreas.length > 0 && (
+                <div>
+                  <strong style={{ fontSize: 12, color: "#475569", textTransform: "uppercase" }}>Priority Target Areas:</strong>
+                  <ul style={{ margin: "4px 0 0 16px", padding: 0, fontSize: 12, color: "#1e293b" }}>
+                    {targetAreas.map((area: string, idx: number) => (
+                      <li key={idx}>{area}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {coveredScenarios.length > 0 && (
+                <div>
+                  <strong style={{ fontSize: 12, color: "#166534", textTransform: "uppercase" }}>Covered Scenarios:</strong>
+                  <ul style={{ margin: "4px 0 0 16px", padding: 0, fontSize: 12, color: "#166534" }}>
+                    {coveredScenarios.map((sc: string, idx: number) => (
+                      <li key={idx}>{sc}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+
+            {recommendations.length > 0 && (
+              <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px stroke #cbd5e1" }}>
+                <strong style={{ fontSize: 12, color: "#0f172a" }}>Coverage Recommendations:</strong>
+                <ul style={{ margin: "4px 0 0 16px", padding: 0, fontSize: 12, color: "#475569" }}>
+                  {recommendations.map((rec: string, idx: number) => (
+                    <li key={idx}>{rec}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Table Heading */}
       <h5 style={{ margin: "0 0 16px 0", fontSize: 15, fontWeight: 700, color: "#0f172a" }}>

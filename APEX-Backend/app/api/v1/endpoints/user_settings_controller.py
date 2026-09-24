@@ -24,7 +24,7 @@ async def get_user_github_settings(
     mongo_db = await get_mongodb()
    
     # Check if we have the user document
-    user_doc = await mongo_db.users.find_one({"_id": _get_query_id(str(current_user.id))}) or {}
+    user_doc = (await mongo_db.users.find_one({"_id": _get_query_id(str(current_user.id))})) or {} if mongo_db is not None else {}
     github_config = user_doc.get("github_config", user_doc.get("git_config", {}))
    
     # Mask the PAT if it exists
@@ -51,7 +51,7 @@ async def get_user_github_settings(
                 masked_qc_values[field_id] = "********"
         else:
             masked_qc_values[field_id] = value
- 
+
     # Process llm_values and mask the api_keys
     llm_values = user_doc.get("llm_values", {})
     masked_llm_values = {}
@@ -63,28 +63,29 @@ async def get_user_github_settings(
                 masked_llm_values[k] = "********"
         else:
             masked_llm_values[k] = v
- 
+
     from app.infrastructure.persistence.mongodb_system_settings_repository import get_all_settings as get_mongo_settings
     db_settings = await get_mongo_settings(mongo_db) if mongo_db is not None else {}
     env_values = _get_live_env_values()
-   
+
     def get_system_setting(key: str, default: str) -> str:
         if key in db_settings and db_settings[key] is not None:
-            return db_settings[key]
-        return env_values.get(key.upper(), default)
- 
+            return str(db_settings[key])
+        val = env_values.get(key.upper())
+        return str(val) if val is not None else default
+
     system_llm_config = {
         "llm_enabled": get_system_setting("llm_enabled", "false"),
         "groq_models": get_system_setting("groq_models", "[]"),
         "huggingface_models": get_system_setting("huggingface_models", "[]"),
     }
-   
+
     system_test_cases_config = {
         "test_cases_playwright_enabled": get_system_setting("test_cases_playwright_enabled", "false"),
         "test_cases_cypress_enabled": get_system_setting("test_cases_cypress_enabled", "false"),
         "test_cases_selenium_enabled": get_system_setting("test_cases_selenium_enabled", "false"),
     }
- 
+
     return UserSettingsResponse(
         github_config=UserGitHubConfig(
             github_account=github_account,
@@ -108,24 +109,24 @@ async def update_user_github_settings(
 ) -> UserSettingsResponse:
     """Update the current user's GitHub settings."""
     mongo_db = await get_mongodb()
-   
+    
     # Fetch existing to avoid overwriting masked PAT with "********"
-    user_doc = await mongo_db.users.find_one({"_id": _get_query_id(str(current_user.id))}) or {}
+    user_doc = (await mongo_db.users.find_one({"_id": _get_query_id(str(current_user.id))})) or {} if mongo_db is not None else {}
     existing_config = user_doc.get("github_config", user_doc.get("git_config", {}))
     existing_qc_values = user_doc.get("quality_checks_values", {})
-   
+    
     new_config = payload.github_config.model_dump(exclude_unset=True)
     pat_val = new_config.get("pat")
     if pat_val == "********" or (pat_val and pat_val.startswith("****************")):
         new_config["pat"] = existing_config.get("pat")
-       
+        
     new_qc_values = payload.quality_checks_values or {}
     # Restore existing secrets if they come back masked
     for field_id, value in new_qc_values.items():
         if field_id in existing_qc_values:
             if value == "********" or (isinstance(value, str) and value.startswith("****************")):
                 new_qc_values[field_id] = existing_qc_values.get(field_id, value)
-       
+        
     new_llm_values = payload.llm_values or {}
     existing_llm_values = user_doc.get("llm_values", {})
     for k in list(new_llm_values.keys()):
@@ -133,20 +134,21 @@ async def update_user_github_settings(
             val = new_llm_values[k]
             if val == "********" or (isinstance(val, str) and val.startswith("****************")):
                 new_llm_values[k] = existing_llm_values.get(k, val)
- 
+
     new_test_cases_values = payload.test_cases_values or {}
-   
-    await mongo_db.users.update_one(
-        {"_id": _get_query_id(str(current_user.id))},
-        {"$set": {
-            "github_config": new_config,
-            "quality_checks_values": new_qc_values,
-            "test_cases_values": new_test_cases_values,
-            "llm_values": new_llm_values
-        }},
-        upsert=True
-    )
-   
+    
+    if mongo_db is not None:
+        await mongo_db.users.update_one(
+            {"_id": _get_query_id(str(current_user.id))},
+            {"$set": {
+                "github_config": new_config,
+                "quality_checks_values": new_qc_values,
+                "test_cases_values": new_test_cases_values,
+                "llm_values": new_llm_values
+            }},
+            upsert=True
+        )
+    
     return await get_user_github_settings(current_user)
  
 @router.get("/user/settings/quality-checks-config")
@@ -154,25 +156,10 @@ async def get_user_quality_checks_config(
     current_user: User = Depends(get_current_user),  # noqa: B008
 ):
     """Fetch the Super Admin's quality checks configuration."""
-    mongo_db = await get_mongodb()
-    from app.infrastructure.persistence.mongodb_system_settings_repository import get_setting_value
-    db_val = await get_setting_value(mongo_db, "quality_checks_config") if mongo_db is not None else None
-   
-    val = db_val
-    if not val or val in ("None", "null", "undefined", ""):
-        from app.api.v1.endpoints.admin_settings_controller import _get_live_env_values
-        env_values = _get_live_env_values()
-        val = env_values.get("QUALITY_CHECKS_CONFIG", "{}")
-       
-    if not val or val in ("None", "null", "undefined", ""):
-        val = "{}"
-       
-    if isinstance(val, dict):
-        import json
-        val = json.dumps(val)
-       
-    return {"quality_checks_config": val}
- 
+    from app.api.v1.endpoints.admin_settings_controller import _get_live_env_values
+    env_values = _get_live_env_values()
+    return {"quality_checks_config": env_values.get("QUALITY_CHECKS_CONFIG", "{}")}
+
 @router.post("/user/settings/github/test")
 async def test_user_github_connection(
     current_user: User = Depends(get_current_user),  # noqa: B008
@@ -205,18 +192,21 @@ async def test_user_github_connection(
 async def list_user_github_repos(
     current_user: User = Depends(get_current_user),  # noqa: B008
 ):
-    """List the repositories available to the current user via their PAT."""
+    """List the repositories available to the current user via their PAT or system PAT."""
     mongo_db = await get_mongodb()
-    user_doc = await mongo_db.users.find_one({"_id": _get_query_id(str(current_user.id))}) or {}
+    user_doc = (await mongo_db.users.find_one({"_id": _get_query_id(str(current_user.id))})) or {} if mongo_db is not None else {}
     github_config = user_doc.get("github_config", {})
     pat = github_config.get("pat")
-   
+    
+    if not pat or pat.startswith("****"):
+        from app.api.v1.endpoints.admin_settings_controller import _get_live_env_values
+        env_values = _get_live_env_values()
+        pat = getattr(settings, "github_target_token", None) or getattr(settings, "github_token", None) or env_values.get("GITHUB_TARGET_TOKEN") or env_values.get("GITHUB_TOKEN")
+    
     if not pat:
         raise HTTPException(status_code=400, detail="No Personal Access Token configured.")
-       
+        
     async with httpx.AsyncClient(timeout=10.0) as client:
-        # Fetching repositories the user has access to. For simplicity, we just fetch the first page,
-        # but a production app might need pagination here.
         base_url = settings.github_api_base_url.rstrip('/')
         response = await client.get(
             f"{base_url}/user/repos?per_page=100&sort=updated",
@@ -224,7 +214,6 @@ async def list_user_github_repos(
         )
         if response.status_code == 200:
             repos = response.json()
-            # Extract just what we need for the dropdown
             return [
                 {
                     "id": repo["id"],
@@ -238,10 +227,10 @@ async def list_user_github_repos(
         else:
             logger.error("GitHub Fetch Repos failed: %s", response.text)
             raise HTTPException(
-                status_code=400,
+                status_code=400, 
                 detail="Unable to fetch repositories from GitHub."
             )
- 
+
 @router.get("/user/settings/github/repos/{owner}/{repo}/branches")
 async def list_github_repo_branches(
     owner: str,
@@ -250,13 +239,18 @@ async def list_github_repo_branches(
 ):
     """List the branches for a specific repository."""
     mongo_db = await get_mongodb()
-    user_doc = await mongo_db.users.find_one({"_id": _get_query_id(str(current_user.id))}) or {}
+    user_doc = (await mongo_db.users.find_one({"_id": _get_query_id(str(current_user.id))})) or {} if mongo_db is not None else {}
     github_config = user_doc.get("github_config", {})
     pat = github_config.get("pat")
-   
+    
+    if not pat or pat.startswith("****"):
+        from app.api.v1.endpoints.admin_settings_controller import _get_live_env_values
+        env_values = _get_live_env_values()
+        pat = getattr(settings, "github_target_token", None) or getattr(settings, "github_token", None) or env_values.get("GITHUB_TARGET_TOKEN") or env_values.get("GITHUB_TOKEN")
+    
     if not pat:
         raise HTTPException(status_code=400, detail="No Personal Access Token configured.")
-       
+        
     async with httpx.AsyncClient(timeout=10.0) as client:
         base_url = settings.github_api_base_url.rstrip('/')
         response = await client.get(
@@ -269,7 +263,7 @@ async def list_github_repo_branches(
         else:
             logger.error("GitHub Fetch Branches failed: %s", response.text)
             raise HTTPException(
-                status_code=400,
+                status_code=400, 
                 detail=f"Unable to fetch branches for {owner}/{repo}."
             )
  
