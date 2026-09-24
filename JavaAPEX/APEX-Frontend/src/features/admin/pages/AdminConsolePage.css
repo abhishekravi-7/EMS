@@ -337,6 +337,35 @@ input:checked + .slider-modern:before { transform: translateX(20px); }
   opacity: 1;
 }
 
+.admin-success-banner {
+  margin: 20px 60px 0;
+  padding: 14px 24px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 12px;
+  color: #15803d;
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  animation: slideInDown 0.3s ease-out;
+}
+
+.admin-success-banner button {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: #15803d;
+  font-size: 20px;
+  cursor: pointer;
+  opacity: 0.6;
+}
+
+.admin-success-banner button:hover {
+  opacity: 1;
+}
+
 .admin-loading-state {
   display: flex;
   flex-direction: column;

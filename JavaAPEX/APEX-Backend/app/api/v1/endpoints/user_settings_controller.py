@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 import httpx
+from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -16,6 +18,40 @@ from app.core.config import settings
 router = APIRouter(tags=["user-settings"])
 logger = logging.getLogger(__name__)
 
+
+async def _get_current_user_doc(mongo_db, current_user: User) -> dict:
+    """Safely fetch user document by numeric ID, string ID, ObjectId, or email."""
+    if mongo_db is None or not current_user:
+        return {}
+
+    user_id = str(current_user.id)
+    # Check numeric ID
+    if user_id.isdigit():
+        doc = await mongo_db.users.find_one({"_id": int(user_id)})
+        if doc:
+            return doc
+
+    # Check string ID
+    doc = await mongo_db.users.find_one({"_id": user_id})
+    if doc:
+        return doc
+
+    # Check ObjectId if valid
+    if ObjectId.is_valid(user_id):
+        doc = await mongo_db.users.find_one({"_id": ObjectId(user_id)})
+        if doc:
+            return doc
+
+    # Fallback: check by email
+    email = getattr(current_user, "email", None)
+    if email and isinstance(email, str):
+        doc = await mongo_db.users.find_one({"email": email.strip().lower()})
+        if doc:
+            return doc
+
+    return {}
+
+
 @router.get("/user/settings/github", response_model=UserSettingsResponse)
 async def get_user_github_settings(
     current_user: User = Depends(get_current_user),  # noqa: B008
@@ -24,7 +60,7 @@ async def get_user_github_settings(
     mongo_db = await get_mongodb()
 
     # Check if we have the user document
-    user_doc = (await mongo_db.users.find_one({"_id": _get_query_id(str(current_user.id))})) or {} if mongo_db is not None else {}
+    user_doc = await _get_current_user_doc(mongo_db, current_user)
     github_config = user_doc.get("github_config", user_doc.get("git_config", {}))
 
     # Mask the PAT if it exists
@@ -111,7 +147,7 @@ async def update_user_github_settings(
     mongo_db = await get_mongodb()
 
     # Fetch existing to avoid overwriting masked PAT with "********"
-    user_doc = (await mongo_db.users.find_one({"_id": _get_query_id(str(current_user.id))})) or {} if mongo_db is not None else {}
+    user_doc = await _get_current_user_doc(mongo_db, current_user)
     existing_config = user_doc.get("github_config", user_doc.get("git_config", {}))
     existing_qc_values = user_doc.get("quality_checks_values", {})
 
@@ -138,23 +174,40 @@ async def update_user_github_settings(
     new_test_cases_values = payload.test_cases_values or {}
 
     if mongo_db is not None:
-        query = {"_id": user_doc["_id"]} if user_doc and "_id" in user_doc else {"_id": _get_query_id(str(current_user.id))}
         update_doc: dict = {
             "$set": {
                 "github_config": new_config,
                 "quality_checks_values": new_qc_values,
                 "test_cases_values": new_test_cases_values,
-                "llm_values": new_llm_values
+                "llm_values": new_llm_values,
+                "updated_at": datetime.now(timezone.utc),
             }
         }
-        if getattr(current_user, "email", None):
-            update_doc["$setOnInsert"] = {"email": current_user.email}
 
-        await mongo_db.users.update_one(
-            query,
-            update_doc,
-            upsert=True
-        )
+        if user_doc and "_id" in user_doc:
+            await mongo_db.users.update_one({"_id": user_doc["_id"]}, update_doc)
+        else:
+            target_id = int(current_user.id) if str(current_user.id).isdigit() else str(current_user.id)
+            query = {"_id": target_id}
+            email_val = getattr(current_user, "email", None)
+            email_val = email_val.strip().lower() if email_val else f"user_{current_user.id}@javaapex.local"
+            update_doc["$setOnInsert"] = {
+                "email": email_val,
+                "full_name": getattr(current_user, "full_name", "") or "Java APEX User",
+                "role": getattr(current_user, "role", "USER"),
+                "is_active": True,
+                "is_email_verified": True,
+                "created_at": datetime.now(timezone.utc),
+            }
+            try:
+                await mongo_db.users.update_one(query, update_doc, upsert=True)
+            except Exception as e:
+                # In case email already exists on a different document, update that document
+                if "duplicate key error" in str(e).lower() or getattr(e, "code", None) == 11000:
+                    logger.warning("Duplicate key on user upsert, falling back to update by email: %s", e)
+                    await mongo_db.users.update_one({"email": email_val}, update_doc)
+                else:
+                    raise
 
     return await get_user_github_settings(current_user)
 
@@ -173,7 +226,7 @@ async def test_user_github_connection(
 ):
     """Test the current user's GitHub PAT connection."""
     mongo_db = await get_mongodb()
-    user_doc = await mongo_db.users.find_one({"_id": _get_query_id(str(current_user.id))}) or {}
+    user_doc = await _get_current_user_doc(mongo_db, current_user)
     github_config = user_doc.get("github_config", {})
     pat = github_config.get("pat")
 
@@ -201,7 +254,7 @@ async def list_user_github_repos(
 ):
     """List the repositories available to the current user via their PAT or system PAT."""
     mongo_db = await get_mongodb()
-    user_doc = (await mongo_db.users.find_one({"_id": _get_query_id(str(current_user.id))})) or {} if mongo_db is not None else {}
+    user_doc = await _get_current_user_doc(mongo_db, current_user)
     github_config = user_doc.get("github_config", {})
     pat = github_config.get("pat")
 
@@ -246,7 +299,7 @@ async def list_github_repo_branches(
 ):
     """List the branches for a specific repository."""
     mongo_db = await get_mongodb()
-    user_doc = (await mongo_db.users.find_one({"_id": _get_query_id(str(current_user.id))})) or {} if mongo_db is not None else {}
+    user_doc = await _get_current_user_doc(mongo_db, current_user)
     github_config = user_doc.get("github_config", {})
     pat = github_config.get("pat")
 
@@ -327,7 +380,7 @@ async def test_user_llm_connection(
     if api_key == "********" or api_key.startswith("****************"):
         # The user submitted the masked API key, fetch real one
         mongo_db = await get_mongodb()
-        user_doc = await mongo_db.users.find_one({"_id": _get_query_id(str(current_user.id))}) or {}
+        user_doc = await _get_current_user_doc(mongo_db, current_user)
         existing_llm_values = user_doc.get("llm_values", {})
         api_key = existing_llm_values.get(f"{provider}_api_key", api_key)
 

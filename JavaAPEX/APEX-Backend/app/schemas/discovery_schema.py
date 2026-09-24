@@ -72,6 +72,11 @@ class FrameworkRecommendationItem(BaseModel):
 class FrameworkRecommendations(BaseModel):
     react: Optional[FrameworkRecommendationItem] = None
     angular: Optional[FrameworkRecommendationItem] = None
+    recommended_target: Optional[str] = Field(None, alias="recommendedTarget")
+    recommended_target_label: Optional[str] = Field(None, alias="recommendedTargetLabel")
+    confidence: Optional[str] = None
+    recommendation_summary: Optional[str] = Field(None, alias="recommendationSummary")
+    recommendation_status: Optional[str] = Field("available", alias="recommendationStatus")
 
     model_config = {"populate_by_name": True}
 

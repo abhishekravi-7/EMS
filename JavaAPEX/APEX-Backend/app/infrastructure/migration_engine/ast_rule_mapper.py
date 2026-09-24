@@ -134,9 +134,24 @@ class AstRuleMapper:
                 if "springboot2-to-3" in selected_packs:
                     selected_packs.remove("springboot2-to-3")
 
+        has_javax_imports = False
+        if project_root and Path(project_root).exists():
+            try:
+                for jf in Path(project_root).rglob("*.java"):
+                    if not jf.is_file():
+                        continue
+                    txt = file_utils.read_text(jf)
+                    if re.search(r"\bjavax\.(servlet|persistence|annotation|validation|transaction|ws\.rs|xml\.bind|ejb|jms|mail)\b", txt):
+                        has_javax_imports = True
+                        break
+            except Exception:
+                pass
+
         if (
             any(fw in normalized_frameworks for fw in ("jakarta-ee", "javax-ee", "jakarta", "javax"))
             or ("spring-boot" in normalized_frameworks and target_major >= 17)
+            or (target_major >= 17 and has_javax_imports)
+            or (conversion_types and any("jakarta" in str(ct).lower() for ct in conversion_types))
         ):
             if "javax-to-jakarta" not in selected_packs:
                 selected_packs.append("javax-to-jakarta")

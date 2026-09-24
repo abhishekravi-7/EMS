@@ -721,3 +721,27 @@ export async function downloadProposedTestReport(jobId: string): Promise<Blob> {
     "Failed to download proposed tests report."
   );
 }
+
+export interface ReportDetailItem {
+  [key: string]: any;
+}
+
+export interface ReportDetailsResponse {
+  migration_id: string;
+  type: "files" | "issues" | "dependencies" | "vulnerabilities" | "transformations";
+  total: number;
+  items: ReportDetailItem[];
+}
+
+// Fetch underlying records for a summary card category (files, issues, dependencies, vulnerabilities, transformations)
+export async function getMigrationReportDetails(
+  jobId: string,
+  type: string
+): Promise<ReportDetailsResponse> {
+  return requestJson<ReportDetailsResponse>(
+    `/v1/migration/${jobId}/report/details`,
+    "Failed to get migration report details",
+    { query: { type } }
+  );
+}
+

@@ -143,6 +143,31 @@ def _build_issues(report: dict[str, Any]) -> list[dict[str, Any]]:
                 "conversion_type": "build_tool",
             })
 
+    # 5. UI Transformations (JSP / JSF Modernization)
+    ui_trans = report.get("uiTransformations") or []
+    for idx, ut in enumerate(ui_trans):
+        src_file = ut.get("sourceFile") or ut.get("file") or ""
+        target_file = ut.get("targetSourceFile") or ut.get("targetFile") or ""
+        cat = ut.get("category") or "Frontend Modernization"
+        desc = f"Modernized legacy template {src_file} -> {target_file}" if target_file else f"Modernized legacy template {src_file}"
+        key = f"{src_file}:{desc}"
+        if key not in seen_keys:
+            seen_keys.add(key)
+            issues.append({
+                "id": f"issue-ui-{idx + 1}",
+                "severity": "info",
+                "status": "fixed",
+                "category": cat,
+                "message": desc,
+                "file_path": src_file,
+                "line_number": 1,
+                "column": None,
+                "code_snippet": None,
+                "suggested_fix": f"Converted to {target_file}" if target_file else "Migrated template",
+                "fixed_at": report.get("completedAt") or report.get("startedAt"),
+                "conversion_type": "ui_transformation",
+            })
+
     return issues
 
 
@@ -496,4 +521,194 @@ def build_fossa(report: dict[str, Any]) -> dict[str, Any]:
     return {
         "job_id": report.get("jobId", ""),
         "fossa": report.get("fossa_report"),
+    }
+
+
+def build_report_details(report: dict[str, Any], detail_type: str) -> dict[str, Any]:
+    """Retrieve detailed records for a specific summary category from existing migration results."""
+    job_id = report.get("jobId") or report.get("job_id") or ""
+    dtype = (detail_type or "files").lower().strip()
+
+    if dtype in ("files", "files_modified"):
+        file_diffs = _diff_service.get_changed_files_summary(job_id, report) if job_id else []
+        modified_files = report.get("modifiedFiles") or report.get("modified_files") or []
+
+        items: list[dict[str, Any]] = []
+        seen_paths: set[str] = set()
+        for fd in file_diffs:
+            p = fd.get("relativePath") or fd.get("fileName") or ""
+            if p and p not in seen_paths:
+                seen_paths.add(p)
+                ctype = str(fd.get("changeType") or "MODIFIED").upper()
+                status = "Added" if ctype == "ADDED" else ("Removed" if ctype == "DELETED" else "Modified")
+                additions = int(fd.get("addedLineCount") or 0)
+                deletions = int(fd.get("removedLineCount") or 0)
+                items.append({
+                    "path": p,
+                    "file_name": fd.get("fileName") or (p.split("/")[-1] if "/" in p else p.split("\\")[-1]),
+                    "change_type": ctype,
+                    "status": status,
+                    "additions": additions,
+                    "deletions": deletions,
+                    "details": f"+{additions} / -{deletions} lines" if (additions or deletions) else f"{status} during migration",
+                })
+
+        for p in modified_files:
+            if isinstance(p, str) and p and p not in seen_paths:
+                seen_paths.add(p)
+                fname = p.split("/")[-1] if "/" in p else p.split("\\")[-1]
+                items.append({
+                    "path": p,
+                    "file_name": fname,
+                    "change_type": "MODIFIED",
+                    "status": "Modified",
+                    "additions": 0,
+                    "deletions": 0,
+                    "details": "Modified during migration",
+                })
+
+        return {
+            "migration_id": job_id,
+            "type": "files",
+            "total": len(items),
+            "items": items,
+        }
+
+    elif dtype in ("issues", "issues_fixed"):
+        issues = _build_issues(report)
+        items = []
+        for iss in issues:
+            items.append({
+                "id": iss.get("id"),
+                "file": iss.get("file_path") or "src",
+                "line": iss.get("line_number") or 1,
+                "type": iss.get("category") or "Code Fix",
+                "description": iss.get("message") or "Resolved migration issue",
+                "fix": iss.get("suggested_fix") or "Applied automated transformation",
+                "status": iss.get("status") or "fixed",
+                "severity": iss.get("severity") or "info",
+                "conversion_type": iss.get("conversion_type"),
+            })
+        return {
+            "migration_id": job_id,
+            "type": "issues",
+            "total": len(items),
+            "items": items,
+        }
+
+    elif dtype in ("dependencies", "dependencies_updated", "dependency_updated"):
+        dep_upgrades = report.get("dependencyUpgrades") or report.get("dependency_upgrades") or []
+        items = []
+        for dep in dep_upgrades:
+            gid = dep.get("groupId") or dep.get("group_id") or ""
+            aid = dep.get("artifactId") or dep.get("artifact_id") or ""
+            name = f"{gid}:{aid}" if gid and aid else (gid or aid or dep.get("coordinate") or "dependency")
+            items.append({
+                "name": name,
+                "file": "pom.xml" if str(report.get("buildTool", "")).lower() == "maven" else "build.gradle",
+                "old_version": dep.get("sourceVersion") or dep.get("current_version") or dep.get("oldVersion") or "managed",
+                "new_version": dep.get("resolvedTargetVersion") or dep.get("new_version") or dep.get("newVersion") or "updated",
+                "status": dep.get("status") or "UPGRADED",
+                "scope": dep.get("scope") or "compile",
+            })
+        return {
+            "migration_id": job_id,
+            "type": "dependencies",
+            "total": len(items),
+            "items": items,
+        }
+
+    elif dtype in ("vulnerabilities", "vulnerability"):
+        fossa_rep = report.get("fossa_report") or {}
+        sonar_rep = report.get("sonar_report") or {}
+        items = []
+        for v in (fossa_rep.get("vulnerabilities") or []):
+            if isinstance(v, dict):
+                items.append({
+                    "package": v.get("package") or v.get("dependency") or "dependency",
+                    "identifier": v.get("cveId") or v.get("id") or "VULN",
+                    "severity": v.get("severity") or "medium",
+                    "affected_version": v.get("affectedVersion") or "current",
+                    "fixed_version": v.get("fixedVersion") or "latest",
+                    "source": v.get("source") or "FOSSA Scan",
+                })
+        for v in (sonar_rep.get("vulnerabilities") or []):
+            if isinstance(v, dict):
+                items.append({
+                    "package": v.get("component") or v.get("file") or "source",
+                    "identifier": v.get("rule") or v.get("key") or "SONAR-VULN",
+                    "severity": v.get("severity") or "medium",
+                    "affected_version": "-",
+                    "fixed_version": "-",
+                    "source": "SonarQube Scan",
+                })
+        return {
+            "migration_id": job_id,
+            "type": "vulnerabilities",
+            "total": len(items),
+            "items": items,
+        }
+
+    elif dtype in ("transformations", "code_transmission", "transmission"):
+        items = []
+        # 1. UI Transformations (JSP / JSF)
+        ui_trans = report.get("uiTransformations") or []
+        for ut in ui_trans:
+            src = ut.get("sourceFile") or ut.get("file") or ""
+            target = ut.get("targetSourceFile") or ut.get("targetFile") or (ut.get("file") if ut.get("sourceFile") and ut.get("file") != ut.get("sourceFile") else "")
+            src_lower = src.lower()
+            target_lower = target.lower()
+            src_fw = ut.get("sourceFramework") or ("JSP" if src_lower.endswith((".jsp", ".jspf")) else ("JSF" if src_lower.endswith((".xhtml", ".jsf")) else "Legacy Template"))
+            tgt_fw = ut.get("targetFramework") or ("React" if target_lower.endswith((".tsx", ".jsx")) else ("Angular" if target_lower.endswith((".ts", ".html")) else "Modern Component"))
+            items.append({
+                "source_file": src,
+                "target_file": target or f"Converted {tgt_fw} component",
+                "transformation_type": ut.get("category") or f"{src_fw} -> {tgt_fw}",
+                "source_framework": src_fw,
+                "target_framework": tgt_fw,
+                "status": ut.get("status") or "Completed",
+                "additions": ut.get("additions") or 0,
+                "deletions": ut.get("deletions") or 0,
+            })
+        # 2. Import Changes (Java namespace refactoring)
+        for ic in (report.get("importChanges") or []):
+            fpath = ic.get("file") or ""
+            added = ic.get("added") or []
+            removed = ic.get("removed") or []
+            is_jakarta = any("jakarta" in str(a) for a in added)
+            items.append({
+                "source_file": fpath,
+                "target_file": fpath,
+                "transformation_type": "Jakarta EE Namespace Migration" if is_jakarta else "Import Refactoring",
+                "source_framework": "Java EE (javax)",
+                "target_framework": "Jakarta EE (jakarta)" if is_jakarta else "Modern Java",
+                "status": "Transformed",
+                "additions": len(added),
+                "deletions": len(removed),
+                "details": f"Replaced {len(removed)} old imports with {len(added)} modern imports",
+            })
+        # 3. Rule executions
+        for re_item in (report.get("ruleExecutions") or []):
+            fpath = re_item.get("filePath") or re_item.get("file") or ""
+            items.append({
+                "source_file": fpath,
+                "target_file": fpath,
+                "transformation_type": re_item.get("category") or "AST Code Transformation",
+                "source_framework": "Legacy Java",
+                "target_framework": "Modern Java",
+                "status": "Transformed",
+                "details": re_item.get("message") or re_item.get("description") or "Applied rule transformation",
+            })
+        return {
+            "migration_id": job_id,
+            "type": "transformations",
+            "total": len(items),
+            "items": items,
+        }
+
+    return {
+        "migration_id": job_id,
+        "type": dtype,
+        "total": 0,
+        "items": [],
     }
