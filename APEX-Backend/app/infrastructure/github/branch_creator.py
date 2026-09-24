@@ -78,32 +78,32 @@ class BranchCreator:
                     lowered_err = stderr.lower()
                     if "filename too long" in lowered_err or "path too long" in lowered_err or "unable to index file" in lowered_err:
                         raise PushFailedError(
-                            "Failed to push the migration branch because one or more file paths exceed the Windows path length limit. "
+                            "DESTINATION_REPO_PUSH_FAILED: Failed to push the migration branch because one or more file paths exceed the Windows path length limit. "
                             "Ensure Git long-path support is enabled ('git config --system core.longpaths true') or publish from a long-path supported environment."
                         )
                     if "401" in lowered_err or "bad credentials" in lowered_err or "invalid username or password" in lowered_err:
                         raise PushFailedError(
-                            "Invalid GitHub token. Please verify that your PAT is valid and has not expired."
+                            "DESTINATION_REPO_UNAUTHORIZED: Invalid GitHub token. Please verify that your PAT is valid and has not expired."
                         )
                     if "permission" in lowered_err or "403" in lowered_err or "access denied" in lowered_err or "write access" in lowered_err:
                         raise PushFailedError(
-                            "Unable to push to the destination repository. Please verify that your PAT has write permission."
+                            "DESTINATION_REPO_FORBIDDEN: Unable to push to the destination repository. Please verify that your PAT has write permission."
                         )
                     if "repository not found" in lowered_err or "not found" in lowered_err or "does not exist" in lowered_err:
                         raise PushFailedError(
-                            "Unable to access the destination repository. Please verify that the repository exists and that your PAT has access."
+                            "DESTINATION_REPO_NOT_FOUND: Unable to access the destination repository. Please verify that the repository exists and that your PAT has access."
                         )
                     if self._pusher._is_non_fast_forward(lowered_err):
                         raise PushFailedError(
-                            "Failed to push branch: the branch already exists on the destination repository or has conflicting commits."
+                            "DESTINATION_REPO_PUSH_FAILED: Failed to push branch: the branch already exists on the destination repository or has conflicting commits."
                         )
                     if "rpc failed" in lowered_err or "http 408" in lowered_err or "send-pack" in lowered_err or "curl 22" in lowered_err:
                         raise PushFailedError(
-                            "Failed to push the migration branch due to network payload timeout (HTTP 408 send-pack). "
+                            "DESTINATION_REPO_PUSH_FAILED: Failed to push the migration branch due to network payload timeout (HTTP 408 send-pack). "
                             "The Git push payload exceeded buffer limits. Heavy build artifacts have been stripped for retries."
                         )
                     raise PushFailedError(
-                        "Unable to access the destination repository. Please verify the repository URL and PAT permissions."
+                        "DESTINATION_REPO_PUSH_FAILED: Unable to access the destination repository. Please verify the repository URL and PAT permissions."
                     )
             return branch
         finally:

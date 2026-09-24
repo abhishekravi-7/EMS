@@ -122,26 +122,41 @@ class GithubClient:
 
         return GithubContentsResponse(status_code=response.status_code, data=data)
 
+    async def get_authenticated_user(self, token: str | None = None) -> dict[str, Any] | None:
+        """Fetch the authenticated user profile via GET /user."""
+        url = f"{self._base_url}/user"
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                response = await client.get(url, headers=self._headers(token))
+        except httpx.HTTPError as exc:
+            raise GithubServiceError() from exc
+        if response.status_code != 200:
+            return None
+        try:
+            data = response.json()
+            return data if isinstance(data, dict) else None
+        except ValueError:
+            return None
+
     # ------------------------------------------------------------------ #
     # Sync methods (used by the Start Migration background thread)
     # ------------------------------------------------------------------ #
 
     def get_authenticated_user_sync(self, token: str | None = None) -> dict[str, Any] | None:
-        """Fetch current authenticated user profile via GET /user."""
+        """Fetch the authenticated user profile via GET /user."""
         url = f"{self._base_url}/user"
         try:
             with httpx.Client(timeout=self._timeout) as client:
                 response = client.get(url, headers=self._headers(token))
-        except httpx.HTTPError:
+        except httpx.HTTPError as exc:
+            raise GithubServiceError() from exc
+        if response.status_code != 200:
             return None
-        if response.status_code == 200:
-            try:
-                data = response.json()
-                if isinstance(data, dict):
-                    return data
-            except ValueError:
-                pass
-        return None
+        try:
+            data = response.json()
+            return data if isinstance(data, dict) else None
+        except ValueError:
+            return None
 
     def get_owner_type_sync(self, owner: str, token: str | None = None) -> str | None:
         """Return "Organization" | "User" for a GitHub owner, or None if unknown."""

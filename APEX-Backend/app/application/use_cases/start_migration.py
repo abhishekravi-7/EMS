@@ -56,6 +56,89 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _fetch_user_quality_checks_sync(user_id: Any, job_id: str | None = None) -> dict[str, Any]:
+    from app.core.config import settings
+    import pymongo
+
+    resolved_id = user_id
+    try:
+        sync_client = pymongo.MongoClient(settings.mongodb_uri, serverSelectionTimeoutMS=5000)
+        sync_db = sync_client[settings.mongodb_database]
+
+        if not resolved_id and job_id:
+            owner_doc = sync_db.migration_job_owners.find_one({"job_id": str(job_id)})
+            if owner_doc:
+                resolved_id = owner_doc.get("user_id")
+
+        if not resolved_id:
+            sync_client.close()
+            return {}
+
+        query_ids = [resolved_id]
+        if isinstance(resolved_id, str):
+            if resolved_id.isdigit():
+                query_ids.append(int(resolved_id))
+        elif isinstance(resolved_id, (int, float)):
+            query_ids.append(str(int(resolved_id)))
+
+        user_doc = sync_db.users.find_one({"_id": {"$in": query_ids}})
+        qc_values = {}
+        if user_doc:
+            qc_values = user_doc.get("quality_checks_values") or {}
+        sync_client.close()
+        return qc_values
+    except Exception as e:
+        logger.error(
+            "Failed to fetch user quality_checks_values for Quality Gates (user_id=%s, job_id=%s): %s",
+            resolved_id,
+            job_id,
+            e,
+        )
+        return {}
+
+
+def _fetch_user_github_pat(user_id: Any, job_id: str | None = None) -> str | None:
+    from app.core.config import settings
+    import pymongo
+
+    resolved_id = user_id
+    try:
+        sync_client = pymongo.MongoClient(settings.mongodb_uri, serverSelectionTimeoutMS=5000)
+        sync_db = sync_client[settings.mongodb_database]
+
+        if not resolved_id and job_id:
+            owner_doc = sync_db.migration_job_owners.find_one({"job_id": str(job_id)})
+            if owner_doc:
+                resolved_id = owner_doc.get("user_id")
+
+        if not resolved_id:
+            sync_client.close()
+            return None
+
+        query_ids = [resolved_id]
+        if isinstance(resolved_id, str):
+            if resolved_id.isdigit():
+                query_ids.append(int(resolved_id))
+        elif isinstance(resolved_id, (int, float)):
+            query_ids.append(str(int(resolved_id)))
+
+        user_doc = sync_db.users.find_one({"_id": {"$in": query_ids}})
+        pat = None
+        if user_doc:
+            gh_config = user_doc.get("github_config") or {}
+            pat = gh_config.get("pat") or gh_config.get("token")
+        sync_client.close()
+        return pat
+    except Exception as e:
+        logger.error(
+            "Failed to fetch user github pat (user_id=%s, job_id=%s): %s",
+            resolved_id,
+            job_id,
+            e,
+        )
+        return None
+
+
 class StartMigrationUseCase:
     def __init__(
         self,
@@ -363,25 +446,19 @@ class StartMigrationUseCase:
                     from app.schemas.unit_test import UnitTestGenerateAndRunRequest
                     
                     quality_checks_values = {}
-                    test_cases_values = {}
-                    active_user_id = user_id_ctx.get() or current_user_id or (store.read() or {}).get("user_id") or (store.read() or {}).get("userId")
-                    import pymongo
-                    from app.core.config import settings
-                    from app.infrastructure.persistence.mongodb_user_repository import _get_query_id
-                    try:
-                        sync_client = pymongo.MongoClient(settings.mongodb_uri, serverSelectionTimeoutMS=5000)
-                        sync_db = sync_client[settings.mongodb_database]
-                        user_doc = None
-                        if active_user_id:
-                            user_doc = sync_db.users.find_one({"_id": _get_query_id(str(active_user_id))})
-                        if not user_doc:
-                            user_doc = sync_db.users.find_one({}, sort=[("_id", -1)])
-                        if user_doc:
-                            quality_checks_values = user_doc.get("quality_checks_values", {}) or {}
-                            test_cases_values = user_doc.get("test_cases_values", {}) or {}
-                        sync_client.close()
-                    except Exception as err:
-                        logger.warning(f"Could not load user quality checks from MongoDB: {err}")
+                    active_user_id = user_id_ctx.get()
+                    if active_user_id:
+                        import pymongo
+                        from app.core.config import settings
+                        try:
+                            sync_client = pymongo.MongoClient(settings.mongodb_uri, serverSelectionTimeoutMS=5000)
+                            sync_db = sync_client[settings.mongodb_database]
+                            user_doc = sync_db.users.find_one({"_id": str(active_user_id)})
+                            if user_doc:
+                                quality_checks_values = user_doc.get("quality_checks_values", {})
+                            sync_client.close()
+                        except Exception:
+                            pass
 
                     unit_test_use_case = RunUnitTestSuiteUseCase()
                     from app.core.junit_prompts import combine_junit_prompts
@@ -674,7 +751,7 @@ class StartMigrationUseCase:
                     "Migrated repository will still be published for inspection, "
                     "but may contain compilation errors."
                 ])
-            target_repo = self._publish(store, report, paths, publish_target_java, github_token=github_token)
+            target_repo = self._publish(store, report, paths, publish_target_java)
             store.append_logs([f"[DEPRECATION] Published migrated repository to: {target_repo}"])
             store.update(progressPercent=90)
 
@@ -1149,25 +1226,7 @@ class StartMigrationUseCase:
         )
         store.append_logs(["===== QUALITY GATES ====="])
 
-        quality_checks_values = {}
-        current_user_id = user_id_ctx.get()
-        if current_user_id:
-            from app.infrastructure.persistence.mongodb import MongoDBManager
-            mongo_manager = MongoDBManager()
-            # The manager connects async, but in the background thread we might just need the sync client.
-            # But wait, `get_sync_db()` needs `connect()` to be called first if it wasn't.
-            # Actually, `settings.mongodb_uri` is available, we can just use pymongo directly.
-            import pymongo
-            from app.core.config import settings
-            try:
-                sync_client = pymongo.MongoClient(settings.mongodb_uri, serverSelectionTimeoutMS=5000)
-                sync_db = sync_client[settings.mongodb_database]
-                user_doc = sync_db.users.find_one({"_id": str(current_user_id)})
-                if user_doc:
-                    quality_checks_values = user_doc.get("quality_checks_values", {})
-                sync_client.close()
-            except Exception as e:
-                logger.error(f"Failed to fetch user quality_checks_values for Quality Gates: {e}")
+        quality_checks_values = _fetch_user_quality_checks_sync(user_id_ctx.get(), job_id)
 
         try:
             project_name = str(report.get("targetRepo") or report.get("sourceRepoUrl") or job_id)
@@ -1294,9 +1353,9 @@ class StartMigrationUseCase:
 
         effective_token = (
             (github_token or "").strip()
-            or (user_pat or "").strip()
             or (settings.github_token or "").strip()
             or (settings.github_target_token or "").strip()
+            or (settings.github_token or "").strip()
             or None
         )
 
