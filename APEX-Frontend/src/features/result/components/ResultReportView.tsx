@@ -203,14 +203,15 @@ export function ResultReportView({
     }
   };
 
-  const handleDownloadUnitTestReport = async () => {
+  const handleDownloadUnitTestReport = async (format: string = "html") => {
     if (!migrationJob) return;
     try {
-      const blob = await downloadUnitTestReport(migrationJob.job_id);
+      const isCsv = format === "csv";
+      const blob = await downloadUnitTestReport(migrationJob.job_id, isCsv ? "csv" : "html");
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `unit-test-report-${migrationJob.job_id}.html`;
+      link.download = `unit-test-report-${migrationJob.job_id}.${isCsv ? "csv" : "html"}`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
