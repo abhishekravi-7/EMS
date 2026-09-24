@@ -7,7 +7,7 @@ import { SidebarProvider } from "@/shared/context/SidebarContext";
 import "./App.css";
 
 const MigrationWizardPage = lazy(() => import("@/features/wizard/pages/MigrationWizardPage"));
-// const LandingPage = lazy(() => import("@/features/auth/pages/LandingPage"));
+//const LandingPage = lazy(() => import("@/features/auth/pages/LandingPage"));
 const SignUpPage = lazy(() => import("@/features/auth/pages/SignUpPage"));
 const SignInPage = lazy(() => import("@/features/auth/pages/SignInPage"));
 const ResetPasswordPage = lazy(() => import("@/features/auth/pages/ResetPasswordPage"));
@@ -56,4 +56,4 @@ export default function App() {
                         </SidebarProvider>
                       </AuthProvider>
                     );
-                  }
+                  }
