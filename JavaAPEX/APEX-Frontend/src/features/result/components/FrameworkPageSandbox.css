@@ -9,6 +9,7 @@
 }
 
 .react-sandbox-panel {
+  position: relative;
   width: min(1180px, 100%);
   height: min(820px, 92vh);
   display: flex;
@@ -22,11 +23,22 @@
 
 .react-sandbox-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 20px;
-  padding: 20px 24px;
+  padding: 16px 24px;
   border-bottom: 1px solid #e2e8f0;
+}
+
+.react-sandbox-header-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.react-sandbox-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .react-sandbox-kicker {
@@ -38,15 +50,57 @@
 }
 
 .react-sandbox-header h2 {
-  margin: 4px 0 4px;
+  margin: 4px 0 2px;
   color: #0f172a;
   font-size: 18px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .react-sandbox-header p {
   margin: 0;
   color: #64748b;
+  font-size: 12px;
+}
+
+.react-sandbox-btn-back {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
   font-size: 13px;
+  font-weight: 600;
+  color: #2563eb;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.react-sandbox-btn-back:hover {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.react-sandbox-page-selector {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+}
+
+.react-sandbox-select {
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+  outline: none;
+  cursor: pointer;
+  max-width: 260px;
 }
 
 .react-sandbox-close {
@@ -67,6 +121,30 @@
   color: #1d4ed8;
 }
 
+.react-sandbox-toast {
+  position: absolute;
+  top: 85px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1100;
+  background: #0f172a;
+  color: #f8fafc;
+  padding: 8px 18px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+  animation: fadeInOut 3s ease forwards;
+}
+
+@keyframes fadeInOut {
+  0% { opacity: 0; transform: translate(-50%, -8px); }
+  15% { opacity: 1; transform: translate(-50%, 0); }
+  85% { opacity: 1; transform: translate(-50%, 0); }
+  100% { opacity: 0; transform: translate(-50%, -8px); }
+}
+
 .react-sandbox-frame {
   width: 100%;
   flex: 1;
@@ -85,6 +163,7 @@
 @media (max-width: 640px) {
   .react-sandbox-backdrop { padding: 0; }
   .react-sandbox-panel { width: 100%; height: 100%; border-radius: 0; }
-  .react-sandbox-header { padding: 16px; }
+  .react-sandbox-header { padding: 16px; flex-direction: column; align-items: flex-start; }
+  .react-sandbox-header-actions { width: 100%; justify-content: space-between; }
   .react-sandbox-footer { padding: 10px 16px; }
 }

@@ -1741,6 +1741,10 @@ export function ResultReportView({
             fileName={sandboxEntry.fileName}
             code={sandboxEntry.code}
             css={sandboxEntry.css}
+            allFiles={(migrationJob?.uiTransformations ?? []).map((t: any) => ({
+              fileName: t.targetSourceFile ?? t.file ?? "MigratedPage.tsx",
+              code: (t.afterLines ?? []) as Array<{ text: string }>,
+            }))}
             onClose={() => setSandboxEntry(null)}
           />
         )}

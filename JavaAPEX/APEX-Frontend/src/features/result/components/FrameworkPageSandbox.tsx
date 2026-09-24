@@ -1,13 +1,19 @@
-import { useMemo } from "react";
-import { FaTimes } from "react-icons/fa";
+import { useMemo, useState, useEffect, useCallback } from "react";
+import { FaTimes, FaArrowLeft, FaCompass } from "react-icons/fa";
 import "./FrameworkPageSandbox.css";
 
-type GeneratedLine = { text: string };
+export type GeneratedLine = { text: string };
+
+export interface SandboxFile {
+  fileName: string;
+  code: GeneratedLine[];
+}
 
 interface FrameworkPageSandboxProps {
   fileName: string;
   code: GeneratedLine[];
   css: string;
+  allFiles?: SandboxFile[];
   onClose: () => void;
 }
 
@@ -171,11 +177,32 @@ function cleanJsxAttributes(markup: string): string {
     .replace(/<TableRow\b[^>]*>([\s\S]*?)<\/TableRow>/gi, '<tr>$1</tr>')
     .replace(/<TableCell\b[^>]*>([\s\S]*?)<\/TableCell>/gi, '<td>$1</td>');
 
-  // 8. Alert / Link components
+  // 8. Alert / Link / NavLink components
   cleaned = cleaned
     .replace(/<Alert\b[^>]*>([\s\S]*?)<\/Alert>/gi, '<div class="alert alert-info">$1</div>')
-    .replace(/<Link\b[^>]*\bto=["']([^"']+)["'][^>]*>([\s\S]*?)<\/Link>/gi, '<a href="#" class="btn btn-link p-0 m-1">$2</a>')
-    .replace(/<Link\b[^>]*>([\s\S]*?)<\/Link>/gi, '<a href="#" class="btn btn-link p-0 m-1">$1</a>');
+    .replace(/<NavLink\b([^>]*)>([\s\S]*?)<\/NavLink>/gi, (_match, attrs: string, content: string) => {
+      const toMatch = attrs.match(/\bto=["']([^"']+)["']/i) || attrs.match(/\bhref=["']([^"']+)["']/i);
+      const target = toMatch ? toMatch[1] : "#";
+      const cleanAttrs = attrs.replace(/\bto=["'][^"']+["']/gi, "");
+      const hasClass = /\bclass(Name)?=/i.test(cleanAttrs);
+      const classAttr = hasClass ? "" : ' class="nav-link"';
+      return `<a href="${escapeHtml(target)}" data-nav="${escapeHtml(target)}"${classAttr}${cleanAttrs}>${content}</a>`;
+    })
+    .replace(/<Link\b([^>]*)>([\s\S]*?)<\/Link>/gi, (_match, attrs: string, content: string) => {
+      const toMatch = attrs.match(/\bto=["']([^"']+)["']/i) || attrs.match(/\bhref=["']([^"']+)["']/i);
+      const target = toMatch ? toMatch[1] : "#";
+      const cleanAttrs = attrs.replace(/\bto=["'][^"']+["']/gi, "");
+      const hasClass = /\bclass(Name)?=/i.test(cleanAttrs);
+      const classAttr = hasClass ? "" : ' class="btn btn-link p-0 m-1"';
+      return `<a href="${escapeHtml(target)}" data-nav="${escapeHtml(target)}"${classAttr}${cleanAttrs}>${content}</a>`;
+    })
+    .replace(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi, (_match, attrs: string, content: string) => {
+      const hrefMatch = attrs.match(/\bhref=["']([^"']+)["']/i);
+      const target = hrefMatch ? hrefMatch[1] : "#";
+      const hasDataNav = /\bdata-nav=/i.test(attrs);
+      const dataNavAttr = hasDataNav ? "" : ` data-nav="${escapeHtml(target)}"`;
+      return `<a${dataNavAttr}${attrs}>${content}</a>`;
+    });
 
   // 9. Generic Capital-letter Components
   cleaned = cleaned
@@ -183,7 +210,6 @@ function cleanJsxAttributes(markup: string): string {
     .replace(/<([A-Z][A-Za-z0-9.]*)\b[^>]*\/>/g, '<div class="custom-component-item my-1"></div>');
 
   // 10. Handle JSX Expressions safely & strip raw JS IIFEs / dynamic variable alerts:
-  // Strip inline IIFE expressions like {(() => { ... })()}
   cleaned = cleaned
     .replace(/\{\s*\(\s*\(\s*\)\s*=>[\s\S]*?\)\s*\(\s*\)\s*\}/g, "")
     .replace(/\(\s*\(\s*\)\s*=>[\s\S]*?\)\s*\(\s*\)/g, "");
@@ -194,12 +220,12 @@ function cleanJsxAttributes(markup: string): string {
   // Convert {(condition) && ( <tag>...</tag> )} to inner tag
   cleaned = cleaned.replace(/\{[^{}]*?&&\s*(?:\(\s*)?(<[\s\S]*?>)(?:\s*\))?\s*\}/g, '$1');
 
-  // Strip alerts or message divs that only contain variable placeholders (infoMsg, errorMsg, msg, error)
+  // Strip alerts or message divs that only contain variable placeholders
   cleaned = cleaned
     .replace(/<div\b[^>]*class=["'][^"']*(?:alert|message|error|info|success|danger|warning)[^"']*["'][^>]*>\s*(?:infoMsg|errorMsg|errorMessage|infoMessage|successMessage|msg|error|message)?\s*<\/div>/gi, "")
     .replace(/<p\b[^>]*class=["'][^"']*(?:alert|message|error|info|success|danger|warning)[^"']*["'][^>]*>\s*(?:infoMsg|errorMsg|errorMessage|infoMessage|successMessage|msg|error|message)?\s*<\/p>/gi, "");
 
-  // Replace state variable placeholders with empty string so raw variable names don't render as text
+  // Replace state variable placeholders with empty string
   cleaned = cleaned.replace(/\{\s*(?:infoMsg|errorMsg|errorMessage|infoMessage|successMessage|msg|error|message|csrf|getCsrfToken\(\))\s*\}/gi, "");
 
   // Convert simple {variable} or {data.field} to variable name
@@ -395,6 +421,7 @@ function angularToHtml(source: string): string {
     .replace(/\*ngFor="[^"]*"/g, "")
     .replace(/\[(ngModel)\]="[^"]*"/g, "")
     .replace(/\((ngSubmit|click|change|input|blur|focus|keyup|keydown)\)="[^"]*"/g, "")
+    .replace(/routerLink="([^"]*)"/gi, 'href="$1" data-nav="$1"')
     .replace(/\[(src|href|alt|title|class|style|disabled|hidden|value|checked)\]="([^"]*)"/g,
       (_m, attr: string, value: string) =>
         value.startsWith("'") && value.endsWith("'") ? `${attr}="${value.slice(1, -1)}"` : `${attr}=""`
@@ -432,14 +459,139 @@ function generatePreviewHtml(rawLines: GeneratedLine[], fileName: string): strin
   return `<div class="card p-3 shadow-sm bg-white border-0"><h5 class="card-title text-primary font-weight-bold mb-3">${escapeHtml(fileName)}</h5><pre class="bg-light p-3 rounded text-dark" style="max-height: 450px; overflow: auto; font-family: monospace; font-size: 13px;"><code>${escapeHtml(codeLines)}</code></pre></div>`;
 }
 
-export function FrameworkPageSandbox({ fileName, code, css, onClose }: FrameworkPageSandboxProps) {
+function findMatchingFile(
+  href: string,
+  label: string,
+  files: SandboxFile[]
+): SandboxFile | undefined {
+  if (!files || files.length === 0) return undefined;
+
+  const normalize = (str: string) => str.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+  const cleanLabel = normalize(label);
+  const rawTargetName = href.split("/").pop()?.split("?")[0] || href;
+  const cleanHref = normalize(rawTargetName);
+
+  // 1. Exact base filename match against label or href target
+  for (const f of files) {
+    const baseName = f.fileName.split("/").pop() || f.fileName;
+    const cleanBase = normalize(baseName.replace(/\.[^.]+$/, ""));
+    if (cleanBase && (cleanBase === cleanLabel || cleanBase === cleanHref)) {
+      return f;
+    }
+  }
+
+  // 2. Exact match against full path/fileName in files
+  for (const f of files) {
+    const cleanFullPath = normalize(f.fileName);
+    if (cleanHref && cleanFullPath.endsWith(cleanHref)) {
+      return f;
+    }
+  }
+
+  // 3. Substring match for label (e.g. "VIEW DOCTOR" -> "viewdoctor" inside "src/pages/ViewDoctor.tsx")
+  if (cleanLabel.length >= 3) {
+    for (const f of files) {
+      const baseName = f.fileName.split("/").pop() || f.fileName;
+      const cleanBase = normalize(baseName.replace(/\.[^.]+$/, ""));
+      if (cleanBase.includes(cleanLabel) || cleanLabel.includes(cleanBase)) {
+        return f;
+      }
+    }
+  }
+
+  // 4. Substring match for href
+  if (cleanHref.length >= 3) {
+    for (const f of files) {
+      const baseName = f.fileName.split("/").pop() || f.fileName;
+      const cleanBase = normalize(baseName.replace(/\.[^.]+$/, ""));
+      if (cleanBase.includes(cleanHref) || cleanHref.includes(cleanBase)) {
+        return f;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+export function FrameworkPageSandbox({
+  fileName,
+  code,
+  css,
+  allFiles = [],
+  onClose,
+}: FrameworkPageSandboxProps) {
+  const [activeFileName, setActiveFileName] = useState(fileName);
+  const [activeCode, setActiveCode] = useState(code);
+  const [navHistory, setNavHistory] = useState<string[]>([]);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Keep internal sandbox state updated if initial props change
+  useEffect(() => {
+    setActiveFileName(fileName);
+    setActiveCode(code);
+    setNavHistory([]);
+  }, [fileName, code]);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    const timer = setTimeout(() => {
+      setToastMessage(null);
+    }, 3200);
+    return () => clearTimeout(timer);
+  };
+
+  const handleNavigate = useCallback(
+    (targetHref: string, label: string) => {
+      const matched = findMatchingFile(targetHref, label, allFiles);
+      if (matched && matched.fileName !== activeFileName) {
+        setNavHistory((prev) => [...prev, activeFileName]);
+        setActiveFileName(matched.fileName);
+        setActiveCode(matched.code);
+        showToast(`Navigated to: ${matched.fileName}`);
+      } else if (matched && matched.fileName === activeFileName) {
+        showToast(`Already viewing: ${matched.fileName}`);
+      } else {
+        const targetDesc = label || targetHref || "Selected Page";
+        showToast(`Navigated to: ${targetDesc} (Sandbox Route)`);
+      }
+    },
+    [allFiles, activeFileName]
+  );
+
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data && event.data.type === "SANDBOX_NAVIGATE") {
+        const { href, label } = event.data;
+        handleNavigate(href || "", label || "");
+      }
+    };
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [handleNavigate]);
+
+  const handleBack = () => {
+    if (navHistory.length > 0) {
+      const prevFile = navHistory[navHistory.length - 1];
+      const matched = allFiles.find((f) => f.fileName === prevFile);
+      if (matched) {
+        setActiveFileName(matched.fileName);
+        setActiveCode(matched.code);
+        setNavHistory((prev) => prev.slice(0, prev.length - 1));
+        showToast(`Returned to: ${matched.fileName}`);
+      }
+    }
+  };
+
   const srcDoc = useMemo(() => {
-    const markup = generatePreviewHtml(code, fileName);
-    const isAngular = fileName.endsWith(".ts");
+    const markup = generatePreviewHtml(activeCode, activeFileName);
+    const isAngular = activeFileName.endsWith(".ts");
     const frameworkName = isAngular ? "Angular" : "React";
     const preview = markup
       ? markup
-      : `<div class="react-sandbox-empty"><h3>Preview unavailable</h3><p>${escapeHtml(fileName)} does not contain renderable markup.</p></div>`;
+      : `<div class="react-sandbox-empty"><h3>Preview unavailable</h3><p>${escapeHtml(
+          activeFileName
+        )} does not contain renderable markup.</p></div>`;
 
     return `<!doctype html>
 <html lang="en">
@@ -461,34 +613,130 @@ export function FrameworkPageSandbox({ fileName, code, css, onClose }: Framework
   <main data-migrated-preview="true">
     ${preview}
   </main>
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      document.addEventListener('click', function(e) {
+        var anchor = e.target.closest('a');
+        if (anchor) {
+          e.preventDefault();
+          e.stopPropagation();
+          var href = anchor.getAttribute('data-nav') || anchor.getAttribute('href') || '#';
+          var label = (anchor.innerText || anchor.textContent || '').trim();
+          window.parent.postMessage({
+            type: 'SANDBOX_NAVIGATE',
+            href: href,
+            label: label
+          }, '*');
+          return false;
+        }
+        var button = e.target.closest('button');
+        if (button && !button.classList.contains('react-sandbox-close')) {
+          var btnLabel = (button.innerText || button.textContent || button.value || '').trim();
+          if (btnLabel) {
+            window.parent.postMessage({
+              type: 'SANDBOX_NAVIGATE',
+              href: btnLabel.toLowerCase(),
+              label: btnLabel
+            }, '*');
+          }
+        }
+      }, true);
+
+      document.addEventListener('submit', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        return false;
+      }, true);
+    });
+  </script>
 </body>
 </html>`;
-  }, [code, css, fileName]);
+  }, [activeCode, css, activeFileName]);
 
-  const isAngular = fileName.endsWith(".ts");
+  const isAngular = activeFileName.endsWith(".ts");
   const frameworkName = isAngular ? "Angular" : "React";
 
   return (
-    <div className="react-sandbox-backdrop" role="dialog" aria-modal="true" aria-label={`Migrated ${frameworkName} page preview`}>
+    <div
+      className="react-sandbox-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Migrated ${frameworkName} page preview`}
+    >
       <section className="react-sandbox-panel">
         <header className="react-sandbox-header">
-          <div>
+          <div className="react-sandbox-header-info">
             <span className="react-sandbox-kicker">{frameworkName} sandbox</span>
-            <h2>{fileName}</h2>
-            <p>Generated JSP/JSF UI rendered with the migrated markup and available CSS.</p>
+            <h2>{activeFileName}</h2>
+            <p>
+              Generated JSP/JSF UI rendered with migrated markup and available CSS.
+              Hyperlinks navigate inside the sandbox.
+            </p>
           </div>
-          <button type="button" className="react-sandbox-close" onClick={onClose} aria-label="Close preview" title="Close preview">
-            <FaTimes />
-          </button>
+          <div className="react-sandbox-header-actions">
+            {navHistory.length > 0 && (
+              <button
+                type="button"
+                className="react-sandbox-btn-back"
+                onClick={handleBack}
+                title="Go back to previous page"
+              >
+                <FaArrowLeft style={{ marginRight: 6 }} /> Back
+              </button>
+            )}
+            {allFiles.length > 1 && (
+              <div className="react-sandbox-page-selector">
+                <FaCompass style={{ marginRight: 6, color: "#2563eb" }} />
+                <select
+                  value={activeFileName}
+                  onChange={(e) => {
+                    const selected = allFiles.find(
+                      (f) => f.fileName === e.target.value
+                    );
+                    if (selected) {
+                      setNavHistory((prev) => [...prev, activeFileName]);
+                      setActiveFileName(selected.fileName);
+                      setActiveCode(selected.code);
+                      showToast(`Switched to: ${selected.fileName}`);
+                    }
+                  }}
+                  className="react-sandbox-select"
+                  aria-label="Select sandbox page"
+                >
+                  {allFiles.map((f) => (
+                    <option key={f.fileName} value={f.fileName}>
+                      {f.fileName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <button
+              type="button"
+              className="react-sandbox-close"
+              onClick={onClose}
+              aria-label="Close preview"
+              title="Close preview"
+            >
+              <FaTimes />
+            </button>
+          </div>
         </header>
+
+        {toastMessage && (
+          <div className="react-sandbox-toast" role="status">
+            {toastMessage}
+          </div>
+        )}
+
         <iframe
           className="react-sandbox-frame"
-          title={`Preview of ${fileName}`}
+          title={`Preview of ${activeFileName}`}
           srcDoc={srcDoc}
           sandbox="allow-same-origin allow-scripts"
         />
         <footer className="react-sandbox-footer">
-          Static UI preview. Bootstrap 4 injected for JSP style fidelity. API calls and event handlers require the migrated runtime.
+          Static UI preview sandbox. Bootstrap 4 injected for JSP style fidelity. Clicking hyperlinks navigates within sandbox pages.
         </footer>
       </section>
     </div>
