@@ -37,7 +37,7 @@ class UIMigrationHandler:
             jsp_jsf_extensions = (".jsf", ".xhtml")
         else:
             jsp_jsf_extensions = (".jsp", ".jspf", ".jspx", ".jsf", ".xhtml")
-        
+
         # Base directory for modernization
         frontend_base = self.migrated_repo_dir / "frontend" / "src"
         frontend_base.mkdir(parents=True, exist_ok=True)
@@ -158,7 +158,7 @@ class UIMigrationHandler:
         if not source_code.strip():
             logger.warning(f"File {file_path.name} is empty, skipping.")
             return None
-        
+
         prompt = build_ui_modernization_prompt(
             source_file_path=str(file_path.relative_to(self.migrated_repo_dir)),
             source_code=source_code,
@@ -167,7 +167,7 @@ class UIMigrationHandler:
             ui_mode=self.ui_mode,
             backend_mode=self.backend_mode,
         )
-        
+
         max_attempts = 2
         for attempt in range(1, max_attempts + 1):
             full_response = ""
@@ -180,14 +180,14 @@ class UIMigrationHandler:
                     max_tokens=4000,
                 ):
                     full_response += chunk
-                
+
                 extracted_files = self._extract_files(full_response)
                 if not extracted_files:
                     raise ValueError(f"No component code extracted from LLM response for {file_path.name}")
-                
+
                 after_text_blocks = []
                 target_source_file_display_parts = []
-                
+
                 for file_name, code in extracted_files.items():
                     # If LLM didn't provide a path, determine it based on file type and framework
                     if "/" not in file_name:
@@ -208,13 +208,13 @@ class UIMigrationHandler:
                     new_file_path = self._resolve_generated_file_path(frontend_base, file_name)
                     new_file_path.parent.mkdir(parents=True, exist_ok=True)
                     new_file_path.write_text(code, encoding="utf-8")
-                    
+
                     after_text_blocks.append(f"// --- {file_name} ---\n{code}")
                     target_source_file_display_parts.append(file_name)
-                
+
                 after_text = "\n\n".join(after_text_blocks)
                 target_source_file_display = ", ".join(target_source_file_display_parts)
-                
+
                 is_jsp = file_path.suffix.lower() in (".jsp", ".jspf", ".jspx")
                 is_react = "react" in self.target_framework.lower()
                 category = "JSP -> React" if is_jsp and is_react else "JSP -> Angular" if is_jsp else "JSF -> React" if is_react else "JSF -> Angular"
@@ -234,7 +234,7 @@ class UIMigrationHandler:
                     target_source_file=target_source_file_display,
                     source_file=rel_source_path,
                 )
-                
+
                 file_path.unlink(missing_ok=True)
                 logger.info(f"Successfully modernized {file_path.name} to {target_source_file_display}")
                 return transformation_record
@@ -253,30 +253,30 @@ class UIMigrationHandler:
         is_jsp = file_path.suffix.lower() in (".jsp", ".jspf", ".jspx")
         is_react = "react" in self.target_framework.lower()
         ext = ".tsx" if is_react else ".ts"
-        
+
         # Derive component name: list-todos.jsp -> ListTodosComponent
         clean_stem = "".join(part.capitalize() for part in file_path.stem.replace("-", " ").replace("_", " ").split())
         comp_name = f"{clean_stem}Component" if not clean_stem.endswith("Component") else clean_stem
-        
+
         target_file_name = f"{comp_name}{ext}"
         target_file_path = frontend_dir / target_file_name
-        
+
         category = "JSP -> React" if is_jsp and is_react else "JSP -> Angular" if is_jsp else "JSF -> React" if is_react else "JSF -> Angular"
         icon = "⚛️" if is_react else "🚀"
-        
+
         if is_react:
             after_text = self._transpile_to_react(comp_name, source_code)
         else:
             after_text = self._transpile_to_angular(comp_name, source_code)
-            
+
         target_file_path.parent.mkdir(parents=True, exist_ok=True)
         target_file_path.write_text(after_text, encoding="utf-8")
-        
+
         try:
             rel_source_path = str(file_path.relative_to(self.migrated_repo_dir)).replace("\\", "/")
         except ValueError:
             rel_source_path = file_path.name
-            
+
         record = generate_diff_lines(
             file_name=file_path.name,
             before_text=source_code,
@@ -294,7 +294,7 @@ class UIMigrationHandler:
         """Converts JSP/JSF HTML structure into a valid React functional component."""
         lines = []
         in_scriptlet = False
-        
+
         for line in source_code.splitlines():
             stripped = line.strip()
             # Skip JSP directives, tags and comments
@@ -311,7 +311,7 @@ class UIMigrationHandler:
             if in_scriptlet:
                 continue
 
-            # Preserve exact Bootstrap layout classes, styling, etc. 
+            # Preserve exact Bootstrap layout classes, styling, etc.
             # Convert class to className
             line = re.sub(r'\bclass="', 'className="', line)
             line = re.sub(r"\bclass='", "className='", line)
@@ -342,9 +342,9 @@ class UIMigrationHandler:
             line = re.sub(r"<form(\s|>)", r'<form onSubmit={handleSubmit}\1', line, count=1)
             # Ensure void elements are self-closing
             line = re.sub(r'<(input|img|br|hr)([^>]*?[^/])>', r'<\1\2 />', line)
-            
+
             lines.append("        " + line)
-            
+
         jsx_body = "\n".join(lines).strip()
         if not jsx_body:
             jsx_body = f'<div><h3>{comp_name}</h3><p>Modernized view component.</p></div>'
@@ -391,7 +391,7 @@ export default {comp_name};
         """Converts JSP/JSF HTML structure into a valid Angular component."""
         lines = []
         in_scriptlet = False
-        
+
         for line in source_code.splitlines():
             stripped = line.strip()
             if stripped.startswith("<%@") or stripped.startswith("<%--") or stripped.startswith("<!--"):
@@ -438,12 +438,12 @@ export default {comp_name};
             line = re.sub(r'<(input|img|br|hr)([^>]*?[^/])>', r'<\1\2 />', line)
 
             lines.append("    " + line)
-            
+
         template_body = "\n".join(lines).strip()
         if not template_body:
             template_body = f'<h3>{comp_name}</h3><p>Modernized Angular view component.</p>'
         selector = "app-" + comp_name.lower().replace("component", "")
-        
+
         return f'''import {{ Component, OnInit }} from '@angular/core';
 import {{ CommonModule }} from '@angular/common';
 import {{ FormsModule }} from '@angular/forms';
@@ -483,7 +483,7 @@ export default {comp_name};
         current_file = None
         current_code = []
         in_code_block = False
-        
+
         for line in lines:
             stripped = line.strip()
             if stripped.startswith("### FILE:"):
@@ -495,19 +495,19 @@ export default {comp_name};
                 current_code = []
                 in_code_block = False
                 continue
-                
+
             if current_file:
                 if stripped.startswith("```"):
                     in_code_block = not in_code_block
                     continue
                 if in_code_block:
                     current_code.append(line)
-                    
+
         if current_file and current_code:
             code_text = "\n".join(current_code).strip()
             if code_text:
                 extracted_files[current_file] = code_text
-            
+
         if not extracted_files:
             code = self._extract_code_block_legacy(response)
             if code.strip():

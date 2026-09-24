@@ -39,13 +39,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import Depends, File, Form, HTTPException, UploadFile
-from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
-from app.infrastructure.persistence.database import get_db_optional
+from app.api.deps import User, get_current_user
 from app.infrastructure.persistence.job_repository import JobRepository
-from app.infrastructure.persistence.migration_ownership_repository import record_job_owner
-from app.infrastructure.persistence.models import User
+from app.infrastructure.persistence.mongodb import get_mongodb
+from app.infrastructure.persistence.mongodb_ownership_repository import record_job_owner as record_mongo_owner
 from app.infrastructure.workspace.workspace_paths import WorkspacePaths
 
 @router.get(
@@ -66,7 +64,7 @@ async def local_project_capabilities() -> LocalProjectCapabilitiesResponse:
 
 def _safe_extract_zip(zip_bytes: bytes, target_dir: Path) -> str:
     """Extract zip bytes into target_dir safely, resolving single top-level directory wrapper.
-    
+
     Returns the project name derived from root directory or files.
     """
     target_dir.mkdir(parents=True, exist_ok=True)
@@ -122,13 +120,12 @@ async def upload_local_project(
     files: list[UploadFile] | None = File(default=None),
     project_name: str | None = Form(default=None),
     current_user: User = Depends(get_current_user),  # noqa: B008
-    db: Session | None = Depends(get_db_optional),  # noqa: B008
 ) -> JSONResponse:
     """Accepts uploaded project files or a zip archive, creates a migration job,
     and extracts/writes files into the job workspace under `original-repo`.
     """
     effective_zip = zip_file or (file if file and file.filename and file.filename.lower().endswith(".zip") else None)
-    
+
     job_id = f"job_{uuid.uuid4().hex[:12]}"
     paths = WorkspacePaths(job_id)
     target_dir = paths.original_repo_dir
@@ -215,7 +212,16 @@ async def upload_local_project(
         JobRepository().save_connect_report(job_id, connect_report)
 
         # Record user ownership for the newly created job
-        await run_in_threadpool(record_job_owner, db, job_id=job_id, user_id=current_user.id)
+        mongo_db = await get_mongodb()
+        if mongo_db is not None:
+            await record_mongo_owner(
+                mongo_db,
+                job_id=job_id,
+                user_id=str(current_user.id),
+                owner_name=current_user.full_name,
+                owner_email=current_user.email,
+                repository_name=resolved_project_name
+            )
 
         logger.info("[LOCAL PROJECT UPLOAD SUCCESS] job_id=%s project=%s", job_id, resolved_project_name)
 

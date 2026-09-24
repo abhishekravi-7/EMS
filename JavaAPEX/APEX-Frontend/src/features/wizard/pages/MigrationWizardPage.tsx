@@ -1,4 +1,5 @@
 import React, { useEffect } from "react";
+import { displayError } from "@/shared/utils/llmError";
 import {
   FaTimes,
   FaLink,
@@ -28,11 +29,11 @@ import { ResultReportView } from "@/features/result/components/ResultReportView"
 import "./MigrationWizardPage.css";
 
 const WIZARD_SIDEBAR_STEPS = [
-   { id: 1, number: 1, title: "Connect", subtitle: "", icon: FaLink },
-    { id: 2, number: 2, title: "Discovery", subtitle: "", icon: FaSearch },
-    { id: 3, number: 3, title: "Strategy", subtitle: "", icon: FaProjectDiagram },
-    { id: 4, number: 4, title: "Migration", subtitle: "", icon: FaRocket },
-    { id: 5, number: 5, title: "Results", subtitle: "", icon: FaChartBar },
+  { id: 1, number: 1, title: "Connect", subtitle: "", icon: FaLink },
+  { id: 2, number: 2, title: "Discovery", subtitle: "", icon: FaSearch },
+  { id: 3, number: 3, title: "Strategy", subtitle: "", icon: FaProjectDiagram },
+  { id: 4, number: 4, title: "Migration", subtitle: "", icon: FaRocket },
+  { id: 5, number: 5, title: "Results", subtitle: "", icon: FaChartBar },
 ];
 
 export default function MigrationWizardPage() {
@@ -119,6 +120,7 @@ export default function MigrationWizardPage() {
     selectedLLMProvider,
     useLLMTests,
     continueToStrategy,
+    navigateToResults,
     setDiscoveryCompleted,
     setStrategyCompleted,
     maxVisitedIndicatorStep,
@@ -397,6 +399,7 @@ export default function MigrationWizardPage() {
                       } else {
                         setStep(s.id);
                       }
+                      setStep(s.id === 5 ? 7 : s.id);
                     }
                   }}
                   style={{
@@ -473,7 +476,7 @@ export default function MigrationWizardPage() {
 
       {/* Main Content Area */}
       <main className="wizard-main-content" ref={mainContentRef}>
-        {error && <div style={styles.errorBanner}><span>{error}</span><button style={styles.errorClose} onClick={() => setError("")}><FaTimes /></button></div>}
+        {error && <div style={styles.errorBanner}><span>{displayError(error)}</span><button style={styles.errorClose} onClick={() => setError("")}><FaTimes /></button></div>}
         {step === 1 && (
           <ConnectPage>
             <ConnectStepView
@@ -517,13 +520,7 @@ export default function MigrationWizardPage() {
               technicalSpecificationHelperText={technicalSpecificationHelperText}
               onBack={() => setStep(1)}
               onChooseDifferentRepository={() => {
-                setDiscoveryCompleted(false);
-                setStrategyCompleted(false);
-                setStep(1);
-                setSelectedRepo(null);
-                setRepoAnalysis(null);
-                setRepoUrl("");
-                setError("");
+                resetWizard();
               }}
               onContinueToStrategy={continueToStrategy}
               onError={setError}
@@ -543,7 +540,7 @@ export default function MigrationWizardPage() {
               riskExplanationLoading={riskExplanationLoading}
               dependencyAnalysis={dependencyAnalysis}
               dependencyAnalysisLoading={dependencyAnalysisLoading}
-              
+
               buildToolDisplayLabel={buildToolDisplayLabel}
               renderCategorizedDependencies={renderCategorizedDependencies}
               effectiveTargetVersion={effectiveTargetVersion}
@@ -603,14 +600,8 @@ export default function MigrationWizardPage() {
               repoAnalysis={repoAnalysis}
               codeChanges={resultExecState.codeChanges}
               fossaResult={resultExecState.fossaResult}
-              onMigrationComplete={() => {
-                setIsMigrationFinishedState(true);
-                setStep(7);
-              }}
-              onViewReport={() => {
-                setIsMigrationFinishedState(true);
-                setStep(7);
-              }}
+              onMigrationComplete={navigateToResults}
+              onViewReport={navigateToResults}
               onRetry={handleStartMigration}
             />
           </ResultPage>
@@ -624,10 +615,7 @@ export default function MigrationWizardPage() {
                 setError("");
                 resetWizard();
               }}
-              onViewReport={() => {
-                setIsMigrationFinishedState(true);
-                setStep(7);
-              }}
+              onViewReport={navigateToResults}
             />
           </ResultPage>
         )}
@@ -638,6 +626,7 @@ export default function MigrationWizardPage() {
               repoAnalysis={repoAnalysis}
               runSonar={runSonar}
               runFossa={runFossa}
+              runTests={runTests}
               selectedLLMProvider={selectedLLMProvider}
               useLLMTests={useLLMTests}
               resetWizard={resetWizard}

@@ -18,7 +18,7 @@ async def migrate_users(pg_db: Session, mongo_db: AsyncIOMotorDatabase, dry_run:
     logger.info("Migrating users...")
     stmt = select(pg_models.User)
     users = pg_db.execute(stmt).scalars().all()
-    
+
     count = 0
     for user in users:
         user_doc = {
@@ -37,7 +37,7 @@ async def migrate_users(pg_db: Session, mongo_db: AsyncIOMotorDatabase, dry_run:
             "updated_at": user.updated_at,
             "last_login_at": user.last_login_at,
         }
-        
+
         if not dry_run:
             await mongo_db.users.update_one(
                 {"email": user.email},
@@ -45,7 +45,7 @@ async def migrate_users(pg_db: Session, mongo_db: AsyncIOMotorDatabase, dry_run:
                 upsert=True
             )
         count += 1
-        
+
     logger.info("User migration %s: %d records processed.", "dry-run" if dry_run else "complete", count)
 
 async def migrate_job_owners(pg_db: Session, mongo_db: AsyncIOMotorDatabase, dry_run: bool = True):
@@ -53,7 +53,7 @@ async def migrate_job_owners(pg_db: Session, mongo_db: AsyncIOMotorDatabase, dry
     logger.info("Migrating job owners...")
     stmt = select(pg_models.MigrationJobOwner)
     owners = pg_db.execute(stmt).scalars().all()
-    
+
     count = 0
     for owner in owners:
         owner_doc = {
@@ -61,7 +61,7 @@ async def migrate_job_owners(pg_db: Session, mongo_db: AsyncIOMotorDatabase, dry
             "user_id": str(owner.user_id),
             "created_at": owner.created_at
         }
-        
+
         if not dry_run:
             await mongo_db.migration_job_owners.update_one(
                 {"job_id": owner.job_id},
@@ -77,7 +77,7 @@ async def migrate_reports(pg_db: Session, mongo_db: AsyncIOMotorDatabase, dry_ru
     import json
     stmt = select(pg_models.PersistedMigrationReport)
     reports = pg_db.execute(stmt).scalars().all()
-    
+
     count = 0
     for report in reports:
         try:
@@ -93,7 +93,7 @@ async def migrate_reports(pg_db: Session, mongo_db: AsyncIOMotorDatabase, dry_ru
             "report_json": report_data,
             "updated_at": report.updated_at
         }
-        
+
         if not dry_run:
             await mongo_db.migration_reports.update_one(
                 {"job_id": report.job_id},
@@ -107,13 +107,13 @@ async def run_migration(dry_run: bool = True):
     """Main entry point for data migration."""
     await mongodb_manager.connect()
     mongo_db = mongodb_manager.db
-    
+
     with Session(engine) as pg_db:
         await migrate_users(pg_db, mongo_db, dry_run)
         await migrate_job_owners(pg_db, mongo_db, dry_run)
         await migrate_reports(pg_db, mongo_db, dry_run)
         # (Add other migrations here: tokens, test states, etc.)
-        
+
     mongodb_manager.close()
 
 if __name__ == "__main__":

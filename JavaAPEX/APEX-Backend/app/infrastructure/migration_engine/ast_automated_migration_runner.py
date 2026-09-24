@@ -93,7 +93,7 @@ class AstMigrationRunner:
 
             stdout, stderr = process.communicate(input=plan_json, timeout=settings.migration_timeout_seconds)
 
-            
+
             # Combine stdout and stderr for logging/reporting
             full_output = []
             if stdout and not stdout.strip().startswith("{"):
@@ -112,7 +112,7 @@ class AstMigrationRunner:
                     status="FAILED",
                     error_lines=[f"Java process exited with code {process.returncode}"] + full_output
                 )
-                
+
 
                 logger.warning("Java process exited with code %s. Falling back to in-process rules.", process.returncode)
                 fallback_res = self._run_python_fallback_rules(project_dir, plan)
@@ -125,7 +125,7 @@ class AstMigrationRunner:
                 json_start = stdout.find("{")
                 if json_start == -1:
                     raise json.JSONDecodeError("No JSON object found", stdout, 0)
-                
+
                 json_text = stdout[json_start:]
                 result_data = json.loads(json_text)
             except json.JSONDecodeError:

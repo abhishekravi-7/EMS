@@ -47,14 +47,15 @@ class QualityGateRunner:
         project_name: str | None = None,
         run_sonar: bool = False,
         run_fossa: bool = False,
+        quality_checks_values: dict | None = None,
     ) -> QualityGateResult:
         sonar = (
-            self._sonar_runner.run(project_dir, job_id=job_id, project_name=project_name)
+            self._sonar_runner.run(project_dir, job_id=job_id, project_name=project_name, quality_checks_values=quality_checks_values)
             if run_sonar
             else None
         )
         fossa = (
-            self._fossa_runner.run(project_dir, job_id=job_id, project_name=project_name)
+            self._fossa_runner.run(project_dir, job_id=job_id, project_name=project_name, quality_checks_values=quality_checks_values)
             if run_fossa
             else None
         )

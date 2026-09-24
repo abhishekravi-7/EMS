@@ -47,6 +47,9 @@ class MongoDBManager:
     def get_sync_db(self):
         return self._sync_db
 
+    def get_async_db(self):
+        return self.db
+
     def close(self):
         if self.client:
             self.client.close()

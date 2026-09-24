@@ -101,7 +101,7 @@ class ExistingTestDetector:
     def scan(self):
         self._scan_helper_classes()
         self._detect_frameworks_from_configs()
-        
+
         for root, dirs, files in os.walk(self.clone_dir):
             if 'node_modules' in dirs: dirs.remove('node_modules')
             if '.git' in dirs: dirs.remove('.git')
@@ -136,9 +136,9 @@ class ExistingTestDetector:
         self.tests_found = unique_tests
         self.total_test_count = len(unique_tests)
         self._parse_execution_results()
-        
+
         categories = self._categorize_tests()
-                
+
         return {
             "metrics": {
                 "total": self.total_test_count,
@@ -155,7 +155,7 @@ class ExistingTestDetector:
                 "existingTestCategories": categories
             }
         }
-        
+
     def _categorize_tests(self):
         cats = {
             "auth": {"name": "AUTHENTICATION & SECURITY", "count": 0, "priority": "P0 Critical", "priorityLevel": 0, "desc": "Protected route access, token header checks, invalid credential rejection, and authorization boundaries.", "files": set()},
@@ -163,13 +163,13 @@ class ExistingTestDetector:
             "biz": {"name": "BUSINESS RULE & VALIDATION", "count": 0, "priority": "P1 High", "priorityLevel": 1, "desc": "Domain constraint enforcement, mandatory parameter checking, and state transition invariant validation.", "files": set()},
             "api": {"name": "API CONTRACTS", "count": 0, "priority": "P2 Medium", "priorityLevel": 2, "desc": "HTTP request method verification, status code compliance, and payload structure checking.", "files": set()}
         }
-        
+
         for t in self.tests_found:
             name = t.get("name", "").lower()
             file = t.get("file", "").lower()
             t_type = t.get("type", "").lower()
             framework = t.get("framework", "").lower()
-            
+
             if any(k in name or k in file for k in ["auth", "security", "login", "token", "jwt"]):
                 cats["auth"]["count"] += 1
                 cats["auth"]["files"].add(t.get("file", ""))
@@ -190,7 +190,7 @@ class ExistingTestDetector:
             else:
                 cats["biz"]["count"] += 1
                 cats["biz"]["files"].add(t.get("file", ""))
-                
+
         result = []
         for _k, v in cats.items():
             if v["count"] > 0:
@@ -201,14 +201,14 @@ class ExistingTestDetector:
                 else:
                     file_names = ", ".join(f.split('/')[-1] for f in file_list)
                     evidence = f"Derived from repository modules: {file_names}." if file_names else "Derived from general repository analysis."
-                
+
                 v["evidenceSource"] = evidence
                 del v["files"]
                 result.append(v)
-                
+
         result.sort(key=lambda x: x["priorityLevel"])
         return result
-        
+
     def _detect_frameworks_from_configs(self):
         pkg_json = self.clone_dir / 'package.json'
         if pkg_json.exists():
@@ -260,7 +260,7 @@ class ExistingTestDetector:
                 if 'pytest' in reqs: self.frameworks.add('PyTest')
             except OSError:
                 pass  # nosec B110
-                
+
     @staticmethod
     def _test_category(test_type: str, framework: str) -> str:
         """Return the semantic category used by the validation UI.
@@ -290,18 +290,18 @@ class ExistingTestDetector:
                 self.skipped = 0
             except OSError:
                 pass  # nosec B110
-        
+
     def _analyze_file(self, filepath: Path, rel_path: str):
         import re
         name = filepath.name.lower()
         if not name.endswith(('.ts', '.js', '.java', '.py')):
             return
-            
+
         try:
             content = filepath.read_text(encoding='utf-8', errors='ignore')
         except Exception:  # noqa: BLE001
             return
-            
+
         is_test = False
         framework = "Unknown"
         language = "Unknown"
@@ -339,11 +339,11 @@ class ExistingTestDetector:
                 # Default for generic .test.js / .spec.js files
                 framework = "Jest"
                 test_type = "Jest"
-                
+
             matches = re.findall(r'(?:test|it|describe|test\.describe)\s*\(\s*[\'"`](.*?)[\'"`]', content)
             count = len(matches)
             test_names = matches
-            
+
         # Java/JVM Test Detection (JUnit 4/5, TestNG, Spock)
         elif name.endswith(('.java', '.kt', '.groovy')) and (
             'test' in name or 'tests' in name or 'spec' in name or name.endswith(('test.java', 'it.java', 'test.kt', 'test.groovy'))
@@ -463,7 +463,7 @@ class ExistingTestDetector:
 
             count = len(matched_methods)
             test_names = matched_methods
-            
+
         # Python Test Detection (PyTest, unittest)
         elif (name.startswith('test_') or name.endswith('_test.py')) and name.endswith('.py'):
             is_test = True
@@ -483,7 +483,7 @@ class ExistingTestDetector:
                 test_type = "API"
             else:
                 test_type = "PyTest"
-                
+
             matches = re.findall(r'def\s+(test_[a-zA-Z0-9_]+)\s*\(', content)
             count = len(matches)
             test_names = matches
@@ -574,7 +574,7 @@ class ExistingTestRunnerService:
             )
             with self._lock:
                 self._active_processes[job_id] = proc
-            
+
             try:
                 output = BoundedLogBuffer(
                     MAX_EXISTING_TEST_OUTPUT_CHARS,
@@ -1661,7 +1661,7 @@ class ExistingTestRunnerService:
         Classifies errors and extracts true root cause without letting secondary cleanup errors
         (e.g., 'Eyes not open', 'Session already closed', 'NullPointerException in tearDown')
         override or mask the primary root cause (e.g., 'HTTP 401 Unauthorized').
-        
+
         Returns:
             (status, error_category, error_code, root_cause, clean_failure_message)
         """
@@ -1754,7 +1754,7 @@ class ExistingTestRunnerService:
             name = self._normalize_test_name(tc.get("name", "unknown"))
             classname = tc.get("classname", "unknown")
             time_str = tc.get("time", "0")
-            
+
             try:
                 duration_val = float(time_str)
                 duration_str = f"{duration_val:.3f}s"
@@ -1944,7 +1944,7 @@ class ExistingTestRunnerService:
                                 att_path = att.get("path")
                                 if not att_path or not job_id or not project_dir:
                                     continue  # nosec B112
-                                
+
                                 try:
                                     # Playwright attachments (like test-results/...) are typically inside project_dir
                                     rel_path = Path(att_path).relative_to(project_dir).as_posix()
@@ -2266,10 +2266,10 @@ class ExistingTestRunnerService:
             for tc in test_cases:
                 if test_selection and tc.get("name") not in selected_names:
                     continue  # nosec B112
-                    
+
                 framework = tc.get("framework", tc.get("type", "")).lower()
                 test_file = tc.get("file", "")
-                
+
                 if any(f in framework for f in ["junit", "testng", "selenium", "restassured", "java"]):
                     proj_root = _find_project_root_for_test(test_file, project_dir, ["pom.xml", "build.gradle", "build.gradle.kts"])
                     if proj_root:
@@ -2288,16 +2288,16 @@ class ExistingTestRunnerService:
 
             if not projects_to_run:
                 self._log(job_id, "No supported runner found for detected frameworks; execution skipped.", "WARN")
-            
+
             for (proj_root_str, runner_type), grouped_tests in projects_to_run.items():
                 proj_root = Path(proj_root_str)
                 executed_any = True
-                
+
                 selected_classes_for_proj = {t.get("suite") for t in grouped_tests} if test_selection else None
                 selected_names_for_proj = {t.get("name") for t in grouped_tests} if test_selection else None
-                
+
                 detected_frameworks = {t.get("framework", "").lower() for t in grouped_tests}
-                
+
                 if runner_type in ["Maven", "Gradle"]:
                     self._instrument_playwright_tests(proj_root, job_id)
 
@@ -3079,7 +3079,7 @@ class ExistingTestRunnerService:
                             assigned_type = candidates[0]["type"]
                             assigned_category = candidates[0].get("category", self._test_category(assigned_type, ""))
                             detected_framework = candidates[0].get("framework", detected_framework)
-                
+
                 if assigned_type == "Unknown":
                     raw_name_lower = (tc.get("test_name") or tc.get("name") or "").lower()
                     fname_lower = fname.lower()

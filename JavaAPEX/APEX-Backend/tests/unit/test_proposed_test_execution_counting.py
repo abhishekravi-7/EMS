@@ -1,4 +1,4 @@
-﻿"""
+"""
 Unit tests for the execution result-counting fix.
 
 Verifies that Executed / Passed / Failed / Not-Executed counts are derived

@@ -13,16 +13,12 @@ import logging
 
 from fastapi import APIRouter, Body, Depends, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
-from sqlalchemy.orm import Session
-
-from app.api.deps import get_current_user, verify_job_ownership
+from app.api.deps import User, get_current_user, verify_job_ownership
 from app.application.pipelines.migration_execution_pipeline import MigrationExecutionPipeline
 from app.application.services.file_diff_service import FileDiffService
 from app.application.services.unit_test_report_generator import UnitTestReportGenerator
 from app.application.use_cases.run_unit_tests import RunUnitTestSuiteUseCase
 from app.core.exceptions import MigrationConfigError, MigrationExecutionError, MigrationJobNotFoundError
-from app.infrastructure.persistence.database import get_db
-from app.infrastructure.persistence.models import User
 from app.infrastructure.workspace.workspace_paths import WorkspacePaths
 from app.schemas.migration_execution_schema import MigrationStartRequest
 from app.schemas.unit_test import UnitTestGenerateAndRunRequest
@@ -56,12 +52,15 @@ async def start_migration(
     job_id: str,
     payload: MigrationStartRequest | None = Body(default=None),  # noqa: B008
     current_user: User = Depends(get_current_user),  # noqa: B008
-    db: Session = Depends(get_db),  # noqa: B008
 ) -> JSONResponse:
-    await verify_job_ownership(db, job_id, current_user)
-    request = payload.model_dump() if payload else None
+    await verify_job_ownership(job_id, current_user)
+    request = payload.model_dump() if payload else {}
+    from app.api.deps import resolve_github_token
+    github_token = await resolve_github_token(request.get("github_token"), current_user)
     try:
-        result = await asyncio.to_thread(_pipeline.start, job_id, request, current_user_id=current_user.id)
+        result = await asyncio.to_thread(
+            _pipeline.start, job_id, request, current_user_id=current_user.id, github_token=github_token
+        )
         logger.info("[MIGRATION START] Migration started for job %s by user %s", job_id, current_user.id)
         return JSONResponse(status_code=200, content=result)
     except (MigrationConfigError, MigrationExecutionError) as exc:
@@ -84,9 +83,8 @@ async def start_migration(
 async def migration_summary(
     job_id: str,
     current_user: User = Depends(get_current_user),  # noqa: B008
-    db: Session = Depends(get_db),  # noqa: B008
 ) -> JSONResponse:
-    await verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(job_id, current_user)
     try:
         summary = await asyncio.to_thread(_pipeline.get_summary, job_id)
         logger.debug("[MIGRATION SUMMARY] job_id=%s found=true storage=available", job_id)
@@ -105,9 +103,8 @@ async def migration_summary(
 async def migration_detail(
     job_id: str,
     current_user: User = Depends(get_current_user),  # noqa: B008
-    db: Session = Depends(get_db),  # noqa: B008
 ) -> JSONResponse:
-    await verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(job_id, current_user)
     try:
         detail = await asyncio.to_thread(_pipeline.get_detail, job_id)
         logger.debug("[MIGRATION DETAIL] job_id=%s found=true", job_id)
@@ -126,9 +123,8 @@ async def migration_detail(
 async def migration_logs(
     job_id: str,
     current_user: User = Depends(get_current_user),  # noqa: B008
-    db: Session = Depends(get_db),  # noqa: B008
 ) -> JSONResponse:
-    await verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(job_id, current_user)
     try:
         logs = await asyncio.to_thread(_pipeline.get_logs, job_id)
         logger.debug("[MIGRATION LOGS] job_id=%s found=true", job_id)
@@ -150,9 +146,8 @@ async def migration_logs(
 async def migration_fossa(
     job_id: str,
     current_user: User = Depends(get_current_user),  # noqa: B008
-    db: Session = Depends(get_db),  # noqa: B008
 ) -> JSONResponse:
-    await verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(job_id, current_user)
     try:
         fossa_data = await asyncio.to_thread(_pipeline.get_fossa, job_id)
         return JSONResponse(status_code=200, content=fossa_data)
@@ -171,9 +166,8 @@ async def rerun_migration_tests(
     llm_provider: str = "groq",
     use_llm_tests: str = "true",
     current_user: User = Depends(get_current_user),  # noqa: B008
-    db: Session = Depends(get_db),  # noqa: B008
 ) -> JSONResponse:
-    await verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(job_id, current_user)
     paths = WorkspacePaths(job_id)
     project_dir = paths.migrated_repo_dir if paths.migrated_repo_dir.exists() else paths.original_repo_dir
 
@@ -208,7 +202,7 @@ async def rerun_migration_tests(
     )
 
     try:
-        result = await use_case.execute_project_suite(req, db=db)
+        result = await use_case.execute_project_suite(req, db=None)
         score = 92.5
 
         orig_repo = paths.original_repo_dir if paths.original_repo_dir.exists() else project_dir
@@ -364,9 +358,8 @@ async def get_file_diff(
     job_id: str,
     path: str,
     current_user: User = Depends(get_current_user),  # noqa: B008
-    db: Session = Depends(get_db),  # noqa: B008
 ) -> JSONResponse:
-    await verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(job_id, current_user)
     try:
         diff = _diff_service.get_file_diff(job_id, path)
         if not diff:
@@ -386,9 +379,8 @@ _unit_test_report_gen = UnitTestReportGenerator()
 async def download_unit_test_report(
     job_id: str,
     current_user: User = Depends(get_current_user),  # noqa: B008
-    db: Session = Depends(get_db),  # noqa: B008
 ) -> HTMLResponse:
-    await verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(job_id, current_user)
     html_content = await asyncio.to_thread(_unit_test_report_gen.generate_html_report, job_id)
     return HTMLResponse(
         content=html_content,
@@ -402,9 +394,8 @@ async def download_unit_test_report(
 async def download_testcase_report(
     job_id: str,
     current_user: User = Depends(get_current_user),  # noqa: B008
-    db: Session = Depends(get_db),  # noqa: B008
 ) -> HTMLResponse:
-    await verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(job_id, current_user)
     html_content = await asyncio.to_thread(_unit_test_report_gen.generate_html_report, job_id)
     return HTMLResponse(
         content=html_content,
@@ -412,5 +403,3 @@ async def download_testcase_report(
             "Content-Disposition": f'attachment; filename="testcase-report-{job_id}.html"'
         },
     )
-
-

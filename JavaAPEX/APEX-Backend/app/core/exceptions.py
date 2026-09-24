@@ -498,7 +498,7 @@ class EmailAlreadyRegisteredError(AuthError):
         super().__init__(message)
 
 
-class InvalidCredentialsError(AuthError):
+class InvalidCredentialsError(AuthenticationError):
     """Login failed: unknown email OR wrong password.
 
     Deliberately the SAME error for both cases — the caller must never be
@@ -520,6 +520,84 @@ class AccountDisabledError(AuthError):
     http_status = 403
 
     def __init__(self, message: str = "This account has been disabled. Please contact support.") -> None:
+        super().__init__(message)
+
+
+class EmailNotVerifiedError(AuthError):
+    """The account exists and credentials are correct, but email is not verified yet."""
+
+    status = "EMAIL_NOT_VERIFIED"
+    http_status = 403
+
+    def __init__(
+        self,
+        message: str = "Please verify your email address before signing in. Enter the verification code sent to your email.",
+    ) -> None:
+        super().__init__(message)
+
+
+class InvalidVerificationTokenError(AuthError):
+    """The email verification token is invalid, expired, or has already been used."""
+
+    status = "INVALID_TOKEN"
+    http_status = 400
+
+    def __init__(
+        self,
+        message: str = "This verification link is invalid or has expired. Please request a new one.",
+    ) -> None:
+        super().__init__(message)
+
+
+class InvalidVerificationCodeError(AuthError):
+    """The verification code is invalid."""
+
+    status = "INVALID_CODE"
+    http_status = 400
+
+    def __init__(
+        self,
+        message: str = "Invalid verification code.",
+    ) -> None:
+        super().__init__(message)
+
+
+class VerificationCodeExpiredError(AuthError):
+    """The verification code has expired."""
+
+    status = "CODE_EXPIRED"
+    http_status = 400
+
+    def __init__(
+        self,
+        message: str = "This verification code has expired. Please request a new code.",
+    ) -> None:
+        super().__init__(message)
+
+
+class TooManyVerificationAttemptsError(AuthError):
+    """Too many failed attempts on the verification code."""
+
+    status = "TOO_MANY_ATTEMPTS"
+    http_status = 400
+
+    def __init__(
+        self,
+        message: str = "Too many incorrect attempts. Please request a new code.",
+    ) -> None:
+        super().__init__(message)
+
+
+class EmailDeliveryFailedError(AuthError):
+    """The email could not be delivered through the configured SMTP provider."""
+
+    status = "EMAIL_DELIVERY_FAILED"
+    http_status = 502
+
+    def __init__(
+        self,
+        message: str = "Unable to send the verification email. Please try again later.",
+    ) -> None:
         super().__init__(message)
 
 
@@ -653,4 +731,3 @@ class UnitTestError(APEXError):
 
     status: str = "UNIT_TEST_ERROR"
     http_status: int = 400
-

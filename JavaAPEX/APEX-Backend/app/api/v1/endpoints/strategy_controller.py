@@ -21,9 +21,7 @@ from collections.abc import AsyncIterator
 from fastapi import APIRouter, Depends
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, StreamingResponse
-from sqlalchemy.orm import Session
-
-from app.api.deps import get_current_user
+from app.api.deps import User, get_current_user
 from app.application.use_cases.answer_repo_question import AnswerRepoQuestionUseCase, is_conversational_intent
 from app.application.use_cases.index_repository import (
     IndexRepositoryUseCase,
@@ -32,8 +30,6 @@ from app.application.use_cases.index_repository import (
 from app.core.config import settings
 from app.core.exceptions import ChatLLMServiceError, RagDisabledError, RepositoryNotIndexedError, StrategyChatError
 from app.infrastructure.llm.ollama_client import OllamaClient
-from app.infrastructure.persistence.database import get_db
-from app.infrastructure.persistence.models import User
 from app.infrastructure.rag import vector_store
 from app.schemas.strategy_schema import (
     IndexRequest,
@@ -67,7 +63,6 @@ def _sse(event: str, payload: dict) -> str:
 async def query_stream(
     payload: StrategyQueryRequest,
     current_user: User = Depends(get_current_user),  # noqa: B008
-    db: Session = Depends(get_db),  # noqa: B008
 ) -> StreamingResponse:
     async def event_stream() -> AsyncIterator[str]:
         try:
@@ -79,7 +74,6 @@ async def query_stream(
             prepared = await _answer_use_case.prepare(
                 question=payload.question,
                 repository_url=payload.repo_url,
-                db=db,
                 current_user=current_user,
                 job_id=payload.job_id,
                 history=history_dicts,
@@ -115,7 +109,7 @@ async def query_stream(
                 yield _sse("chunk", {"chunk": delta})
 
             answer = "".join(buffer).strip()
-            
+
             # Final source list using the standardized SourceReference format
             sources = []
             seen_files = set()
@@ -133,7 +127,7 @@ async def query_stream(
                 "final",
                 {
                     "parsed": {
-                        "answer": answer, 
+                        "answer": answer,
                         "rationale": [],
                     },
                     "sources": sources,
@@ -175,14 +169,12 @@ async def query_stream(
 async def query(
     payload: StrategyQueryRequest,
     current_user: User = Depends(get_current_user),  # noqa: B008
-    db: Session = Depends(get_db),  # noqa: B008
 ) -> JSONResponse:
     try:
         history_dicts = [{"role": msg.role, "content": msg.content} for msg in payload.history] if payload.history else None
         result = await _answer_use_case.answer(
             question=payload.question,
             repository_url=payload.repo_url,
-            db=db,
             current_user=current_user,
             job_id=payload.job_id,
             history=history_dicts,

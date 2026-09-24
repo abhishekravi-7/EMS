@@ -13,7 +13,10 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
-from app.infrastructure.persistence.report_repository import load_report_from_db, save_report_to_db
+from app.infrastructure.persistence.mongodb_report_repository import (
+    load_report_from_db_sync,
+    save_report_to_db_sync,
+)
 from app.infrastructure.workspace.workspace_paths import WorkspacePaths
 from app.shared import json_utils, migration_log_sanitizer
 
@@ -45,7 +48,7 @@ class MigrationReportStore:
                 return cached
 
         # 3. Check database (handles multi-container routing & container recreation in DigitalOcean)
-        db_report = load_report_from_db(self._job_id)
+        db_report = load_report_from_db_sync(self._job_id)
         if db_report:
             with _CACHE_LOCK:
                 _REPORT_CACHE[self._job_id] = db_report
@@ -111,7 +114,7 @@ class MigrationReportStore:
         if force_db or is_terminal or (now - last_db) >= 1.5:
             _LAST_DB_FLUSH[self._job_id] = now
             try:
-                save_report_to_db(self._job_id, report)
+                save_report_to_db_sync(self._job_id, report)
             except Exception as db_err:  # noqa: BLE001
                 logger.debug("Non-fatal: failed saving report to db for %s: %s", self._job_id, db_err)
 
@@ -142,4 +145,3 @@ class MigrationReportStore:
         existing = report.get("logLines") or []
         report["logLines"] = existing + [line for line in sanitized if line not in existing]
         self.write(report, force_db=False)
-

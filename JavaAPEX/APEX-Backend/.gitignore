@@ -30,4 +30,3 @@ storage/vector-store/
 *.db
 storage/*.db
 logs/
-

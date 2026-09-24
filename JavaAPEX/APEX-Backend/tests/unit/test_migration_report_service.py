@@ -198,5 +198,3 @@ def test_target_repo_does_not_contain_source_repo_url():
     assert "source-owner" not in res["target_repo"]
     assert "source-app" not in res["target_repo"]
     assert "https-github" not in res["target_repo"]
-
-

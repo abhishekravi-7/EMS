@@ -74,18 +74,21 @@ class StaticAnalysisRunner:
         *,
         job_id: str,
         project_name: str | None = None,
+        quality_checks_values: dict | None = None,
     ) -> SonarScanResult:
-        token = settings.sonarqube_token.strip()
+        qc_config = quality_checks_values or {}
+        token = (qc_config.get("auth_token") or "").strip()
         if not token:
             return SonarScanResult(
                 quality_gate="UNAVAILABLE",
                 scan_mode="missing_token",
-                error_message="Set SONAR_TOKEN to enable SonarQube quality gate scans.",
-                log_lines=["SonarQube skipped: SONAR_TOKEN is not configured."],
+                error_message="SonarQube token missing. Configure it in User Settings.",
+                log_lines=["SonarQube skipped: Token is not configured in user settings."],
             )
 
-        project_key = self._project_key(job_id, project_name or project_dir.name)
-        raw_host = (settings.sonarqube_host_url or "").strip().rstrip("/")
+        proj_key_val = qc_config.get("project_key") or ""
+        project_key = self._project_key(job_id, project_name or project_dir.name, proj_key_val)
+        raw_host = (qc_config.get("sonarqube_url") or "http://localhost:9000").strip().rstrip("/")
         if not raw_host.startswith(("http://", "https://")):
             host_url = f"https://{raw_host}" if "sonarcloud.io" in raw_host else f"http://{raw_host}"
         else:
@@ -114,8 +117,9 @@ class StaticAnalysisRunner:
             return early_error
 
         # Append optional org flag
-        if settings.sonarqube_organization.strip():
-            command.append(f"-Dsonar.organization={settings.sonarqube_organization.strip()}")
+        sonar_org = (qc_config.get("sonar_organization") or "").strip()
+        if sonar_org:
+            command.append(f"-Dsonar.organization={sonar_org}")
 
         # Build environment (with correct JDK and Maven toolchain in PATH) -----
         env = build_tool_env()
@@ -390,9 +394,9 @@ class StaticAnalysisRunner:
     # ------------------------------------------------------------------ #
 
     @staticmethod
-    def _project_key(job_id: str, name: str) -> str:
-        if settings.sonarqube_project_key.strip():
-            return settings.sonarqube_project_key.strip()
+    def _project_key(job_id: str, name: str, user_project_key: str = "") -> str:
+        if user_project_key.strip():
+            return user_project_key.strip()
         seed = f"{settings.sonarqube_project_key_prefix}-{job_id}-{name}"
         return re.sub(r"[^A-Za-z0-9_.:-]+", "-", seed).strip("-")[:180]
 

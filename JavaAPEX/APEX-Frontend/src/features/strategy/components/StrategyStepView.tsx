@@ -255,7 +255,7 @@ export function StrategyStepView({
     if (!isUiModEligible) return;
     const defaultReact = frameworkRecs?.react?.targetVersion;
     const defaultAngular = frameworkRecs?.angular?.targetVersion;
-    
+
     if (uiFrameworkTarget === "React") {
       const ver = userReactVersion || defaultReact;
       if (ver && uiFrameworkVersion !== ver) {

@@ -56,17 +56,23 @@ class RepoCreator:
         *,
         owner: str | None = None,
         host: str | None = None,
+        token: str | None = None,
         private: bool = False,
         description: str = "Migrated with the Java APEX migration engine",
     ) -> CreatedRepo:
-        token = (settings.github_target_token or "").strip()
-        if not token:
+        effective_token = (
+            (token or "").strip()
+            or (settings.github_target_token or "").strip()
+            or (settings.github_token or "").strip()
+        )
+        if not effective_token:
             raise PushFailedError(
-                "No target GitHub token configured. Set GITHUB_TARGET_TOKEN."
+                "No target GitHub token configured. Set GITHUB_TARGET_TOKEN or provide a PAT."
             )
+        token = effective_token
 
         repo_name = self.clean_repo_name(repo_name)
-        profile: TargetProfile = self._profiles.resolve(owner=owner, host=host)
+        profile: TargetProfile = self._profiles.resolve(owner=owner, host=host, token=token)
         logger.info(
             "Creating repo %s/%s (%s)",
             profile.owner,
@@ -83,6 +89,21 @@ class RepoCreator:
             description=description,
         )
 
+        # If creation via org endpoint returns 404 or 422, attempt creating via user endpoint
+        if response.status_code in (404, 422) and profile.is_org:
+            logger.info("Org repo creation returned %d for %s/%s; attempting fallback via user endpoint.", response.status_code, profile.owner, repo_name)
+            fallback_res = self._github.create_repository_sync(
+                profile.owner,
+                repo_name,
+                token,
+                is_org=False,
+                private=private,
+                description=description,
+            )
+            if fallback_res.status_code in (200, 201) and isinstance(fallback_res.data, dict):
+                return self._created_repo_from_response(profile, repo_name, fallback_res.data)
+            response = fallback_res
+
         if response.status_code in (200, 201) and isinstance(response.data, dict):
             return self._created_repo_from_response(profile, repo_name, response.data)
 
@@ -95,16 +116,31 @@ class RepoCreator:
                         gh_message = "already exists"
                         break
             if "already exists" in gh_message.lower():
-                # Try fetching existing repo metadata; fall back to constructing URL directly.
                 existing = self._github.get_repository_sync(profile.owner, repo_name, token)
                 if existing.status_code == 200 and isinstance(existing.data, dict):
                     logger.info("Target repo %s/%s already exists; reusing it.", profile.owner, repo_name)
                     return self._created_repo_from_response(profile, repo_name, existing.data)
-                # GET failed (private repo or token scope) — construct the URL directly.
+
+                # If GET returned 404 or cannot access, generate a fresh unique repo name to guarantee clean creation
+                from datetime import datetime, timezone
+                fresh_suffix = datetime.now(timezone.utc).strftime("%H%M%S")
+                fresh_repo_name = f"{repo_name}_{fresh_suffix}"
                 logger.info(
-                    "Target repo %s/%s already exists (GET returned %s); reusing with constructed URL.",
-                    profile.owner, repo_name, existing.status_code,
+                    "Target repo %s/%s collision detected (GET returned %s). Creating fresh repository %s/%s...",
+                    profile.owner, repo_name, existing.status_code, profile.owner, fresh_repo_name,
                 )
+                retry_res = self._github.create_repository_sync(
+                    profile.owner,
+                    fresh_repo_name,
+                    token,
+                    is_org=profile.is_org,
+                    private=private,
+                    description=description,
+                )
+                if retry_res.status_code in (200, 201) and isinstance(retry_res.data, dict):
+                    return self._created_repo_from_response(profile, fresh_repo_name, retry_res.data)
+
+                # Fallback to constructed URL if retry also returned status
                 return CreatedRepo(
                     owner=profile.owner,
                     name=repo_name,

@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 async def setup_mongodb_indexes(db: AsyncIOMotorDatabase):
     """Idempotent, parallel creation of MongoDB indexes."""
     logger.info("Setting up MongoDB indexes in parallel...")
-    
+
     try:
         tasks = [
             db.users.create_index([("email", pymongo.ASCENDING)], unique=True),
@@ -28,7 +28,7 @@ async def setup_mongodb_indexes(db: AsyncIOMotorDatabase):
             db.email_verification_tokens.create_index([("token_hash", pymongo.ASCENDING)], unique=True),
             db.email_verification_tokens.create_index([("expires_at", pymongo.ASCENDING)], expireAfterSeconds=0),
         ]
-        
+
         await asyncio.gather(*tasks, return_exceptions=True)
         logger.info("MongoDB indexes verified/created successfully.")
     except Exception as e:

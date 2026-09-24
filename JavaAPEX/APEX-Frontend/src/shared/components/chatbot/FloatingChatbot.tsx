@@ -1,6 +1,7 @@
 import React, { useEffect, useId, useRef, useState, useCallback, useMemo } from "react";
 import { useChatbot } from "@/shared/context/ChatbotContext";
 import { sendMessage, determineThinkingState } from "@/shared/services/chatService";
+import { getUserSettings } from "@/features/admin/services/adminService";
 import type {
   ChatMessage,
   ContentBlock,
@@ -568,6 +569,34 @@ export default function FloatingChatbot() {
 
   const [sourcesMap, setSourcesMap] = useState<Record<string, SourceReference[]>>({});
 
+  // LLM configuration check
+  const [isLlmConfigured, setIsLlmConfigured] = useState<boolean | null>(null);
+
+  const checkLlmConfig = useCallback(() => {
+    getUserSettings()
+      .then((s) => {
+        const llm = s.llm_values || {};
+        const groqOk = Boolean(llm.groq_api_key && llm.groq_model);
+        const hfOk = Boolean(llm.huggingface_api_key && llm.huggingface_model);
+        const ollamaOk = Boolean(llm.ollama_url);
+        setIsLlmConfigured(groqOk || hfOk || ollamaOk);
+      })
+      .catch(() => {
+        setIsLlmConfigured(null);
+      });
+  }, []);
+
+  // Re-check every time the panel opens
+  useEffect(() => {
+    if (open) checkLlmConfig();
+  }, [open, checkLlmConfig]);
+
+  // Also re-check immediately when settings are saved from the settings page
+  useEffect(() => {
+    window.addEventListener("javaapex:settings-saved", checkLlmConfig);
+    return () => window.removeEventListener("javaapex:settings-saved", checkLlmConfig);
+  }, [checkLlmConfig]);
+
   const storageKey = makeStorageKey(repoUrl);
 
   useEffect(() => {
@@ -714,14 +743,17 @@ export default function FloatingChatbot() {
           )
         );
       } else {
+        const isNotConfigured = err instanceof Error && err.message === "LLM_NOT_CONFIGURED";
+
         // Graceful error display without exposing technical stack traces or tokens
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantPlaceholder.id
               ? {
                   ...m,
-                  content:
-                    "I couldn't complete that request right now. Please try asking again or select one of the quick actions.",
+                  content: isNotConfigured
+                    ? "LLM is not configured, please setup in settings."
+                    : "I couldn't complete that request right now. Please try asking again or select one of the quick actions.",
                 }
               : m
           )
@@ -878,6 +910,32 @@ export default function FloatingChatbot() {
         </div>
 
         {/* Body */}
+        {/* LLM not configured banner */}
+        {isLlmConfigured === false && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 10,
+              background: "#fffbeb",
+              borderBottom: "1.5px solid #fde68a",
+              padding: "10px 16px",
+              fontSize: 13,
+              color: "#92400e",
+              lineHeight: 1.4,
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 1 }}>
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+              <line x1="12" y1="9" x2="12" y2="13" />
+              <line x1="12" y1="17" x2="12.01" y2="17" />
+            </svg>
+            <span>
+              <strong>LLM not configured.</strong> Please go to{" "}
+              <strong>User Settings → Intelligence</strong> to set up your AI provider (Groq, Hugging Face, or Ollama) before chatting.
+            </span>
+          </div>
+        )}
         <div className="strategy-chat-body" ref={scrollContainerRef} onScroll={handleScroll}>
           <div className="strategy-chat-canvas">
             {messages.length === 0 ? (
@@ -1081,22 +1139,24 @@ export default function FloatingChatbot() {
               <div className="strategy-chat-input-wrapper">
                 <textarea
                   ref={textareaRef}
-                  placeholder="Ask your queries..."
+                  placeholder={isLlmConfigured === false ? "⚙️ LLM setup needed — configure in User Settings → Intelligence" : "Ask your queries..."}
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}
                   rows={1}
+                  disabled={isLlmConfigured === false}
                   className="strategy-chat-input"
+                  style={isLlmConfigured === false ? { opacity: 0.55, cursor: "not-allowed" } : undefined}
                 />
               </div>
-              {!input && <span className="strategy-chat-hint">Press Enter to send</span>}
+              {!input && isLlmConfigured !== false && <span className="strategy-chat-hint">Press Enter to send</span>}
             </div>
             <button
               type="submit"
-              disabled={!input.trim() && !sending}
+              disabled={isLlmConfigured === false || (!input.trim() && !sending)}
               className={`strategy-chat-send ${sending ? "strategy-chat-send-stop" : ""}`}
               aria-label={sending ? "Stop generation" : "Send question"}
-              title={sending ? "Stop generation" : "Send question"}
+              title={isLlmConfigured === false ? "Configure LLM in User Settings first" : (sending ? "Stop generation" : "Send question")}
             >
               <span className="strategy-chat-send-icon-wrapper">
                 {sending ? (

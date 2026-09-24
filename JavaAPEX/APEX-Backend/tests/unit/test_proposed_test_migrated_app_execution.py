@@ -297,5 +297,3 @@ def test_proposed_tests_persisted_without_auto_run_and_executed_on_demand(runnin
         res = service.run_approved_tests(job_id, test_ids=["PTC-ON-DEMAND-001"])
         assert res["status"] == "RUNNING"
         assert res["total_approved"] == 1
-
-

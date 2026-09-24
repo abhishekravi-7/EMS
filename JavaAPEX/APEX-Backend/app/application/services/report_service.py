@@ -260,7 +260,7 @@ def _build_stages(report: dict[str, Any]) -> tuple[str, str, list[dict[str, Any]
 
 def _core(report: dict[str, Any]) -> dict[str, Any]:
     framework_migrations = []
-    
+
     jsp_migrated = report.get("jspFilesMigrated")
     jsf_migrated = report.get("jsfFilesMigrated")
 
@@ -279,7 +279,7 @@ def _core(report: dict[str, Any]) -> dict[str, Any]:
             "target_framework": report.get("jspFrontendFramework") or "Modern",
             "files_migrated": jsp_migrated
         })
-        
+
     if jsf_migrated is not None and jsf_migrated > 0:
         framework_migrations.append({
             "source_framework": "JSF",
@@ -357,6 +357,13 @@ def _core(report: dict[str, Any]) -> dict[str, Any]:
         "jsf_files_migrated": jsf_migrated,
         "jsp_frontend_framework": report.get("jspFrontendFramework"),
         "jsf_frontend_framework": report.get("jsfFrontendFramework"),
+        "spring_conversion_note": report.get("springConversionNote"),
+        "run_sonar": bool(report.get("run_sonar") if "run_sonar" in report else (report.get("runSonar") if "runSonar" in report else False)),
+        "run_fossa": bool(report.get("run_fossa") if "run_fossa" in report else (report.get("runFossa") if "runFossa" in report else False)),
+        "run_tests": bool(report.get("run_tests") if "run_tests" in report else (report.get("runTests") if "runTests" in report else False)),
+        "runSonar": bool(report.get("runSonar") if "runSonar" in report else (report.get("run_sonar") if "run_sonar" in report else False)),
+        "runFossa": bool(report.get("runFossa") if "runFossa" in report else (report.get("run_fossa") if "run_fossa" in report else False)),
+        "runTests": bool(report.get("runTests") if "runTests" in report else (report.get("run_tests") if "run_tests" in report else False)),
     }
 
 
@@ -411,6 +418,9 @@ def build_summary(report: dict[str, Any]) -> dict[str, Any]:
     core = _core(report)
     log_lines = report.get("logLines") or []
     issues = _build_issues(report)
+    run_sonar = core["run_sonar"]
+    run_fossa = core["run_fossa"]
+    run_tests = core["run_tests"]
     return {
         **core,
         **_analysis(report),
@@ -419,10 +429,10 @@ def build_summary(report: dict[str, Any]) -> dict[str, Any]:
         "issue_count": len(issues),
         "log_entry_count": len(log_lines),
         "file_diff_count": core["files_modified"],
-        "has_test_pipeline": bool(report.get("test_pipeline")),
-        "has_sonar_report": bool(report.get("sonar_report")),
-        "has_fossa_report": bool(report.get("fossa_report")),
-        "sonar_report": report.get("sonar_report"),
+        "has_test_pipeline": bool(report.get("test_pipeline")) if run_tests else False,
+        "has_sonar_report": bool(report.get("sonar_report")) if run_sonar else False,
+        "has_fossa_report": bool(report.get("fossa_report")) if run_fossa else False,
+        "sonar_report": report.get("sonar_report") if run_sonar else None,
         "has_testcase_doc": False,
         "has_clone_path": True,
         "modified_files": report.get("modifiedFiles") or [],
@@ -437,6 +447,9 @@ def build_result(report: dict[str, Any]) -> dict[str, Any]:
     job_id = report.get("jobId", "")
     issues = _build_issues(report)
     file_diffs = _diff_service.get_changed_files_summary(job_id, report) if job_id else []
+    run_sonar = core["run_sonar"]
+    run_fossa = core["run_fossa"]
+    run_tests = core["run_tests"]
 
     # Update files_modified if diffs discovered additional files
     if file_diffs and core["files_modified"] < len(file_diffs):
@@ -448,11 +461,19 @@ def build_result(report: dict[str, Any]) -> dict[str, Any]:
         "issues_fixed": core["issues_fixed"],
         "migration_log": log_lines,
         "issues": issues,
+
         "test_insights": report.get("test_insights") or [],
         "test_summary": report.get("test_summary"),
         "test_llm_model": report.get("test_llm_model"),
         "sonar_report": report.get("sonar_report"),
         "test_pipeline": report.get("test_pipeline"),
+
+        "test_insights": (report.get("test_insights") or []) if run_tests else [],
+        "test_summary": report.get("test_summary") if run_tests else None,
+        "test_llm_model": report.get("test_llm_model") if run_tests else None,
+        "sonar_report": report.get("sonar_report") if run_sonar else None,
+        "fossa_report": report.get("fossa_report") if run_fossa else None,
+        "test_pipeline": report.get("test_pipeline") if run_tests else None,
         # --- full migration report detail ---
         "modified_files": report.get("modifiedFiles") or [f["relativePath"] for f in file_diffs],
         "file_diffs": file_diffs,

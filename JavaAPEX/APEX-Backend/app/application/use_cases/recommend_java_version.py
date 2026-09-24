@@ -18,8 +18,7 @@ import json
 import logging
 import re
 
-from sqlalchemy.orm import Session
-
+from app.api.deps import User
 from app.core.context import user_id_ctx
 from app.core.exceptions import (
     InvalidJavaVersionError,
@@ -32,7 +31,6 @@ from app.infrastructure.llm.prompt_templates import (
     JAVA_VERSION_RECOMMENDATION_SYSTEM_PROMPT,
     build_java_version_recommendation_prompt,
 )
-from app.infrastructure.persistence.models import User
 from app.schemas.java_version_schema import JavaVersionRecommendationRequest
 
 logger = logging.getLogger(__name__)
@@ -72,7 +70,7 @@ class RecommendJavaVersionUseCase:
     async def execute(
         self,
         request: JavaVersionRecommendationRequest,
-        db: Session | None = None,
+        db: Any = None,
         current_user: User | None = None,
     ) -> dict:
         source_major = _parse_major_version(request.source_java_version)
@@ -252,4 +250,3 @@ class RecommendJavaVersionUseCase:
             "already_at_latest_supported_version": already_at_latest,
             "raw_recommendation": raw,
         }
-

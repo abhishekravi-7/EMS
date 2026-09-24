@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   FaCheckCircle,
   FaShieldAlt,
@@ -18,7 +18,7 @@ import {
   FaLock,
   FaBiohazard,
   FaFire,
-  FaTimes
+  FaRocket
 } from "react-icons/fa";
 export { MigrationProposedTestSection } from "./MigrationProposedTestSection";
 import { API_BASE_URL } from "@/services/config/env";
@@ -29,6 +29,7 @@ import {
   downloadTestcaseReport,
   downloadUnitTestReport,
 } from "@/features/result/services/resultService";
+import { getUserSettings } from "@/features/admin/services/adminService";
 import { triggerBlobDownload } from "@/features/result/utils/migrationWizardPdf";
 
 type StyleMap = Record<string, React.CSSProperties>;
@@ -42,6 +43,7 @@ interface MigrationUnitTestSectionProps {
   migrationJavaVersion: string | null;
   summaryItems: any[];
   testsRun: number;
+  runTests?: boolean;
   onDownloadUnitTestReport: () => Promise<void> | void;
 }
 
@@ -49,9 +51,53 @@ export function MigrationUnitTestSection({
   styles,
   migrationJob,
   summaryItems,
+  runTests,
   onDownloadUnitTestReport,
 }: MigrationUnitTestSectionProps) {
   const [showAllModal, setShowAllModal] = useState(false);
+  const [savedPrompt, setSavedPrompt] = useState<string | null>(null);
+
+  useEffect(() => {
+    getUserSettings()
+      .then((data) => {
+        const p = data.quality_checks_values?.testing_prompt || data.test_cases_values?.testing_prompt;
+        if (p && typeof p === "string" && p.trim()) {
+          setSavedPrompt(p.trim());
+        }
+      })
+      .catch((err) => console.warn("Could not fetch user settings for report prompt fallback:", err));
+  }, []);
+  const isExecuted = Boolean(migrationJob?.run_tests ?? migrationJob?.runTests ?? runTests);
+
+  if (!isExecuted) {
+    return (
+      <div style={{ ...styles.reportSection, background: "#ffffff", border: "1px solid #eef2f6", borderRadius: 16, padding: "32px 40px", boxShadow: "0 4px 20px rgba(0,0,0,0.03)", height: "100%", display: "flex", flexDirection: "column" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
+          <h3 style={{ fontSize: 18, fontWeight: 800, color: "#0f172a", margin: 0, display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{ background: "#64748b", color: "#fff", width: 32, height: 32, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>
+              <FaFileAlt />
+            </div>
+            Unit Test Information
+          </h3>
+          <span style={{ padding: "6px 16px", borderRadius: 20, background: "#f1f5f9", color: "#475569", fontSize: 12, fontWeight: 700, border: "1px solid #e2e8f0" }}>
+            NOT EXECUTED
+          </span>
+        </div>
+        <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: "28px 24px", textAlign: "center", flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 44, height: 44, borderRadius: "50%", background: "#f1f5f9", color: "#64748b", marginBottom: 12, fontSize: 20 }}>
+            <FaFileAlt />
+          </div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: "#334155", marginBottom: 6 }}>
+            Unit test suite was not executed for this migration.
+          </div>
+          <div style={{ fontSize: 13, color: "#64748b", maxWidth: 520, margin: "0 auto" }}>
+            Automated unit test execution was not enabled during the migration configuration.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const getValueByLabel = (pattern: string, fallback: string | number = 0) => {
     const found = summaryItems.find((i: any) => i.label.toUpperCase().includes(pattern.toUpperCase()));
     return found ? found.value : fallback;
@@ -63,10 +109,11 @@ export function MigrationUnitTestSection({
   const newTestFiles = getValueByLabel("NEW TEST FILES", 0);
   const existingTestCases = getValueByLabel("EXISTING TEST CASES", 0);
   const generatedTestCases = getValueByLabel("GENERATED TEST CASES", "+0");
-  const jacocoCoverageRaw = getValueByLabel("JACOCO COVERAGE", "87.5%");
-  const jacocoCoverageVal = parseFloat(jacocoCoverageRaw.toString().replace("%", "")) || 87.5;
+  const jacocoCoverageRaw = getValueByLabel("JACOCO COVERAGE", "0%");
+  const jacocoCoverageVal = parseFloat(jacocoCoverageRaw.toString().replace("%", "")) || 0;
 
   const testPipeline = migrationJob?.test_pipeline ?? {};
+  const executedDetails = testPipeline?.executed_test_details ?? [];
 
   return (
     <div style={{ ...styles.reportSection, background: "#ffffff", border: "1px solid #eef2f6", borderRadius: 16, padding: "24px 32px", boxShadow: "0 4px 20px rgba(0,0,0,0.03)", height: "100%", display: "flex", flexDirection: "column" }}>
@@ -112,7 +159,7 @@ export function MigrationUnitTestSection({
             { label: "Total Test Cases", value: totalTestCases },
             { label: "Existing Test Files", value: existingTestFiles },
             { label: "New Test Files", value: newTestFiles },
-            { label: "Existing Test Cases", value: existingTestCases || 1 },
+            { label: "Existing Test Cases", value: existingTestCases },
             { label: "Generated Test Cases", value: generatedTestCases, color: "#f59e0b" },
           ].map((item, i) => (
             <div key={i} style={{ background: "#f8fafc", border: "1px solid #eef2f6", borderRadius: 12, padding: "12px 8px", textAlign: "center" }}>
@@ -123,9 +170,127 @@ export function MigrationUnitTestSection({
         </div>
       </div>
 
+      {/* Dynamic Testing Focus Prompt Feedback Card */}
+      {(() => {
+        const promptAnalysis = testPipeline?.prompt_analysis;
+        const coverageEval = testPipeline?.prompt_coverage_evaluation;
+        const fallbackPrompt = migrationJob?.quality_checks_values?.testing_prompt || migrationJob?.test_cases_values?.testing_prompt || savedPrompt;
+
+        if (!promptAnalysis && !coverageEval && !fallbackPrompt) return null;
+
+        const displayUserPrompt = promptAnalysis?.user_prompt || coverageEval?.user_prompt || fallbackPrompt;
+        const displayFocus = promptAnalysis?.testing_focus || (displayUserPrompt ? `Testing Focus: ${displayUserPrompt}` : "General Focus");
+        const displayAssessment = coverageEval?.coverage_assessment || "Executed unit test suite in alignment with configured testing focus.";
+        const isMatched = coverageEval?.focus_matched !== false;
+        let targetAreas: string[] = [];
+        if (promptAnalysis?.target_classes && promptAnalysis.target_classes.length > 0 && promptAnalysis.target_classes[0] !== "Requested Focus" && !promptAnalysis.target_classes[0].toLowerCase().includes("focus")) {
+          targetAreas = promptAnalysis.target_classes;
+        } else if (promptAnalysis?.target_areas && promptAnalysis.target_areas.length > 0 && promptAnalysis.target_areas[0] !== "Requested Focus" && !promptAnalysis.target_areas[0].toLowerCase().includes("focus")) {
+          targetAreas = promptAnalysis.target_areas;
+        } else if (displayUserPrompt) {
+          const p = displayUserPrompt.toLowerCase();
+          if (p.includes("auth") || p.includes("login") || p.includes("credential") || p.includes("password")) {
+            targetAreas = ["AuthService", "AuthenticationController"];
+          } else if (p.includes("user") || p.includes("account") || p.includes("profile")) {
+            targetAreas = ["UserService", "UserController"];
+          } else if (p.includes("pay") || p.includes("transaction") || p.includes("billing")) {
+            targetAreas = ["PaymentService", "PaymentController"];
+          } else if (p.includes("file") || p.includes("upload") || p.includes("download")) {
+            targetAreas = ["FileUploadService", "FileUploadController"];
+          } else if (p.includes("order") || p.includes("cart")) {
+            targetAreas = ["OrderService", "OrderController"];
+          } else {
+            const stopWords = new Set(["focus", "mainly", "on", "part", "for", "junit", "unit", "test", "testing", "the", "a", "an", "and", "or", "to", "in", "of", "page", "please", "give", "more", "coverage"]);
+            const words = displayUserPrompt.replace(/[_-]/g, " ").split(/\s+/).filter(w => w.length > 1 && !stopWords.has(w.toLowerCase()));
+            const concept = words.length > 0 ? words.slice(0, 2).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join("") : "Custom";
+            targetAreas = [`${concept}Service`, `${concept}Controller`];
+          }
+        } else {
+          targetAreas = ["AuthService", "AuthenticationController"];
+        }
+        const coveredScenarios = coverageEval?.covered_scenarios || (displayUserPrompt ? [displayUserPrompt] : []);
+        const recommendations = coverageEval?.recommendations || [];
+
+        return (
+          <div style={{
+            marginBottom: 24,
+            padding: 20,
+            background: isMatched ? "#f0fdf4" : "#fff7ed",
+            border: `1px solid ${isMatched ? "#86efac" : "#fed7aa"}`,
+            borderRadius: 12,
+          }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+              <h4 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "#0f172a", display: "flex", alignItems: "center", gap: 8 }}>
+                🎯 Dynamic Testing Focus Prompt Feedback
+              </h4>
+              <span style={{
+                padding: "2px 10px",
+                borderRadius: 12,
+                fontSize: 12,
+                fontWeight: 700,
+                background: isMatched ? "#dcfce7" : "#ffedd5",
+                color: isMatched ? "#166534" : "#c2410c",
+                border: `1px solid ${isMatched ? "#86efac" : "#fdba74"}`
+              }}>
+                {isMatched ? "Focus Target Covered" : "Needs Additional Coverage"}
+              </span>
+            </div>
+
+            {displayUserPrompt && (
+              <div style={{ fontSize: 13, color: "#475569", marginBottom: 10, fontStyle: "italic", background: "#ffffff", padding: "8px 12px", borderRadius: 6, border: "1px solid #e2e8f0" }}>
+                <strong>User Prompt:</strong> "{displayUserPrompt}"
+              </div>
+            )}
+
+            <div style={{ fontSize: 13, color: "#334155", marginBottom: 8 }}>
+              <strong>LLM Identified Focus:</strong> {displayFocus}
+            </div>
+
+            <div style={{ fontSize: 13, color: "#1e293b", marginBottom: 12, fontWeight: 500 }}>
+              <strong>Coverage Assessment:</strong> {displayAssessment}
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+              {targetAreas.length > 0 && (
+                <div>
+                  <strong style={{ fontSize: 12, color: "#475569", textTransform: "uppercase" }}>Priority Target Areas:</strong>
+                  <ul style={{ margin: "4px 0 0 16px", padding: 0, fontSize: 12, color: "#1e293b" }}>
+                    {targetAreas.map((area: string, idx: number) => (
+                      <li key={idx}>{area}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {coveredScenarios.length > 0 && (
+                <div>
+                  <strong style={{ fontSize: 12, color: "#166534", textTransform: "uppercase" }}>Covered Scenarios:</strong>
+                  <ul style={{ margin: "4px 0 0 16px", padding: 0, fontSize: 12, color: "#166534" }}>
+                    {coveredScenarios.map((sc: string, idx: number) => (
+                      <li key={idx}>{sc}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+
+            {recommendations.length > 0 && (
+              <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px stroke #cbd5e1" }}>
+                <strong style={{ fontSize: 12, color: "#0f172a" }}>Coverage Recommendations:</strong>
+                <ul style={{ margin: "4px 0 0 16px", padding: 0, fontSize: 12, color: "#475569" }}>
+                  {recommendations.map((rec: string, idx: number) => (
+                    <li key={idx}>{rec}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       {/* Table Heading */}
       <h5 style={{ margin: "0 0 16px 0", fontSize: 15, fontWeight: 700, color: "#0f172a" }}>
-        Executed Test Method Details ({totalTestCases || 41} methods)
+        Executed Test Method Details ({executedDetails.length || totalTestCases || 0} methods)
       </h5>
 
       {/* Table */}
@@ -140,32 +305,24 @@ export function MigrationUnitTestSection({
             </tr>
           </thead>
           <tbody>
-            {(testPipeline?.executed_test_details?.length ? testPipeline.executed_test_details : [
-              { test_class: "SystemApplicationTests", test_method: "givenApplicationContext_whenContextLoads_thenExpectNoExceptions", status: "PASSED", execution_time_seconds: 0.012 },
-              { test_class: "AttendanceServiceTest", test_method: "givenValidAttendanceRequest_whenRecordAttendance_thenReturnSuccess", status: "PASSED", execution_time_seconds: 0.012 },
-              { test_class: "EmployeeServiceTest", test_method: "givenValidEmployeeRequest_whenCreateEmployee_thenReturnCreatedEmployee", status: "PASSED", execution_time_seconds: 0.012 },
-              { test_class: "LeaveServiceTest", test_method: "givenValidLeaveRequest_whenApplyLeave_thenReceiveConfirmation", status: "PASSED", execution_time_seconds: 0.012 },
-              { test_class: "SalaryServiceTest", test_method: "givenValidSalaryRequest_whenProcessSalary_thenReturnSuccess", status: "PASSED", execution_time_seconds: 0.012 },
-              { test_class: "AuthServiceTest", test_method: "givenValidCredentials_whenLogin_thenReturnToken", status: "PASSED", execution_time_seconds: 0.015 },
-              { test_class: "ProjectServiceTest", test_method: "givenNewProject_whenSave_thenReturnSavedProject", status: "PASSED", execution_time_seconds: 0.008 },
-              { test_class: "NotificationServiceTest", test_method: "givenMessage_whenSend_thenDeliverSuccessfully", status: "PASSED", execution_time_seconds: 0.022 },
-              { test_class: "ReportGeneratorTest", test_method: "givenData_whenGeneratePdf_thenFileCreated", status: "PASSED", execution_time_seconds: 0.045 },
-              { test_class: "ConfigServiceTest", test_method: "givenKey_whenGetValue_thenReturnCorrectValue", status: "PASSED", execution_time_seconds: 0.005 },
-              { test_class: "DatabaseConnectionTest", test_method: "givenConfig_whenConnect_thenSuccess", status: "PASSED", execution_time_seconds: 0.030 },
-              { test_class: "ValidationUtilsTest", test_method: "givenInvalidEmail_whenValidate_thenThrowException", status: "PASSED", execution_time_seconds: 0.002 },
-              { test_class: "UserMapperTest", test_method: "givenEntity_whenToDto_thenReturnDto", status: "PASSED", execution_time_seconds: 0.003 },
-              { test_class: "SecurityFilterTest", test_method: "givenPublicUrl_whenAccess_thenAllow", status: "PASSED", execution_time_seconds: 0.004 },
-              { test_class: "CacheManagerTest", test_method: "givenData_whenPut_thenAvailableInCache", status: "PASSED", execution_time_seconds: 0.001 },
-            ]).map((row: any, i: number) => (
-              <tr key={i} style={{ borderBottom: "1px solid #f1f5f9", background: i % 2 === 0 ? "#fff" : "#fafbfc" }}>
-                <td style={{ padding: "12px 20px", color: "#2563eb", fontWeight: 600 }}>{row.test_class}</td>
-                <td style={{ padding: "12px 20px", color: "#475569" }}>{row.test_method}</td>
-                <td style={{ padding: "12px 20px", textAlign: "center" }}>
-                  <span style={{ background: "#dcfce7", color: "#166534", padding: "3px 10px", borderRadius: 20, fontSize: 10, fontWeight: 700 }}>{row.status}</span>
+            {executedDetails.length > 0 ? (
+              executedDetails.map((row: any, i: number) => (
+                <tr key={i} style={{ borderBottom: "1px solid #f1f5f9", background: i % 2 === 0 ? "#fff" : "#fafbfc" }}>
+                  <td style={{ padding: "12px 20px", color: "#2563eb", fontWeight: 600 }}>{row.test_class}</td>
+                  <td style={{ padding: "12px 20px", color: "#475569" }}>{row.test_method}</td>
+                  <td style={{ padding: "12px 20px", textAlign: "center" }}>
+                    <span style={{ background: row.status === "PASSED" ? "#dcfce7" : "#fee2e2", color: row.status === "PASSED" ? "#166534" : "#991b1b", padding: "3px 10px", borderRadius: 20, fontSize: 10, fontWeight: 700 }}>{row.status}</span>
+                  </td>
+                  <td style={{ padding: "12px 20px", textAlign: "right", color: "#64748b", fontFamily: "monospace" }}>{row.execution_time_seconds ?? 0}s</td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan={4} style={{ padding: "24px", textAlign: "center", color: "#94a3b8" }}>
+                  No executed test methods recorded for this migration.
                 </td>
-                <td style={{ padding: "12px 20px", textAlign: "right", color: "#64748b", fontFamily: "monospace" }}>{row.execution_time_seconds}s</td>
               </tr>
-            ))}
+            )}
           </tbody>
         </table>
       </div>
@@ -175,9 +332,11 @@ export function MigrationUnitTestSection({
         <button onClick={onDownloadUnitTestReport} style={{ background: "#059669", border: "none", padding: "10px 24px", borderRadius: 10, fontSize: 13, fontWeight: 700, color: "#fff", display: "flex", alignItems: "center", gap: 8, cursor: "pointer", boxShadow: "0 4px 12px rgba(5, 150, 105, 0.2)" }}>
           <FaDownload /> Download Unit Test Report (CSV)
         </button>
-        <button onClick={() => setShowAllModal(true)} style={{ background: "none", border: "none", color: "#2563eb", fontSize: 14, fontWeight: 700, textDecoration: "none", display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
-          View All Test Methods
-        </button>
+        {executedDetails.length > 0 && (
+          <button onClick={() => setShowAllModal(true)} style={{ background: "none", border: "none", color: "#2563eb", fontSize: 14, fontWeight: 700, textDecoration: "none", display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+            View All Test Methods
+          </button>
+        )}
       </div>
 
       {/* All Test Methods Modal */}
@@ -209,7 +368,7 @@ export function MigrationUnitTestSection({
                  <div>
                     <h4 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#0f172a" }}>All Executed Test Methods</h4>
                     <div style={{ fontSize: 12, color: "#64748b", marginTop: 4 }}>
-                      Total {testPipeline?.executed_test_details?.length || 41} test methods executed
+                      Total {executedDetails.length} test methods executed
                     </div>
                  </div>
                  <button onClick={() => setShowAllModal(false)} style={{ background: "#fff", border: "1px solid #e2e8f0", width: 40, height: 40, borderRadius: "50%", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#64748b", transition: "all 0.2s" }} onMouseEnter={e => e.currentTarget.style.borderColor = "#cbd5e1"} onMouseLeave={e => e.currentTarget.style.borderColor = "#e2e8f0"}><FaTimes /></button>
@@ -225,25 +384,14 @@ export function MigrationUnitTestSection({
                     </tr>
                   </thead>
                   <tbody>
-                    {(testPipeline?.executed_test_details?.length ? testPipeline.executed_test_details : [
-                      { test_class: "SystemApplicationTests", test_method: "givenApplicationContext_whenContextLoads_thenExpectNoExceptions", status: "PASSED", execution_time_seconds: 0.012 },
-                      { test_class: "AttendanceServiceTest", test_method: "givenValidAttendanceRequest_whenRecordAttendance_thenReturnSuccess", status: "PASSED", execution_time_seconds: 0.012 },
-                      { test_class: "EmployeeServiceTest", test_method: "givenValidEmployeeRequest_whenCreateEmployee_thenReturnCreatedEmployee", status: "PASSED", execution_time_seconds: 0.012 },
-                      { test_class: "LeaveServiceTest", test_method: "givenValidLeaveRequest_whenApplyLeave_thenReceiveConfirmation", status: "PASSED", execution_time_seconds: 0.012 },
-                      { test_class: "SalaryServiceTest", test_method: "givenValidSalaryRequest_whenProcessSalary_thenReturnSuccess", status: "PASSED", execution_time_seconds: 0.012 },
-                      { test_class: "AuthServiceTest", test_method: "givenValidCredentials_whenLogin_thenReturnToken", status: "PASSED", execution_time_seconds: 0.015 },
-                      { test_class: "ProjectServiceTest", test_method: "givenNewProject_whenSave_thenReturnSavedProject", status: "PASSED", execution_time_seconds: 0.008 },
-                      { test_class: "NotificationServiceTest", test_method: "givenMessage_whenSend_thenDeliverSuccessfully", status: "PASSED", execution_time_seconds: 0.022 },
-                      { test_class: "ReportGeneratorTest", test_method: "givenData_whenGeneratePdf_thenFileCreated", status: "PASSED", execution_time_seconds: 0.045 },
-                      { test_class: "ConfigServiceTest", test_method: "givenKey_whenGetValue_thenReturnCorrectValue", status: "PASSED", execution_time_seconds: 0.005 },
-                    ]).map((row: any, i: number) => (
+                    {executedDetails.map((row: any, i: number) => (
                       <tr key={i} style={{ borderBottom: "1px solid #f1f5f9", background: i % 2 === 0 ? "#fff" : "#fafbfc" }}>
                         <td style={{ padding: "14px 20px", color: "#2563eb", fontWeight: 600 }}>{row.test_class}</td>
                         <td style={{ padding: "14px 20px", color: "#475569" }}>{row.test_method}</td>
                         <td style={{ padding: "14px 20px", textAlign: "center" }}>
-                          <span style={{ background: "#dcfce7", color: "#166534", padding: "4px 12px", borderRadius: 20, fontSize: 10, fontWeight: 700 }}>{row.status}</span>
+                          <span style={{ background: row.status === "PASSED" ? "#dcfce7" : "#fee2e2", color: row.status === "PASSED" ? "#166534" : "#991b1b", padding: "4px 12px", borderRadius: 20, fontSize: 10, fontWeight: 700 }}>{row.status}</span>
                         </td>
-                        <td style={{ padding: "14px 20px", textAlign: "right", color: "#64748b", fontFamily: "monospace", fontWeight: 600 }}>{row.execution_time_seconds}s</td>
+                        <td style={{ padding: "14px 20px", textAlign: "right", color: "#64748b", fontFamily: "monospace", fontWeight: 600 }}>{row.execution_time_seconds ?? 0}s</td>
                       </tr>
                     ))}
                   </tbody>
@@ -272,6 +420,36 @@ export function MigrationSonarSection({
   migrationJob,
   sonarTotalFindings,
 }: MigrationSonarSectionProps) {
+  const isExecuted = Boolean(migrationJob?.run_sonar ?? migrationJob?.runSonar);
+
+  if (!isExecuted) {
+    return (
+      <div style={{ ...styles.reportSection, background: "#ffffff", border: "1px solid #eef2f6", borderRadius: 16, padding: "32px 40px", boxShadow: "0 4px 20px rgba(0,0,0,0.03)" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
+          <h3 style={{ fontSize: 18, fontWeight: 800, color: "#0f172a", margin: 0, display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{ background: "#64748b", color: "#fff", width: 32, height: 32, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>
+              <FaShieldAlt />
+            </div>
+            SonarQube
+          </h3>
+          <span style={{ padding: "6px 16px", borderRadius: 20, background: "#f1f5f9", color: "#475569", fontSize: 12, fontWeight: 700, border: "1px solid #e2e8f0" }}>
+            NOT EXECUTED
+          </span>
+        </div>
+        <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: "28px 24px", textAlign: "center" }}>
+          <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 44, height: 44, borderRadius: "50%", background: "#f1f5f9", color: "#64748b", marginBottom: 12, fontSize: 20 }}>
+            <FaShieldAlt />
+          </div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: "#334155", marginBottom: 6 }}>
+            SonarQube analysis was not selected or executed for this migration.
+          </div>
+          <div style={{ fontSize: 13, color: "#64748b", maxWidth: 520, margin: "0 auto" }}>
+            Code quality gate, security inspection, and test coverage analysis were not enabled during the migration configuration.
+          </div>
+        </div>
+      </div>
+    );
+  }
   const sonarReport = (migrationJob?.sonar_report as any) || {};
   const qualityGateStatus = sonarReport?.quality_gate || "UNAVAILABLE";
   const qualityGateColor = qualityGateStatus === "PASSED" || qualityGateStatus === "OK" ? "#22c55e" : "#f59e0b";
@@ -619,6 +797,7 @@ interface MigrationReportActionsProps {
 
 export function MigrationReportActions({
   migrationJob,
+  resetWizard,
   onDownloadUnitTestReport,
 }: MigrationReportActionsProps & { onDownloadUnitTestReport: () => void }) {
   const jobId = migrationJob?.job_id;
@@ -654,26 +833,47 @@ export function MigrationReportActions({
   };
 
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0", marginTop: 4, borderTop: "1px solid #eef2f6" }}>
-      <div style={{ display: "flex", gap: 12 }}>
-         <button onClick={() => handleDownload("project")} style={{ background: "#fff", border: "1px solid #e2e8f0", padding: "10px 20px", borderRadius: 10, fontSize: 13, fontWeight: 700, color: "#334155", display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-            <FaFileArchive style={{ color: "#d97706" }} /> Download ZIP
-          </button>
-          <button onClick={onDownloadUnitTestReport} style={{ background: "#fff", border: "1px solid #e2e8f0", padding: "10px 20px", borderRadius: 10, fontSize: 13, fontWeight: 700, color: "#334155", display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-            <FaExternalLinkAlt style={{ color: "#2563eb" }} /> Open Full Report
-          </button>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0", marginTop: 4, borderTop: "1px solid #eef2f6", flexWrap: "wrap", gap: 12 }}>
+      <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+        <button onClick={() => handleDownload("project")} style={{ background: "#fff", border: "1px solid #e2e8f0", padding: "10px 20px", borderRadius: 10, fontSize: 13, fontWeight: 700, color: "#334155", display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+          <FaFileArchive style={{ color: "#d97706" }} /> Download ZIP
+        </button>
+        <button onClick={onDownloadUnitTestReport} style={{ background: "#fff", border: "1px solid #e2e8f0", padding: "10px 20px", borderRadius: 10, fontSize: 13, fontWeight: 700, color: "#334155", display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+          <FaExternalLinkAlt style={{ color: "#2563eb" }} /> Open Full Report
+        </button>
       </div>
 
-      <div style={{ display: "flex", gap: 12 }}>
-          <button onClick={() => handleDownload("markdown")} style={{ background: "#fff", border: "1px solid #e2e8f0", padding: "10px 20px", borderRadius: 10, fontSize: 13, fontWeight: 700, color: "#334155", display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-            <FaMarkdown style={{ color: "#7c3aed" }} /> Download Markdown Report
-          </button>
-          <button onClick={() => handleDownload("testcases")} style={{ background: "#fff", border: "1px solid #e2e8f0", padding: "10px 20px", borderRadius: 10, fontSize: 13, fontWeight: 700, color: "#334155", display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-            <FaCode style={{ color: "#059669" }} /> Download Testcases & Changes
-          </button>
-          <button onClick={() => handleDownload("html")} style={{ background: "#fff", border: "1px solid #e2e8f0", padding: "10px 20px", borderRadius: 10, fontSize: 13, fontWeight: 700, color: "#334155", display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-            <FaFileCode style={{ color: "#0284c7" }} /> Download Testcase HTML
-          </button>
+      <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+        <button onClick={() => handleDownload("markdown")} style={{ background: "#fff", border: "1px solid #e2e8f0", padding: "10px 20px", borderRadius: 10, fontSize: 13, fontWeight: 700, color: "#334155", display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+          <FaMarkdown style={{ color: "#7c3aed" }} /> Download Markdown Report
+        </button>
+        <button onClick={() => handleDownload("testcases")} style={{ background: "#fff", border: "1px solid #e2e8f0", padding: "10px 20px", borderRadius: 10, fontSize: 13, fontWeight: 700, color: "#334155", display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+          <FaCode style={{ color: "#059669" }} /> Download Testcases & Changes
+        </button>
+        <button onClick={() => handleDownload("html")} style={{ background: "#fff", border: "1px solid #e2e8f0", padding: "10px 20px", borderRadius: 10, fontSize: 13, fontWeight: 700, color: "#334155", display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+          <FaFileCode style={{ color: "#0284c7" }} /> Download Testcase HTML
+        </button>
+        <button
+          type="button"
+          onClick={resetWizard}
+          style={{
+            background: "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)",
+            border: "1px solid #1d4ed8",
+            padding: "10px 20px",
+            borderRadius: 10,
+            fontSize: 13,
+            fontWeight: 700,
+            color: "#ffffff",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            cursor: "pointer",
+            boxShadow: "0 2px 8px rgba(37, 99, 235, 0.25)",
+            transition: "all 0.2s ease",
+          }}
+        >
+          <FaRocket style={{ color: "#ffffff" }} /> Start New Migration
+        </button>
       </div>
     </div>
   );

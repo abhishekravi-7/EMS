@@ -22,7 +22,7 @@ class ConversionTypesFlowTests(unittest.TestCase):
         jsp_dir = self.repo_path / "src" / "main" / "webapp" / "WEB-INF" / "views"
         jsp_dir.mkdir(parents=True, exist_ok=True)
         (jsp_dir / "welcome.jsp").write_text("<html><body><h1>Welcome</h1></body></html>")
-        
+
         # Analyze repo
         recs = self.analyzer.analyze(self.repo_path)
         self.assertIsNotNone(recs.react)

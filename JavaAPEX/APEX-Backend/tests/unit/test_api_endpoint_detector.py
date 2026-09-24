@@ -20,7 +20,7 @@ def test_detect_success(mock_run, detector):
         stdout='{"status": "SUCCESS", "apiEndpoints": [{"id": "1", "httpMethod": "GET", "path": "/api/test", "controller": "TestController"}]}',
         stderr=""
     )
-    
+
     with patch.object(Path, "exists", return_value=True):
         results = detector.detect(Path("/tmp/fake-repo"))
         assert len(results) == 1
@@ -35,7 +35,7 @@ def test_detect_failure(mock_run, detector):
         stdout="",
         stderr="Some Java Error"
     )
-    
+
     with patch.object(Path, "exists", return_value=True):
         results = detector.detect(Path("/tmp/fake-repo"))
         assert results == []
@@ -48,7 +48,7 @@ def test_detect_malformed_json(mock_run, detector):
         stdout="not a json",
         stderr=""
     )
-    
+
     with patch.object(Path, "exists", return_value=True):
         results = detector.detect(Path("/tmp/fake-repo"))
         assert results == []

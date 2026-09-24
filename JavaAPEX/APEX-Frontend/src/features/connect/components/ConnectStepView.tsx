@@ -12,6 +12,8 @@ import {
   FaSearch,
   FaShieldAlt,
 } from "react-icons/fa";
+import { useAuth } from "@/shared/context/AuthContext";
+import { getUserSettings } from "@/features/admin/services/adminService";
 import type { useRepositoryConnect } from "../hooks/useRepositoryConnect";
 import "../pages/ConnectPage.css";
 
@@ -74,8 +76,35 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
         ? <FaExclamationTriangle />
         : <FaInfoCircle />;
 
- // Track which card is active so the other one dims
+  // Track which card is active so the other one dims
   const [activeCard, setActiveCard] = React.useState<"github" | "upload" | null>(null);
+
+  const { currentUser } = useAuth();
+
+  // Handle admin state clearing and user settings pre-filling
+  React.useEffect(() => {
+    let isMounted = true;
+    if (currentUser?.role === "SUPERADMIN" || currentUser?.role === "ADMIN") {
+      setRepoUrl("");
+      setPatToken("");
+    } else if (currentUser) {
+      getUserSettings().then((settings) => {
+        if (isMounted) {
+          if (!repoUrl && settings.github_config?.repo_url) {
+            setRepoUrl(settings.github_config.repo_url);
+          }
+          const token = settings.github_config?.pat || settings.github_config?.target_token;
+          if (!patToken && token && token !== "********" && !token.startsWith("****************")) {
+            setPatToken(token);
+            setIsPrivateRepo(true);
+          }
+        }
+      }).catch(err => {
+        console.error("Failed to load user settings for connect page prepopulation:", err);
+      });
+    }
+    return () => { isMounted = false; };
+  }, [currentUser, setRepoUrl, setPatToken, setIsPrivateRepo]); // Intentionally not including repoUrl/patToken to avoid infinite fetching loops
 
   // Update active card based on inputs
   React.useEffect(() => {
@@ -201,7 +230,7 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
               {/* Pre-input PAT helper when URL is empty */}
               {!repoUrl && !shouldShowPatInput && (
                 <div style={{ marginTop: 6, display: "flex", justifyContent: "center", alignItems: "center", minHeight: 20, fontSize: 11, color: "#64748b", gap: 6 }}>
-                  
+
                   <button
                     type="button"
                     onClick={() => {
@@ -220,7 +249,7 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
                       textDecoration: "underline",
                     }}
                   >
-                   
+
                   </button>
                 </div>
               )}

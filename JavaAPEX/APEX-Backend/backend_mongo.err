@@ -7,7 +7,7 @@ INFO:     Waiting for application startup.
 12:52:55 | INFO    | app.main | [CONNECT] Database-independent mode: disabled
 12:52:55 | INFO    | app.main | Database tables verified/created.
 12:52:55 | INFO    | app.main | Applied 0 dynamic setting overrides from database
-12:52:55 | INFO    | app.main | Firebase Auth disabled by configuration — skipping Firebase initialization.
+12:52:55 | INFO    | app.main | Firebase Auth disabled by configuration ï¿½ skipping Firebase initialization.
 12:52:55 | INFO    | app.main | LLM Token Tracing initialized (sinks: JSONL + Database)
 12:52:56 | INFO    | app.infrastructure.persistence.mongodb | MongoDB client initialized for database: java_apex
 INFO:     Application startup complete.

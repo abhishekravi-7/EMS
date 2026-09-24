@@ -79,6 +79,7 @@ const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const isStandalonePage =
     normalizedPath === "/signin" ||
     normalizedPath === "/signup" ||
+    normalizedPath === "/verify-email" ||
     normalizedPath === "/reset-password";
 
   const isWizardPage =
@@ -396,7 +397,7 @@ const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         onClose={() => setActivePanel(null)}
         onNavigateToDocs={() => setActivePanel("docs")}
       /> */}
-      {location.pathname !== "/" && location.pathname !== "/connect" && location.pathname !== "/signin" && location.pathname !== "/signup" && (
+      {location.pathname !== "/" && location.pathname !== "/connect" && location.pathname !== "/signin" && location.pathname !== "/signup" && location.pathname !== "/admin" && (
         <FloatingChatbot />
       )}
     </div>

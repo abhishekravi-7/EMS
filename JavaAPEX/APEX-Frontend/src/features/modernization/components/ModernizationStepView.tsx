@@ -29,6 +29,7 @@ import type { FunctionalTestScopePreview } from "../services/modernizationServic
 import { getLocalProjectFileContent } from "@/features/connect/services/connectService";
 import { getFileContent } from "@/features/discovery/services/discoveryService";
 import type { useModernizationState } from "../hooks/useModernizationState";
+import { getUserSettings, getQualityChecksAdminConfig } from "@/features/admin/services/adminService";
 
 const _LLM_PROVIDERS = [
   { value: "groq", label: "Groq (Recommended — Llama 3.3 70B Fast)" },
@@ -209,7 +210,20 @@ export function ModernizationStepView({
   );
   const [existingFramework, setExistingFramework] = useState<string | null>(() => cachedScan?.framework || null);
   const [discoveredTests, setDiscoveredTests] = useState<TestSelectionItem[]>(() => cachedScan?.test_cases || []);
-  const [isLoadingDiscoveredTests, setIsLoadingDiscoveredTests] = useState<boolean>(() => !cachedScan && Boolean(jobId));
+  const [isLoadingDiscoveredTests, setIsLoadingDiscoveredTests] = useState(false);
+  const [isSonarConfigured, setIsSonarConfigured] = useState(true);
+  const [isFossaConfigured, setIsFossaConfigured] = useState(false);
+  const [isLlmConfiguredMod, setIsLlmConfiguredMod] = useState<boolean | null>(null);
+  const [adminConfig, setAdminConfig] = useState<any[]>([]);
+  const [isAdminConfigLoading, setIsAdminConfigLoading] = useState(true);
+  const [isUserSettingsLoading, setIsUserSettingsLoading] = useState(true);
+  const [adminConfigError, setAdminConfigError] = useState<string | null>(null);
+  const [userSettingsError, setUserSettingsError] = useState<string | null>(null);
+
+
+
+  // Proposed tests
+  const [proposedTests, setProposedTests] = useState<any[]>([]);
   const [existingElapsedTime, setExistingElapsedTime] = useState(0);
   const [existingLogs, setExistingLogs] = useState<{ ts: string; msg: string; level: string }[]>([]);
   const [existingExecResult, setExistingExecResult] = useState<ExistingTestRunResponse | null>(null);
@@ -564,10 +578,25 @@ export function ModernizationStepView({
     }
   }, [existingLogs]);
 
+  // Reset previous execution, logs, and report states when jobId changes
+  useEffect(() => {
+    setExistingExecResult(null);
+    setExistingLogs([]);
+    setHasExistingTestsRun(false);
+    setShowValidationReport(false);
+    setIsRunningExisting(false);
+    setExistingElapsedTime(0);
+    setTestDetailReport(null);
+    setShowTestDetailModal(false);
+  }, [jobId]);
+
   // Scan existing tests from repository on mount or when jobId changes
   useEffect(() => {
     if (!jobId) {
       setIsLoadingDiscoveredTests(false);
+      setExistingTotal(null);
+      setExistingFramework(null);
+      setDiscoveredTests([]);
       return;
     }
 
@@ -601,6 +630,134 @@ export function ModernizationStepView({
       });
   }, [jobId]);
 
+  // Fetch user settings and global admin quality gate authorizations
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchConfigAndSettings = async () => {
+      // 1. Fetch User Settings
+      setIsUserSettingsLoading(true);
+      setUserSettingsError(null);
+      try {
+        const settings = await getUserSettings();
+        if (!isMounted) return;
+        const qc = settings.quality_checks_values || {};
+        const sonarConf = Boolean(qc.sonarqube_url && qc.auth_token);
+        const fossaConf = Boolean(qc.fossa_api_key);
+        setIsSonarConfigured(sonarConf);
+        setIsFossaConfigured(fossaConf);
+
+        // Check LLM configuration
+        const llm = settings.llm_values || {};
+        const groqOk = Boolean(llm.groq_api_key && llm.groq_model);
+        const hfOk = Boolean(llm.huggingface_api_key && llm.huggingface_model);
+        const ollamaOk = Boolean(llm.ollama_url);
+        setIsLlmConfiguredMod(groqOk || hfOk || ollamaOk);
+
+        // Auto-disable if not configured
+        if (!sonarConf) setRunSonar(false);
+        if (!fossaConf) setRunFossa(false);
+      } catch (err: any) {
+        if (!isMounted) return;
+        console.error("Failed to fetch user settings:", err);
+        setUserSettingsError("Failed to fetch user settings");
+      } finally {
+        if (isMounted) setIsUserSettingsLoading(false);
+      }
+
+      // 2. Fetch Global Admin Quality Check Config
+      setIsAdminConfigLoading(true);
+      setAdminConfigError(null);
+      try {
+        const res = await getQualityChecksAdminConfig();
+        if (!isMounted) return;
+        const rawConfig = res.quality_checks_config;
+        if (rawConfig) {
+          let parsed: any = rawConfig;
+          if (typeof parsed === "string") {
+            try {
+              parsed = JSON.parse(parsed);
+            } catch {
+              // ignore
+            }
+          }
+          if (typeof parsed === "string") {
+            try {
+              parsed = JSON.parse(parsed);
+            } catch {
+              // ignore
+            }
+          }
+          const configArray = Array.isArray(parsed)
+            ? parsed
+            : (typeof parsed === "object" && parsed !== null ? Object.values(parsed) : []);
+          setAdminConfig(configArray);
+
+          // Auto-disable state if not authorized globally
+          const sonarGlobal = configArray.find((c: any) => c.name === "SonarQube")?.enabled;
+          const fossaGlobal = configArray.find((c: any) => c.name === "FOSSA")?.enabled;
+          const testsGlobal = configArray.find((c: any) => c.name === "Run Unit Test Suite")?.enabled;
+
+          if (sonarGlobal === false) setRunSonar(false);
+          if (fossaGlobal === false) setRunFossa(false);
+          if (testsGlobal === false) setRunTests(false);
+        } else {
+          setAdminConfig([]);
+        }
+      } catch (err: any) {
+        if (!isMounted) return;
+        console.error("Failed to fetch quality checks admin config:", err);
+        setAdminConfigError("Failed to fetch quality checks admin configuration");
+      } finally {
+        if (isMounted) setIsAdminConfigLoading(false);
+      }
+    };
+
+    fetchConfigAndSettings();
+
+    const handleSettingsSaved = () => {
+      fetchConfigAndSettings();
+    };
+
+    window.addEventListener("javaapex:settings-saved", handleSettingsSaved);
+    return () => {
+      isMounted = false;
+      window.removeEventListener("javaapex:settings-saved", handleSettingsSaved);
+    };
+  }, []);
+
+  const isQualityChecksLoading = isAdminConfigLoading || isUserSettingsLoading;
+  const isSonarEnabledGlobally = Boolean(adminConfig.find((c: any) => c.name === "SonarQube")?.enabled);
+  const isFossaEnabledGlobally = Boolean(adminConfig.find((c: any) => c.name === "FOSSA")?.enabled);
+  const isTestsEnabledGlobally = Boolean(adminConfig.find((c: any) => c.name === "Run Unit Test Suite")?.enabled);
+
+  const isSonarAvailable = !isQualityChecksLoading && !adminConfigError && isSonarEnabledGlobally && isSonarConfigured;
+  const isFossaAvailable = !isQualityChecksLoading && !adminConfigError && isFossaEnabledGlobally && isFossaConfigured;
+  const isTestsAvailable = !isAdminConfigLoading && !adminConfigError && isTestsEnabledGlobally;
+
+  const getSonarSubtitle = () => {
+    if (isQualityChecksLoading) return "Checking authorization...";
+    if (adminConfigError) return "Unable to verify admin authorization.";
+    if (!isSonarEnabledGlobally) return "Not authorized by Super Admin.";
+    if (!isSonarConfigured) return "Not configured. Set up in User Settings.";
+    return "Static analysis for bug and vulnerability detection.";
+  };
+
+  const getFossaSubtitle = () => {
+    if (isQualityChecksLoading) return "Checking authorization...";
+    if (adminConfigError) return "Unable to verify admin authorization.";
+    if (!isFossaEnabledGlobally) return "Not authorized by Super Admin.";
+    if (!isFossaConfigured) return "Not configured. Set up in User Settings.";
+    return "Open-source license compliance and security.";
+  };
+
+  const getTestsSubtitle = () => {
+    if (isAdminConfigLoading) return "Checking authorization...";
+    if (adminConfigError) return "Unable to verify admin authorization.";
+    if (!isTestsEnabledGlobally) return "Not authorized by Super Admin.";
+    return "Execute discovered unit tests in the repository.";
+  };
+
   const apiEndpointCount = repoAnalysis?.api_endpoints?.length ?? 0;
   void apiEndpointCount;
 
@@ -613,6 +770,33 @@ export function ModernizationStepView({
           <h2 style={styles.title}>Build Modernization &amp; Migration</h2>
         </div>
       </div>
+
+      {/* LLM Not Configured Warning Banner */}
+      {isLlmConfiguredMod === false && (
+        <div style={{
+          display: "flex",
+          alignItems: "flex-start",
+          gap: 10,
+          background: "#fffbeb",
+          border: "1.5px solid #fde68a",
+          borderRadius: 10,
+          padding: "12px 16px",
+          marginBottom: 20,
+          fontSize: 13,
+          color: "#92400e",
+          lineHeight: 1.5,
+        }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 1 }}>
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+            <line x1="12" y1="9" x2="12" y2="13" />
+            <line x1="12" y1="17" x2="12.01" y2="17" />
+          </svg>
+          <div>
+            <strong>LLM not configured.</strong> Migration uses AI to generate modernized code.
+            Please go to <strong>User Settings → Intelligence</strong> and configure an AI provider (Groq, Hugging Face, or Ollama) before starting migration.
+          </div>
+        </div>
+      )}
 
       {/* ── Quality Gates & Test Suites Selection (3 Equal Cards in 1 Row) ── */}
       <div style={{ marginBottom: 28, marginTop: 24 }}>
@@ -630,30 +814,34 @@ export function ModernizationStepView({
               gap: 12,
               padding: "14px 18px",
               borderRadius: 12,
-              border: `2px solid ${runSonar ? "#22c55e" : "#e2e8f0"}`,
-              background: runSonar ? "#f0fdf4" : "#fff",
-              cursor: "pointer",
+              border: `2px solid ${runSonar && isSonarAvailable ? "#22c55e" : "#e2e8f0"}`,
+              background: runSonar && isSonarAvailable ? "#f0fdf4" : (isSonarAvailable ? "#fff" : "#f8fafc"),
+              cursor: isSonarAvailable ? "pointer" : "not-allowed",
               transition: "all 0.15s ease",
               minHeight: 88,
+              opacity: isSonarAvailable ? 1 : 0.6,
             }}
-            onClick={() => setRunSonar(!runSonar)}
+            onClick={() => {
+              if (isSonarAvailable) setRunSonar(!runSonar);
+            }}
           >
             <input
               type="checkbox"
-              checked={runSonar}
+              checked={runSonar && isSonarAvailable}
+              disabled={!isSonarAvailable}
               onChange={(e) => {
                 e.stopPropagation();
-                setRunSonar(e.target.checked);
+                if (isSonarAvailable) setRunSonar(e.target.checked);
               }}
-              style={{ width: 18, height: 18, accentColor: "#22c55e", cursor: "pointer", flexShrink: 0 }}
+              style={{ width: 18, height: 18, accentColor: "#22c55e", cursor: isSonarAvailable ? "pointer" : "not-allowed", flexShrink: 0 }}
             />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a", display: "flex", alignItems: "center", gap: 8 }}>
-                <FaSearch style={{ fontSize: 12, color: runSonar ? "#166534" : "#64748b", flexShrink: 0 }} />
+                <FaSearch style={{ fontSize: 12, color: runSonar && isSonarAvailable ? "#166534" : "#64748b", flexShrink: 0 }} />
                 <span>SonarQube</span>
               </div>
               <div style={{ fontSize: 12, color: "#64748b", marginTop: 2, lineHeight: 1.3 }}>
-                Static analysis for bug and vulnerability detection.
+                {getSonarSubtitle()}
               </div>
             </div>
             <span
@@ -663,8 +851,8 @@ export function ModernizationStepView({
                 fontWeight: 700,
                 padding: "3px 10px",
                 borderRadius: 6,
-                background: runSonar ? "#dcfce7" : "#f1f5f9",
-                color: runSonar ? "#166534" : "#64748b",
+                background: runSonar && isSonarAvailable ? "#dcfce7" : "#f1f5f9",
+                color: runSonar && isSonarAvailable ? "#166534" : "#64748b",
                 flexShrink: 0,
               }}
             >
@@ -680,30 +868,34 @@ export function ModernizationStepView({
               gap: 12,
               padding: "14px 18px",
               borderRadius: 12,
-              border: `2px solid ${runFossa ? "#22c55e" : "#e2e8f0"}`,
-              background: runFossa ? "#f0fdf4" : "#fff",
-              cursor: "pointer",
+              border: `2px solid ${runFossa && isFossaAvailable ? "#22c55e" : "#e2e8f0"}`,
+              background: runFossa && isFossaAvailable ? "#f0fdf4" : (isFossaAvailable ? "#fff" : "#f8fafc"),
+              cursor: isFossaAvailable ? "pointer" : "not-allowed",
               transition: "all 0.15s ease",
               minHeight: 88,
+              opacity: isFossaAvailable ? 1 : 0.6,
             }}
-            onClick={() => setRunFossa(!runFossa)}
+            onClick={() => {
+              if (isFossaAvailable) setRunFossa(!runFossa);
+            }}
           >
             <input
               type="checkbox"
-              checked={runFossa}
+              checked={runFossa && isFossaAvailable}
+              disabled={!isFossaAvailable}
               onChange={(e) => {
                 e.stopPropagation();
-                setRunFossa(e.target.checked);
+                if (isFossaAvailable) setRunFossa(e.target.checked);
               }}
-              style={{ width: 18, height: 18, accentColor: "#22c55e", cursor: "pointer", flexShrink: 0 }}
+              style={{ width: 18, height: 18, accentColor: "#22c55e", cursor: isFossaAvailable ? "pointer" : "not-allowed", flexShrink: 0 }}
             />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a", display: "flex", alignItems: "center", gap: 8 }}>
-                <FaShieldAlt style={{ fontSize: 12, color: runFossa ? "#166534" : "#64748b", flexShrink: 0 }} />
+                <FaShieldAlt style={{ fontSize: 12, color: runFossa && isFossaAvailable ? "#166534" : "#64748b", flexShrink: 0 }} />
                 <span>FOSSA</span>
               </div>
               <div style={{ fontSize: 12, color: "#64748b", marginTop: 2, lineHeight: 1.3 }}>
-                Open-source license compliance and security.
+                {getFossaSubtitle()}
               </div>
             </div>
             <span
@@ -713,8 +905,8 @@ export function ModernizationStepView({
                 fontWeight: 700,
                 padding: "3px 10px",
                 borderRadius: 6,
-                background: runFossa ? "#dcfce7" : "#f1f5f9",
-                color: runFossa ? "#166534" : "#64748b",
+                background: runFossa && isFossaAvailable ? "#dcfce7" : "#f1f5f9",
+                color: runFossa && isFossaAvailable ? "#166534" : "#64748b",
                 flexShrink: 0,
               }}
             >
@@ -730,30 +922,34 @@ export function ModernizationStepView({
               gap: 12,
               padding: "14px 18px",
               borderRadius: 12,
-              border: `2px solid ${runTests ? "#22c55e" : "#e2e8f0"}`,
-              background: runTests ? "#f0fdf4" : "#fff",
-              cursor: "pointer",
+              border: `2px solid ${runTests && isTestsAvailable ? "#22c55e" : "#e2e8f0"}`,
+              background: runTests && isTestsAvailable ? "#f0fdf4" : (isTestsAvailable ? "#fff" : "#f8fafc"),
+              cursor: isTestsAvailable ? "pointer" : "not-allowed",
               transition: "all 0.15s ease",
               minHeight: 88,
+              opacity: isTestsAvailable ? 1 : 0.6,
             }}
-            onClick={() => setRunTests(!runTests)}
+            onClick={() => {
+              if (isTestsAvailable) setRunTests(!runTests);
+            }}
           >
             <input
               type="checkbox"
-              checked={runTests}
+              checked={runTests && isTestsAvailable}
+              disabled={!isTestsAvailable}
               onChange={(e) => {
                 e.stopPropagation();
-                setRunTests(e.target.checked);
+                if (isTestsAvailable) setRunTests(e.target.checked);
               }}
-              style={{ width: 18, height: 18, accentColor: "#22c55e", cursor: "pointer", flexShrink: 0 }}
+              style={{ width: 18, height: 18, accentColor: "#22c55e", cursor: isTestsAvailable ? "pointer" : "not-allowed", flexShrink: 0 }}
             />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a", display: "flex", alignItems: "center", gap: 8 }}>
-                <FaFileAlt style={{ fontSize: 12, color: runTests ? "#166534" : "#64748b", flexShrink: 0 }} />
+                <FaFileAlt style={{ fontSize: 12, color: runTests && isTestsAvailable ? "#166534" : "#64748b", flexShrink: 0 }} />
                 <span>Run Unit Test Suite</span>
               </div>
               <div style={{ fontSize: 12, color: "#64748b", marginTop: 2, lineHeight: 1.3 }}>
-                Execute automated unit tests after migration to verify functionality.
+                {getTestsSubtitle()}
               </div>
             </div>
             <span
@@ -763,8 +959,8 @@ export function ModernizationStepView({
                 fontWeight: 700,
                 padding: "3px 10px",
                 borderRadius: 6,
-                background: runTests ? "#dcfce7" : "#f1f5f9",
-                color: runTests ? "#166534" : "#64748b",
+                background: runTests && isTestsAvailable ? "#dcfce7" : "#f1f5f9",
+                color: runTests && isTestsAvailable ? "#166534" : "#64748b",
                 flexShrink: 0,
               }}
             >

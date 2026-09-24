@@ -693,4 +693,3 @@ export async function getDashboardStats(jobId: string): Promise<DashboardStatsRe
     "Failed to fetch dashboard statistics"
   );
 }
-

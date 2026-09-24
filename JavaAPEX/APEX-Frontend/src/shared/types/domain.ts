@@ -20,7 +20,8 @@ export interface RepoFile {
 }
 
 export interface UserResponse {
-  id: string;
+  id: number | string;
+  userId?: number | string;
   fullName: string;
   email: string;
   role: string;

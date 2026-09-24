@@ -32,7 +32,7 @@ async def test_explain_risk_returns_llm_generated_text() -> None:
 async def test_explain_risk_falls_back_gracefully_on_error() -> None:
     mock_llm = MagicMock()
     mock_llm.chat_json = AsyncMock(side_effect=RuntimeError("LLM unavailable"))
-    
+
     mock_chat = MagicMock()
     async def mock_stream(*args, **kwargs):
         raise RuntimeError("Fallback LLM unavailable")

@@ -214,6 +214,7 @@ export function FunctionalTestingDocumentCard({
         border: "1px solid #e2e8f0",
         borderRadius: 16,
         padding: "20px 24px",
+        marginTop: 28,
         marginBottom: 24,
         boxShadow: "0 1px 3px 0 rgba(0, 0, 0, 0.05)",
         boxSizing: "border-box",

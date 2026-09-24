@@ -19,7 +19,7 @@ class FileDiffService:
         paths = WorkspacePaths(job_id)
         original_root = paths.original_repo_dir
         migrated_root = paths.migrated_repo_dir
-        
+
         all_changed = list(report.get("modifiedFiles") or [])
         if not all_changed and original_root.exists() and migrated_root.exists():
             added, removed, modified = file_utils.diff_relative_files(original_root, migrated_root)
@@ -53,11 +53,11 @@ class FileDiffService:
 
             orig_path = original_root / rel_path
             mig_path = migrated_root / rel_path
-            
+
             change_type = "MODIFIED"
             added_lines = 0
             removed_lines = 0
-            
+
             if not orig_path.exists():
                 change_type = "ADDED"
                 if mig_path.exists():
@@ -72,9 +72,9 @@ class FileDiffService:
                 diff = list(difflib.unified_diff(before_lines, after_lines, lineterm=""))
                 added_lines = sum(1 for line in diff if line.startswith("+") and not line.startswith("+++"))
                 removed_lines = sum(1 for line in diff if line.startswith("-") and not line.startswith("---"))
-                
+
             label = self._get_label(rel_path, report)
-            
+
             results.append({
                 "relativePath": rel_path,
                 "fileName": Path(rel_path).name,
@@ -83,7 +83,7 @@ class FileDiffService:
                 "addedLineCount": added_lines,
                 "removedLineCount": removed_lines,
             })
-            
+
         # Append all UI migration transformations into the changed files list
         for t in ui_transformations:
             source_file = t.get("sourceFile") or t.get("file") or ""
@@ -103,7 +103,7 @@ class FileDiffService:
                 "icon": t.get("icon") or "⚛️",
                 "status": t.get("status") or "Added",
             })
-            
+
         return sorted(results, key=lambda x: x["relativePath"])
 
     def get_file_diff(self, job_id: str, rel_path: str) -> dict[str, Any] | None:
@@ -138,28 +138,28 @@ class FileDiffService:
                         "icon": ui_t.get("icon") or "⚛️",
                         "status": ui_t.get("status") or "Added",
                     }
-            
+
             original_root = paths.original_repo_dir
             migrated_root = paths.migrated_repo_dir
-            
+
             orig_path = original_root / rel_path
             mig_path = migrated_root / rel_path
-            
+
             if not orig_path.exists() and not mig_path.exists():
                 return None
-                
+
             before_content = file_utils.read_text(orig_path) if orig_path.exists() else ""
             after_content = file_utils.read_text(mig_path) if mig_path.exists() else ""
-            
+
             before_lines_raw = before_content.splitlines()
             after_lines_raw = after_content.splitlines()
-            
+
             # Use SequenceMatcher for better alignment in side-by-side view
             sm = difflib.SequenceMatcher(None, before_lines_raw, after_lines_raw)
-            
+
             before_lines = []
             after_lines = []
-            
+
             for tag, i1, i2, j1, j2 in sm.get_opcodes():
                 if tag == 'equal':
                     for i in range(i1, i2):
@@ -194,7 +194,7 @@ class FileDiffService:
         lower_rel = rel_path.lower().replace("\\", "/")
         if lower_rel.endswith("pom.xml") or lower_rel.endswith("build.gradle") or lower_rel.endswith("build.gradle.kts"):
             return "Build Config"
-            
+
         # Check rule executions
         rule_executions = report.get("ruleExecutions") or []
         for exec_report in rule_executions:

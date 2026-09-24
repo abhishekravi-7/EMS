@@ -6,10 +6,14 @@
 const OAUTH_ERROR_MESSAGES: Record<string, string> = {
   access_denied: "Sign-in was cancelled.",
   invalid_state: "Your sign-in session expired. Please try again.",
+  oauth_state_invalid: "Your sign-in session expired or was invalid. Please try again.",
   provider_error: "We couldn't complete sign-in right now. Please try again.",
   provider_not_configured: "This sign-in method isn't available right now.",
+  oauth_configuration_error: "OAuth provider configuration is missing or incomplete.",
   missing_email:
     "We couldn't get a verified email from your account. Please use a different sign-in method.",
+  email_not_verified:
+    "Your third-party account email is not verified. Please verify your email with the provider or use email/password sign-in.",
   account_conflict:
     "An account with this email already exists. Please sign in with your password instead.",
   account_disabled: "This account has been disabled. Please contact support.",

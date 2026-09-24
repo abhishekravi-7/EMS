@@ -504,7 +504,7 @@ export function buildMigrationState(params: BuildMigrationStateParams): Migratio
         executed: runFossa || Boolean(fossaResult || migrationJob?.fossa_policy_status),
       },
       junit: {
-        executed: runTests || hasUnitTestData,
+        executed: Boolean(migrationJob?.run_tests ?? migrationJob?.runTests ?? runTests) || hasUnitTestData,
         testsPassed,
         testsFailed,
       },

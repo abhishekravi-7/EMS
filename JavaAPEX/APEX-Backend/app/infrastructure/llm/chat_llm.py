@@ -56,15 +56,13 @@ class ChatLLM:
         first_token_timeout: float | None = None,
         max_tokens: int | None = None,
     ) -> AsyncIterator[str]:
-        # Use Groq as primary when configured; Ollama as fallback.
-        providers = []
-        if self._groq.is_configured:
-            providers.append(self._groq)
+        # Require Groq to be configured in User Settings
+        if not self._groq.is_configured:
+            raise ChatLLMNotConfiguredError("LLM is not configured. Please setup your credentials in User Settings.")
+
+        providers = [self._groq]
         if self._ollama.is_configured:
             providers.append(self._ollama)
-
-        if not providers:
-            raise ChatLLMNotConfiguredError("No LLM providers are configured; both Groq and Ollama are unavailable.")
 
         errors: list[tuple[str, Exception]] = []
         total_start = time.time()
@@ -148,13 +146,16 @@ class ChatLLM:
     def _record_call(self, provider, index, start_time, endpoint, error):
         """Helper to record an LLM call attempt to token_tracing."""
         try:
+            from app.core.context import llm_values_ctx
+            ctx_vals = llm_values_ctx.get()
+            model_to_use = ctx_vals.get("selected_model") or provider._model
             tracer = tt.get_token_tracer()
             # Capture usage from the provider if it stored it during streaming
             usage = getattr(provider, "last_usage", None) or (0, 0, 0, 0)
 
             tracer.record(
                 role="chat",
-                model=provider._model,
+                model=model_to_use,
                 call_type="chat_stream",
                 duration_ms=(time.time() - start_time) * 1000,
                 usage=usage,
@@ -166,4 +167,3 @@ class ChatLLM:
             )
         except Exception as trace_exc:  # noqa: BLE001
             logger.warning("[ChatLLM] Token tracing failed: %s", type(trace_exc).__name__)
-

@@ -885,7 +885,7 @@ class ProposedTestAllureReporter:
     function renderTestList(filter = "") {{
       const listEl = document.getElementById('testList');
       listEl.innerHTML = "";
-      const filtered = testsData.filter(t => 
+      const filtered = testsData.filter(t =>
         !filter || t.title.toLowerCase().includes(filter.toLowerCase()) || t.id.toLowerCase().includes(filter.toLowerCase())
       );
 

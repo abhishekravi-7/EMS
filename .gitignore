@@ -18,4 +18,3 @@
 **/scratch/test_settings_conn.py
 **/tests/unit/test_llm_clients.py
 **/tests/unit/test_dependency_analysis_groq_fallback.py
-

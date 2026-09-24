@@ -126,6 +126,7 @@ export const clearWizardStorage = () => {
         key &&
         (key.startsWith(WIZARD_DISCOVERY_COMPLETED_KEY) ||
           key.startsWith(WIZARD_STRATEGY_COMPLETED_KEY) ||
+          key.startsWith(WIZARD_MIGRATION_COMPLETED_KEY) ||
           key.startsWith(WIZARD_REPO_ANALYSIS_KEY))
       ) {
         window.sessionStorage.removeItem(key);
