@@ -41,13 +41,23 @@ class DependencyCheckRunner:
 
     def run(self, project_dir: Path, *, job_id: str, project_name: str | None = None, quality_checks_values: dict | None = None) -> FossaScanResult:
         qc_config = quality_checks_values or {}
-        api_key = (qc_config.get("fossa_api_key") or "").strip()
+        api_key = (
+            qc_config.get("fossa_api_key")
+            or qc_config.get("fossa_token")
+            or qc_config.get("fossaApiKey")
+            or qc_config.get("fossaToken")
+            or qc_config.get("api_key")
+            or qc_config.get("apiKey")
+            or qc_config.get("token")
+            or getattr(settings, "fossa_api_key", "")
+            or ""
+        ).strip()
         if not api_key:
             return FossaScanResult(
                 policy_status="UNAVAILABLE",
                 scan_mode="missing_token",
-                error_message="FOSSA API key missing. Configure it in User Settings.",
-                log_lines=["FOSSA skipped: API key is not configured in user settings."],
+                error_message="FOSSA API key missing. Configure it in User Settings or Set FOSSA_API_KEY in .env.",
+                log_lines=["FOSSA skipped: API key is not configured in user settings or .env."],
             )
 
         cli = self._resolve_command(settings.fossa_cli_command)
@@ -71,7 +81,15 @@ class DependencyCheckRunner:
             )
             
         project = self._project_name(job_id, project_name or project_dir.name)
-        fossa_ep = (qc_config.get("fossa_endpoint") or "").strip()
+        fossa_ep = (
+            qc_config.get("fossa_endpoint")
+            or qc_config.get("fossa_url")
+            or qc_config.get("fossaEndpoint")
+            or qc_config.get("fossaUrl")
+            or qc_config.get("endpoint")
+            or getattr(settings, "fossa_endpoint", "")
+            or ""
+        ).strip()
         host_url = (fossa_ep if fossa_ep else "https://app.fossa.com").rstrip("/")
         # analysis_url is a fallback; the real URL will be extracted from CLI output after `fossa analyze` runs
         fallback_url = self._analysis_url(project)

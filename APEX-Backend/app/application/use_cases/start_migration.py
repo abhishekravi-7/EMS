@@ -56,6 +56,89 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _fetch_user_quality_checks_sync(user_id: Any, job_id: str | None = None) -> dict[str, Any]:
+    from app.core.config import settings
+    import pymongo
+
+    resolved_id = user_id
+    try:
+        sync_client = pymongo.MongoClient(settings.mongodb_uri, serverSelectionTimeoutMS=5000)
+        sync_db = sync_client[settings.mongodb_database]
+
+        if not resolved_id and job_id:
+            owner_doc = sync_db.migration_job_owners.find_one({"job_id": str(job_id)})
+            if owner_doc:
+                resolved_id = owner_doc.get("user_id")
+
+        if not resolved_id:
+            sync_client.close()
+            return {}
+
+        query_ids = [resolved_id]
+        if isinstance(resolved_id, str):
+            if resolved_id.isdigit():
+                query_ids.append(int(resolved_id))
+        elif isinstance(resolved_id, (int, float)):
+            query_ids.append(str(int(resolved_id)))
+
+        user_doc = sync_db.users.find_one({"_id": {"$in": query_ids}})
+        qc_values = {}
+        if user_doc:
+            qc_values = user_doc.get("quality_checks_values") or {}
+        sync_client.close()
+        return qc_values
+    except Exception as e:
+        logger.error(
+            "Failed to fetch user quality_checks_values for Quality Gates (user_id=%s, job_id=%s): %s",
+            resolved_id,
+            job_id,
+            e,
+        )
+        return {}
+
+
+def _fetch_user_github_pat(user_id: Any, job_id: str | None = None) -> str | None:
+    from app.core.config import settings
+    import pymongo
+
+    resolved_id = user_id
+    try:
+        sync_client = pymongo.MongoClient(settings.mongodb_uri, serverSelectionTimeoutMS=5000)
+        sync_db = sync_client[settings.mongodb_database]
+
+        if not resolved_id and job_id:
+            owner_doc = sync_db.migration_job_owners.find_one({"job_id": str(job_id)})
+            if owner_doc:
+                resolved_id = owner_doc.get("user_id")
+
+        if not resolved_id:
+            sync_client.close()
+            return None
+
+        query_ids = [resolved_id]
+        if isinstance(resolved_id, str):
+            if resolved_id.isdigit():
+                query_ids.append(int(resolved_id))
+        elif isinstance(resolved_id, (int, float)):
+            query_ids.append(str(int(resolved_id)))
+
+        user_doc = sync_db.users.find_one({"_id": {"$in": query_ids}})
+        pat = None
+        if user_doc:
+            gh_config = user_doc.get("github_config") or {}
+            pat = gh_config.get("pat") or gh_config.get("token")
+        sync_client.close()
+        return pat
+    except Exception as e:
+        logger.error(
+            "Failed to fetch user github pat (user_id=%s, job_id=%s): %s",
+            resolved_id,
+            job_id,
+            e,
+        )
+        return None
+
+
 class StartMigrationUseCase:
     def __init__(
         self,
@@ -351,20 +434,7 @@ class StartMigrationUseCase:
                     from app.application.use_cases.run_unit_tests import RunUnitTestSuiteUseCase
                     from app.schemas.unit_test import UnitTestGenerateAndRunRequest
                     
-                    quality_checks_values = {}
-                    active_user_id = user_id_ctx.get()
-                    if active_user_id:
-                        import pymongo
-                        from app.core.config import settings
-                        try:
-                            sync_client = pymongo.MongoClient(settings.mongodb_uri, serverSelectionTimeoutMS=5000)
-                            sync_db = sync_client[settings.mongodb_database]
-                            user_doc = sync_db.users.find_one({"_id": str(active_user_id)})
-                            if user_doc:
-                                quality_checks_values = user_doc.get("quality_checks_values", {})
-                            sync_client.close()
-                        except Exception:
-                            pass
+                    quality_checks_values = _fetch_user_quality_checks_sync(user_id_ctx.get(), job_id)
 
                     unit_test_use_case = RunUnitTestSuiteUseCase()
                     req = UnitTestGenerateAndRunRequest(
@@ -475,21 +545,9 @@ class StartMigrationUseCase:
                 stage_name="5. Code Deprecation",
                 percent=83,
                 status=MigrationStatus.RUNNING.value,
-                log_message="[DEPRECATION] Scanning for deprecated APIs and publishing migrated repository...",
+                log_message="[DEPRECATION] Scanning for deprecated APIs and preparing repository...",
             )
-            file_utils.remove_tree(paths.migrated_repo_dir / ".git")
-            publish_target_java = result.effective_target_java_version or target_java
-            # Build-gate: warn if publishing a repo with build failures
-            build_success_flag = (store.read() or {}).get("buildSuccess", False)
-            build_status_flag = (store.read() or {}).get("buildStatus", "UNKNOWN")
-            if not build_success_flag:
-                store.append_logs([
-                    f"[WARNING] Build validation status: {build_status_flag}. "
-                    "Migrated repository will still be published for inspection, "
-                    "but may contain compilation errors."
-                ])
-            target_repo = self._publish(store, report, paths, publish_target_java)
-            store.append_logs([f"[DEPRECATION] Published migrated repository to: {target_repo}"])
+            store.append_logs(["[DEPRECATION] Scanned codebase for deprecated Java APIs."])
             store.update(progressPercent=90)
 
             # --- Stage 6: Generating Migration Report ---
@@ -958,25 +1016,7 @@ class StartMigrationUseCase:
         )
         store.append_logs(["===== QUALITY GATES ====="])
 
-        quality_checks_values = {}
-        current_user_id = user_id_ctx.get()
-        if current_user_id:
-            from app.infrastructure.persistence.mongodb import MongoDBManager
-            mongo_manager = MongoDBManager()
-            # The manager connects async, but in the background thread we might just need the sync client.
-            # But wait, `get_sync_db()` needs `connect()` to be called first if it wasn't.
-            # Actually, `settings.mongodb_uri` is available, we can just use pymongo directly.
-            import pymongo
-            from app.core.config import settings
-            try:
-                sync_client = pymongo.MongoClient(settings.mongodb_uri, serverSelectionTimeoutMS=5000)
-                sync_db = sync_client[settings.mongodb_database]
-                user_doc = sync_db.users.find_one({"_id": str(current_user_id)})
-                if user_doc:
-                    quality_checks_values = user_doc.get("quality_checks_values", {})
-                sync_client.close()
-            except Exception as e:
-                logger.error(f"Failed to fetch user quality_checks_values for Quality Gates: {e}")
+        quality_checks_values = _fetch_user_quality_checks_sync(user_id_ctx.get(), job_id)
 
         try:
             project_name = str(report.get("targetRepo") or report.get("sourceRepoUrl") or job_id)
@@ -1078,10 +1118,12 @@ class StartMigrationUseCase:
         destination = report.get("destination") or {}
         mode = destination.get("mode", MODE_CREATE_NEW_REPO)
         commit_message = f"Migrate to Java {target_java}"
+        user_pat = _fetch_user_github_pat(user_id_ctx.get(), report.get("jobId"))
         effective_token = (
             (github_token or "").strip()
-            or (settings.github_token or "").strip()
+            or (user_pat or "").strip()
             or (settings.github_target_token or "").strip()
+            or (settings.github_token or "").strip()
             or None
         )
 
@@ -1093,7 +1135,11 @@ class StartMigrationUseCase:
             branch = destination.get("targetBranch") or "migration"
             source_url = report.get("sourceRepoUrl") or ""
             self._branch_creator.push_branch(
-                paths.migrated_repo_dir, source_url, branch, commit_message=commit_message
+                paths.migrated_repo_dir,
+                source_url,
+                branch,
+                commit_message=commit_message,
+                token=effective_token,
             )
             return f"{source_url.rstrip('/').removesuffix('.git')}/tree/{branch}"
 
@@ -1105,12 +1151,14 @@ class StartMigrationUseCase:
             destination.get("targetRepoName") or "",
             owner=target_owner,
             host=destination.get("targetHost"),
+            token=effective_token,
         )
         self._repo_pusher.push(
             paths.migrated_repo_dir,
             created.clone_url,
             commit_message=commit_message,
             allow_force_update_existing=True,
+            token=effective_token,
         )
         return created.html_url
 
