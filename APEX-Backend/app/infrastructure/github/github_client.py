@@ -126,6 +126,23 @@ class GithubClient:
     # Sync methods (used by the Start Migration background thread)
     # ------------------------------------------------------------------ #
 
+    def get_authenticated_user_sync(self, token: str | None = None) -> dict[str, Any] | None:
+        """Fetch current authenticated user profile via GET /user."""
+        url = f"{self._base_url}/user"
+        try:
+            with httpx.Client(timeout=self._timeout) as client:
+                response = client.get(url, headers=self._headers(token))
+        except httpx.HTTPError:
+            return None
+        if response.status_code == 200:
+            try:
+                data = response.json()
+                if isinstance(data, dict):
+                    return data
+            except ValueError:
+                pass
+        return None
+
     def get_owner_type_sync(self, owner: str, token: str | None = None) -> str | None:
         """Return "Organization" | "User" for a GitHub owner, or None if unknown."""
         url = f"{self._base_url}/users/{owner}"
