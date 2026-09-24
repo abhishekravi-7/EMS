@@ -329,6 +329,11 @@ def _core(report: dict[str, Any]) -> dict[str, Any]:
         "run_sonar": bool(report.get("run_sonar") if "run_sonar" in report else (report.get("runSonar") if "runSonar" in report else False)),
         "run_fossa": bool(report.get("run_fossa") if "run_fossa" in report else (report.get("runFossa") if "runFossa" in report else False)),
         "run_tests": bool(report.get("run_tests") if "run_tests" in report else (report.get("runTests") if "runTests" in report else False)),
+        "run_functional_tests": bool(
+            report.get("run_functional_tests")
+            if "run_functional_tests" in report
+            else (report.get("runFunctionalTests") if "runFunctionalTests" in report else True)
+        ),
         "runSonar": bool(report.get("runSonar") if "runSonar" in report else (report.get("run_sonar") if "run_sonar" in report else False)),
         "runFossa": bool(report.get("runFossa") if "runFossa" in report else (report.get("run_fossa") if "run_fossa" in report else False)),
         "runTests": bool(report.get("runTests") if "runTests" in report else (report.get("run_tests") if "run_tests" in report else False)),

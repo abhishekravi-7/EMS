@@ -172,6 +172,15 @@ class StartMigrationUseCase:
                 else bool(options.get("runTests") if "runTests" in options else options.get("run_tests", False))
             )
         )
+        run_functional_tests = (
+            bool(request["run_functional_tests"])
+            if "run_functional_tests" in request
+            else (
+                bool(request["runFunctionalTests"])
+                if "runFunctionalTests" in request
+                else bool(options.get("runFunctionalTests", True))
+            )
+        )
 
         store = MigrationReportStore(WorkspacePaths(job_id))
         report = {
@@ -191,6 +200,8 @@ class StartMigrationUseCase:
             "run_fossa": run_fossa,
             "runTests": run_tests,
             "run_tests": run_tests,
+            "runFunctionalTests": run_functional_tests,
+            "run_functional_tests": run_functional_tests,
             "proposedTestSources": proposed_test_sources,
             "destination": destination,
             "targetRepo": initial_target_repo,
@@ -710,23 +721,28 @@ class StartMigrationUseCase:
             # ── Phase C: Generate + Validate + Store Proposed Functional Test Cases ──
             # Generated only after migration completes (static code analysis combining LLM + BRD + Existing).
             # Execution is strictly on-demand from the Result Page against the Source Application.
-            try:
-                store.append_logs(["[PROPOSED TESTS] Migration completed. Preparing proposed test generation..."])
-                store.append_logs(["[PROPOSED TESTS] Generating master proposed test suite..."])
-                from app.application.use_cases.proposed_tests.proposed_test_service import proposed_test_service
-                proposals = proposed_test_service.generate_proposed_tests(job_id)
-                metrics = proposed_test_service._compute_metrics(proposals)
-                store.append_logs([
-                    f"[PROPOSED TESTS] LLM tests generated: {metrics.llm_generated_count}",
-                    f"[PROPOSED TESTS] Functional Document tests generated: {metrics.functional_doc_generated_count}",
-                    f"[PROPOSED TESTS] Existing Repository tests discovered: {metrics.existing_count}",
-                    f"[PROPOSED TESTS] Master suite created: {len(proposals)} tests",
-                    "[PROPOSED TESTS] Proposed tests ready on Result Page.",
-                ])
-                logger.info("Generated and persisted %d proposed test case(s) for job %s", len(proposals), job_id)
-            except Exception as pt_exc:  # noqa: BLE001
-                logger.warning(f"Post-migration proposed test generation notice for job {job_id}: {pt_exc}")
-                store.append_logs([f"[PROPOSED TESTS] Generation notice: {pt_exc}"])
+            run_functional_tests = report.get("runFunctionalTests", report.get("run_functional_tests", True))
+            if run_functional_tests:
+                try:
+                    store.append_logs(["[PROPOSED TESTS] Migration completed. Preparing proposed test generation..."])
+                    store.append_logs(["[PROPOSED TESTS] Generating master proposed test suite..."])
+                    from app.application.use_cases.proposed_tests.proposed_test_service import proposed_test_service
+                    proposals = proposed_test_service.generate_proposed_tests(job_id)
+                    metrics = proposed_test_service._compute_metrics(proposals)
+                    store.append_logs([
+                        f"[PROPOSED TESTS] LLM tests generated: {metrics.llm_generated_count}",
+                        f"[PROPOSED TESTS] Functional Document tests generated: {metrics.functional_doc_generated_count}",
+                        f"[PROPOSED TESTS] Existing Repository tests discovered: {metrics.existing_count}",
+                        f"[PROPOSED TESTS] Master suite created: {len(proposals)} tests",
+                        "[PROPOSED TESTS] Proposed tests ready on Result Page.",
+                    ])
+                    logger.info("Generated and persisted %d proposed test case(s) for job %s", len(proposals), job_id)
+                except Exception as pt_exc:  # noqa: BLE001
+                    logger.warning(f"Post-migration proposed test generation notice for job {job_id}: {pt_exc}")
+                    store.append_logs([f"[PROPOSED TESTS] Generation notice: {pt_exc}"])
+            else:
+                store.append_logs(["[PROPOSED TESTS] Functional testing disabled by user — proposed test generation skipped."])
+                logger.info("Proposed test generation skipped for job %s (functional testing disabled by user)", job_id)
 
             store.update(progressPercent=97)
 

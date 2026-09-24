@@ -379,6 +379,7 @@ export interface MigrationJobSummary {
   spring_conversion_requested?: boolean;
   spring_conversion_supported?: boolean | null;
   spring_conversion_note?: string | null;
+  run_functional_tests?: boolean;
 }
 
 // Start migration
