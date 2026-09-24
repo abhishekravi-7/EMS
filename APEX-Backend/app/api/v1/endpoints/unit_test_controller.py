@@ -42,6 +42,17 @@ def analyze_unit_tests(request: UnitTestAnalysisRequest) -> UnitTestAnalysisResp
         ) from exc
 
 
+from app.core.junit_prompts import PREDEFINED_JUNIT_PROMPTS, combine_junit_prompts
+
+
+@router.get(
+    "/predefined-prompts",
+    summary="Get list of predefined JUnit coverage prompts",
+)
+def get_predefined_junit_prompts() -> list[dict[str, str]]:
+    return PREDEFINED_JUNIT_PROMPTS
+
+
 @router.post(
     "/analyze-prompt",
     response_model=TestingPromptAnalysis,
@@ -51,9 +62,16 @@ async def analyze_testing_prompt(
     request: TestingPromptAnalysisRequest,
 ) -> TestingPromptAnalysis:
     try:
+        combined_prompt = combine_junit_prompts(
+            selected_prompt_ids=request.selected_predefined_prompts,
+            manual_prompt=request.manual_prompt or request.prompt,
+        )
+        if not combined_prompt and request.prompt:
+            combined_prompt = request.prompt
+
         generator = JUnitLLMGenerator()
         return await generator.analyze_testing_prompt(
-            prompt=request.prompt,
+            prompt=combined_prompt,
             project_context=request.project_context,
         )
     except APEXError as exc:

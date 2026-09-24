@@ -375,17 +375,46 @@ async def get_file_diff(
 _unit_test_report_gen = UnitTestReportGenerator()
 
 
-@router.get("/migration/{job_id}/unit-test-report", summary="Download full HTML unit test report.")
+from fastapi import Response
+
+@router.get("/migration/{job_id}/unit-test-report", summary="Download full unit test report (HTML or CSV).")
 async def download_unit_test_report(
     job_id: str,
+    format: str = "html",
     current_user: User = Depends(get_current_user),  # noqa: B008
-) -> HTMLResponse:
+) -> Response:
     await verify_job_ownership(job_id, current_user)
+    if format.lower() == "csv":
+        csv_content = await asyncio.to_thread(_unit_test_report_gen.generate_csv_report, job_id)
+        return Response(
+            content=csv_content,
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f'attachment; filename="unit-test-report-{job_id}.csv"'
+            },
+        )
+
     html_content = await asyncio.to_thread(_unit_test_report_gen.generate_html_report, job_id)
     return HTMLResponse(
         content=html_content,
         headers={
             "Content-Disposition": f'attachment; filename="unit-test-report-{job_id}.html"'
+        },
+    )
+
+
+@router.get("/migration/{job_id}/unit-test-report-csv", summary="Download full CSV unit test report.")
+async def download_unit_test_report_csv(
+    job_id: str,
+    current_user: User = Depends(get_current_user),  # noqa: B008
+) -> Response:
+    await verify_job_ownership(job_id, current_user)
+    csv_content = await asyncio.to_thread(_unit_test_report_gen.generate_csv_report, job_id)
+    return Response(
+        content=csv_content,
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="unit-test-report-{job_id}.csv"'
         },
     )
 
