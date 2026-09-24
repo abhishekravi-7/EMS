@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars, react-hooks/exhaustive-deps */
 import React, { useState, useEffect } from "react";
 import { FaShieldAlt, FaEye, FaEyeSlash, FaFlask, FaSpinner, FaLightbulb, FaCheckCircle } from "react-icons/fa";
 import { getQualityChecksAdminConfig, analyzeTestingPrompt, type FullUserSettings, type TestingPromptAnalysisResult } from "../services/adminService";
@@ -33,28 +34,10 @@ const TEST_SCENARIO_SUGGESTIONS = [
 interface UserQualityChecksSettingsProps {
   settings: FullUserSettings;
   onChange: React.Dispatch<React.SetStateAction<FullUserSettings>>;
+  mode?: "all" | "testing_only";
 }
 
-export default function UserQualityChecksSettings({
-  settings,
-  onChange,
-}: UserQualityChecksSettingsProps) {
-  const [adminConfig, setAdminConfig] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [showSecrets, setShowSecrets] = useState<{ [key: string]: boolean }>({});
-
-  const currentPrompt = settings?.quality_checks_values?.testing_prompt || settings?.test_cases_values?.testing_prompt || "";
-
-  const [analyzingPrompt, setAnalyzingPrompt] = useState(false);
-  const [promptAnalysis, setPromptAnalysis] = useState<TestingPromptAnalysisResult | null>(null);
-  const [promptAnalysisErr, setPromptAnalysisErr] = useState<string | null>(null);
-
-  const selectedPredefinedPrompts: string[] = Array.isArray(settings?.quality_checks_values?.selected_predefined_prompts)
-    ? settings.quality_checks_values.selected_predefined_prompts
-    : [];
-
-  const [predefinedPrompts] = useState<any[]>([
+const JUNIT_PREDEFINED_PROMPTS = [
     {
       id: "comprehensive_junit_coverage",
       title: "Comprehensive JUnit Coverage",
@@ -85,14 +68,32 @@ export default function UserQualityChecksSettings({
       prompt: "Analyze the existing JUnit tests and JaCoCo coverage report for the entire repository...",
       description: "Uses the actual JaCoCo report together with source-code analysis to dynamically identify and close meaningful JUnit coverage gaps."
     }
-  ]);
+  ];
+
+export default function UserQualityChecksSettings({
+  settings,
+  onChange,
+  mode = "all"
+}: UserQualityChecksSettingsProps) {
+  const [adminConfig, setAdminConfig] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [showSecrets, setShowSecrets] = useState<{ [key: string]: boolean }>({});
+
+  const currentPrompt = settings?.quality_checks_values?.testing_prompt || settings?.test_cases_values?.testing_prompt || "";
+
+  const [analyzingPrompt, setAnalyzingPrompt] = useState(false);
+  const [promptAnalysis, setPromptAnalysis] = useState<TestingPromptAnalysisResult | null>(null);
+  const [promptAnalysisErr, setPromptAnalysisErr] = useState<string | null>(null);
+
+  const selectedPredefinedPrompts: string[] = settings?.quality_checks_values?.selected_predefined_prompts ?? JUNIT_PREDEFINED_PROMPTS.map(p => p.id);
+
+  
 
   const [activeModalPrompt, setActiveModalPrompt] = useState<any | null>(null);
 
   const handleTogglePredefinedPrompt = (promptId: string) => {
-    const currentSelected: string[] = Array.isArray(settings?.quality_checks_values?.selected_predefined_prompts)
-      ? settings.quality_checks_values.selected_predefined_prompts
-      : [];
+    const currentSelected: string[] = settings?.quality_checks_values?.selected_predefined_prompts ?? JUNIT_PREDEFINED_PROMPTS.map(p => p.id);
     const nextSelected = currentSelected.includes(promptId)
       ? currentSelected.filter((id) => id !== promptId)
       : [...currentSelected, promptId];
@@ -141,78 +142,6 @@ export default function UserQualityChecksSettings({
       setPromptAnalysisErr(err.message || "Failed to analyze prompt.");
     } finally {
       setAnalyzingPrompt(false);
-    }
-  };
-
-  const currentFunctionalCustomPrompt = settings.quality_checks_values?.functional_custom_prompt || "";
-  const selectedFunctionalSuggestions = settings.quality_checks_values?.functional_testing_suggestions ?? TEST_SCENARIO_SUGGESTIONS.map(s => s.id);
-
-  const [analyzingFunctionalPrompt, setAnalyzingFunctionalPrompt] = useState(false);
-  const [functionalPromptAnalysis, setFunctionalPromptAnalysis] = useState<TestingPromptAnalysisResult | null>(null);
-  const [functionalPromptAnalysisErr, setFunctionalPromptAnalysisErr] = useState<string | null>(null);
-
-  const handleFunctionalCustomPromptChange = (val: string) => {
-    onChange((prev) => ({
-      ...prev,
-      quality_checks_values: {
-        ...(prev.quality_checks_values || {}),
-        functional_custom_prompt: val,
-      },
-    }));
-    setFunctionalPromptAnalysis(null);
-  };
-
-  const handleSuggestionToggle = (id: string, checked: boolean) => {
-    const newSelection = checked 
-      ? [...selectedFunctionalSuggestions, id] 
-      : selectedFunctionalSuggestions.filter((sid: string) => sid !== id);
-    
-    onChange((prev) => ({
-      ...prev,
-      quality_checks_values: {
-        ...(prev.quality_checks_values || {}),
-        functional_testing_suggestions: newSelection,
-      },
-    }));
-    setFunctionalPromptAnalysis(null);
-  };
-
-  const getCombinedFunctionalPrompt = () => {
-    const suggestionPrompts = TEST_SCENARIO_SUGGESTIONS
-      .filter(s => selectedFunctionalSuggestions.includes(s.id))
-      .map(s => s.prompt);
-    
-    let combined = suggestionPrompts.join("\n\n");
-    if (currentFunctionalCustomPrompt.trim()) {
-      combined += (combined ? "\n\n" : "") + currentFunctionalCustomPrompt.trim();
-    }
-    return combined;
-  };
-
-  const handleAnalyzeFunctionalPrompt = async () => {
-    const targetPrompt = getCombinedFunctionalPrompt();
-    if (!targetPrompt) {
-      alert("Please select at least one suggestion or enter a custom prompt.");
-      return;
-    }
-
-    setAnalyzingFunctionalPrompt(true);
-    setFunctionalPromptAnalysis(null);
-    setFunctionalPromptAnalysisErr(null);
-    try {
-      const res = await analyzeTestingPrompt(targetPrompt);
-      setFunctionalPromptAnalysis(res);
-      onChange((prev) => ({
-        ...prev,
-        quality_checks_values: {
-          ...(prev.quality_checks_values || {}),
-          functional_testing_prompt: targetPrompt, // Final combined prompt sent downstream
-        },
-      }));
-    } catch (err: any) {
-      setFunctionalPromptAnalysisErr(err.message || "Failed to analyze prompt.");
-    } finally {
-      setAnalyzingFunctionalPrompt(false);
     }
   };
 
@@ -535,61 +464,25 @@ export default function UserQualityChecksSettings({
           Select one or more predefined prompts below to guide dynamic JUnit coverage targets:
         </p>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-          {predefinedPrompts.map((p) => {
-            const isChecked = selectedPredefinedPrompts.includes(p.id);
-            return (
-              <div
-                key={p.id}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  padding: "10px 14px",
-                  borderRadius: "6px",
-                  border: isChecked ? "1px solid #2563eb" : "1px solid #e2e8f0",
-                  backgroundColor: isChecked ? "#eff6ff" : "#f8fafc",
-                  transition: "all 0.15s ease-in-out"
-                }}
-              >
-                <label style={{ display: "flex", alignItems: "center", gap: "10px", cursor: "pointer", flex: 1, fontWeight: isChecked ? 600 : 500, color: "#1e293b", fontSize: "0.88rem" }}>
-                  <input
-                    type="checkbox"
-                    checked={isChecked}
-                    onChange={() => handleTogglePredefinedPrompt(p.id)}
-                    style={{ width: "16px", height: "16px", accentColor: "#2563eb", cursor: "pointer" }}
-                  />
-                  <span>{p.title}</span>
-                </label>
-
-                <button
-                  type="button"
-                  onClick={() => setActiveModalPrompt(p)}
-                  title="View Description"
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "4px",
-                    background: "transparent",
-                    border: "1px solid #cbd5e1",
-                    borderRadius: "4px",
-                    padding: "4px 8px",
-                    fontSize: "0.78rem",
-                    color: "#2563eb",
-                    cursor: "pointer",
-                    fontWeight: 600
-                  }}
-                >
-                  <FaEye style={{ color: "#2563eb" }} />
-                  <span>[Eye]</span>
-                </button>
-              </div>
-            );
-          })}
+        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+            {JUNIT_PREDEFINED_PROMPTS.map(p => (
+              <label key={p.id} style={{ display: "flex", alignItems: "flex-start", gap: "8px", fontSize: "0.85rem", color: "#475569", cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={selectedPredefinedPrompts.includes(p.id)}
+                  onChange={() => handleTogglePredefinedPrompt(p.id)}
+                  style={{ marginTop: "3px" }}
+                />
+                <span style={{ display: "flex", flexDirection: "column" }}>
+                  <strong style={{ color: "#1e293b" }}>{p.title}</strong>
+                  <span style={{ fontSize: "0.8rem", color: "#64748b", marginTop: "2px" }}>{p.description}</span>
+                </span>
+              </label>
+            ))}
+          </div>
         </div>
-      </div>
 
-      {/* SECTION 2: MANUAL USER PROMPT TEXTAREA */}
+        {/* SECTION 2: MANUAL USER PROMPT TEXTAREA */}
       <div style={{ marginBottom: "12px" }}>
         <label style={{ display: "block", fontSize: "0.875rem", fontWeight: 600, color: "#1e293b", marginBottom: "6px" }}>
           Manual User Prompt (Optional)
@@ -604,59 +497,7 @@ export default function UserQualityChecksSettings({
         />
       </div>
 
-      {/* Test Coverage Increment Card */}
-      {(() => {
-        const count = selectedPredefinedPrompts.length;
-        const hasManual = Boolean(currentPrompt && currentPrompt.trim());
-        const hasComp = selectedPredefinedPrompts.includes("comprehensive_junit_coverage");
-        const hasBiz = selectedPredefinedPrompts.includes("business_logic_functional_paths");
-        const hasBranch = selectedPredefinedPrompts.includes("branch_condition_edge_case");
-        const hasExc = selectedPredefinedPrompts.includes("exception_negative_scenario");
-        const hasJacoco = selectedPredefinedPrompts.includes("jacoco_dynamic_coverage_gap");
-
-        let targetText = "80% Baseline Target Coverage";
-        let description = "Default baseline JUnit testing configuration will generate standard unit test cases across repository classes.";
-
-        if (count >= 3 || (hasComp && count >= 2) || (count >= 2 && hasJacoco)) {
-          targetText = "90% - 95% Maximum Target Coverage (+30% Increment)";
-          description = "Multiple selected prompts will execute comprehensive repository analysis, targeting core business services, branch conditions, exception handlers, and JaCoCo coverage gaps for maximum code coverage.";
-        } else if (hasComp || count >= 2) {
-          targetText = "85% - 90%+ Target Coverage (+25% Increment)";
-          description = "Selected prompts will generate multi-scenario JUnit test cases targeting repository services, controllers, and edge cases to achieve 85-90%+ code coverage.";
-        } else if (hasJacoco) {
-          targetText = "85% - 88% Target Coverage (+20% Increment)";
-          description = "JaCoCo Dynamic Coverage Gap prompt targets uncovered execution lines and missed branch conditions across the repository.";
-        } else if (hasBiz) {
-          targetText = "82% - 85% Target Coverage (+15% Increment)";
-          description = "Business Logic & Functional Paths prompt targets core service execution, domain calculation rules, and primary application workflows.";
-        } else if (hasBranch) {
-          targetText = "82% - 85% Target Coverage (+15% Increment)";
-          description = "Branch, Condition & Edge-Case prompt targets validator rules, decision logic, loop boundaries, and edge-case input variations.";
-        } else if (hasExc) {
-          targetText = "82% - 85% Target Coverage (+15% Increment)";
-          description = "Exception & Negative Scenario prompt targets error handlers, validation rejections, security checks, and null pointer protection.";
-        } else if (hasManual) {
-          targetText = "80% - 85% Target Coverage (+15% Custom Increment)";
-          description = "Custom manual prompt guidance will isolate specific repository classes and target scenarios matching your custom requirements.";
-        }
-
-        return (
-          <div style={{ marginTop: "16px", padding: "16px 20px", borderRadius: "10px", background: "#f0fdf4", border: "1px solid #86efac", boxShadow: "0 2px 6px rgba(16, 185, 129, 0.05)" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px", flexWrap: "wrap", gap: "8px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "#166534", fontWeight: 700, fontSize: "0.95rem" }}>
-                <FaCheckCircle style={{ color: "#16a34a" }} />
-                Expected JUnit Test Coverage Target
-              </div>
-              <span style={{ background: "#dcfce7", color: "#15803d", border: "1px solid #86efac", padding: "4px 12px", borderRadius: "14px", fontSize: "0.82rem", fontWeight: 700, transition: "all 0.2s ease" }}>
-                {targetText}
-              </span>
-            </div>
-            <p style={{ margin: 0, fontSize: "0.85rem", color: "#15803d", lineHeight: 1.5 }}>
-              {description}
-            </p>
-          </div>
-        );
-      })()}
+      
 
       {/* PROMPT DESCRIPTION MODAL */}
       {activeModalPrompt && (
@@ -733,6 +574,91 @@ export default function UserQualityChecksSettings({
     </div>
   );
   let renderedFunctionalPromptInCheck = false;
+
+  if (mode === "testing_only") {
+    return (
+      <div className="grid-2">
+        <div className="settings-toggle-card">
+          <div className="settings-toggle-header" style={{ marginBottom: "16px" }}>
+            <div className="settings-toggle-title">
+              <FaShieldAlt style={{ color: "#2563eb", marginRight: "8px" }} />
+              JUnit Unit Testing
+            </div>
+            <div className="switch-wrap">
+              <label className="switch-ios">
+                <input type="checkbox" checked={settings.quality_checks_values?.junit_testing_enabled ?? true} onChange={() => handleToggleFeature("junit_testing_enabled")} />
+                <span className="slider-ios"></span>
+              </label>
+              <span className="switch-label">Enabled</span>
+            </div>
+          </div>
+          <p className="settings-toggle-desc" style={{ marginBottom: "16px" }}>Enable or disable JUnit test generation and execution during migration.</p>
+          {renderPromptSection()}
+        </div>
+        
+        <div className="settings-toggle-card">
+          <div className="settings-toggle-header" style={{ marginBottom: "16px" }}>
+            <div className="settings-toggle-title">
+              <FaShieldAlt style={{ color: "#2563eb", marginRight: "8px" }} />
+              Functional Testing
+            </div>
+            <div className="switch-wrap">
+              <label className="switch-ios">
+                <input type="checkbox" checked={settings.quality_checks_values?.functional_testing_enabled ?? true} onChange={() => handleToggleFeature("functional_testing_enabled")} />
+                <span className="slider-ios"></span>
+              </label>
+              <span className="switch-label">Enabled</span>
+            </div>
+          </div>
+          <p className="settings-toggle-desc" style={{ marginBottom: "16px" }}>Enable or disable end-to-end functional UI testing frameworks (Playwright, Cypress, Selenium).</p>
+          {renderFunctionalPromptSection()}
+        </div>
+      
+        <div className="settings-toggle-card">
+          <div className="settings-toggle-header" style={{ marginBottom: "16px" }}>
+            <div className="settings-toggle-title">
+              <FaFlask style={{ color: "#2563eb", marginRight: "8px" }} />
+              E2E Framework Selection
+            </div>
+            <div className="switch-wrap">
+              <label className="switch-ios">
+                <input type="checkbox" checked={settings.quality_checks_values?.e2e_framework_enabled ?? true} onChange={() => handleToggleFeature("e2e_framework_enabled")} />
+                <span className="slider-ios"></span>
+              </label>
+              <span className="switch-label">Enabled</span>
+            </div>
+          </div>
+          <p className="settings-toggle-desc" style={{ marginBottom: "16px" }}>
+            Select the preferred framework to generate and execute end-to-end functional UI tests.
+          </p>
+          
+          <div style={{ padding: "16px", borderRadius: "8px", border: "1px solid #cbd5e1", backgroundColor: "#f8fafc" }}>
+            <label style={{ display: "block", fontSize: "0.875rem", fontWeight: 600, color: "#1e293b", marginBottom: "8px" }}>
+              Framework
+            </label>
+            <select
+              className="input-modern"
+              value={settings?.quality_checks_values?.functional_testing_framework || "playwright"}
+              onChange={(e) => {
+                onChange(prev => ({
+                  ...prev,
+                  quality_checks_values: {
+                    ...(prev.quality_checks_values || {}),
+                    functional_testing_framework: e.target.value
+                  }
+                }))
+              }}
+              style={{ width: "100%", padding: "10px", borderRadius: "6px", border: "1px solid #cbd5e1", backgroundColor: "#ffffff" }}
+            >
+              <option value="playwright">Playwright</option>
+              <option value="selenium">Selenium</option>
+              <option value="cypress">Cypress</option>
+            </select>
+          </div>
+        </div>
+</div>
+    );
+  }
 
   return (
     <div className="admin-content-stacked">
@@ -845,3 +771,17 @@ export default function UserQualityChecksSettings({
     </div>
   );
 }
+  const handleToggleFeature = (featureKey: string) => {
+    onChange((prev) => {
+      const currentVal = prev.quality_checks_values?.[featureKey] ?? true;
+      return {
+        ...prev,
+        quality_checks_values: {
+          ...(prev.quality_checks_values || {}),
+          [featureKey]: !currentVal
+        }
+      };
+    });
+  };
+
+  
