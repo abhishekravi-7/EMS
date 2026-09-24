@@ -301,6 +301,50 @@ export default function AdminConsolePage() {
               <FaShieldAlt style={{ color: "#2563eb", marginRight: "8px" }} />
               Quality Checks Configuration
             </h3>
+
+            <div className="field-grid-three" style={{ marginBottom: "20px" }}>
+              <div className="field-modern">
+                <label className="label-modern">SonarQube Host URL</label>
+                <input
+                  type="text"
+                  className="input-modern"
+                  value={settings.sonarqube_host_url || ""}
+                  onChange={(e) => handleFieldChange("sonarqube_host_url", e.target.value)}
+                  placeholder="https://sonarcloud.io"
+                />
+              </div>
+              <div className="field-modern">
+                <label className="label-modern">SonarQube Token</label>
+                <div className="input-wrap-modern">
+                  <input
+                    type={showSecrets["sonarqube_token"] ? "text" : "password"}
+                    className="input-modern"
+                    value={settings.sonarqube_token || ""}
+                    onChange={(e) => handleFieldChange("sonarqube_token", e.target.value)}
+                    placeholder="Enter SonarQube Token"
+                  />
+                  <div className="toggle-modern" onClick={() => toggleSecret("sonarqube_token")}>
+                    {showSecrets["sonarqube_token"] ? <FaEyeSlash /> : <FaEye />}
+                  </div>
+                </div>
+              </div>
+              <div className="field-modern">
+                <label className="label-modern">FOSSA API Key</label>
+                <div className="input-wrap-modern">
+                  <input
+                    type={showSecrets["fossa_api_key"] ? "text" : "password"}
+                    className="input-modern"
+                    value={settings.fossa_api_key || ""}
+                    onChange={(e) => handleFieldChange("fossa_api_key", e.target.value)}
+                    placeholder="Enter FOSSA API Key"
+                  />
+                  <div className="toggle-modern" onClick={() => toggleSecret("fossa_api_key")}>
+                    {showSecrets["fossa_api_key"] ? <FaEyeSlash /> : <FaEye />}
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <QualityChecksSettings
               configString={settings.quality_checks_config || ""}
               onChange={(newConfig) => handleFieldChange("quality_checks_config", newConfig)}

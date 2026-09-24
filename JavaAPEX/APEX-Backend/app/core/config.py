@@ -92,9 +92,10 @@ class Settings(BaseSettings):
     rag_enabled: bool = Field(default=False, alias="ENABLE_RAG")
     # Master switch for database usage. Supports both ENABLE_DATABASE and DATABASE_ENABLED.
     database_enabled: bool = Field(
-        default=True,
+        default=False,
         validation_alias=AliasChoices("ENABLE_DATABASE", "DATABASE_ENABLED", "database_enabled"),
     )
+    database_url: str = Field(default="", alias="DATABASE_URL")
     # Master switch for MongoDB usage.
     mongodb_enabled: bool = Field(default=True, alias="ENABLE_MONGODB")
     mongodb_uri: str = Field(default="", alias="MONGODB_URI")

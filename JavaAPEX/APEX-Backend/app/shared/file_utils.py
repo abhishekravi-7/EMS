@@ -185,21 +185,48 @@ def remove_tree(path: Path) -> None:
     ``.git``) via an onerror hook that strips all special attributes before
     retrying the delete.
     """
+    import time
     long_path = _long_path(path)
     if not long_path.exists():
         return
 
-    def _on_error(func, target, _exc_info):  # pragma: no cover - platform specific
+    # Pre-pass on Windows: remove read-only attributes from all files and directories
+    if sys.platform == "win32":
+        try:
+            for dirpath, dirnames, filenames in os.walk(str(long_path)):
+                for name in filenames + dirnames:
+                    p = os.path.join(dirpath, name)
+                    try:
+                        os.chmod(p, stat.S_IWRITE | stat.S_IREAD | stat.S_IEXEC)
+                    except OSError:
+                        pass
+        except OSError:
+            pass
+
+    def _on_error(func, target, *args):  # supports both Python <3.12 onerror and 3.12+ onexc
         try:
             p = Path(target)
-            # Strip read-only, hidden, system attributes then retry
             current = p.stat().st_mode
-            p.chmod(current | stat.S_IWRITE | stat.S_IREAD)
+            p.chmod(current | stat.S_IWRITE | stat.S_IREAD | stat.S_IEXEC)
             func(target)
         except OSError:
-            pass  # best-effort; copy_tree uses dirs_exist_ok as fallback
+            pass
 
-    shutil.rmtree(long_path, onerror=_on_error)
+    for attempt in range(5):
+        if not long_path.exists():
+            break
+        try:
+            try:
+                shutil.rmtree(long_path, onexc=_on_error)
+            except TypeError:
+                shutil.rmtree(long_path, onerror=_on_error)
+        except Exception:
+            pass
+
+        if not long_path.exists():
+            break
+        time.sleep(0.3)
+
 
 
 

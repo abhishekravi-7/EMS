@@ -35,10 +35,22 @@ class User:
     last_login_at: datetime | None = None
 
 
-async def get_current_user(request: Request, db: Session | None = Depends(get_db_optional)) -> User:  # noqa: B008
-    """Resolve the logged-in user via MongoDB authentication with fallback for guest/unauthenticated access."""
+def _get_mock_user() -> User:
+    user = User(
+        id="1",
+        email="dev@example.com",
+        full_name="Java APEX User",
+        role="USER",
+        is_active=True,
+        is_email_verified=True,
+        created_at=datetime.now(timezone.utc),
+    )
+    user_id_ctx.set(str(user.id))
+    return user
+
+
 async def get_current_user(request: Request) -> User:
-    """Resolve the logged-in user via MongoDB authentication."""
+    """Resolve the logged-in user via MongoDB authentication with fallback for guest/unauthenticated access."""
     auth_header = request.headers.get("Authorization", "")
     bearer_token = ""  # nosec B105
     if auth_header and auth_header.lower().startswith(_BEARER_PREFIX):
@@ -50,8 +62,6 @@ async def get_current_user(request: Request) -> User:
     if not raw_token:
         return _get_mock_user()
 
-    # 1. MongoDB Provider
-
     from app.application.services.mongodb_auth_service import MongoDBAuthService
     from app.infrastructure.persistence.mongodb import get_mongodb
 
@@ -62,32 +72,9 @@ async def get_current_user(request: Request) -> User:
     auth_service = MongoDBAuthService(mongo_db)
     try:
         user_data = await auth_service.get_user_from_access_token(raw_token)
-
-
-        # Map dict to an object that behaves like a User model
-        class MongoUser:
-            def __init__(self, data):
-                self.id = str(data["_id"])
-                self.email = data["email"]
-                self.full_name = data.get("full_name", "")
-                self.role = data.get("role", "USER")
-                self.is_active = data.get("is_active", True)
-                self.is_email_verified = data.get("is_email_verified", False)
-                self.created_at = data.get("created_at") or datetime.now(timezone.utc)
-                self.last_login_at = data.get("last_login_at")
-
-        user = MongoUser(user_data)
-        user_id_ctx.set(user.id)
-        return user  # type: ignore
-    except NotAuthenticatedError:
-        return _get_mock_user()
-    except Exception as exc:
-        logger.warning("Error resolving user from token, falling back to guest user: %s", exc)
-        return _get_mock_user()
-
         user = User(
-            id=user_data["_id"],
-            email=user_data["email"],
+            id=str(user_data["_id"]),
+            email=user_data.get("email", ""),
             full_name=user_data.get("full_name", ""),
             role=user_data.get("role", "USER"),
             is_active=user_data.get("is_active", True),
@@ -97,8 +84,11 @@ async def get_current_user(request: Request) -> User:
         )
         user_id_ctx.set(str(user.id))
         return user
-    except NotAuthenticatedError as exc:
-        raise HTTPException(status_code=401, detail=exc.message) from exc
+    except NotAuthenticatedError:
+        return _get_mock_user()
+    except Exception as exc:
+        logger.warning("Error resolving user from token, falling back to guest user: %s", exc)
+        return _get_mock_user()
 
 
 async def verify_job_ownership(arg1: Any, arg2: Any, arg3: Any = None) -> None:

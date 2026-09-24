@@ -653,7 +653,7 @@ async def test_github_oauth_existing_user_login_and_session(mongodb_db, monkeypa
         me_resp = await client.get("/api/auth/me", cookies=callback_resp.cookies)
         assert me_resp.status_code == 200
         me_data = me_resp.json()
-        assert me_data["id"] == user_id
+        assert str(me_data["id"]) == str(user_id)
         assert me_data["email"] == "existing.gh@domain.com"
 
         # 7. Ensure no duplicate user was created

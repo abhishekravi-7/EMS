@@ -155,9 +155,8 @@ async def list_discovery_files(
 async def get_framework_recommendation(
     job_id: str,
     current_user: User = Depends(get_current_user),  # noqa: B008
-    db: Session | None = Depends(get_db_optional),  # noqa: B008
 ) -> JSONResponse:
-    verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(job_id, current_user)
     paths = WorkspacePaths(job_id)
     if not paths.original_repo_dir.is_dir():
         return JSONResponse(

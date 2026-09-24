@@ -138,14 +138,21 @@ async def update_user_github_settings(
     new_test_cases_values = payload.test_cases_values or {}
 
     if mongo_db is not None:
-        await mongo_db.users.update_one(
-            {"_id": _get_query_id(str(current_user.id))},
-            {"$set": {
+        query = {"_id": user_doc["_id"]} if user_doc and "_id" in user_doc else {"_id": _get_query_id(str(current_user.id))}
+        update_doc: dict = {
+            "$set": {
                 "github_config": new_config,
                 "quality_checks_values": new_qc_values,
                 "test_cases_values": new_test_cases_values,
                 "llm_values": new_llm_values
-            }},
+            }
+        }
+        if getattr(current_user, "email", None):
+            update_doc["$setOnInsert"] = {"email": current_user.email}
+
+        await mongo_db.users.update_one(
+            query,
+            update_doc,
             upsert=True
         )
 

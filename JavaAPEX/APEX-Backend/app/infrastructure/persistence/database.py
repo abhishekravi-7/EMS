@@ -21,7 +21,8 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 # Create SQLAlchemy engine/session only when database usage is enabled and configured.
-if settings.database_enabled and bool(settings.database_url):
+db_url = getattr(settings, "database_url", "")
+if settings.database_enabled and bool(db_url):
     try:
         # `pool_pre_ping=True` makes SQLAlchemy validate a pooled connection with a
         # cheap "SELECT 1" before handing it to a request, so a connection the
@@ -102,11 +103,12 @@ def ensure_database_exists() -> None:
     Called once at startup, before `verify_database_connection()` — see
     `app/main.py`.
     """
-    if not settings.database_enabled or not settings.database_url:
+    db_url = getattr(settings, "database_url", "")
+    if not settings.database_enabled or not db_url:
         return
 
     try:
-        target_url = make_url(settings.database_url)
+        target_url = make_url(db_url)
         target_db_name = target_url.database
     except Exception as exc:  # noqa: BLE001
         logger.error("Could not parse DATABASE_URL: %s", exc)
@@ -156,7 +158,8 @@ def verify_database_connection() -> None:
     obvious startup error instead of a confusing failure on the first
     request.
     """
-    if not settings.database_enabled or not settings.database_url or engine is None:
+    db_url = getattr(settings, "database_url", "")
+    if not settings.database_enabled or not db_url or engine is None:
         return
 
     try:

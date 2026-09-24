@@ -124,25 +124,25 @@ class RecommendJavaVersionUseCase:
                 user_id_ctx.reset(user_token)
 
     @staticmethod
-
     def _extract_json(content: str) -> dict:
         text = (content or "").strip()
-        # Some models wrap JSON in ```json ... ``` fences
-        if text.startswith("```"):
-            text = text.strip("`")
-            if text[:4].lower() == "json":
-                text = text[4:]
 
         start = text.find("{")
         end = text.rfind("}")
         if start == -1 or end == -1 or end < start:
             raise LLMResponseInvalidError("Fallback model response did not contain JSON.")
 
+        json_str = text[start : end + 1]
         try:
-            return json.loads(text[start : end + 1])
-        except json.JSONDecodeError as exc:
-            raise LLMResponseInvalidError("Fallback model response was not valid JSON.") from exc
+            return json.loads(json_str, strict=False)
+        except json.JSONDecodeError:
+            cleaned = re.sub(r",\s*([\}\]])", r"\1", json_str)
+            try:
+                return json.loads(cleaned, strict=False)
+            except json.JSONDecodeError as exc:
+                raise LLMResponseInvalidError("Fallback model response was not valid JSON.") from exc
 
+    @staticmethod
     def _fallback(source_major: int, allowed_targets: list[str], already_at_latest: bool) -> dict:
         if already_at_latest:
             recommended = str(source_major)

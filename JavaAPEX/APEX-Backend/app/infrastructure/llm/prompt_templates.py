@@ -180,6 +180,7 @@ def build_junit_generation_prompt(
     junit_version: str = "JUnit 5",
     spring_boot_version: str | None = None,
     uncovered_methods: list[str] | None = None,
+    testing_focus_context: str | None = None,
 ) -> str:
     test_context = (
         f"EXISTING TEST CLASS:\n```java\n{existing_test_code}\n```"
@@ -192,6 +193,8 @@ def build_junit_generation_prompt(
         if uncovered_methods
         else "UNCOVERED METHODS TO PRIORITIZE: Cover all public and protected methods."
     )
+
+    focus_str = f"- CUSTOM TESTING FOCUS: {testing_focus_context}\n" if testing_focus_context else ""
 
     return f"""Generate a comprehensive JUnit 5 test class named `{target_class_name}Test` for package `{package_name}`.
 
@@ -207,7 +210,7 @@ PROJECT METADATA:
 - Testing Framework: {junit_version}
 - Framework Context: {spring_boot_version or 'Plain Java / Spring Boot'}
 - {uncovered_str}
-
+{focus_str}
 REQUIREMENTS & MANDATORY RULES:
 1. Every test method name MUST strictly follow BDD naming format:
    `given<Condition>_when<Action>_then<ExpectedResult>()`
@@ -229,6 +232,79 @@ REQUIREMENTS & MANDATORY RULES:
 
 4. Include @DisplayName on every test method.
 5. Output ONLY the raw Java code inside a single ```java block. Do not add conversational text outside the block."""
+
+
+TESTING_PROMPT_ANALYSIS_SYSTEM_PROMPT = """You are a Lead QA Engineer analyzing a developer's custom testing prompt/instructions for generating or augmenting JUnit 5 test cases. Your goal is to extract structured information about the user's requested testing focus.
+
+You MUST respond with ONLY a single valid JSON object with these keys:
+- "user_prompt": string
+- "testing_focus": string summary of the core testing objective
+- "target_areas": list of target component/class names or functional areas
+- "target_classes": list of target Java class names
+- "target_methods": list of target method names
+- "priority": list of high-priority scenario descriptions
+- "scenarios": list of specific test scenario descriptions requested
+- "edge_cases": list of edge cases or boundary conditions to cover
+"""
+
+
+def build_testing_prompt_analysis_prompt(
+    user_prompt: str,
+    project_context: str | None = None,
+    available_classes: list[dict[str, Any]] | None = None,
+) -> str:
+    ctx_str = f"\nPROJECT CONTEXT: {project_context}" if project_context else ""
+    avail_str = f"\nAVAILABLE CLASSES: {available_classes}" if available_classes else ""
+    return f"""Analyze the following custom testing prompt from the user and extract structured testing goals:
+
+USER PROMPT:
+{user_prompt}{ctx_str}{avail_str}
+
+Respond with strictly the JSON object described in the system prompt."""
+
+
+PROMPT_COVERAGE_EVALUATION_SYSTEM_PROMPT = """You are a Principal QA Auditor evaluating whether generated/executed JUnit tests satisfy a user's specific testing prompt and focus areas.
+
+You MUST respond with ONLY a single valid JSON object with these keys:
+- "user_prompt": string
+- "focus_matched": boolean (true if the executed tests adequately cover the user's requested testing focus)
+- "coverage_assessment": string assessment summarizing how well the testing focus was addressed
+- "covered_scenarios": list of strings listing user-requested scenarios that were covered by tests
+- "uncovered_scenarios": list of strings listing user-requested scenarios that were NOT covered
+- "recommendations": list of actionable recommendations to improve coverage of the prompt
+"""
+
+
+def build_prompt_coverage_evaluation_prompt(
+    prompt: str | None = None,
+    user_prompt: str | None = None,
+    analysis_summary: str | None = None,
+    testing_focus_data: dict[str, Any] | None = None,
+    executed_tests_summary: str | None = None,
+    executed_tests: list[dict[str, Any]] | None = None,
+    coverage_pct: float = 0.0,
+    line_coverage_pct: float = 0.0,
+) -> str:
+    eff_prompt = prompt or user_prompt or ""
+    summary_str = executed_tests_summary or str(executed_tests or [])
+    cov_val = coverage_pct or line_coverage_pct or 0.0
+    analysis_str = analysis_summary or str(testing_focus_data or "")
+
+    return f"""Evaluate prompt coverage for the executed JUnit test suite:
+
+USER PROMPT:
+{eff_prompt}
+
+PROMPT ANALYSIS SUMMARY:
+{analysis_str}
+
+EXECUTED TESTS SUMMARY:
+{summary_str}
+
+LINE COVERAGE PERCENTAGE:
+{cov_val}%
+
+Respond with strictly the JSON object described in the system prompt."""
 
 
 def build_junit_correction_prompt(

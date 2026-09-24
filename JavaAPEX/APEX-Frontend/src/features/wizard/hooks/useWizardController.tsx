@@ -85,14 +85,8 @@ import {
   WIZARD_MIGRATION_JOB_KEY,
   WIZARD_JOB_ID_KEY,
   WIZARD_SELECTED_REPO_KEY,
-
   type PersistedWizardFormState,
   WIZARD_FORM_STATE_KEY,
-  WIZARD_DISCOVERY_COMPLETED_KEY,
-  WIZARD_STRATEGY_COMPLETED_KEY,
-  getScopedStepUnlockKey,
-  readPersistedValue,
-  writeSessionValue,
 } from "@/shared/utils/migrationWizardStorage";
 import { getStepFromPath, STEP_ROUTES } from "@/config/stepRoutes";
 import { useMigrationWizardPersistence } from "@/shared/hooks/useMigrationWizardPersistence";
@@ -3303,54 +3297,47 @@ export function useWizardController() {
   const activeSessionKey = hasValidActiveRepo ? (activeJobId || activeRepo?.url || null) : null;
   // Track milestone completion across steps and backward navigation
   const [discoveryCompleted, setDiscoveryCompletedState] = useState<boolean>(() => {
-    const key = getScopedStepUnlockKey(WIZARD_DISCOVERY_COMPLETED_KEY, connectState.jobId || repoUrl);
+    const sessionKey = activeSessionKey || connectState?.jobId || repoUrl || "";
+    if (!sessionKey) return false;
+    const key = getScopedStepUnlockKey(WIZARD_DISCOVERY_COMPLETED_KEY, sessionKey);
     return readPersistedValue(key) === "true";
   });
   const [strategyCompleted, setStrategyCompletedState] = useState<boolean>(() => {
-    const key = getScopedStepUnlockKey(WIZARD_STRATEGY_COMPLETED_KEY, connectState.jobId || repoUrl);
+    const sessionKey = activeSessionKey || connectState?.jobId || repoUrl || "";
+    if (!sessionKey) return false;
+    const key = getScopedStepUnlockKey(WIZARD_STRATEGY_COMPLETED_KEY, sessionKey);
     return readPersistedValue(key) === "true";
   });
   const setDiscoveryCompleted = useCallback((val: boolean) => {
     setDiscoveryCompletedState(val);
-    const key = getScopedStepUnlockKey(WIZARD_DISCOVERY_COMPLETED_KEY, connectState.jobId || repoUrl);
-    writeSessionValue(key, String(val));
-  }, [connectState.jobId, repoUrl]);
+    const sessionKey = activeSessionKey || connectState?.jobId || repoUrl || "";
+    if (sessionKey) {
+      const key = getScopedStepUnlockKey(WIZARD_DISCOVERY_COMPLETED_KEY, sessionKey);
+      writeSessionValue(key, String(val));
+    }
+  }, [activeSessionKey, connectState?.jobId, repoUrl]);
   const setStrategyCompleted = useCallback((val: boolean) => {
     setStrategyCompletedState(val);
-    const key = getScopedStepUnlockKey(WIZARD_STRATEGY_COMPLETED_KEY, connectState.jobId || repoUrl);
-    writeSessionValue(key, String(val));
-  }, [connectState.jobId, repoUrl]);
-  const continueToStrategy = useCallback(() => {
-    setDiscoveryCompleted(true);
-    setStep(3);
-  }, [setDiscoveryCompleted, setStep]);
-  // Track milestone completion across steps and backward navigation for the CURRENT session key
-  const [discoveryCompleted, setDiscoveryCompleted] = useState<boolean>(() => {
-    if (!activeSessionKey) return false;
-    const scopedKey = getScopedStepUnlockKey(WIZARD_DISCOVERY_COMPLETED_KEY, activeSessionKey);
-    return readPersistedValue(scopedKey) === "true";
-  });
-  const [strategyCompleted, setStrategyCompleted] = useState<boolean>(() => {
-    if (!activeSessionKey) return false;
-    const scopedKey = getScopedStepUnlockKey(WIZARD_STRATEGY_COMPLETED_KEY, activeSessionKey);
-    return readPersistedValue(scopedKey) === "true";
-  });
+    const sessionKey = activeSessionKey || connectState?.jobId || repoUrl || "";
+    if (sessionKey) {
+      const key = getScopedStepUnlockKey(WIZARD_STRATEGY_COMPLETED_KEY, sessionKey);
+      writeSessionValue(key, String(val));
+    }
+  }, [activeSessionKey, connectState?.jobId, repoUrl]);
+
   // Keep milestone unlock flags in sync if activeSessionKey changes
   useEffect(() => {
     if (!activeSessionKey) {
-      setDiscoveryCompleted(false);
-      setStrategyCompleted(false);
-      setIsMigrationFinishedState(false);
+      setDiscoveryCompletedState(false);
+      setStrategyCompletedState(false);
       return;
     }
-
-  }, [isConnectCompleted, setDiscoveryCompleted, setStrategyCompleted]);
-
-  const scopedDisc = readPersistedValue(getScopedStepUnlockKey(WIZARD_DISCOVERY_COMPLETED_KEY, activeSessionKey));
+    const scopedDisc = readPersistedValue(getScopedStepUnlockKey(WIZARD_DISCOVERY_COMPLETED_KEY, activeSessionKey));
     const scopedStrat = readPersistedValue(getScopedStepUnlockKey(WIZARD_STRATEGY_COMPLETED_KEY, activeSessionKey));
-    setDiscoveryCompleted(scopedDisc === "true");
-    setStrategyCompleted(scopedStrat === "true");
+    setDiscoveryCompletedState(scopedDisc === "true");
+    setStrategyCompletedState(scopedStrat === "true");
   }, [activeSessionKey]);
+
   // Keep migration execution state isolated per activeJobId to prevent stale data leaks
   useEffect(() => {
     if (!activeJobId) {
@@ -3379,14 +3366,14 @@ export function useWizardController() {
   }, [activeJobId, migrationJob?.job_id]);
 
   const continueToStrategy = useCallback(() => {
-    const key = jobId || selectedRepo?.url;
+    const key = jobId || selectedRepo?.url || activeSessionKey;
     if (key) {
       const activeKey = getScopedStepUnlockKey(WIZARD_DISCOVERY_COMPLETED_KEY, key);
       writeSessionValue(activeKey, "true");
     }
     setDiscoveryCompleted(true);
     setStep(3);
-  }, [jobId, selectedRepo?.url, setStep]);
+  }, [jobId, selectedRepo?.url, activeSessionKey, setDiscoveryCompleted, setStep]);
 
   const navigateToResults = useCallback(() => {
     const key = jobId || activeJobId;
@@ -3426,18 +3413,6 @@ export function useWizardController() {
     isDiscoveryCompleted &&
     (strategyCompleted || persistedStrategyFlag);
 
-  // Step 4: Migration completed (strictly when backend job is completed or finished flag is set)
-  const isMigrationCompleted =
-    isStrategyCompleted &&
-    Boolean(
-      (migrationJob && migrationJob.status === "completed") ||
-      isMigrationFinishedState
-    );
-
-  // Step 5: Results completed (only when viewed at results phase)
-  const isResultsCompleted =
-    isMigrationCompleted && (step === 7 || isMigrationFinishedState);
-
   // Step 4: Migration completed (strictly when Strategy completed AND migration actually completed for THIS job)
   const isMigrationCompleted =
     isStrategyCompleted &&
@@ -3475,16 +3450,16 @@ export function useWizardController() {
 
   const isStepAccessible = (stepId: number): boolean => {
     if (stepId === 1) return true;
-
-    // Step 5 (Results) is ONLY accessible if Migration is completed by the backend
-    if (stepId === 5) {
-      return Boolean(step === 7 || (migrationJob?.status === "completed" && (isMigrationCompleted || isMigrationFinishedState)));
     if (!isConnectCompleted) return false;
     if (stepId === 2) return isConnectCompleted;
     if (stepId === 3) return isDiscoveryCompleted;
     if (stepId === 4) return isStrategyCompleted;
     if (stepId === 5) {
-      return isMigrationCompleted || isMigrationFinishedState || isStrategyCompleted;
+      return Boolean(
+        step === 7 ||
+          (migrationJob?.status === "completed" &&
+            (isMigrationCompleted || isMigrationFinishedState))
+      );
     }
     return (stepId - 1) <= highestCompletedStep;
   };
@@ -3727,8 +3702,6 @@ export function useWizardController() {
       })
       .catch(() => {});
   }, [migrationJob?.job_id, migrationJob?.status, setMigrationDetailLoadedJobId, setMigrationJob, step]);
-      .catch(() => { });
-  }, [migrationJob?.job_id, setMigrationDetailLoadedJobId, setMigrationJob, step]);
 
   useEffect(() => {
     if (step !== 5 || !migrationJob?.job_id) {

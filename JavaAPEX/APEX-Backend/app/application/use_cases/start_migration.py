@@ -664,22 +664,9 @@ class StartMigrationUseCase:
                 stage_name="5. Code Deprecation",
                 percent=83,
                 status=MigrationStatus.RUNNING.value,
-                log_message="[DEPRECATION] Scanning for deprecated APIs and publishing migrated repository...",
+                log_message="[DEPRECATION] Scanning for deprecated APIs...",
             )
-            file_utils.remove_tree(paths.migrated_repo_dir / ".git")
-            publish_target_java = result.effective_target_java_version or target_java
-            target_repo = self._publish(store, report, paths, publish_target_java)
-            # Build-gate: warn if publishing a repo with build failures
-            build_success_flag = (store.read() or {}).get("buildSuccess", False)
-            build_status_flag = (store.read() or {}).get("buildStatus", "UNKNOWN")
-            if not build_success_flag:
-                store.append_logs([
-                    f"[WARNING] Build validation status: {build_status_flag}. "
-                    "Migrated repository will still be published for inspection, "
-                    "but may contain compilation errors."
-                ])
-            target_repo = self._publish(store, report, paths, publish_target_java, github_token=github_token)
-            store.append_logs([f"[DEPRECATION] Published migrated repository to: {target_repo}"])
+            store.append_logs(["[DEPRECATION] Code deprecation scan completed."])
             store.update(progressPercent=90)
 
             # --- Stage 6: Generating Migration Report ---
@@ -823,8 +810,6 @@ class StartMigrationUseCase:
             file_utils.remove_tree(paths.migrated_repo_dir / ".git")
             publish_target_java = result.effective_target_java_version or target_java
 
-            target_repo = self._publish(store, report, paths, publish_target_java)
-
             # Build-gate: warn if publishing a repo with build failures
             build_success_flag = (store.read() or {}).get("buildSuccess", False)
             build_status_flag = (store.read() or {}).get("buildStatus", "UNKNOWN")
@@ -835,17 +820,6 @@ class StartMigrationUseCase:
                     "but may contain compilation errors."
                 ])
             target_repo = self._publish(store, report, paths, publish_target_java, github_token=github_token)
-
-            # --- Done ---
-            store.update(
-                status=MigrationStatus.COMPLETED.value,
-                currentStep=MigrationStep.COMPLETED.value,
-                progressPercent=100,
-                targetRepo=target_repo,
-                completedAt=_now(),
-            )
-            store.append_logs([f"Migration completed. Published to {target_repo}"])
-            logger.info("Migration completed for job %s -> %s", job_id, target_repo)
 
             # Refresh the chatbot's vector index
             self._reindex_knowledge_base(job_id)

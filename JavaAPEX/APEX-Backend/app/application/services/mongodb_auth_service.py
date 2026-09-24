@@ -157,12 +157,11 @@ class MongoDBAuthService:
 
         target_id = int(raw_user_id) if raw_user_id.isdigit() else raw_user_id
         token_hash = security.hash_refresh_token(refresh_token)
-        session = await self._db.auth_sessions.find_one({"token_hash": token_hash, "user_id": user_id})
 
         session = await self._db.auth_sessions.find_one({
-    "token_hash": token_hash,
-    "$or": [{"user_id": target_id}, {"user_id": str(target_id)}]
-})
+            "token_hash": token_hash,
+            "$or": [{"user_id": target_id}, {"user_id": str(target_id)}]
+        })
         if not session:
             # Token might have been reused or revoked.
             raise NotAuthenticatedError("Invalid session.")
@@ -170,17 +169,9 @@ class MongoDBAuthService:
         # Rotate: delete old session
         await self._db.auth_sessions.delete_one({"_id": session["_id"]})
 
-        user = await mongodb_user_repository.get_user_by_id(self._db, user_id)
-        if not user or not user.get("is_active", True):
-             raise NotAuthenticatedError("User not found or inactive.")
-
-        new_access = security.create_access_token(user_id)
-        new_refresh = security.create_refresh_token(user_id)
-        await self._store_refresh_token(user_id, new_refresh)
-
         user = await mongodb_user_repository.get_user_by_id(self._db, target_id)
         if not user or not self._is_user_active(user):
-             raise NotAuthenticatedError("User not found or inactive.")
+            raise NotAuthenticatedError("User not found or inactive.")
 
         new_access = security.create_access_token(user["_id"])
         new_refresh = security.create_refresh_token(user["_id"])
@@ -199,14 +190,15 @@ class MongoDBAuthService:
             if not user:
                 # Fallback check by email in case user_id in JWT is an email address
                 user = await mongodb_user_repository.get_user_by_email(self._db, str(user_id))
+            dev_email = getattr(settings, "dev_static_user_email", "dev@example.com")
             if not user and (
                 str(user_id) in ("1", "static_user")
-                or str(user_id).lower() == settings.dev_static_user_email.lower()
+                or (dev_email and str(user_id).lower() == dev_email.lower())
             ):
                 user = {
                     "_id": "1",
                     "full_name": "Java APEX User",
-                    "email": settings.dev_static_user_email,
+                    "email": dev_email or "dev@example.com",
                     "role": "USER",
                     "is_active": True,
                     "is_email_verified": True
@@ -226,9 +218,6 @@ class MongoDBAuthService:
                         "is_email_verified": True
                     }
                     await mongodb_user_repository.ensure_fallback_user(self._db, user)
-            if not user.get("is_active", True):
-                raise NotAuthenticatedError("User account is inactive.")
-            user = await mongodb_user_repository.get_user_by_id(self._db, user_id)
             if not user or not self._is_user_active(user):
                 raise NotAuthenticatedError("User not found or inactive.")
             return user
@@ -246,47 +235,14 @@ class MongoDBAuthService:
         profile_image: str | None,
         github_account: str | None = None,
     ) -> dict:
-        """Find-or-create the local user for a verified provider identity (MongoDB)."""
-        pid = str(provider_user_id)
-        normalized_email = email.strip().lower() if email else None
-
-        # 1. Check if an oauth_account mapping exists for this provider + provider_user_id
         """Find-or-create or safely link the local user for a verified provider identity (MongoDB)."""
+        pid = str(provider_user_id)
         normalized_email = email.strip().lower() if email else None
 
         # 1. First check oauth_accounts for existing provider mapping
         existing_account = await mongodb_user_repository.get_oauth_account(
             self._db, provider=provider, provider_user_id=pid
         )
-        if existing_account:
-            user = await mongodb_user_repository.get_user_by_id(self._db, existing_account["user_id"])
-            if not user and normalized_email:
-                user = await mongodb_user_repository.get_user_by_email(self._db, normalized_email)
-                if user:
-                    await mongodb_user_repository.create_oauth_account(
-                        self._db,
-                        user_id=user["_id"],
-                        provider=provider,
-                        provider_user_id=pid,
-                        provider_email=normalized_email,
-                    )
-            if user:
-                if not user.get("is_active", True):
-                    raise AccountDisabledError()
-                await mongodb_user_repository.update_last_login(self._db, user["_id"])
-                return user
-
-        if not normalized_email:
-            raise OAuthEmailMissingError()
-
-        # 2. Check if a user with this email already exists
-        existing_user = await mongodb_user_repository.get_user_by_email(self._db, normalized_email)
-        if existing_user:
-            if not existing_user.get("is_active", True):
-                raise AccountDisabledError()
-
-            # Upsert the oauth_account record linking this provider identity to the existing user
-
         if existing_account and existing_account.get("user_id") is not None:
             raw_uid = existing_account["user_id"]
             target_user = await mongodb_user_repository.get_user_by_id(self._db, raw_uid)
@@ -306,13 +262,15 @@ class MongoDBAuthService:
                     updates["is_email_verified"] = True
 
                 # Ensure provider is in auth_providers list
-                if provider not in target_user.get("auth_providers", []):
-                    updates["auth_providers"] = target_user.get("auth_providers", []) + [provider]
+                auth_providers = target_user.get("auth_providers") or []
+                if provider not in auth_providers:
+                    updates["auth_providers"] = auth_providers + [provider]
 
                 if updates:
                     await mongodb_user_repository.update_user(self._db, target_user["_id"], updates)
                     target_user.update(updates)
 
+                await mongodb_user_repository.update_last_login(self._db, target_user["_id"])
                 return target_user
             else:
                 logger.info(
@@ -336,7 +294,7 @@ class MongoDBAuthService:
             # Safely sync / upsert oauth_accounts record
             await self._db.oauth_accounts.delete_many({
                 "provider": provider,
-                "provider_user_id": provider_user_id,
+                "provider_user_id": pid,
             })
             await mongodb_user_repository.create_oauth_account(
                 self._db,
@@ -345,23 +303,12 @@ class MongoDBAuthService:
                 provider_user_id=pid,
                 provider_email=normalized_email,
             )
-            auth_providers = existing_user.get("auth_providers") or []
-            if provider not in auth_providers:
-                auth_providers.append(provider)
-                await mongodb_user_repository.update_user(self._db, existing_user["_id"], {"auth_providers": auth_providers})
-
-            await mongodb_user_repository.update_last_login(self._db, existing_user["_id"])
-            return existing_user
-
-        # 3. Create a new user for first-time SSO login
-
-            # Update user fields: mark is_email_verified=True and record provider
             updates: dict[str, Any] = {}
             if not existing_user.get("is_email_verified", False):
                 updates["is_email_verified"] = True
-            if provider not in existing_user.get("auth_providers", []):
-                updates["auth_providers"] = existing_user.get("auth_providers", []) + [provider]
-
+            auth_providers = existing_user.get("auth_providers") or []
+            if provider not in auth_providers:
+                updates["auth_providers"] = auth_providers + [provider]
             if github_account and provider == "github" and existing_user.get("github_account") != github_account:
                 updates["github_account"] = github_account
 
@@ -369,6 +316,7 @@ class MongoDBAuthService:
                 await mongodb_user_repository.update_user(self._db, existing_user["_id"], updates)
                 existing_user.update(updates)
 
+            await mongodb_user_repository.update_last_login(self._db, existing_user["_id"])
             return existing_user
 
         # 3. Create new user for verified OAuth identity
@@ -380,17 +328,13 @@ class MongoDBAuthService:
             auth_provider=provider,
             provider_user_id=pid,
             profile_image=profile_image,
-            is_email_verified=True if email_verified is None else email_verified,
-        )
-
-
             is_email_verified=True,
             github_account=github_account,
         )
 
         await self._db.oauth_accounts.delete_many({
             "provider": provider,
-            "provider_user_id": provider_user_id,
+            "provider_user_id": pid,
         })
         await mongodb_user_repository.create_oauth_account(
             self._db,
