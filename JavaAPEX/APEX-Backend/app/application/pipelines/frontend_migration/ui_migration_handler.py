@@ -255,7 +255,15 @@ class UIMigrationHandler:
         ext = ".tsx" if is_react else ".ts"
 
         # Derive component name: list-todos.jsp -> ListTodosComponent
+        # Prevent collisions across subdirectories (e.g. admin/navbar.jsp vs doctor/navbar.jsp)
+        parent_part = file_path.parent.name.lower()
+        prefix = ""
+        if parent_part not in ("webapp", "webcontent", "pages", "views", "ui", "src", "public", ""):
+            prefix = "".join(part.capitalize() for part in parent_part.replace("-", " ").replace("_", " ").split())
+
         clean_stem = "".join(part.capitalize() for part in file_path.stem.replace("-", " ").replace("_", " ").split())
+        if prefix and not clean_stem.lower().startswith(prefix.lower()):
+            clean_stem = f"{prefix}{clean_stem}"
         comp_name = f"{clean_stem}Component" if not clean_stem.endswith("Component") else clean_stem
 
         target_file_name = f"{comp_name}{ext}"

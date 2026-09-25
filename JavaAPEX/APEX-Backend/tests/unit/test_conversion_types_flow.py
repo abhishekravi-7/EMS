@@ -3,6 +3,7 @@ from pathlib import Path
 import tempfile
 import shutil
 
+from unittest.mock import patch
 from app.infrastructure.analyzers.frontend_compatibility_analyzer import FrontendCompatibilityAnalyzer
 from app.application.services.report_service import _core
 
@@ -12,8 +13,28 @@ class ConversionTypesFlowTests(unittest.TestCase):
         self.temp_dir = tempfile.mkdtemp()
         self.repo_path = Path(self.temp_dir)
         self.analyzer = FrontendCompatibilityAnalyzer()
+        self._llm_patcher = patch.object(
+            FrontendCompatibilityAnalyzer,
+            "_query_llm_recommendation",
+            return_value={
+                "recommended_target": "react",
+                "recommended_target_label": "JSP -> React",
+                "recommended_version": "19.3",
+                "confidence": "high",
+                "compatibility": {
+                    "node": {"detected": "20.x", "required": "18.x+", "status": "compatible"},
+                    "typescript": {"detected": "5.6.x", "required": "5.x+", "status": "compatible"},
+                },
+                "recommendation": "Compatible with detected project environment.",
+                "reasons": ["Compatible with modern ESM runtime."],
+                "requirements": ["Configure React build toolchain."],
+                "risks": [],
+            },
+        )
+        self._llm_patcher.start()
 
     def tearDown(self):
+        self._llm_patcher.stop()
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def test_jsp_to_react_flow(self):

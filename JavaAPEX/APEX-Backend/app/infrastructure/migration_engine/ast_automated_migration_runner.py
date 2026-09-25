@@ -191,17 +191,43 @@ class AstMigrationRunner:
                 logs.extend(gradle_res.log_lines)
 
         # 2. Modernize Java source files (Javax to Jakarta, JUnit 4 to 5, Import cleanup)
+        def _parse_java_major(v: str | None) -> int:
+            if not v:
+                return 17
+            t = str(v).strip().lower().replace("java", "").strip()
+            if t.startswith("1."):
+                t = t.split(".", 1)[1]
+            t = t.split(".", 1)[0]
+            return int(t) if t.isdigit() else 17
+
+        target_major = _parse_java_major(target_java)
+        has_jakarta_dep = any("jakarta" in (u.get("groupId", "") + u.get("artifactId", "") + u.get("artifact_id", "") + u.get("group_id", "")).lower() for u in dep_upgrades)
+        should_convert_jakarta = (
+            "javax-to-jakarta" in active_packs
+            or "JAVAX-TO-JAKARTA" in active_visitors
+            or "jakarta" in str(active_packs).lower()
+            or has_jakarta_dep
+            or (target_major >= 17 and any(
+                re.search(r"\bjavax\.(servlet|persistence|annotation|validation|ws\.rs|xml\.bind|transaction|ejb|jms|mail)\b", file_utils.read_text(p))
+                for p in project_dir.rglob("*.java") if p.is_file()
+            ))
+        )
+
         for java_path in project_dir.rglob("*.java"):
             source = file_utils.read_text(java_path)
             original_source = source
 
-            if "javax-to-jakarta" in active_packs or "JAVAX-TO-JAKARTA" in active_visitors or "jakarta" in str(active_packs):
+            if should_convert_jakarta:
                 source = re.sub(r"\bjavax\.persistence\b", "jakarta.persistence", source)
                 source = re.sub(r"\bjavax\.servlet\b", "jakarta.servlet", source)
                 source = re.sub(r"\bjavax\.annotation\b", "jakarta.annotation", source)
                 source = re.sub(r"\bjavax\.validation\b", "jakarta.validation", source)
                 source = re.sub(r"\bjavax\.ws\.rs\b", "jakarta.ws.rs", source)
                 source = re.sub(r"\bjavax\.xml\.bind\b", "jakarta.xml.bind", source)
+                source = re.sub(r"\bjavax\.transaction\b", "jakarta.transaction", source)
+                source = re.sub(r"\bjavax\.ejb\b", "jakarta.ejb", source)
+                source = re.sub(r"\bjavax\.jms\b", "jakarta.jms", source)
+                source = re.sub(r"\bjavax\.mail\b", "jakarta.mail", source)
 
             if "junit" in str(active_packs) or "junit" in source:
                 source = source.replace("import org.junit.Test;", "import org.junit.jupiter.api.Test;")

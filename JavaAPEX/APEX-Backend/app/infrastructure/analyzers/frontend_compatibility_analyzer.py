@@ -1,21 +1,42 @@
 """Dynamic framework and target version compatibility analyzer.
 
 Inspects the repository files (package.json, lockfiles, .nvmrc, tsconfig.json,
-angular.json, build tools, and runtime environment) to determine the highest
-compatible stable target versions for React and Angular migrations.
+angular.json, build tools, and runtime environment) to build a compact
+repository-context payload, and delegates the recommendation reasoning and
+target-version evaluation to the LLM.
+
+Deterministic tasks:
+- JSP/JSPF file detection & counts
+- JSF/XHTML file detection & counts
+- package.json detection & dependency parsing
+- Lockfile / package manager detection
+- tsconfig.json & angular.json detection
+- Host runtime Node.js detection
+
+Dynamic LLM tasks:
+- Migration target evaluation & recommendation
+- Environment-specific compatibility reasoning
+- Dynamic target version selection
+- Repository-specific migration reasons & constraints
 """
 
 from __future__ import annotations
 
+import asyncio
+import concurrent.futures
+import hashlib
 import json
 import logging
 import re
 import shutil
 import subprocess
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from app.infrastructure.llm.chat_llm import ChatLLM
+from app.infrastructure.llm.huggingface_client import HuggingFaceClient
 from app.shared import file_utils
 
 logger = logging.getLogger(__name__)
@@ -23,9 +44,58 @@ logger = logging.getLogger(__name__)
 # Directories commonly hosting frontend assets or configurations
 _CANDIDATE_DIRS = ("", "frontend", "client", "web", "ui", "webapp", "src/main/webapp")
 
+# In-memory recommendation cache: { cache_key: (FrameworkRecommendations, timestamp) }
+_RECOMMENDATION_CACHE: dict[str, tuple[FrameworkRecommendations, float]] = {}
+CACHE_TTL_SECONDS = 3600  # 1 hour cache TTL
+
+FRONTEND_RECOMMENDATION_SYSTEM_PROMPT = """You are the frontend modernization recommendation engine for JavaAPEX.
+
+Analyze only the supplied repository metadata.
+The source application is a Java web application containing JSP and/or JSF files.
+
+Recommend an appropriate frontend migration target among the targets that are explicitly marked as available.
+Your recommendation must be based only on supplied evidence.
+
+Evaluate:
+- JSP/JSF presence and file counts
+- existing React/Angular environment
+- Node.js version
+- TypeScript version
+- RxJS version
+- package manager
+- build tooling
+- existing frontend dependencies
+- repository configuration
+
+Crucial instruction for target versions:
+- You must dynamically determine and recommend specific, compatible target framework versions for BOTH React and Angular (e.g. React 19.3, React 18.3.1; Angular 22.x, Angular 20.x, Angular 19.x, Angular 18.x, Angular 16.x) compatible with the detected Node.js runtime and environment.
+- target_version must NEVER be "unknown". Always recommend a specific modern target version for migration.
+- Provide candidate available_versions (e.g. ["19.3", "18.3.1"] or ["22.x", "20.x"]) for each framework so the user has compatible version options in the UI dropdown.
+- If the project already has an existing framework version, prefer compatibility with that existing version unless modernization is needed.
+- If no existing framework is installed, dynamically recommend the optimal compatible modern version based on the Node.js runtime and ecosystem support.
+- Do not recommend a target that is unavailable in available_targets.
+- Do not use fixed version tiers.
+- Do not return generic boilerplate.
+- Every recommendation reason must be specific to the supplied repository metadata.
+
+Return ONLY a valid JSON object matching the requested schema. No surrounding markdown, no explanations outside JSON."""
+
+
+def _run_async(coro: Any) -> Any:
+    """Helper to run an async coroutine synchronously from sync callers, avoiding event-loop conflicts."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            return executor.submit(asyncio.run, coro).result()
+    return asyncio.run(coro)
+
 
 @dataclass(frozen=True)
-class FrameworkRecommendation:
+class FrameworkRecommendationItem:
     framework: str
     target_version: str
     compatibility: str
@@ -48,15 +118,29 @@ class FrameworkRecommendation:
         }
 
 
+# Alias for backward compatibility with existing imports
+FrameworkRecommendation = FrameworkRecommendationItem
+
+
 @dataclass(frozen=True)
 class FrameworkRecommendations:
-    react: FrameworkRecommendation
-    angular: FrameworkRecommendation
+    react: FrameworkRecommendationItem | None
+    angular: FrameworkRecommendationItem | None
+    recommended_target: str | None = None
+    recommended_target_label: str | None = None
+    confidence: str | None = None
+    recommendation_summary: str | None = None
+    recommendation_status: str = "available"
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "react": self.react.to_dict(),
-            "angular": self.angular.to_dict(),
+            "react": self.react.to_dict() if self.react else None,
+            "angular": self.angular.to_dict() if self.angular else None,
+            "recommendedTarget": self.recommended_target,
+            "recommendedTargetLabel": self.recommended_target_label,
+            "confidence": self.confidence,
+            "recommendationSummary": self.recommendation_summary,
+            "recommendationStatus": self.recommendation_status,
         }
 
 
@@ -72,49 +156,374 @@ class DetectedEnvironment:
     existing_react_version: str | None = None
     existing_angular_version: str | None = None
     build_tool: str | None = None
+    package_manager: str | None = None
     package_json_path: Path | None = None
     tsconfig_path: Path | None = None
     angular_json_path: Path | None = None
     lockfile_path: Path | None = None
     has_jsp: bool = False
     has_jsf: bool = False
+    jsp_count: int = 0
+    jsf_count: int = 0
+    detected_dependencies: list[str] = field(default_factory=list)
 
 
 class FrontendCompatibilityAnalyzer:
-    """Analyzes the repository environment and calculates compatible React & Angular target versions."""
+    """Analyzes repository metadata and calls the LLM to generate dynamic modernization recommendations."""
+
+    def __init__(
+        self,
+        llm_client: HuggingFaceClient | None = None,
+        chat_llm: ChatLLM | None = None,
+    ) -> None:
+        self._llm = llm_client or HuggingFaceClient()
+        self._chat_llm = chat_llm or ChatLLM()
 
     def analyze(self, root: Path, project_analysis: Any = None) -> FrameworkRecommendations:
+        """Synchronous entry point for analyzing repository and returning recommendations."""
+        return _run_async(self.analyze_async(root, project_analysis))
+
+    async def analyze_async(self, root: Path, project_analysis: Any = None) -> FrameworkRecommendations:
+        """Asynchronous entry point for analyzing repository and returning recommendations."""
         env = self._inspect_environment(root, project_analysis)
-        react_rec = self._evaluate_react(env)
-        angular_rec = self._evaluate_angular(env)
 
-        # React is typically the recommended default for legacy JSP/Servlet apps unless
-        # the repository already has Angular dependencies or configurations configured.
-        if env.existing_angular_version and not env.existing_react_version:
-            angular_rec = FrameworkRecommendation(
-                framework=angular_rec.framework,
-                target_version=angular_rec.target_version,
-                compatibility=angular_rec.compatibility,
-                is_recommended=True,
-                reasons=angular_rec.reasons,
-                constraints=angular_rec.constraints,
-                available_versions=angular_rec.available_versions,
-                current_version=angular_rec.current_version,
-            )
-            react_rec = FrameworkRecommendation(
-                framework=react_rec.framework,
-                target_version=react_rec.target_version,
-                compatibility=react_rec.compatibility,
-                is_recommended=False,
-                reasons=react_rec.reasons,
-                constraints=react_rec.constraints,
-                available_versions=react_rec.available_versions,
-                current_version=react_rec.current_version,
+        available_targets: list[str] = []
+        if env.has_jsp:
+            available_targets.extend(["JSP -> React", "JSP -> Angular"])
+        if env.has_jsf:
+            available_targets.extend(["JSF -> React", "JSF -> Angular"])
+
+        if not available_targets:
+            return FrameworkRecommendations(
+                react=None,
+                angular=None,
+                recommendation_status="not_applicable",
             )
 
-        return FrameworkRecommendations(react=react_rec, angular=angular_rec)
+        context_payload: dict[str, Any] = {
+            "ui_framework_sources": {
+                "jsp_files": env.jsp_count,
+                "jsf_files": env.jsf_count,
+                "jsp_extensions": [".jsp", ".jspf"],
+                "jsf_extensions": [".xhtml", ".jsf"],
+            },
+            "project_environment": {
+                "node_version": env.node_version,
+                "typescript_version": env.typescript_version,
+                "angular_version": env.existing_angular_version,
+                "react_version": env.existing_react_version,
+                "rxjs_version": env.rxjs_version,
+                "package_manager": env.package_manager,
+                "build_tool": env.build_tool,
+            },
+            "configuration_files": {
+                "package_json": env.package_json_path is not None,
+                "tsconfig": env.tsconfig_path is not None,
+                "angular_json": env.angular_json_path is not None,
+                "vite": env.build_tool == "vite",
+                "webpack": env.build_tool == "webpack",
+            },
+            "existing_dependencies": env.detected_dependencies[:20],
+            "available_targets": available_targets,
+        }
 
-    # -- Environment inspection --------------------------------------------- #
+        cache_key = self._compute_cache_key(root, context_payload)
+        now = time.time()
+        if cache_key in _RECOMMENDATION_CACHE:
+            cached_rec, timestamp = _RECOMMENDATION_CACHE[cache_key]
+            if now - timestamp < CACHE_TTL_SECONDS:
+                logger.info("[FrontendRecommendation] Cache hit for %s", cache_key)
+                return cached_rec
+
+        raw = await self._query_llm_recommendation(context_payload)
+        if not raw or not isinstance(raw, dict):
+            logger.warning(
+                "[FrontendRecommendation] LLM recommendation failed or returned invalid response; returning unavailable status."
+            )
+            return FrameworkRecommendations(
+                react=None,
+                angular=None,
+                recommendation_status="unavailable",
+            )
+
+        rec_target = str(raw.get("recommended_target") or "").lower().strip()
+        rec_target_label = raw.get("recommended_target_label")
+        rec_summary = raw.get("recommendation_summary")
+        confidence = raw.get("confidence")
+
+        react_data = raw.get("react")
+        is_react_rec = rec_target == "react" or (
+            isinstance(react_data, dict) and bool(react_data.get("is_recommended"))
+        )
+
+        angular_data = raw.get("angular")
+        is_angular_rec = rec_target == "angular" or (
+            isinstance(angular_data, dict) and bool(angular_data.get("is_recommended"))
+        )
+
+        if is_react_rec and is_angular_rec:
+            if rec_target == "angular":
+                is_react_rec = False
+            else:
+                is_angular_rec = False
+        elif not is_react_rec and not is_angular_rec:
+            if rec_target_label and "Angular" in str(rec_target_label):
+                is_angular_rec = True
+            else:
+                is_react_rec = True
+
+        react_item = self._build_recommendation_item(
+            framework="React",
+            raw_data=react_data,
+            is_recommended=is_react_rec,
+            current_version=env.existing_react_version,
+            fallback_root_data=raw,
+        )
+
+        angular_item = self._build_recommendation_item(
+            framework="Angular",
+            raw_data=angular_data,
+            is_recommended=is_angular_rec,
+            current_version=env.existing_angular_version,
+            fallback_root_data=raw,
+        )
+
+        react_item = FrameworkRecommendationItem(
+            framework=react_item.framework,
+            target_version=react_item.target_version,
+            compatibility=react_item.compatibility,
+            is_recommended=is_react_rec,
+            reasons=react_item.reasons,
+            constraints=react_item.constraints,
+            available_versions=react_item.available_versions,
+            current_version=react_item.current_version,
+        )
+
+        angular_item = FrameworkRecommendationItem(
+            framework=angular_item.framework,
+            target_version=angular_item.target_version,
+            compatibility=angular_item.compatibility,
+            is_recommended=is_angular_rec,
+            reasons=angular_item.reasons,
+            constraints=angular_item.constraints,
+            available_versions=angular_item.available_versions,
+            current_version=angular_item.current_version,
+        )
+
+        recommendations = FrameworkRecommendations(
+            react=react_item,
+            angular=angular_item,
+            recommended_target="react" if is_react_rec else "angular",
+            recommended_target_label=rec_target_label or ("JSP -> React" if is_react_rec else "JSP -> Angular"),
+            confidence=confidence or "medium",
+            recommendation_summary=rec_summary,
+            recommendation_status="available",
+        )
+
+        _RECOMMENDATION_CACHE[cache_key] = (recommendations, now)
+        return recommendations
+
+    # -- LLM Query & Response parsing --------------------------------------- #
+
+    async def _query_llm_recommendation(self, context_payload: dict[str, Any]) -> dict[str, Any] | None:
+        system_prompt = FRONTEND_RECOMMENDATION_SYSTEM_PROMPT
+        user_prompt = f"""Repository Frontend Context:
+{json.dumps(context_payload, indent=2)}
+
+Generate the frontend modernization recommendation JSON for this repository.
+Required JSON schema:
+{{
+  "recommended_target": "react" or "angular",
+  "recommended_target_label": "JSP -> React" or "JSP -> Angular" or "JSF -> React" or "JSF -> Angular",
+  "confidence": "high" or "medium" or "low",
+  "recommendation_summary": "Concise summary",
+  "react": {{
+    "target_version": "specific recommended version string (e.g. 19.3 or 18.3.1, must NOT be unknown)",
+    "available_versions": ["version1", "version2"],
+    "compatibility": "description",
+    "is_recommended": boolean,
+    "reasons": ["reason1", "reason2"],
+    "constraints": ["constraint1"]
+  }},
+  "angular": {{
+    "target_version": "specific recommended version string (e.g. 22.x or 20.x or 19.x, must NOT be unknown)",
+    "available_versions": ["version1", "version2"],
+    "compatibility": "description",
+    "is_recommended": boolean,
+    "reasons": ["reason1", "reason2"],
+    "constraints": ["constraint1"]
+  }}
+}}"""
+
+        # 1. Try Hugging Face if configured
+        try:
+            if self._llm and hasattr(self._llm, "chat_json"):
+                raw = await self._llm.chat_json(system_prompt, user_prompt)
+                if isinstance(raw, dict) and ("react" in raw or "angular" in raw or "recommended_target" in raw):
+                    return raw
+        except Exception as exc:
+            logger.info(
+                "[FrontendRecommendation] HuggingFace unavailable or failed: %s; trying ChatLLM...", exc
+            )
+
+        # 2. Try ChatLLM (Groq -> Ollama)
+        try:
+            if self._chat_llm and hasattr(self._chat_llm, "stream_chat"):
+                chunks: list[str] = []
+                async for chunk in self._chat_llm.stream_chat(
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    endpoint="frontend_framework_recommendation",
+                ):
+                    chunks.append(chunk)
+                response_text = "".join(chunks)
+                parsed = self._extract_json(response_text)
+                if isinstance(parsed, dict) and ("react" in parsed or "angular" in parsed or "recommended_target" in parsed):
+                    return parsed
+        except Exception as exc:
+            logger.error("[FrontendRecommendation] ChatLLM failed: %s", exc)
+
+        return None
+
+    @staticmethod
+    def _extract_json(content: str) -> dict[str, Any] | None:
+        text = (content or "").strip()
+        start = text.find("{")
+        end = text.rfind("}")
+        if start == -1 or end == -1 or end < start:
+            return None
+        json_str = text[start : end + 1]
+        try:
+            return json.loads(json_str, strict=False)
+        except json.JSONDecodeError:
+            cleaned = re.sub(r",\s*([\}\]])", r"\1", json_str)
+            try:
+                return json.loads(cleaned, strict=False)
+            except Exception:
+                return None
+
+    @staticmethod
+    def _build_recommendation_item(
+        framework: str,
+        raw_data: Any,
+        is_recommended: bool,
+        current_version: str | None = None,
+        fallback_root_data: dict[str, Any] | None = None,
+    ) -> FrameworkRecommendationItem:
+        if not isinstance(raw_data, dict):
+            if fallback_root_data and isinstance(fallback_root_data, dict):
+                if is_recommended:
+                    target_ver = str(
+                        fallback_root_data.get("recommended_version")
+                        or fallback_root_data.get("target_version")
+                        or "unknown"
+                    ).strip()
+                    avail_vers = [target_ver] if target_ver != "unknown" else []
+
+                    raw_comp = fallback_root_data.get("compatibility")
+                    if isinstance(raw_comp, str) and raw_comp.strip():
+                        compatibility = raw_comp.strip()
+                    elif fallback_root_data.get("recommendation"):
+                        compatibility = str(fallback_root_data.get("recommendation")).strip()
+                    else:
+                        compatibility = "Compatible with detected project environment."
+
+                    reasons = fallback_root_data.get("reasons") or []
+                    if isinstance(reasons, str):
+                        reasons = [reasons]
+                    elif not isinstance(reasons, list):
+                        reasons = []
+
+                    risks = fallback_root_data.get("risks") or fallback_root_data.get("requirements") or []
+                    if isinstance(risks, str):
+                        risks = [risks]
+                    elif not isinstance(risks, list):
+                        risks = []
+
+                    return FrameworkRecommendationItem(
+                        framework=framework,
+                        target_version=target_ver,
+                        compatibility=compatibility,
+                        is_recommended=True,
+                        reasons=[str(r) for r in reasons if str(r).strip()],
+                        constraints=[str(c) for c in risks if str(c).strip()],
+                        available_versions=avail_vers,
+                        current_version=current_version,
+                    )
+                else:
+                    alt_ver = str(
+                        fallback_root_data.get(f"{framework.lower()}_version")
+                        or fallback_root_data.get("alternative_version")
+                        or ("22.x" if framework == "Angular" else "19.3")
+                    ).strip()
+                    return FrameworkRecommendationItem(
+                        framework=framework,
+                        target_version=alt_ver,
+                        compatibility=f"Alternative {framework} migration target.",
+                        is_recommended=False,
+                        reasons=[f"Evaluated as alternative modern frontend target."],
+                        constraints=[],
+                        available_versions=[alt_ver] if alt_ver != "unknown" else [],
+                        current_version=current_version,
+                    )
+
+            return FrameworkRecommendationItem(
+                framework=framework,
+                target_version="unknown",
+                compatibility=f"Compatibility information for {framework} unavailable.",
+                is_recommended=is_recommended,
+                reasons=[],
+                constraints=[],
+                available_versions=[],
+                current_version=current_version,
+            )
+
+        target_ver = str(raw_data.get("target_version") or raw_data.get("targetVersion") or "unknown").strip()
+        avail_vers = raw_data.get("available_versions") or raw_data.get("availableVersions") or []
+        if isinstance(avail_vers, str):
+            avail_vers = [avail_vers]
+        elif not isinstance(avail_vers, list):
+            avail_vers = []
+        avail_vers = [str(v).strip() for v in avail_vers if str(v).strip()]
+        if target_ver != "unknown" and target_ver not in avail_vers:
+            avail_vers.insert(0, target_ver)
+
+        compatibility = str(raw_data.get("compatibility") or "").strip()
+        if not compatibility:
+            compatibility = f"Evaluated for {framework} migration."
+
+        reasons = raw_data.get("reasons") or []
+        if isinstance(reasons, str):
+            reasons = [reasons]
+        elif not isinstance(reasons, list):
+            reasons = []
+        reasons = [str(r).strip() for r in reasons if str(r).strip()]
+
+        constraints = raw_data.get("constraints") or []
+        if isinstance(constraints, str):
+            constraints = [constraints]
+        elif not isinstance(constraints, list):
+            constraints = []
+        constraints = [str(c).strip() for c in constraints if str(c).strip()]
+
+        return FrameworkRecommendationItem(
+            framework=framework,
+            target_version=target_ver,
+            compatibility=compatibility,
+            is_recommended=is_recommended,
+            reasons=reasons,
+            constraints=constraints,
+            available_versions=avail_vers,
+            current_version=current_version,
+        )
+
+    @staticmethod
+    def _compute_cache_key(root: Path, context_payload: dict[str, Any]) -> str:
+        payload_str = json.dumps(context_payload, sort_keys=True)
+        h = hashlib.sha256(payload_str.encode("utf-8")).hexdigest()[:16]
+        return f"{root.resolve()}:{h}"
+
+    # -- Environment inspection (Pure Static Detection) ---------------------- #
 
     def _inspect_environment(self, root: Path, project_analysis: Any = None) -> DetectedEnvironment:
         env = DetectedEnvironment()
@@ -122,12 +531,25 @@ class FrontendCompatibilityAnalyzer:
         # Check JSP / JSF presence
         if project_analysis is not None:
             jsp_cnt = getattr(project_analysis, "jsp_file_count", None)
+            if jsp_cnt is None and hasattr(project_analysis, "jsp_files"):
+                jsp_cnt = len(project_analysis.jsp_files)
             jsf_cnt = getattr(project_analysis, "jsf_file_count", None)
-            env.has_jsp = bool(jsp_cnt and jsp_cnt > 0)
-            env.has_jsf = bool(jsf_cnt and jsf_cnt > 0)
+            if jsf_cnt is None and hasattr(project_analysis, "jsf_files"):
+                jsf_cnt = len(project_analysis.jsf_files)
+
+            env.jsp_count = int(jsp_cnt or 0)
+            env.jsf_count = int(jsf_cnt or 0)
+            env.has_jsp = env.jsp_count > 0
+            env.has_jsf = env.jsf_count > 0
         else:
-            env.has_jsp = file_utils.count_files(root, ".jsp", limit=1) > 0 or file_utils.count_files(root, ".jspf", limit=1) > 0
-            env.has_jsf = file_utils.count_files(root, ".jsf", limit=1) > 0 or file_utils.count_files(root, ".xhtml", limit=1) > 0
+            env.jsp_count = file_utils.count_files(root, ".jsp", limit=100) + file_utils.count_files(
+                root, ".jspf", limit=100
+            )
+            env.jsf_count = file_utils.count_files(root, ".jsf", limit=100) + file_utils.count_files(
+                root, ".xhtml", limit=100
+            )
+            env.has_jsp = env.jsp_count > 0
+            env.has_jsf = env.jsf_count > 0
 
         # Search candidate directories for package.json, lockfiles, etc.
         for relative in _CANDIDATE_DIRS:
@@ -146,6 +568,12 @@ class FrontendCompatibilityAnalyzer:
                 lp = base / lock_name
                 if lp.is_file() and env.lockfile_path is None:
                     env.lockfile_path = lp
+                    if "yarn" in lock_name:
+                        env.package_manager = "yarn"
+                    elif "pnpm" in lock_name:
+                        env.package_manager = "pnpm"
+                    else:
+                        env.package_manager = "npm"
 
             # tsconfig.json
             ts_path = base / "tsconfig.json"
@@ -209,17 +637,19 @@ class FrontendCompatibilityAnalyzer:
             if isinstance(block, dict):
                 deps.update({str(k): str(v) for k, v in block.items()})
 
+        env.detected_dependencies = [f"{k}@{v}" for k, v in deps.items()]
+
         # Existing React
         if "react" in deps:
-            env.existing_react_version = deps["react"]
+            env.existing_react_version = self._clean_version_spec(deps["react"])
         elif "react-dom" in deps:
-            env.existing_react_version = deps["react-dom"]
+            env.existing_react_version = self._clean_version_spec(deps["react-dom"])
 
         # Existing Angular
         if "@angular/core" in deps:
-            env.existing_angular_version = deps["@angular/core"]
+            env.existing_angular_version = self._clean_version_spec(deps["@angular/core"])
         elif "@angular/cli" in deps:
-            env.existing_angular_version = deps["@angular/cli"]
+            env.existing_angular_version = self._clean_version_spec(deps["@angular/cli"])
 
         # TypeScript
         if "typescript" in deps:
@@ -261,6 +691,11 @@ class FrontendCompatibilityAnalyzer:
         return None
 
     @staticmethod
+    def _clean_version_spec(version_str: str) -> str:
+        """Strips leading semver range prefixes like ^, ~, >=, etc."""
+        return re.sub(r"^[^\d]*", "", str(version_str).strip())
+
+    @staticmethod
     def _extract_major_version(version_str: str) -> int | None:
         """Extracts the leading integer major version from a version specification string."""
         cleaned = re.sub(r"[^\d.]", "", version_str)
@@ -268,127 +703,3 @@ class FrontendCompatibilityAnalyzer:
         if parts and parts[0].isdigit():
             return int(parts[0])
         return None
-
-    # -- React evaluation ---------------------------------------------------- #
-
-    def _evaluate_react(self, env: DetectedEnvironment) -> FrameworkRecommendation:
-        current = env.existing_react_version
-        cleaned_current = re.sub(r"[^\d.]", "", current) if current else None
-
-        node_major = env.node_major if env.node_major is not None else 20
-        ts_major = env.typescript_major
-
-        # React compatibility tier selection:
-        # Tier 1: React 19.3 (requires Node >= 18, TS >= 5.0 if TS present)
-        # Tier 2: React 18.3.1 (requires Node >= 14, TS >= 4.5)
-        # Tier 3: React 17.0.2 (older Node < 14)
-        if node_major < 14:
-            target_version = "17.0.2"
-            available_versions = ["17.0.2"]
-            compatibility = "Compatible with legacy Node.js environment"
-            reasons = [
-                f"Node.js {node_major} detected; React 18+ requires Node.js 14+.",
-                "React 17.0.2 is the highest compatible version for this runtime.",
-            ]
-            constraints = ["Runtime does not satisfy Node.js 18+ requirement for React 19."]
-        elif node_major < 18 or (ts_major is not None and ts_major < 5):
-            target_version = "18.3.1"
-            available_versions = ["18.3.1", "17.0.2"]
-            compatibility = "Compatible with detected environment"
-            reasons = [
-                f"Node.js {node_major} and TypeScript {env.typescript_version or '4.x'} detected in repository.",
-                "React 19 requires Node.js >= 18.0.0 and TypeScript >= 5.0.",
-                "React 18.3.1 is the highest fully compatible stable release for this environment.",
-            ]
-            constraints = ["Upgrade Node.js to 18+ and TypeScript to 5.0+ to unlock React 19."]
-        else:
-            target_version = "19.3"
-            available_versions = ["19.3", "18.3.1", "17.0.2"]
-            compatibility = "Compatible with detected project environment"
-            reasons = [
-                "Compatible with detected project environment and modern ESM runtime.",
-                "Supports TypeScript 5+ JSX transform and modern React 19 component architecture.",
-            ]
-            constraints = []
-
-        if current:
-            reasons.insert(0, f"Detected existing React dependency: {current}.")
-
-        return FrameworkRecommendation(
-            framework="React",
-            target_version=target_version,
-            compatibility=compatibility,
-            is_recommended=True,
-            reasons=reasons,
-            constraints=constraints,
-            available_versions=available_versions,
-            current_version=cleaned_current or current,
-        )
-
-    # -- Angular evaluation -------------------------------------------------- #
-
-    def _evaluate_angular(self, env: DetectedEnvironment) -> FrameworkRecommendation:
-        current = env.existing_angular_version
-        cleaned_current = re.sub(r"[^\d.]", "", current) if current else None
-
-        node_major = env.node_major if env.node_major is not None else 20
-        ts_major = env.typescript_major
-
-        # Angular version compatibility tiers:
-        # Tier 1: Angular 22.x (Modern greenfield target / next major; requires Node >= 20, TS >= 5.6, RxJS >= 7.8)
-        # Tier 2: Angular 18.x / 19.x (Node 18.19+, TS 5.4 - 5.6)
-        # Tier 3: Angular 16.x (Node 16.x, TS 4.9 - 5.1)
-        # Tier 4: Angular 14.x (Node 14.x)
-        if node_major < 16:
-            target_version = "14.3.0"
-            available_versions = ["14.3.0"]
-            compatibility = "Compatible with legacy Node.js runtime"
-            reasons = [
-                f"Node.js {node_major} detected; modern Angular requires Node.js >= 18.",
-                "Angular 14.3.0 is the highest compatible release for this runtime.",
-            ]
-            constraints = ["Node.js runtime constraint prevents using Angular 15+."]
-        elif node_major < 18 or (ts_major is not None and ts_major < 5):
-            target_version = "16.2.12"
-            available_versions = ["16.2.12", "15.2.10", "14.3.0"]
-            compatibility = "Compatible with detected environment"
-            reasons = [
-                f"Node.js {node_major} and TypeScript {env.typescript_version or '4.x'} detected in repository.",
-                "Angular 17+ dropped support for Node.js 16 and TypeScript 4.x.",
-                "Angular 16.2.12 is the highest compatible version.",
-            ]
-            constraints = ["Angular 17+ requires Node.js >= 18.13.0 and TypeScript >= 5.2."]
-        else:
-            # Modern environment: Angular 22.x
-            target_version = "22.x"
-            available_versions = ["22.x", "21.x", "20.x", "19.x", "18.x"]
-            if env.angular_json_path or env.existing_angular_version:
-                compatibility = "Compatible with detected project environment"
-                reasons = [
-                    "Compatible with detected modern Node.js runtime and Angular toolchain.",
-                    "Aligns core Angular packages with Angular CLI 22.x.",
-                ]
-                constraints = []
-            else:
-                compatibility = "Compatibility requires Node.js / TypeScript alignment."
-                reasons = [
-                    "Compatibility requires Node.js / TypeScript alignment.",
-                    "Requires configuring Angular CLI toolchain, TypeScript 5.6+, and RxJS 7.8+ in project.",
-                ]
-                constraints = [
-                    "Requires alignment between Angular CLI and backend build artifacts.",
-                ]
-
-        if current:
-            reasons.insert(0, f"Detected existing Angular dependency: {current}.")
-
-        return FrameworkRecommendation(
-            framework="Angular",
-            target_version=target_version,
-            compatibility=compatibility,
-            is_recommended=False,
-            reasons=reasons,
-            constraints=constraints,
-            available_versions=available_versions,
-            current_version=cleaned_current or current,
-        )

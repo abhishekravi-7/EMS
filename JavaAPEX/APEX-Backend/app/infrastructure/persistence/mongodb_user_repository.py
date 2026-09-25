@@ -310,6 +310,9 @@ def _get_query_id(user_id: str):
     query_ids = [user_id]
     if isinstance(user_id, str) and user_id.isdigit():
         query_ids.append(int(user_id))
+    from bson import ObjectId
+    if isinstance(user_id, str) and ObjectId.is_valid(user_id):
+        query_ids.append(ObjectId(user_id))
     return {"$in": query_ids}
 
 async def get_user_by_email(db: AsyncIOMotorDatabase, email: str) -> Optional[dict]:
@@ -324,6 +327,11 @@ async def get_user_by_id(db: AsyncIOMotorDatabase, user_id: Any) -> Optional[dic
     if isinstance(user_id, str):
         if user_id.isdigit():
             doc = await db.users.find_one({"_id": int(user_id)})
+            if doc:
+                return doc
+        from bson import ObjectId
+        if ObjectId.is_valid(user_id):
+            doc = await db.users.find_one({"_id": ObjectId(user_id)})
             if doc:
                 return doc
         return await db.users.find_one({"_id": user_id})

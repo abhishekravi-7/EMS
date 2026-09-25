@@ -349,13 +349,35 @@ class StartMigrationUseCase:
             change_analysis = self._change_analyzer.analyze(
                 paths.original_repo_dir, paths.migrated_repo_dir
             )
+            # Gather UI transformations and identify logical modernized files
+            ui_source_set = {
+                (t.get("sourceFile") or t.get("file") or "").replace("\\", "/")
+                for t in ui_transformations
+            }
+            ui_target_set = {
+                (t.get("targetSourceFile") or "").replace("\\", "/")
+                for t in ui_transformations
+            }
+            # Distinct logical files affected: non-UI changed files + UI modernized source templates
+            logical_touched_files = {
+                f for f in change_analysis.all_changed_files
+                if f.replace("\\", "/") not in ui_source_set
+                and f.replace("\\", "/") not in ui_target_set
+                and not f.replace("\\", "/").startswith("frontend/src/")
+            }
+            for t in ui_transformations:
+                sf = t.get("sourceFile") or t.get("file")
+                if sf:
+                    logical_touched_files.add(sf)
+
             all_touched_files = set(change_analysis.all_changed_files)
             for t in ui_transformations:
                 if t.get("sourceFile"):
                     all_touched_files.add(t["sourceFile"])
                 elif t.get("file"):
                     all_touched_files.add(t["file"])
-            files_modified = len(all_touched_files)
+
+            files_modified = len(logical_touched_files) if logical_touched_files else len(all_touched_files)
 
             issues_fixed_count = (
                 len(change_analysis.import_changes)
@@ -380,7 +402,7 @@ class StartMigrationUseCase:
             ui_framework_label = f"{ui_target} {ui_version}".strip() if (ui_target and ui_version) else ui_target
             store.update(
                 filesModified=files_modified,
-                modifiedFiles=sorted(all_touched_files)[:200],
+                modifiedFiles=sorted(logical_touched_files or all_touched_files)[:200],
                 importChanges=[change.to_dict() for change in change_analysis.import_changes[:200]],
                 sourceChanges=[change.to_dict() for change in change_analysis.source_changes[:200]],
                 uiTransformations=ui_transformations,
@@ -1196,16 +1218,22 @@ class StartMigrationUseCase:
             for item in (report.get("conversionTypes") or [])
             if str(item).strip()
         }
-        return bool(
-            conversions
-            & {
-                "jakarta",
-                "javax_to_jakarta",
-                "javax-jakarta",
-                "javax_to_jakarta_ee",
-                "jakarta_migration",
-            }
-        )
+        if conversions & {
+            "jakarta",
+            "javax_to_jakarta",
+            "javax-jakarta",
+            "javax_to_jakarta_ee",
+            "jakarta_migration",
+        }:
+            return True
+        target_java_str = str(report.get("targetJavaVersion") or "").strip()
+        t = target_java_str.lower().replace("java", "").strip()
+        if t.startswith("1."):
+            t = t.split(".", 1)[1]
+        t = t.split(".", 1)[0]
+        if t.isdigit() and int(t) >= 17:
+            return True
+        return False
 
     # -- publish per destination mode --------------------------------------- #
 

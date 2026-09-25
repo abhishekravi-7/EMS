@@ -24,10 +24,13 @@ import {
   getMigrationFileDiff,
   getMigrationLogs,
   rerunMigrationTests,
+  getMigrationReportDetails,
+  type ReportDetailsResponse,
   type SonarIssueDetail,
   type SonarHotspotDetail,
   type SonarReport,
 } from "../services/resultService";
+import { MigrationReportDetailModal } from "./MigrationReportDetailModal";
 import type { DependencyInfo } from "@/shared/types/domain";
 import {
   SONAR_FINDINGS_PAGE_SIZE,
@@ -178,6 +181,121 @@ export function ResultReportView({
     security_hotspots: SONAR_FINDINGS_PAGE_SIZE,
   });
 
+  // Category Detail Modal State & Client-Side Cache
+  const [detailModalCategory, setDetailModalCategory] = useState<
+    "files" | "issues" | "dependencies" | "vulnerabilities" | "transformations" | null
+  >(null);
+  const [detailModalLoading, setDetailModalLoading] = useState(false);
+  const [detailModalError, setDetailModalError] = useState<string | null>(null);
+  const [reportDetailsCache, setReportDetailsCache] = useState<Record<string, ReportDetailsResponse>>({});
+
+  const handleOpenReportDetails = async (
+    category: "files" | "issues" | "dependencies" | "vulnerabilities" | "transformations"
+  ) => {
+    setDetailModalCategory(category);
+    setDetailModalError(null);
+
+    // If already in client-side cache, reuse immediately with zero network delay
+    if (reportDetailsCache[category]) {
+      return;
+    }
+
+    if (!migrationJob?.job_id) {
+      setDetailModalError("Migration job ID not found.");
+      return;
+    }
+
+    setDetailModalLoading(true);
+    try {
+      const details = await getMigrationReportDetails(migrationJob.job_id, category);
+      setReportDetailsCache((prev) => ({
+        ...prev,
+        [category]: details,
+      }));
+    } catch (err: any) {
+      setDetailModalError(err?.message || "Failed to load migration details.");
+    } finally {
+      setDetailModalLoading(false);
+    }
+  };
+
+  const diffData = React.useMemo(() => {
+    const rawFileDiffs: any[] = migrationJob?.file_diffs ?? [];
+    const javaFileDiffEntries = rawFileDiffs.map((fd: any) => {
+      const changeType: string = (fd.changeType ?? "MODIFIED").toUpperCase();
+      const relativePath = (fd.relativePath ?? fd.fileName ?? "").replace(/\\/g, "/");
+      const loadedDiff = loadedFileDiffs[relativePath];
+      const status: "Modified" | "Added" | "Removed" =
+        changeType === "ADDED" ? "Added" :
+        changeType === "DELETED" ? "Removed" :
+        "Modified";
+      return {
+        file: fd.fileName ?? fd.relativePath ?? "",
+        relativePath,
+        label: fd.label,
+        status,
+        additions: fd.addedLineCount ?? 0,
+        deletions: fd.removedLineCount ?? 0,
+        beforeLines: (loadedDiff?.beforeLines ?? fd.beforeLines ?? []) as Array<{ num: number; text: string; type: string }>,
+        afterLines: (loadedDiff?.afterLines ?? fd.afterLines ?? []) as Array<{ num: number; text: string; type: string }>,
+      };
+    });
+
+    const rawUiTransformations: any[] = migrationJob?.uiTransformations ?? [];
+    const uiDiffEntries = rawUiTransformations.map((t: any) => ({
+      file: t.targetSourceFile ?? t.file ?? "",
+      sourceFile: t.sourceFile ?? t.file ?? "",
+      category: t.category ?? "",
+      icon: t.icon ?? "⚛️",
+      status: (t.status ?? "Added") as "Modified" | "Added" | "Removed",
+      additions: t.additions ?? (t.afterLines?.length ?? 0),
+      deletions: t.deletions ?? 0,
+      beforeLines: (t.beforeLines ?? []) as Array<{ num: number; text: string; type: string }>,
+      afterLines: (t.afterLines ?? []) as Array<{ num: number; text: string; type: string }>,
+    }));
+
+    const mergedEntries: Array<{
+      file: string;
+      status: "Modified" | "Added" | "Removed";
+      additions: number;
+      deletions: number;
+      beforeLines: Array<{ num: number; text: string; type: string }>;
+      afterLines: Array<{ num: number; text: string; type: string }>;
+      [key: string]: any;
+    }> = [];
+    const seenFileKeys = new Set<string>();
+
+    for (const entry of [...javaFileDiffEntries, ...uiDiffEntries]) {
+      const key = (entry.sourceFile || entry.relativePath || entry.file || "").toLowerCase().replace(/\\/g, "/");
+      if (!key || seenFileKeys.has(key)) {
+        continue;
+      }
+      seenFileKeys.add(key);
+      mergedEntries.push(entry);
+    }
+    return mergedEntries;
+  }, [migrationJob?.file_diffs, migrationJob?.uiTransformations, loadedFileDiffs]);
+
+  const handleSelectFileForDiff = (filePath: string) => {
+    const norm = filePath.replace(/\\/g, "/").toLowerCase();
+    const base = norm.split("/").pop();
+    const idx = diffData.findIndex((d) => {
+      const dPath = (d.sourceFile || d.relativePath || d.file || "").replace(/\\/g, "/").toLowerCase();
+      return dPath === norm || (base && dPath.endsWith("/" + base)) || (base && d.file.toLowerCase() === base);
+    });
+    if (idx >= 0) {
+      setSelectedDiffIndex(idx);
+      const item = diffData[idx];
+      if (item && !item.category && item.relativePath) {
+        void loadFileDiff(item.relativePath);
+      }
+      const diffEl = document.getElementById("source-code-transformations-section");
+      if (diffEl) {
+        diffEl.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }
+  };
+
   const handleCopyDiffCode = async (afterLines: Array<{ text: string }>) => {
     const code = afterLines
       .map((line) => line.text.replace(/^[+-]\s*/, ""))
@@ -269,20 +387,45 @@ export function ResultReportView({
     }
   };
 
-  const handleShowReactUi = (entry: { file?: string; afterLines?: Array<{ text: string }> }) => {
+  const handleShowReactUi = (
+    entry: { file?: string; targetSourceFile?: string; afterLines?: Array<{ text: string }> },
+    e?: React.MouseEvent
+  ) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    const targetFileName = entry.file ?? entry.targetSourceFile ?? "MigratedPage.tsx";
+    if (sandboxEntry && sandboxEntry.fileName === targetFileName) {
+      setSandboxEntry(null);
+      return;
+    }
     if (!entry.afterLines?.length) {
       onError("The generated React page has no previewable markup.");
       return;
     }
+    const mainEl = document.querySelector(".wizard-main-content");
+    const prevScrollTop = mainEl ? mainEl.scrollTop : 0;
+
     const css = (migrationJob.uiTransformations ?? [])
       .filter((transformation: any) => String(transformation.targetSourceFile ?? transformation.file ?? "").toLowerCase().endsWith(".css"))
       .flatMap((transformation: any) => transformation.afterLines ?? [])
       .map((line: { text?: string }) => line.text ?? "")
       .join("\n");
+
     setSandboxEntry({
-      fileName: entry.file ?? "MigratedPage.tsx",
+      fileName: targetFileName,
       code: entry.afterLines,
       css,
+    });
+
+    if (mainEl && mainEl.scrollTop !== prevScrollTop) {
+      mainEl.scrollTop = prevScrollTop;
+    }
+    requestAnimationFrame(() => {
+      if (mainEl && mainEl.scrollTop !== prevScrollTop) {
+        mainEl.scrollTop = prevScrollTop;
+      }
     });
   };
 
@@ -982,22 +1125,26 @@ export function ResultReportView({
                 {
                   icon: <FaFileAlt />, count: migrationJob?.files_modified ?? 0, label: "Files Modified",
                   meta: migrationJob?.files_modified === 0 ? "No files were modified during migration" : `${migrationJob?.files_modified} files updated`,
-                  color: "#2563eb", bg: "#eff6ff"
+                  color: "#2563eb", bg: "#eff6ff",
+                  category: "files" as const,
                 },
                 {
                   icon: <FaTools />, count: migrationJob?.issues_fixed ?? 0, label: "Issues Fixed",
                   meta: "All migration issues resolved",
-                  color: "#10b981", bg: "#ecfdf5"
+                  color: "#10b981", bg: "#ecfdf5",
+                  category: "issues" as const,
                 },
                 {
                   icon: <FaLayerGroup />, count: dependencyUpgradeCount, label: "Dependencies Updated",
                   meta: "Total dependencies updated",
-                  color: "#8b5cf6", bg: "#f5f3ff"
+                  color: "#8b5cf6", bg: "#f5f3ff",
+                  category: "dependencies" as const,
                 },
                 {
                   icon: <FaShieldAlt />, count: reportedVulnerabilityCount ?? 0, label: "Vulnerabilities",
                   meta: "No active vulnerabilities found",
-                  color: "#f97316", bg: "#fff7ed"
+                  color: "#f97316", bg: "#fff7ed",
+                  category: "vulnerabilities" as const,
                 }
               ];
 
@@ -1012,18 +1159,33 @@ export function ResultReportView({
                   width: "100%"
                 }}>
                   {allStats.map((stat, idx) => (
-                    <div key={idx} style={{
-                      background: "#ffffff",
-                      border: `1px solid ${stat.color}15`,
-                      borderRadius: 16,
-                      padding: "16px 20px",
-                      display: "flex",
-                      gap: 16,
-                      alignItems: "center",
-                      boxShadow: `0 8px 30px -10px ${stat.color}25`,
-                      position: 'relative',
-                      overflow: 'hidden'
-                    }}>
+                    <div
+                      key={idx}
+                      onClick={() => void handleOpenReportDetails(stat.category)}
+                      title={`Click to view details for ${stat.label}`}
+                      style={{
+                        background: "#ffffff",
+                        border: `1px solid ${stat.color}15`,
+                        borderRadius: 16,
+                        padding: "16px 20px",
+                        display: "flex",
+                        gap: 16,
+                        alignItems: "center",
+                        boxShadow: `0 8px 30px -10px ${stat.color}25`,
+                        position: 'relative',
+                        overflow: 'hidden',
+                        cursor: "pointer",
+                        transition: "transform 0.15s ease, box-shadow 0.15s ease",
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.transform = "translateY(-2px)";
+                        e.currentTarget.style.boxShadow = `0 12px 35px -8px ${stat.color}40`;
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = "translateY(0)";
+                        e.currentTarget.style.boxShadow = `0 8px 30px -10px ${stat.color}25`;
+                      }}
+                    >
                       {/* Accent bar at bottom for extra glow feel */}
                       <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 3, background: stat.color, opacity: 0.2 }} />
 
@@ -1127,7 +1289,8 @@ export function ResultReportView({
                       desc: "Code files updated during migration",
                       value: migrationJob.files_modified ?? 0,
                       footer: migrationJob.files_modified === 0 ? "No files modified" : `${migrationJob.files_modified} files updated`,
-                      color: "#2563eb", bg: "#eff6ff", border: "#dbeafe", glow: "rgba(37,99,235,0.05)"
+                      color: "#2563eb", bg: "#eff6ff", border: "#dbeafe", glow: "rgba(37,99,235,0.05)",
+                      category: "files" as const,
                     },
                     {
                       icon: <FaCode />,
@@ -1135,7 +1298,8 @@ export function ResultReportView({
                       desc: "Code transformation and migration logic applied",
                       value: migrationJob.issues_fixed ?? 0,
                       footer: `${migrationJob.issues_fixed ?? 0} transformations completed`,
-                      color: "#7c3aed", bg: "#f5f3ff", border: "#ede9fe", glow: "rgba(124,58,237,0.05)"
+                      color: "#7c3aed", bg: "#f5f3ff", border: "#ede9fe", glow: "rgba(124,58,237,0.05)",
+                      category: "transformations" as const,
                     },
                     {
                       icon: <FaShieldAlt />,
@@ -1143,23 +1307,39 @@ export function ResultReportView({
                       desc: "Libraries and dependencies upgraded",
                       value: dependencyUpgradeCount,
                       footer: `${dependencyUpgradeCount} dependencies updated`,
-                      color: "#10b981", bg: "#ecfdf5", border: "#d1fae5", glow: "rgba(16,185,129,0.05)"
+                      color: "#10b981", bg: "#ecfdf5", border: "#d1fae5", glow: "rgba(16,185,129,0.05)",
+                      category: "dependencies" as const,
                     }
                   ];
 
                   return (
                     <div style={{ display: "grid", gridTemplateColumns: `repeat(${overviewCards.length}, minmax(0, 1fr))`, gap: 12 }}>
                       {overviewCards.map((item, idx) => (
-                    <div key={idx} style={{
-                      background: item.bg,
-                      border: `1px solid ${item.border}`,
-                      borderRadius: 16,
-                      padding: "16px 20px",
-                      display: "flex",
-                      flexDirection: "column",
-                      position: "relative",
-                      overflow: "hidden"
-                    }}>
+                    <div
+                      key={idx}
+                      onClick={() => void handleOpenReportDetails(item.category)}
+                      title={`Click to view details for ${item.title}`}
+                      style={{
+                        background: item.bg,
+                        border: `1px solid ${item.border}`,
+                        borderRadius: 16,
+                        padding: "16px 20px",
+                        display: "flex",
+                        flexDirection: "column",
+                        position: "relative",
+                        overflow: "hidden",
+                        cursor: "pointer",
+                        transition: "transform 0.15s ease, box-shadow 0.15s ease",
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.transform = "translateY(-2px)";
+                        e.currentTarget.style.boxShadow = `0 12px 30px -8px ${item.color}35`;
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = "translateY(0)";
+                        e.currentTarget.style.boxShadow = "none";
+                      }}
+                    >
                       <div style={{ background: "#ffffff", color: item.color, width: 44, height: 44, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, marginBottom: 12, boxShadow: "0 4px 12px rgba(0,0,0,0.05)" }}>
                         {item.icon}
                       </div>
@@ -1298,82 +1478,8 @@ export function ResultReportView({
             </div>
 
             {/* Source Code Transformations (GitHub-style Diff Layout) */}
-            <div style={{ background: "#ffffff", border: "1px solid #eef2f6", borderRadius: 16, overflow: "hidden", boxShadow: "0 4px 20px rgba(0,0,0,0.03)", marginBottom: 16 }}>
+            <div id="source-code-transformations-section" style={{ background: "#ffffff", border: "1px solid #eef2f6", borderRadius: 16, overflow: "hidden", boxShadow: "0 4px 20px rgba(0,0,0,0.03)", marginBottom: 16 }}>
               {(() => {
-                // ── Real changed-file diffs from FileDiffService (Java / build files) ──
-                // file_diffs is returned by build_result() in report_service.py and
-                // populated by FileDiffService.get_changed_files_summary().  Each entry
-                // has: relativePath, fileName, changeType ("ADDED"|"MODIFIED"|"DELETED"),
-                // label, addedLineCount, removedLineCount.
-                const rawFileDiffs: any[] = migrationJob?.file_diffs ?? [];
-                const javaFileDiffEntries = rawFileDiffs.map((fd: any) => {
-                  const changeType: string = (fd.changeType ?? "MODIFIED").toUpperCase();
-                  const relativePath = (fd.relativePath ?? fd.fileName ?? "").replace(/\\/g, "/");
-                  const loadedDiff = loadedFileDiffs[relativePath];
-                  const status: "Modified" | "Added" | "Removed" =
-                    changeType === "ADDED" ? "Added" :
-                    changeType === "DELETED" ? "Removed" :
-                    "Modified";
-                  return {
-                    file: fd.fileName ?? fd.relativePath ?? "",
-                    relativePath,
-                    label: fd.label,
-                    status,
-                    additions: fd.addedLineCount ?? 0,
-                    deletions: fd.removedLineCount ?? 0,
-                    // Line-by-line content is not embedded in the summary endpoint.
-                    // Entries display correctly in the sidebar with counts; clicking
-                    // shows what is available (currently no inline diff content for
-                    // Java files – the before/after panel will be empty unless the
-                    // backend embeds it in a future enhancement).
-                    beforeLines: (loadedDiff?.beforeLines ?? fd.beforeLines ?? []) as Array<{ num: number; text: string; type: string }>,
-                    afterLines: (loadedDiff?.afterLines ?? fd.afterLines ?? []) as Array<{ num: number; text: string; type: string }>,
-                  };
-                });
-
-                // ── JSP/JSF → React/Angular transformations from UIMigrationHandler ──
-                // uiTransformations is stored in migration-report.json under key
-                // "uiTransformations" and forwarded verbatim by build_result().
-                // Each entry from generate_diff_lines() now contains:
-                //   file, sourceFile, category, icon, status, additions, deletions,
-                //   beforeLines (JSP/JSF source), afterLines (generated component).
-                const rawUiTransformations: any[] = migrationJob?.uiTransformations ?? [];
-                const uiDiffEntries = rawUiTransformations.map((t: any) => ({
-                  file: t.targetSourceFile ?? t.file ?? "",
-                  sourceFile: t.sourceFile ?? t.file ?? "",
-                  category: t.category ?? "",
-                  icon: t.icon ?? "⚛️",
-                  status: (t.status ?? "Added") as "Modified" | "Added" | "Removed",
-                  additions: t.additions ?? (t.afterLines?.length ?? 0),
-                  deletions: t.deletions ?? 0,
-                  beforeLines: (t.beforeLines ?? []) as Array<{ num: number; text: string; type: string }>,
-                  afterLines: (t.afterLines ?? []) as Array<{ num: number; text: string; type: string }>,
-                }));
-
-                // Merge: Java/build files and JSP/JSF transformations without duplicates.
-                const mergedEntries: Array<{
-                  file: string;
-                  status: "Modified" | "Added" | "Removed";
-                  additions: number;
-                  deletions: number;
-                  beforeLines: Array<{ num: number; text: string; type: string }>;
-                  afterLines: Array<{ num: number; text: string; type: string }>;
-                  [key: string]: any;
-                }> = [];
-                const seenFileKeys = new Set<string>();
-
-                for (const entry of [...javaFileDiffEntries, ...uiDiffEntries]) {
-                  const key = (entry.sourceFile || entry.relativePath || entry.file || "").toLowerCase().replace(/\\/g, "/");
-                  const baseName = key.split("/").pop() || "";
-                  if (seenFileKeys.has(key) || seenFileKeys.has(baseName)) {
-                    continue;
-                  }
-                  seenFileKeys.add(key);
-                  seenFileKeys.add(baseName);
-                  mergedEntries.push(entry);
-                }
-                const diffData = mergedEntries;
-
                 const current = diffData[selectedDiffIndex] || diffData[0];
                 const modifiedCount = diffData.filter(f => f.status === "Modified").length;
                 const addedCount = diffData.filter(f => f.status === "Added").length;
@@ -1533,7 +1639,7 @@ export function ResultReportView({
                               </button>
                               <button
                                 type="button"
-                                onClick={() => handleShowReactUi(current)}
+                                onClick={(e) => handleShowReactUi(current, e)}
                                 title="Show the migrated React page UI"
                                 aria-label="Show the migrated React page UI"
                                 style={{
@@ -1751,6 +1857,15 @@ export function ResultReportView({
             onClose={() => setSandboxEntry(null)}
           />
         )}
+        <MigrationReportDetailModal
+          isOpen={detailModalCategory !== null}
+          category={detailModalCategory}
+          data={detailModalCategory ? reportDetailsCache[detailModalCategory] ?? null : null}
+          loading={detailModalLoading}
+          error={detailModalError}
+          onClose={() => setDetailModalCategory(null)}
+          onSelectFileForDiff={handleSelectFileForDiff}
+        />
       </React.Suspense>
     </div>
   );

@@ -11,7 +11,7 @@ import asyncio
 import json
 import logging
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 from app.api.deps import User, get_current_user, verify_job_ownership
 from app.application.pipelines.migration_execution_pipeline import MigrationExecutionPipeline
@@ -403,3 +403,21 @@ async def download_testcase_report(
             "Content-Disposition": f'attachment; filename="testcase-report-{job_id}.html"'
         },
     )
+
+
+@router.get("/migration/{job_id}/report/details", summary="Migration report category details.")
+async def migration_report_details(
+    job_id: str,
+    type: str = Query("files", description="Detail category: files, issues, dependencies, vulnerabilities, transformations"),
+    current_user: User = Depends(get_current_user),  # noqa: B008
+) -> JSONResponse:
+    await verify_job_ownership(job_id, current_user)
+    try:
+        details = await asyncio.to_thread(_pipeline.get_report_details, job_id, type)
+        return JSONResponse(status_code=200, content=details)
+    except MigrationJobNotFoundError:
+        return _not_found_response()
+    except Exception as exc:
+        logger.error("[MIGRATION DETAILS ERROR] job_id=%s type=%s error=%s", job_id, type, exc, exc_info=True)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+

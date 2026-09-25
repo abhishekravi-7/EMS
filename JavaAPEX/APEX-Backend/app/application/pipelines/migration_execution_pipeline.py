@@ -56,6 +56,9 @@ class MigrationExecutionPipeline:
     def get_fossa(self, job_id: str) -> dict[str, Any]:
         return report_service.build_fossa(self._require_report(job_id))
 
+    def get_report_details(self, job_id: str, detail_type: str) -> dict[str, Any]:
+        return report_service.build_report_details(self._require_report(job_id), detail_type)
+
     # -- helpers ------------------------------------------------------------- #
 
     @staticmethod

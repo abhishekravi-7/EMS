@@ -96,6 +96,7 @@ export default function AdminConsolePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const [availableRepos, setAvailableRepos] = useState<GithubRepo[]>([]);
   const [availableBranches, setAvailableBranches] = useState<GithubBranch[]>([]);
@@ -177,16 +178,20 @@ export default function AdminConsolePage() {
   const handleDeploy = async () => {
     setIsSaving(true);
     setError(null);
+    setSuccessMessage(null);
     try {
       if (isSuperAdmin) {
         await updateAdminSettings(settings);
       } else {
-        await updateUserSettings(userSettings.github_config, userSettings.quality_checks_values, userSettings.test_cases_values, userSettings.llm_values);
+        const updated = await updateUserSettings(userSettings.github_config, userSettings.quality_checks_values, userSettings.test_cases_values, userSettings.llm_values);
+        setUserSettings(updated);
         // Notify other components (e.g. chatbot) that settings have been saved
         window.dispatchEvent(new CustomEvent("javaapex:settings-saved"));
       }
-    } catch (err) {
-      setError("Failed to save configuration.");
+      setSuccessMessage("Configuration saved successfully.");
+      setTimeout(() => setSuccessMessage(null), 4000);
+    } catch (err: any) {
+      setError(err?.message || "Failed to save configuration.");
       console.error(err);
     } finally {
       setIsSaving(false);
@@ -570,6 +575,13 @@ export default function AdminConsolePage() {
             <FaShieldAlt />
             <span>{error}</span>
             <button onClick={() => setError(null)}>×</button>
+          </div>
+        )}
+
+        {successMessage && (
+          <div className="admin-success-banner">
+            <span>✓ {successMessage}</span>
+            <button onClick={() => setSuccessMessage(null)}>×</button>
           </div>
         )}
 

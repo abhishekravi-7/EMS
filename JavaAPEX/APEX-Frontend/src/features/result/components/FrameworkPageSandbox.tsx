@@ -1,4 +1,5 @@
 import { useMemo, useState, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { FaTimes, FaArrowLeft, FaCompass } from "react-icons/fa";
 import "./FrameworkPageSandbox.css";
 
@@ -570,6 +571,17 @@ export function FrameworkPageSandbox({
     return () => window.removeEventListener("message", handleMessage);
   }, [handleNavigate]);
 
+  // Close on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
   const handleBack = () => {
     if (navHistory.length > 0) {
       const prevFile = navHistory[navHistory.length - 1];
@@ -656,12 +668,17 @@ export function FrameworkPageSandbox({
   const isAngular = activeFileName.endsWith(".ts");
   const frameworkName = isAngular ? "Angular" : "React";
 
-  return (
+  const modalContent = (
     <div
       className="react-sandbox-backdrop"
       role="dialog"
       aria-modal="true"
       aria-label={`Migrated ${frameworkName} page preview`}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          onClose();
+        }
+      }}
     >
       <section className="react-sandbox-panel">
         <header className="react-sandbox-header">
@@ -741,4 +758,8 @@ export function FrameworkPageSandbox({
       </section>
     </div>
   );
+
+  return typeof document !== "undefined"
+    ? createPortal(modalContent, document.body)
+    : modalContent;
 }
