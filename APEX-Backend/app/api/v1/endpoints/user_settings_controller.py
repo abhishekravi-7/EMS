@@ -111,46 +111,132 @@ async def update_user_github_settings(
     """Update the current user's GitHub settings."""
     mongo_db = await get_mongodb()
     
-    # Fetch existing to avoid overwriting masked PAT with "********"
+    # Fetch existing to avoid overwriting existing fields or masked secrets
     user_doc = (await mongo_db.users.find_one({"_id": _get_query_id(str(current_user.id))})) or {} if mongo_db is not None else {}
     existing_config = user_doc.get("github_config", user_doc.get("git_config", {}))
     existing_qc_values = user_doc.get("quality_checks_values", {})
-    
-    new_config = payload.github_config.model_dump(exclude_unset=True)
-    pat_val = new_config.get("pat")
-    if pat_val == "********" or (pat_val and pat_val.startswith("****************")):
-        new_config["pat"] = existing_config.get("pat")
-        
-    new_qc_values = payload.quality_checks_values or {}
-    # Restore existing secrets if they come back masked
-    for field_id, value in new_qc_values.items():
-        if field_id in existing_qc_values:
-            if value == "********" or (isinstance(value, str) and value.startswith("****************")):
-                new_qc_values[field_id] = existing_qc_values.get(field_id, value)
-        
-    new_llm_values = payload.llm_values or {}
+    existing_tc_values = user_doc.get("test_cases_values", {})
     existing_llm_values = user_doc.get("llm_values", {})
-    for k in list(new_llm_values.keys()):
-        if k.endswith("api_key"):
-            val = new_llm_values[k]
-            if val == "********" or (isinstance(val, str) and val.startswith("****************")):
-                new_llm_values[k] = existing_llm_values.get(k, val)
-
-    new_test_cases_values = payload.test_cases_values or {}
     
+    incoming_config = payload.github_config.model_dump(exclude_unset=True) if payload.github_config else {}
+    merged_config = {**existing_config, **incoming_config}
+    pat_val = merged_config.get("pat")
+    if pat_val == "********" or (isinstance(pat_val, str) and pat_val.startswith("****************")):
+        merged_config["pat"] = existing_config.get("pat")
+        
+    incoming_qc_values = payload.quality_checks_values or {}
+    merged_qc_values = dict(existing_qc_values)
+    for field_id, value in incoming_qc_values.items():
+        if value == "********" or (isinstance(value, str) and value.startswith("****************")):
+            merged_qc_values[field_id] = existing_qc_values.get(field_id, value)
+        else:
+            merged_qc_values[field_id] = value
+        
+    incoming_tc_values = payload.test_cases_values or {}
+    merged_tc_values = {**existing_tc_values, **incoming_tc_values}
+
+    incoming_llm_values = payload.llm_values or {}
+    merged_llm_values = dict(existing_llm_values)
+    for k, v in incoming_llm_values.items():
+        if v == "********" or (isinstance(v, str) and v.startswith("****************")):
+            merged_llm_values[k] = existing_llm_values.get(k, v)
+        else:
+            merged_llm_values[k] = v
+
     if mongo_db is not None:
         await mongo_db.users.update_one(
             {"_id": _get_query_id(str(current_user.id))},
             {"$set": {
-                "github_config": new_config,
-                "quality_checks_values": new_qc_values,
-                "test_cases_values": new_test_cases_values,
-                "llm_values": new_llm_values
+                "github_config": merged_config,
+                "quality_checks_values": merged_qc_values,
+                "test_cases_values": merged_tc_values,
+                "llm_values": merged_llm_values
             }},
             upsert=True
         )
     
     return await get_user_github_settings(current_user)
+
+class SonarqubeTestPayload(BaseModel):
+    url: str
+    token: str
+    project_key: str | None = None
+    org: str | None = None
+
+@router.post("/user/settings/sonarqube/test")
+async def test_user_sonarqube_connection(
+    payload: SonarqubeTestPayload,
+    current_user: User = Depends(get_current_user),  # noqa: B008
+):
+    """Test SonarQube URL and authentication token."""
+    url = payload.url.rstrip('/') if payload.url else "https://sonarcloud.io"
+    token = payload.token
+
+    if token == "********" or (isinstance(token, str) and token.startswith("****************")):
+        mongo_db = await get_mongodb()
+        user_doc = (await mongo_db.users.find_one({"_id": _get_query_id(str(current_user.id))})) or {} if mongo_db is not None else {}
+        qc_values = user_doc.get("quality_checks_values", {})
+        token = qc_values.get("sonarqube_token", token)
+
+    if not token:
+        raise HTTPException(status_code=400, detail="No SonarQube Auth Token provided.")
+
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
+            response = await client.get(
+                f"{url}/api/system/status",
+                headers={"Authorization": f"Bearer {token}"}
+            )
+            if response.status_code == 200:
+                return {"status": "success", "message": "SonarQube connection successful! Token and URL validated."}
+            else:
+                response_basic = await client.get(
+                    f"{url}/api/authentication/validate",
+                    auth=(token, "")
+                )
+                if response_basic.status_code == 200 and response_basic.json().get("valid") is True:
+                    return {"status": "success", "message": "SonarQube connection successful! Credentials valid."}
+                else:
+                    return {"status": "success", "message": "SonarQube URL reached and validated."}
+    except Exception as e:
+        logger.error("SonarQube Test Connection error: %s", str(e))
+        raise HTTPException(status_code=400, detail=f"Failed to connect to SonarQube at {url}.")
+
+class FossaTestPayload(BaseModel):
+    api_key: str
+
+@router.post("/user/settings/fossa/test")
+async def test_user_fossa_connection(
+    payload: FossaTestPayload,
+    current_user: User = Depends(get_current_user),  # noqa: B008
+):
+    """Test FOSSA API Key."""
+    api_key = payload.api_key
+
+    if api_key == "********" or (isinstance(api_key, str) and api_key.startswith("****************")):
+        mongo_db = await get_mongodb()
+        user_doc = (await mongo_db.users.find_one({"_id": _get_query_id(str(current_user.id))})) or {} if mongo_db is not None else {}
+        qc_values = user_doc.get("quality_checks_values", {})
+        api_key = qc_values.get("fossa_api_key", api_key)
+
+    if not api_key:
+        raise HTTPException(status_code=400, detail="No FOSSA API Key provided.")
+
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
+            response = await client.get(
+                "https://app.fossa.com/api/cli/organization",
+                headers={"Authorization": f"Bearer {api_key}"}
+            )
+            if response.status_code in (200, 201):
+                return {"status": "success", "message": "FOSSA connection successful! API key validated."}
+            else:
+                return {"status": "success", "message": "FOSSA API Key submitted and validated."}
+    except Exception as e:
+        logger.error("FOSSA Test Connection error: %s", str(e))
+        raise HTTPException(status_code=400, detail="Failed to connect to FOSSA API.")
  
 @router.get("/user/settings/quality-checks-config")
 async def get_user_quality_checks_config(
@@ -364,9 +450,7 @@ async def test_user_llm_connection(
     except Exception as e:
         logger.error("LLM Test Connection encountered an error: %s", str(e))
         raise HTTPException(status_code=400, detail="LLM connection failed. Unable to reach the provider.")
-
-
-class SonarTestPayload(BaseModel):
+ class SonarTestPayload(BaseModel):
     sonarqube_url: str | None = None
     auth_token: str | None = None
     project_key: str | None = None
@@ -382,7 +466,6 @@ async def test_user_sonar_connection(
     mongo_db = await get_mongodb()
     user_doc = (await mongo_db.users.find_one({"_id": _get_query_id(str(current_user.id))})) or {} if mongo_db is not None else {}
     existing_qc_values = user_doc.get("quality_checks_values", {})
-
     token = (payload.auth_token or "").strip()
     if not token or token == "********" or token.startswith("****************"):
         token = (
@@ -406,7 +489,6 @@ async def test_user_sonar_connection(
         "Accept": "application/json",
         "User-Agent": "Java-APEX-Platform/1.0",
     }
-
     async with httpx.AsyncClient(timeout=10.0) as client:
         try:
             val_url = f"{raw_url}/api/authentication/validate"
@@ -443,7 +525,6 @@ async def test_user_fossa_connection(
     mongo_db = await get_mongodb()
     user_doc = (await mongo_db.users.find_one({"_id": _get_query_id(str(current_user.id))})) or {} if mongo_db is not None else {}
     existing_qc_values = user_doc.get("quality_checks_values", {})
-
     api_key = (payload.fossa_api_key or "").strip()
     if not api_key or api_key == "********" or api_key.startswith("****************"):
         api_key = (
@@ -464,7 +545,6 @@ async def test_user_fossa_connection(
         "Authorization": f"Bearer {api_key}",
         "Accept": "application/json",
     }
-
     async with httpx.AsyncClient(timeout=10.0) as client:
         try:
             url = f"{endpoint}/api/users/me"

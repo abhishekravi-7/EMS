@@ -73,6 +73,14 @@ export async function testAdminPlaywrightConnection(): Promise<{ status: string;
     { method: "POST" }
   );
 }
+
+export async function testAdminGithubConnection(): Promise<{ status: string; message: string }> {
+  return requestJson<{ status: string; message: string }>(
+    "/v1/admin/settings/github/test",
+    "Failed to test Platform GitHub configuration",
+    { method: "POST" }
+  );
+}
  
 export interface UserGitHubConfig {
   github_account?: string;
@@ -166,6 +174,15 @@ export async function updateUserSettings(
     system_test_cases_config: response.system_test_cases_config || {},
   };
 }
+
+export async function saveUserSettings(fullSettings: FullUserSettings): Promise<FullUserSettings> {
+  return updateUserSettings(
+    fullSettings.github_config || {},
+    fullSettings.quality_checks_values || {},
+    fullSettings.test_cases_values || {},
+    fullSettings.llm_values || {}
+  );
+}
  
 export async function testUserPlaywrightConnection(baseUrl: string): Promise<{ status: string; message: string }> {
   return requestJson<{ status: string; message: string }>(
@@ -185,13 +202,6 @@ export async function getQualityChecksAdminConfig(): Promise<{quality_checks_con
   );
 }
  
-export async function testAdminGithubConnection(): Promise<{status: string, message: string}> {
-  return requestJson<{status: string, message: string}>(
-    "/v1/admin/settings/github/test",
-    "Admin GitHub Connection Test Failed",
-    { method: "POST" }
-  );
-}
  
 export async function testUserGithubConnection(): Promise<{status: string, message: string}> {
   return requestJson<{status: string, message: string}>(

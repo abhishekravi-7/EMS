@@ -58,6 +58,10 @@ def build_tool_env(target_major: int | None = None) -> dict[str, str]:
     env = os.environ.copy()
     tool_dirs: list[Path] = []
 
+    mvn_exe = resolve_executable("mvn")
+    if mvn_exe:
+        tool_dirs.append(Path(mvn_exe).parent)
+
     java_home: str | None = None
     if target_major is not None:
         selected = _select_jdk_for_target(target_major)

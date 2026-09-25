@@ -217,6 +217,7 @@ const mergeMigrationSummaryIntoJob = (
   fossa_total_dependencies: summary.fossa_total_dependencies,
   fossa_total_licenses: summary.fossa_total_licenses ?? (summary.fossa_report as any)?.total_licenses ?? (summary.fossa_report as any)?.license_count ?? 0,
   fossa_license_issues: summary.fossa_license_issues,
+  fossa_total_licenses: summary.fossa_total_licenses ?? (summary.fossa_report as any)?.total_licenses ?? (summary.fossa_report as any)?.license_count ?? 0,
   fossa_vulnerabilities: summary.fossa_vulnerabilities,
   fossa_outdated_dependencies: summary.fossa_outdated_dependencies,
   fossa_scan_mode: summary.fossa_scan_mode ?? null,
@@ -5094,6 +5095,15 @@ export function useWizardController() {
           clearScheduledPoll();
           return;
         }
+        if (err instanceof ApiError && (err.status === 401 || err.code === "SESSION_EXPIRED")) {
+ 
+          setError("Your session has expired. Please sign in again.");
+ 
+          clearScheduledPoll();
+ 
+          return;
+ 
+        }
 
         if (err instanceof ApiError && (err.status === 401 || err.code === "SESSION_EXPIRED")) {
           setError("Your session has expired. Please sign in again.");
@@ -5157,6 +5167,9 @@ export function useWizardController() {
     if (modernizationState.selectedTestSources.functionalDoc) selectedSourcesList.push("FUNCTIONAL_DOC");
     if (modernizationState.selectedTestSources.existing) selectedSourcesList.push("EXISTING");
 
+    const cachedSettings = (typeof window !== "undefined" && (window as any).__javaapex_user_settings) || {};
+    const qcVals = cachedSettings.quality_checks_values || {};
+
     return {
       source_repo_url: selectedRepo?.url || repoUrl,
       target_repo_name: finalTargetRepoName,
@@ -5178,6 +5191,12 @@ export function useWizardController() {
       functional_test_method: functionalTestToolMethod.length > 0 ? functionalTestToolMethod : undefined,
       proposed_test_sources: selectedSourcesList,
       selected_test_sources: selectedSourcesList,
+      quality_checks_values: qcVals,
+      testing_prompt: qcVals.testing_prompt || cachedSettings?.test_cases_values?.testing_prompt || "",
+      selected_predefined_prompts: qcVals.selected_predefined_prompts || [],
+      functional_testing_prompt: qcVals.functional_testing_prompt || "",
+      functional_custom_prompt: qcVals.functional_custom_prompt || "",
+      functional_testing_suggestions: qcVals.functional_testing_suggestions || [],
     };
   }, [
     sourceRepositoryName,

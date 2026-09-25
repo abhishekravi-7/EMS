@@ -71,10 +71,17 @@ const JUNIT_PREDEFINED_PROMPTS = [
   ];
 
 export default function UserQualityChecksSettings({
-  settings,
+  settings: rawSettings,
   onChange,
   mode = "all"
 }: UserQualityChecksSettingsProps) {
+  const settings = rawSettings || ({
+    github_config: {},
+    quality_checks_values: {},
+    test_cases_values: {},
+    llm_values: {},
+  } as any);
+
   const [adminConfig, setAdminConfig] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -145,8 +152,8 @@ export default function UserQualityChecksSettings({
     }
   };
 
-  const currentFunctionalCustomPrompt = settings.quality_checks_values?.functional_custom_prompt || "";
-  const selectedFunctionalSuggestions = settings.quality_checks_values?.functional_testing_suggestions ?? TEST_SCENARIO_SUGGESTIONS.map(s => s.id);
+  const currentFunctionalCustomPrompt = settings?.quality_checks_values?.functional_custom_prompt || "";
+  const selectedFunctionalSuggestions = settings?.quality_checks_values?.functional_testing_suggestions ?? TEST_SCENARIO_SUGGESTIONS.map(s => s.id);
 
   const [analyzingFunctionalPrompt, setAnalyzingFunctionalPrompt] = useState(false);
   const [functionalPromptAnalysis, setFunctionalPromptAnalysis] = useState<TestingPromptAnalysisResult | null>(null);
@@ -302,6 +309,19 @@ export default function UserQualityChecksSettings({
 
   const toggleSecret = (id: string) => {
     setShowSecrets((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const handleToggleFeature = (featureKey: string) => {
+    onChange((prev) => {
+      const currentVal = prev.quality_checks_values?.[featureKey] ?? true;
+      return {
+        ...prev,
+        quality_checks_values: {
+          ...(prev.quality_checks_values || {}),
+          [featureKey]: !currentVal
+        }
+      };
+    });
   };
 
   if (isLoading) {
@@ -573,6 +593,8 @@ export default function UserQualityChecksSettings({
       )}
     </div>
   );
+
+  let renderedPromptInCheck = false;
   let renderedFunctionalPromptInCheck = false;
 
   if (mode === "testing_only") {
@@ -771,17 +793,5 @@ export default function UserQualityChecksSettings({
     </div>
   );
 }
-  const handleToggleFeature = (featureKey: string) => {
-    onChange((prev) => {
-      const currentVal = prev.quality_checks_values?.[featureKey] ?? true;
-      return {
-        ...prev,
-        quality_checks_values: {
-          ...(prev.quality_checks_values || {}),
-          [featureKey]: !currentVal
-        }
-      };
-    });
-  };
 
   

@@ -56,21 +56,16 @@ class WorkspaceManager:
 
     @staticmethod
     def _init_git_boundary(migrated: Path) -> None:
-        """Give ``migrated-repo`` its own ``.git`` so it is a repository root.
+        """Give ``migrated-repo`` its own ``.git`` and initial commit so it is a valid repository root with HEAD ref.
 
-        This job's workspace (``storage/migration-jobs/...``) normally sits
-        nested inside this very project's own git working tree. Without a
-        ``.git`` of its own here, the Maven/Gradle migration plugins walk up
-        the filesystem looking for one and land on the *outer* repository
-        root instead -- which makes them silently resolve project files
-        against the wrong base directory and apply zero recipe changes
-        (the build still reports success since compilation doesn't depend on
-        this). An empty ``git init`` here gives the walk-up a boundary to
-        stop at; ``repo_pusher``'s later ``git init`` on the same directory
-        is a no-op against an already-initialized repo.
+        This ensures build plugins like ``git-commit-id-maven-plugin`` can resolve HEAD ref.
         """
         git = resolve_executable("git")
         if not git:
             return
         run_command([git, "-c", "core.longpaths=true", "init", "-q"], cwd=migrated, timeout=30)
         run_command([git, "-c", "core.longpaths=true", "config", "core.longpaths", "true"], cwd=migrated, timeout=30)
+        run_command([git, "config", "user.name", "APEXEngine"], cwd=migrated, timeout=30)
+        run_command([git, "config", "user.email", "engine@apex.internal"], cwd=migrated, timeout=30)
+        run_command([git, "add", "-A"], cwd=migrated, timeout=30)
+        run_command([git, "commit", "-m", "Initial baseline commit", "--no-verify"], cwd=migrated, timeout=30)

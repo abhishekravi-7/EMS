@@ -1166,8 +1166,11 @@ export function ResultReportView({
                         fossaLicenseIssueCount={migrationJob.fossa_license_issues ?? (migrationJob.fossa_report as any)?.license_issues ?? (migrationJob as any)?.license_issues}
                         fossaVulnerabilityTotal={migrationJob.fossa_vulnerabilities ?? (migrationJob.fossa_report as any)?.vulnerabilities ?? (migrationJob.fossa_report as any)?.vulnerability_count}
                         fossaOutdatedCount={migrationJob.fossa_outdated_dependencies ?? (migrationJob.fossa_report as any)?.outdated_dependencies ?? (migrationJob as any)?.outdated_packages}
+ 
                         fossaTotalDependencies={migrationJob.fossa_total_dependencies ?? (migrationJob.fossa_report as any)?.total_dependencies ?? (migrationJob as any)?.dependencies}
+ 
                         fossaTotalLicenses={(migrationJob as any)?.fossa_total_licenses ?? (migrationJob.fossa_report as any)?.total_licenses ?? (migrationJob.fossa_report as any)?.license_count ?? (migrationJob.fossa_report as any)?.licenses ?? (migrationJob as any)?.licenses}
+ 
                         fossaPolicyStatus={migrationJob.fossa_policy_status || (migrationJob.fossa_report as any)?.policy_status || (migrationJob as any)?.status}
                         fossaScanMode={migrationJob.fossa_scan_mode || (migrationJob.fossa_report as any)?.scan_mode}
                         fossaErrorMessage={migrationJob.fossa_error_message || (migrationJob.fossa_report as any)?.error_message}

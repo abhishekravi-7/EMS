@@ -542,6 +542,7 @@ export function MigrationFossaSection({
 
   const totalDeps = renderValue(fossaTotalDependencies);
   const totalLics = renderValue(fossaTotalLicenses);
+ 
   const licIssues = renderValue(fossaLicenseIssueCount);
   const vulns = renderValue(fossaVulnerabilityTotal);
   const outdated = renderValue(fossaOutdatedCount);
@@ -601,6 +602,7 @@ export function MigrationFossaSection({
         </div>
         {[
           { label: "Dependencies", value: totalDeps, color: "#2563eb" },
+ 
           { label: "Licenses", value: totalLics, color: "#0891b2" },
           { label: "License Issues", value: licIssues, color: typeof licIssues === "number" && licIssues > 0 ? "#ef4444" : "#10b981" },
           { label: "Vulnerabilities", value: vulns, color: typeof vulns === "number" && vulns > 0 ? "#ef4444" : "#10b981" },

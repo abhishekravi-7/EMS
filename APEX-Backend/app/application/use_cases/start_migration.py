@@ -234,7 +234,7 @@ class StartMigrationUseCase:
             else (
                 bool(request["runSonar"])
                 if "runSonar" in request
-                else bool(options.get("runSonar") if "runSonar" in options else options.get("run_sonar", False))
+                else bool(options.get("runSonar") if "runSonar" in options else options.get("run_sonar", True))
             )
         )
         run_fossa = (
@@ -243,7 +243,7 @@ class StartMigrationUseCase:
             else (
                 bool(request["runFossa"])
                 if "runFossa" in request
-                else bool(options.get("runFossa") if "runFossa" in options else options.get("run_fossa", False))
+                else bool(options.get("runFossa") if "runFossa" in options else options.get("run_fossa", True))
             )
         )
         run_tests = (
@@ -252,7 +252,7 @@ class StartMigrationUseCase:
             else (
                 bool(request["runTests"])
                 if "runTests" in request
-                else bool(options.get("runTests") if "runTests" in options else options.get("run_tests", False))
+                else bool(options.get("runTests") if "runTests" in options else options.get("run_tests", True))
             )
         )
         run_functional_tests = (
@@ -264,6 +264,13 @@ class StartMigrationUseCase:
                 else bool(options.get("runFunctionalTests", True))
             )
         )
+
+        qc_req = request.get("quality_checks_values") or {}
+        testing_prompt_req = request.get("testing_prompt") or qc_req.get("testing_prompt")
+        predefined_prompts_req = request.get("selected_predefined_prompts") or qc_req.get("selected_predefined_prompts")
+        func_prompt_req = request.get("functional_testing_prompt") or qc_req.get("functional_testing_prompt")
+        func_custom_req = request.get("functional_custom_prompt") or qc_req.get("functional_custom_prompt")
+        func_suggestions_req = request.get("functional_testing_suggestions") or qc_req.get("functional_testing_suggestions")
 
         store = MigrationReportStore(WorkspacePaths(job_id))
         report = {
@@ -288,6 +295,19 @@ class StartMigrationUseCase:
             "proposedTestSources": proposed_test_sources,
             "destination": destination,
             "targetRepo": initial_target_repo,
+            "quality_checks_values": {
+                **qc_req,
+                "testing_prompt": testing_prompt_req,
+                "selected_predefined_prompts": predefined_prompts_req,
+                "functional_testing_prompt": func_prompt_req,
+                "functional_custom_prompt": func_custom_req,
+                "functional_testing_suggestions": func_suggestions_req,
+            },
+            "testing_prompt": testing_prompt_req,
+            "selected_predefined_prompts": predefined_prompts_req,
+            "functional_testing_prompt": func_prompt_req,
+            "functional_custom_prompt": func_custom_req,
+            "functional_testing_suggestions": func_suggestions_req,
             "startedAt": _now(),
             "completedAt": None,
             "errorMessage": None,
@@ -463,24 +483,29 @@ class StartMigrationUseCase:
                     unit_test_use_case = RunUnitTestSuiteUseCase()
                     from app.core.junit_prompts import combine_junit_prompts
                     store_data = store.read() or {}
+                    job_qc = store_data.get("quality_checks_values") or {}
                     selected_predefined = (
+                        store_data.get("selected_predefined_prompts") or
+                        store_data.get("selectedPredefinedPrompts") or
+                        job_qc.get("selected_predefined_prompts") or
+                        job_qc.get("selectedPredefinedPrompts") or
                         quality_checks_values.get("selected_predefined_prompts") or
                         quality_checks_values.get("selectedPredefinedPrompts") or
-                        (store_data.get("quality_checks_values") or {}).get("selected_predefined_prompts") or
-                        (store_data.get("quality_checks_values") or {}).get("selectedPredefinedPrompts") or
                         []
                     )
                     manual_prompt_val = (
+                        store_data.get("testing_prompt") or
+                        store_data.get("testingPrompt") or
+                        job_qc.get("testing_prompt") or
+                        job_qc.get("testingPrompt") or
+                        job_qc.get("junit_prompt") or
+                        job_qc.get("junitPrompt") or
                         quality_checks_values.get("testing_prompt") or 
                         quality_checks_values.get("testingPrompt") or
                         quality_checks_values.get("junit_prompt") or
                         quality_checks_values.get("junitPrompt") or
                         test_cases_values.get("testing_prompt") or 
-                        test_cases_values.get("testingPrompt") or
-                        store_data.get("testing_prompt") or
-                        store_data.get("testingPrompt") or
-                        (store_data.get("quality_checks_values") or {}).get("testing_prompt") or
-                        (store_data.get("quality_checks_values") or {}).get("testingPrompt")
+                        test_cases_values.get("testingPrompt")
                     )
                     testing_prompt_val = combine_junit_prompts(
                         selected_prompt_ids=selected_predefined if isinstance(selected_predefined, list) else [],
@@ -507,7 +532,7 @@ class StartMigrationUseCase:
                     loop = asyncio.new_event_loop()
                     try:
                         test_result = loop.run_until_complete(
-                            asyncio.wait_for(unit_test_use_case.execute_project_suite(req, db=None), timeout=45.0)
+                            asyncio.wait_for(unit_test_use_case.execute_project_suite(req, db=None), timeout=300.0)
                         )
                     except Exception as suite_err:
                         logger.warning(f"execute_project_suite timed out or noticed exception: {suite_err}")
@@ -625,32 +650,31 @@ class StartMigrationUseCase:
 
                     def get_prompt_methods(action_name: str, is_target: bool) -> list[str]:
                         suffixes = []
-                        if "business_logic_functional_paths" in selected_ids:
+                        if any(k in p_text for k in ("auth", "login", "security", "token", "credential", "jwt")):
+                            suffixes.extend(["AuthenticationTokenValidation", "UserCredentialVerification", "SecurityContextAuthorization", "ExpiredTokenExceptionHandling"])
+                        elif any(k in p_text for k in ("connect", "connection", "repo", "repository", "db", "database")):
+                            suffixes.extend(["DatabaseTransactionExecution", "RepositoryConnectionValidation", "EntityPersistenceCheck", "ConnectionTimeoutFallback"])
+                        elif any(k in p_text for k in ("payment", "order", "checkout", "billing", "invoice")):
+                            suffixes.extend(["PaymentProcessingWorkflow", "TransactionBoundaryValidation", "CheckoutStateVerification", "PaymentFailureHandling"])
+                        elif any(k in p_text for k in ("api", "endpoint", "rest", "controller")):
+                            suffixes.extend(["EndpointRequestPayloadValidation", "APIResponseFormatVerification", "HTTPHeaderAuthorizationCheck", "APIRateLimitHandling"])
+                        elif "business_logic_functional_paths" in selected_ids or "business" in p_text or "functional" in p_text:
                             suffixes.extend(["BusinessLogicExecution", "CoreWorkflowValidation", "DomainRuleCalculation", "AlternateFunctionalPath"])
-                        elif "branch_condition_edge_case" in selected_ids:
+                        elif "branch_condition_edge_case" in selected_ids or "branch" in p_text or "condition" in p_text or "edge" in p_text:
                             suffixes.extend(["BranchDecisionPath", "BoundaryValueConstraint", "ConditionalLoopExecution", "EdgeCaseInputVariation"])
-                        elif "exception_negative_scenario" in selected_ids:
+                        elif "exception_negative_scenario" in selected_ids or "exception" in p_text or "negative" in p_text or "error" in p_text:
                             suffixes.extend(["ExceptionHandlingPath", "ValidationFailureRejection", "NullPointerProtection", "DependencyFailureFallback"])
-                        elif "jacoco_dynamic_coverage_gap" in selected_ids:
+                        elif "jacoco_dynamic_coverage_gap" in selected_ids or "jacoco" in p_text or "gap" in p_text:
                             suffixes.extend(["JaCoCoUncoveredLinePath", "MissedBranchConditionTarget", "CoverageGapMethodTarget", "JaCoCoThresholdVerification"])
                         elif "comprehensive_junit_coverage" in selected_ids:
                             suffixes.extend(["ComprehensiveHappyPath", "RepositoryWideCoverage", "EndToEndComponentFlow", "SystemStateValidation"])
-                        else:
-                            if "business" in p_text or "functional" in p_text:
-                                suffixes.extend(["BusinessLogicExecution", "CoreWorkflowValidation", "DomainRuleCalculation", "AlternateFunctionalPath"])
-                            elif "branch" in p_text or "condition" in p_text or "edge" in p_text:
-                                suffixes.extend(["BranchDecisionPath", "BoundaryValueConstraint", "ConditionalLoopExecution", "EdgeCaseInputVariation"])
-                            elif "exception" in p_text or "negative" in p_text or "error" in p_text:
-                                suffixes.extend(["ExceptionHandlingPath", "ValidationFailureRejection", "NullPointerProtection", "DependencyFailureFallback"])
-                            elif "jacoco" in p_text or "gap" in p_text:
-                                suffixes.extend(["JaCoCoUncoveredLinePath", "MissedBranchConditionTarget", "CoverageGapMethodTarget", "JaCoCoThresholdVerification"])
 
                         if not suffixes:
-                            suffixes.extend(["ComprehensiveHappyPath", "RepositoryWideCoverage", "EndToEndComponentFlow", "SystemStateValidation"])
+                            suffixes.extend(["BusinessLogicExecution", "CoreWorkflowValidation", "BoundaryConditionCheck", "ExceptionHandlingScenario"])
 
                         # Select 4 distinct methods for this class based on prompt focus
                         if is_target:
-                            res_suffixes = suffixes[:4] if len(suffixes) >= 4 else (suffixes + ["ComprehensiveHappyPath", "RepositoryWideCoverage", "EndToEndComponentFlow", "SystemStateValidation"])[:4]
+                            res_suffixes = suffixes[:4] if len(suffixes) >= 4 else (suffixes + ["BusinessLogicExecution", "CoreWorkflowValidation", "BoundaryConditionCheck", "ExceptionHandlingScenario"])[:4]
                         else:
                             res_suffixes = ["StandardSuccess", "NullOrEmptyInput", "DefaultExecution", "CoverageCheck"]
                         

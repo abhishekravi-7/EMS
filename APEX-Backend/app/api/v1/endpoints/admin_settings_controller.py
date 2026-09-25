@@ -62,8 +62,8 @@ async def get_admin_settings(
     current_user: User = Depends(get_current_user),  # noqa: B008
 ) -> SystemSettingsResponse:
     """Fetch the current effective system settings."""
-    if current_user.role not in ("SUPERADMIN",):
-        logger.warning("User %s attempted to access admin settings without SUPERADMIN role", current_user.email)
+    if current_user.role not in ("SUPERADMIN", "ADMIN", "admin") and not getattr(current_user, "is_admin", False):
+        logger.warning("User %s attempted to access admin settings without admin role", current_user.email)
         raise HTTPException(status_code=403, detail="Forbidden")
 
     env_values = _get_live_env_values()
@@ -89,8 +89,8 @@ async def update_admin_settings(
     current_user: User = Depends(get_current_user),  # noqa: B008
 ) -> SystemSettingsResponse:
     """Update system settings and apply them to the live environment."""
-    if current_user.role not in ("SUPERADMIN",):
-        logger.warning("User %s attempted to update admin settings without SUPERADMIN role", current_user.email)
+    if current_user.role not in ("SUPERADMIN", "ADMIN", "admin") and not getattr(current_user, "is_admin", False):
+        logger.warning("User %s attempted to update admin settings without admin role", current_user.email)
         raise HTTPException(status_code=403, detail="Forbidden")
 
     mongo_db = await get_mongodb()
@@ -124,7 +124,7 @@ async def test_admin_github_connection(
     current_user: User = Depends(get_current_user),  # noqa: B008
 ):
     """Test the admin's GitHub connection."""
-    if current_user.role not in ("SUPERADMIN",):
+    if current_user.role not in ("SUPERADMIN", "ADMIN", "admin") and not getattr(current_user, "is_admin", False):
         raise HTTPException(status_code=403, detail="Forbidden")
  
     env_values = _get_live_env_values()

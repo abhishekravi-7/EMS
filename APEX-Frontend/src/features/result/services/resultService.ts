@@ -249,7 +249,7 @@ export interface MigrationResult {
   // FOSSA scan results (optional)
   fossa_policy_status?: string | null;
   fossa_total_dependencies?: number;
-  fossa_total_licenses?: number;
+  fossa_total_licenses?:number;
   fossa_license_issues?: number;
   fossa_vulnerabilities?: number;
   fossa_outdated_dependencies?: number;
@@ -359,7 +359,9 @@ export interface MigrationJobSummary {
   fossa_real_scan?: boolean;
   fossa_analysis_url?: string | null;
   fossa_project_url?: string | null;
+ 
   fossa_project_locator?: string | null;
+ 
   fossa_revision?: string | null;
   fossa_error_message?: string | null;
   fossa_report?: FossaScanResult | null;
