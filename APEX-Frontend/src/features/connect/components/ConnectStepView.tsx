@@ -1,9 +1,14 @@
-import React, { useRef } from "react";
+import React, { useRef, useState, useEffect } from "react";
 import {
   FaCheckCircle,
   FaExclamationTriangle,
   FaFileAlt,
   FaFolderOpen,
+  FaFolder,
+  FaJava,
+  FaCodeBranch,
+  FaClock,
+  FaCircle,
   FaGithub,
   FaInfoCircle,
   FaLock,
@@ -16,6 +21,7 @@ import {
 import { useAuth } from "@/shared/context/AuthContext";
 import { getUserSettings } from "@/features/admin/services/adminService";
 import type { useRepositoryConnect } from "../hooks/useRepositoryConnect";
+import { fetchRecentRepositories, type RecentRepository } from "../services/connectService";
 import "../pages/ConnectPage.css";
 
 interface ConnectStepViewProps {
@@ -25,6 +31,20 @@ interface ConnectStepViewProps {
 }
 
 export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: ConnectStepViewProps) {
+  const [recentRepos, setRecentRepos] = useState<RecentRepository[]>([]);
+  const [loadingRecent, setLoadingRecent] = useState(true);
+
+  useEffect(() => {
+    fetchRecentRepositories()
+      .then(data => {
+        setRecentRepos(data);
+        setLoadingRecent(false);
+      })
+      .catch(err => {
+        console.error("Failed to load recent repos:", err);
+        setLoadingRecent(false);
+      });
+  }, []);
   const {
     repoUrl,
     setRepoUrl,
@@ -920,6 +940,71 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
           </div>
         </div>
         */}
+
+
+      {/* RECENT REPOSITORIES TABLE */}
+      <div style={{ width: "100%", maxWidth: "1520px", margin: "24px auto 0", backgroundColor: "#ffffff", borderRadius: "16px", border: "1px solid #e2e8f0", overflow: "hidden", boxShadow: "0 2px 12px rgba(15, 23, 42, 0.03)" }}>
+        <div style={{ padding: "12px 24px", borderBottom: "1px solid #e2e8f0" }}>
+          <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700, color: "#1e293b" }}>Recent Repositories</h3>
+        </div>
+        
+        {loadingRecent ? (
+          <div style={{ padding: "40px", textAlign: "center", color: "#64748b" }}>Loading recent repositories...</div>
+        ) : recentRepos.length === 0 ? (
+          <div style={{ padding: "40px", textAlign: "center", color: "#64748b" }}>No recent repositories found.</div>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "0.875rem" }}>
+              <thead style={{ backgroundColor: "#f8fafc", color: "#64748b", fontWeight: 600, borderBottom: "1px solid #e2e8f0" }}>
+                <tr>
+                  <th style={{ padding: "12px 24px", whiteSpace: "nowrap" }}>Repository Name</th>
+                  <th style={{ padding: "12px 24px" }}>Owner</th>
+                  <th style={{ padding: "12px 24px", whiteSpace: "nowrap" }}>Tech Stack</th>
+                  <th style={{ padding: "12px 24px" }}>Components</th>
+                  <th style={{ padding: "12px 24px", whiteSpace: "nowrap" }}>Default Branch</th>
+                  <th style={{ padding: "12px 24px" }}>Visibility</th>
+                  <th style={{ padding: "12px 24px", whiteSpace: "nowrap" }}>Last Updated</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentRepos.map((repo, idx) => (
+                  <tr key={repo.jobId || idx} style={{ borderBottom: idx === recentRepos.length - 1 ? "none" : "1px solid #f1f5f9" }}>
+                    <td style={{ padding: "12px 24px", color: "#0f172a", fontWeight: 600, display: "flex", alignItems: "center", gap: "8px" }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "32px", height: "32px", backgroundColor: "#eff6ff", borderRadius: "8px", color: "#3b82f6" }}>
+                        <FaFolder size={14} />
+                      </div>
+                      {repo.repositoryName}
+                    </td>
+                    <td style={{ padding: "12px 24px", color: "#64748b" }}>{repo.owner}</td>
+                    <td style={{ padding: "12px 24px", color: "#64748b", display: "flex", alignItems: "center", gap: "6px" }}>
+                      <FaJava color="#ea580c" />
+                      {repo.techStack}
+                    </td>
+                    <td style={{ padding: "12px 24px", color: "#64748b" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                        <FaFileAlt color="#94a3b8" />
+                        {repo.componentsCount}
+                      </div>
+                    </td>
+                    <td style={{ padding: "12px 24px" }}>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", padding: "4px 10px", backgroundColor: "#f1f5f9", color: "#475569", borderRadius: "16px", fontSize: "0.8rem", fontWeight: 500 }}>
+                        <FaCodeBranch size={12} />
+                        {repo.defaultBranch}
+                      </span>
+                    </td>
+                    <td style={{ padding: "12px 24px" }}>
+                      <span style={{ display: "inline-block", padding: "4px 12px", backgroundColor: repo.visibility.toLowerCase() === "private" ? "#fef3c7" : "#e0f2fe", color: repo.visibility.toLowerCase() === "private" ? "#d97706" : "#0284c7", borderRadius: "16px", fontSize: "0.8rem", fontWeight: 600 }}>
+                        {repo.visibility}
+                      </span>
+                    </td>
+                    <td style={{ padding: "12px 24px", color: "#64748b" }}>{repo.lastUpdatedFormatted}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
       </div>
     </div>
   );
