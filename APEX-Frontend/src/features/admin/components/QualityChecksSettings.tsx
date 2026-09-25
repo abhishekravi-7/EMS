@@ -133,8 +133,6 @@ export default function QualityChecksSettings({ configString, onChange }: Qualit
             </div>
           </div>
 
-
-
           <div style={{ pointerEvents: check.enabled ? "auto" : "none" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", borderBottom: "1px solid #e2e8f0", paddingBottom: "8px" }}>
               <h5 style={{ margin: 0, fontSize: "0.95rem", color: "#334155" }}>User Configuration Fields</h5>

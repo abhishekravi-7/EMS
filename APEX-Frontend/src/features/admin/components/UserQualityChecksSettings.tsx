@@ -7,6 +7,40 @@ interface UserQualityChecksSettingsProps {
   onChange: React.Dispatch<React.SetStateAction<FullUserSettings>>;
 }
 
+const DEFAULT_QUALITY_CHECKS = [
+  {
+    id: "SONARQUBE",
+    name: "SonarQube",
+    description: "Static code analysis to detect bugs, code smells, and security vulnerabilities.",
+    enabled: true,
+    fields: [
+      { id: "sonarqube_url", name: "SonarQube URL", visible: true, required: true, defaultValue: "https://sonarcloud.io" },
+      { id: "auth_token", name: "Authentication Token", visible: true, required: true },
+      { id: "project_key", name: "Project Key", visible: true, required: false },
+      { id: "sonar_organization", name: "Sonar Organisation", visible: true, required: false }
+    ]
+  },
+  {
+    id: "FOSSA",
+    name: "FOSSA",
+    description: "Open source dependency management and license compliance scanning.",
+    enabled: true,
+    fields: [
+      { id: "fossa_api_key", name: "FOSSA API Key", visible: true, required: true },
+      { id: "fossa_endpoint", name: "FOSSA Endpoint", visible: true, required: false }
+    ]
+  },
+  {
+    id: "RUN_UNIT_TEST_SUITE",
+    name: "Run Unit Test Suite",
+    description: "Execute the project's internal unit test suite during migration.",
+    enabled: true,
+    fields: [
+      { id: "test_command", name: "Test Command / Configuration", visible: true, required: false }
+    ]
+  }
+];
+
 export default function UserQualityChecksSettings({
   settings,
   onChange,
@@ -100,13 +134,13 @@ export default function UserQualityChecksSettings({
           const configArray = Array.isArray(parsed)
             ? parsed
             : (typeof parsed === "object" && parsed !== null ? Object.values(parsed) : []);
-          setAdminConfig(configArray);
+          setAdminConfig(configArray.length > 0 ? configArray : DEFAULT_QUALITY_CHECKS);
         } else {
-          setAdminConfig([]);
+          setAdminConfig(DEFAULT_QUALITY_CHECKS);
         }
       } catch (err: any) {
         console.error("Failed to fetch quality checks admin config:", err);
-        setError("Failed to load admin configuration for Quality Checks.");
+        setAdminConfig(DEFAULT_QUALITY_CHECKS);
       } finally {
         setIsLoading(false);
       }
