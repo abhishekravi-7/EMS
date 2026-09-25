@@ -118,9 +118,25 @@ class ProposedTestService:
                 except Exception as e:  # noqa: BLE001
                     self._log(job_id, f"[PROPOSED TESTS] Note on existing test detection: {e}", "DEBUG")
 
+            # Load migration report data for quality check prompt configurations
+            rep_data: dict[str, Any] = {}
+            if paths.migration_report_path.exists():
+                try:
+                    import json
+                    rep_data = json.loads(paths.migration_report_path.read_text(encoding="utf-8"))
+                except Exception:
+                    pass
+
+            qc_vals = rep_data.get("quality_checks_values") or rep_data.get("qualityChecksValues") or {}
+
             # Static analyzer
             analyzer = ProposedTestAnalyzer(repo_dir, existing_tests=existing_tests)
             analysis_data = analyzer.analyze()
+            analysis_data["functional_testing_prompt"] = rep_data.get("functional_testing_prompt") or qc_vals.get("functional_testing_prompt")
+            analysis_data["functional_custom_prompt"] = rep_data.get("functional_custom_prompt") or qc_vals.get("functional_custom_prompt")
+            analysis_data["functional_testing_suggestions"] = rep_data.get("functional_testing_suggestions") or qc_vals.get("functional_testing_suggestions") or []
+            analysis_data["testing_prompt"] = rep_data.get("testing_prompt") or qc_vals.get("testing_prompt")
+            analysis_data["selected_predefined_prompts"] = rep_data.get("selected_predefined_prompts") or qc_vals.get("selected_predefined_prompts") or []
 
             ep_count = len(analysis_data.get("endpoints", []))
             svc_count = len(analysis_data.get("services", []))

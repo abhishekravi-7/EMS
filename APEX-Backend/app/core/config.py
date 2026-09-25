@@ -147,7 +147,7 @@ class Settings(BaseSettings):
     # Some legacy projects keep Groovy/Spock/JUnit test toolchains that are not
     # Java-target compatible after migration; those should not block the basic
     # "does the migrated application package?" validation.
-    build_maven_args: str = "-B,-Dmaven.test.skip=true,package"
+    build_maven_args: str = "-B,-Dmaven.test.skip=true,-Dgit.commit.id.skip=true,-Dmaven.gitcommitid.skip=true,package"
     # Gradle tasks: build but skip tests.
     build_gradle_args: str = "build,-x,test,--no-daemon"
     # Timeout (seconds) for the build.

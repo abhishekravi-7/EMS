@@ -91,15 +91,23 @@ export interface FossaScanResult {
   details_available?: boolean;
   permission_limited?: boolean;
   compliance_status?: string | null;
+  policy_status?: string | null;
+  status?: string | null;
   total_dependencies?: number | null;
+  dependencies?: Array<Record<string, unknown>> | number;
+  total_licenses?: number | null;
+  license_count?: number | null;
   issue_count?: number | null;
   license_issues?: number | null;
-  licenses?: Record<string, number>;
+  licenses?: Record<string, number> | number;
   vulnerabilities?: Record<string, number> | number | null;
   vulnerability_details?: FossaVulnerabilityDetail[];
-  dependencies?: Array<Record<string, unknown>>;
   outdated_dependencies?: number | null;
+  outdated_packages?: number | null;
   analysis_url?: string | null;
+  project_url?: string | null;
+  project_locator?: string | null;
+  revision?: string | null;
   error_message?: string | null;
   enrichment_error_message?: string | null;
   raw_summary?: string | null;
@@ -241,14 +249,22 @@ export interface MigrationResult {
   // FOSSA scan results (optional)
   fossa_policy_status?: string | null;
   fossa_total_dependencies?: number;
+  fossa_total_licenses?:number;
   fossa_license_issues?: number;
   fossa_vulnerabilities?: number;
   fossa_outdated_dependencies?: number;
   fossa_scan_mode?: string | null;
   fossa_real_scan?: boolean;
   fossa_analysis_url?: string | null;
+  fossa_project_url?: string | null;
+ 
+  fossa_project_locator?: string | null;
+ 
+  fossa_revision?: string | null;
+ 
   fossa_error_message?: string | null;
   fossa_report?: FossaScanResult | null;
+  fossa?: any;
   error_message: string | null;
   migration_log: string[];
   file_diffs?: PreviewFileDiff[];
@@ -338,12 +354,18 @@ export interface MigrationJobSummary {
   sonar_report?: SonarReport | null;
   fossa_policy_status?: string | null;
   fossa_total_dependencies?: number;
+  fossa_total_licenses?: number;
   fossa_license_issues?: number;
   fossa_vulnerabilities?: number;
   fossa_outdated_dependencies?: number;
   fossa_scan_mode?: string | null;
   fossa_real_scan?: boolean;
   fossa_analysis_url?: string | null;
+  fossa_project_url?: string | null;
+ 
+  fossa_project_locator?: string | null;
+ 
+  fossa_revision?: string | null;
   fossa_error_message?: string | null;
   fossa_report?: FossaScanResult | null;
   error_message: string | null;

@@ -8,6 +8,7 @@ from fastapi import APIRouter
 
 from app.api.v1.endpoints import (
     admin_settings_controller,
+    auth_controller,
     connect_controller,
     discovery_controller,
     docs_controller,
@@ -22,6 +23,7 @@ from app.api.v1.endpoints import (
 )
 
 api_router = APIRouter()
+api_router.include_router(auth_controller.router)
 api_router.include_router(connect_controller.router)
 api_router.include_router(discovery_controller.router)
 api_router.include_router(migration_config_controller.router)

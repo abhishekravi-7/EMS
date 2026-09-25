@@ -29,7 +29,8 @@ import type { FunctionalTestScopePreview } from "../services/modernizationServic
 import { getLocalProjectFileContent } from "@/features/connect/services/connectService";
 import { getFileContent } from "@/features/discovery/services/discoveryService";
 import type { useModernizationState } from "../hooks/useModernizationState";
-import { getUserSettings, getQualityChecksAdminConfig } from "@/features/admin/services/adminService";
+import UserQualityChecksSettings from "@/features/admin/components/UserQualityChecksSettings";
+import { getUserSettings, saveUserSettings, getQualityChecksAdminConfig, type FullUserSettings } from "@/features/admin/services/adminService";
 
 const _LLM_PROVIDERS = [
   { value: "groq", label: "Groq (Recommended — Llama 3.3 70B Fast)" },
@@ -632,6 +633,30 @@ export function ModernizationStepView({
       });
   }, [jobId]);
 
+  const [fullUserSettings, setFullUserSettings] = useState<FullUserSettings | null>(null);
+
+  const handleUserSettingsChange: Dispatch<SetStateAction<FullUserSettings>> = (action) => {
+    setFullUserSettings((prev) => {
+      const base = prev || ({
+        user_id: "default",
+        github_values: {},
+        quality_checks_values: {},
+        test_cases_values: {},
+        llm_values: {},
+        created_at: "",
+        updated_at: "",
+      } as FullUserSettings);
+      const next = typeof action === "function" ? action(base) : action;
+      if (next) {
+        saveUserSettings(next).catch((err) => console.warn("Auto-saving prompt settings notice:", err));
+        if (typeof window !== "undefined") {
+          (window as any).__javaapex_user_settings = next;
+        }
+      }
+      return next;
+    });
+  };
+
   // Fetch user settings and global admin quality gate authorizations
   useEffect(() => {
     let isMounted = true;
@@ -643,22 +668,65 @@ export function ModernizationStepView({
       try {
         const settings = await getUserSettings();
         if (!isMounted) return;
+        setFullUserSettings(settings);
+        if (typeof window !== "undefined") {
+          (window as any).__javaapex_user_settings = settings;
+        }
         const qc = settings.quality_checks_values || {};
-        const sonarConf = Boolean(qc.sonarqube_url && qc.auth_token);
-        const fossaConf = Boolean(qc.fossa_api_key);
+        const sonarUrl = qc.sonarqube_url || qc.sonar_url || qc.sonar_host_url || qc.host_url || qc.url;
+        const sonarToken = qc.auth_token || qc.sonar_token || qc.sonarqube_token || qc.token || qc.api_key;
+        const fossaToken = qc.fossa_api_key || qc.fossa_token || qc.fossaToken || qc.api_key || qc.token;
+        const sonarConf = Boolean(sonarUrl || sonarToken);
+        const fossaConf = Boolean(fossaToken);
         setIsSonarConfigured(sonarConf);
         setIsFossaConfigured(fossaConf);
 
         // Check LLM configuration
         const llm = settings.llm_values || {};
-        const groqOk = Boolean(llm.groq_api_key && llm.groq_model);
-        const hfOk = Boolean(llm.huggingface_api_key && llm.huggingface_model);
-        const ollamaOk = Boolean(llm.ollama_url);
-        setIsLlmConfiguredMod(groqOk || hfOk || ollamaOk);
-
-        // Auto-disable if not configured
-        if (!sonarConf) setRunSonar(false);
-        if (!fossaConf) setRunFossa(false);
+        const genericLlm1Configured =
+ 
+  Boolean(llm.llm1_api_key && llm.llm1_model);
+ 
+ 
+ 
+const genericLlm2Configured =
+ 
+  Boolean(llm.llm2_api_key && llm.llm2_model);
+ 
+ 
+ 
+const groqConfigured =
+ 
+  Boolean(llm.groq_api_key && llm.groq_model);
+ 
+ 
+ 
+const huggingFaceConfigured =
+ 
+  Boolean(llm.huggingface_api_key && llm.huggingface_model);
+ 
+ 
+ 
+const ollamaConfigured =
+ 
+  Boolean(llm.ollama_url);
+ 
+ 
+ 
+setIsLlmConfiguredMod(
+ 
+  genericLlm1Configured ||
+ 
+  genericLlm2Configured ||
+ 
+  groqConfigured ||
+ 
+  huggingFaceConfigured ||
+ 
+  ollamaConfigured
+ 
+);
+ 
       } catch (err: any) {
         if (!isMounted) return;
         console.error("Failed to fetch user settings:", err);
@@ -1023,6 +1091,17 @@ export function ModernizationStepView({
           </div>
         </div>
       </div>
+
+      {/* ── Quality Checks Prompt Configurations (JUnit Focus & Functional Custom Prompts) ── */}
+      {(runTests || runFunctionalTests) && fullUserSettings && (
+        <div style={{ marginBottom: 28 }}>
+          <UserQualityChecksSettings
+            settings={fullUserSettings}
+            onChange={handleUserSettingsChange as any}
+            mode="testing_only"
+          />
+        </div>
+      )}
 
       {/* Existing Test Cases Section (Discovered Only - No Execution) */}
       <ExistingTestCasesPanel

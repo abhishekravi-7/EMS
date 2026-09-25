@@ -67,7 +67,7 @@ class UnitTestRunner:
                 executable = resolve_executable("mvn")
                 if not executable:
                     executable = "mvn.cmd" if is_windows else "mvn"
-            cmd = [executable, "test", "-DfailIfNoTests=false"]
+            cmd = [executable, "test", "-DfailIfNoTests=false", "-Dgit.commit.id.skip=true", "-Dmaven.gitcommitid.skip=true"]
             if targets:
                 cmd.append(f"-Dtest={','.join([f'*{n}*' for n in targets])}")
             # Prova also adds surefire-report:report for Maven

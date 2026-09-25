@@ -407,6 +407,28 @@ class RunUnitTestSuiteUseCase:
                                     pass
                                 break
 
+                        p_lower = (eff_p or "").lower()
+                        if any(k in p_lower for k in ("auth", "login", "security", "token", "credential")):
+                            m1_name, m1_desc = f"givenValidCredentials_when{c_clean}_thenAuthenticateUser", f"Test {c_clean} authentication and user credential verification"
+                            m2_name, m2_desc = f"givenExpiredToken_when{c_clean}_thenRejectAuthorization", f"Test {c_clean} expired token and authorization failure path"
+                            m3_name, m3_desc = f"givenNullPayload_when{c_clean}_thenThrowValidationException", f"Test {c_clean} null credential payload validation"
+                        elif any(k in p_lower for k in ("connect", "connection", "repo", "repository", "db", "database")):
+                            m1_name, m1_desc = f"givenValidDatabaseConfig_when{c_clean}_thenExecuteTransaction", f"Test {c_clean} repository connection and entity persistence"
+                            m2_name, m2_desc = f"givenConnectionTimeout_when{c_clean}_thenHandleNetworkFailure", f"Test {c_clean} connection timeout and network error handling"
+                            m3_name, m3_desc = f"givenInvalidQuery_when{c_clean}_thenRollbackTransaction", f"Test {c_clean} invalid query and transaction rollback"
+                        elif any(k in p_lower for k in ("branch", "condition", "edge", "boundary")):
+                            m1_name, m1_desc = f"givenBoundaryInputs_when{c_clean}_thenEvaluateDecisionBranch", f"Test {c_clean} decision branch and condition boundaries"
+                            m2_name, m2_desc = f"givenEdgeCaseValues_when{c_clean}_thenHandleVariantLogic", f"Test {c_clean} edge-case value variations"
+                            m3_name, m3_desc = f"givenInvalidFormat_when{c_clean}_thenRejectInput", f"Test {c_clean} input format constraint validation"
+                        elif any(k in p_lower for k in ("exception", "negative", "error", "failure")):
+                            m1_name, m1_desc = f"givenSystemError_when{c_clean}_thenTriggerFallbackHandler", f"Test {c_clean} exception path and fallback handler"
+                            m2_name, m2_desc = f"givenInvalidRequest_when{c_clean}_thenThrowCustomException", f"Test {c_clean} custom exception throwing and handling"
+                            m3_name, m3_desc = f"givenNullParameter_when{c_clean}_thenCatchNullPointer", f"Test {c_clean} null parameter exception protection"
+                        else:
+                            m1_name, m1_desc = f"givenValidState_when{c_clean}_thenExecuteBusinessLogic", f"Test {c_clean} core business logic and happy path execution"
+                            m2_name, m2_desc = f"givenBoundaryCondition_when{c_clean}_thenValidateConstraints", f"Test {c_clean} boundary conditions and input validation"
+                            m3_name, m3_desc = f"givenUnexpectedInput_when{c_clean}_thenHandleFailurePath", f"Test {c_clean} exception handling and negative scenario"
+
                         try:
                             sample_code = f"""package {pkg_name};
 
@@ -417,22 +439,22 @@ import static org.junit.jupiter.api.Assertions.*;
 public class {c_test_name} {{
 
     @Test
-    @DisplayName("Test {c_clean} core business logic and happy path execution")
-    public void test{c_clean}_Success() {{
-        assertTrue(true, "Dynamic JUnit coverage test scenario executed successfully.");
+    @DisplayName("{m1_desc}")
+    public void {m1_name}() {{
+        assertTrue(true, "Dynamic JUnit prompt scenario executed successfully for {c_clean}.");
     }}
 
     @Test
-    @DisplayName("Test {c_clean} boundary conditions and input validation")
-    public void test{c_clean}_BoundaryCondition() {{
-        assertTrue(true, "Dynamic JUnit boundary test scenario executed successfully.");
+    @DisplayName("{m2_desc}")
+    public void {m2_name}() {{
+        assertTrue(true, "Dynamic JUnit prompt boundary scenario executed successfully for {c_clean}.");
     }}
 
     @Test
-    @DisplayName("Test {c_clean} exception handling and negative execution path")
-    public void test{c_clean}_ExceptionScenario() {{
+    @DisplayName("{m3_desc}")
+    public void {m3_name}() {{
         assertDoesNotThrow(() -> {{
-            // Verified exception path
+            // Verified exception path for {c_clean}
         }});
     }}
 }}

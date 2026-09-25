@@ -480,11 +480,12 @@ export function MigrationSonarSection({
 // ── FOSSA SECTION ────────────────────────────────────────────────────────────
 
 interface MigrationFossaSectionProps {
-  styles: StyleMap;
+  styles?: StyleMap;
   fossaLicenseIssueCount?: number | null;
   fossaVulnerabilityTotal?: number | null;
   fossaOutdatedCount?: number | null;
   fossaTotalDependencies?: number | null;
+  fossaTotalLicenses?: number | null;
   fossaPolicyStatus?: string | null;
   fossaScanMode?: string | null;
   fossaErrorMessage?: string | null;
@@ -497,6 +498,7 @@ export function MigrationFossaSection({
   fossaVulnerabilityTotal,
   fossaOutdatedCount,
   fossaTotalDependencies,
+  fossaTotalLicenses,
   fossaPolicyStatus,
   fossaScanMode,
   fossaErrorMessage,
@@ -538,6 +540,10 @@ export function MigrationFossaSection({
     return isAvailable ? 0 : "—";
   };
 
+  const totalDeps = renderValue(fossaTotalDependencies);
+ 
+  const totalLics = renderValue(fossaTotalLicenses);
+ 
   const licIssues = renderValue(fossaLicenseIssueCount);
   const vulns = renderValue(fossaVulnerabilityTotal);
   const outdated = renderValue(fossaOutdatedCount);
@@ -588,7 +594,7 @@ export function MigrationFossaSection({
         </div>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
         <div style={{ background: "#f8fafc", border: "1px solid #eef2f6", borderRadius: 12, padding: "12px", textAlign: "center" }}>
           <div style={{ background: badgeBg, color: badgeColor, padding: "2px 8px", borderRadius: 6, fontSize: 11, fontWeight: 800, border: `1px solid ${badgeBorder}`, marginBottom: 4, display: "inline-block" }}>
             {statusLabel}
@@ -596,6 +602,9 @@ export function MigrationFossaSection({
           <div style={{ fontSize: 11, fontWeight: 600, color: "#64748b", textTransform: "uppercase" }}>Policy Status</div>
         </div>
         {[
+          { label: "Dependencies", value: totalDeps, color: "#2563eb" },
+ 
+          { label: "Licenses", value: totalLics, color: "#0891b2" },
           { label: "License Issues", value: licIssues, color: typeof licIssues === "number" && licIssues > 0 ? "#ef4444" : "#10b981" },
           { label: "Vulnerabilities", value: vulns, color: typeof vulns === "number" && vulns > 0 ? "#ef4444" : "#10b981" },
           { label: "Outdated Packages", value: outdated, color: typeof outdated === "number" && outdated > 0 ? "#f59e0b" : "#10b981" }
