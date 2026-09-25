@@ -170,6 +170,11 @@ const SignInPage: React.FC = () => {
       setIsUnverifiedEmail(true);
     }
 
+    const sessionExpiredParam = searchParams.get("session_expired");
+    if (sessionExpiredParam === "true") {
+      setError("Your session has expired. Please sign in again.");
+    }
+
     const oauthErrorCode = searchParams.get("oauth_error");
     if (oauthErrorCode) {
       setError(getOAuthErrorMessage(oauthErrorCode));

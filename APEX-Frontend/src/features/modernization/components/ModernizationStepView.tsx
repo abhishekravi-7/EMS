@@ -651,10 +651,29 @@ export function ModernizationStepView({
 
         // Check LLM configuration
         const llm = settings.llm_values || {};
-        const groqOk = Boolean(llm.groq_api_key && llm.groq_model);
-        const hfOk = Boolean(llm.huggingface_api_key && llm.huggingface_model);
-        const ollamaOk = Boolean(llm.ollama_url);
-        setIsLlmConfiguredMod(groqOk || hfOk || ollamaOk);
+
+const genericLlm1Configured =
+  Boolean(llm.llm1_api_key && llm.llm1_model);
+
+const genericLlm2Configured =
+  Boolean(llm.llm2_api_key && llm.llm2_model);
+
+const groqConfigured =
+  Boolean(llm.groq_api_key && llm.groq_model);
+
+const huggingFaceConfigured =
+  Boolean(llm.huggingface_api_key && llm.huggingface_model);
+
+const ollamaConfigured =
+  Boolean(llm.ollama_url);
+
+setIsLlmConfiguredMod(
+  genericLlm1Configured ||
+  genericLlm2Configured ||
+  groqConfigured ||
+  huggingFaceConfigured ||
+  ollamaConfigured
+);
 
         // Auto-disable if not configured
         if (!sonarConf) setRunSonar(false);

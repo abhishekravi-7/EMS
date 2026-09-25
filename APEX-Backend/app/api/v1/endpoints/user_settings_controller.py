@@ -2,6 +2,7 @@ from __future__ import annotations
  
 import logging
 import httpx
+import base64
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
  
@@ -363,4 +364,124 @@ async def test_user_llm_connection(
     except Exception as e:
         logger.error("LLM Test Connection encountered an error: %s", str(e))
         raise HTTPException(status_code=400, detail="LLM connection failed. Unable to reach the provider.")
+
+
+class SonarTestPayload(BaseModel):
+    sonarqube_url: str | None = None
+    auth_token: str | None = None
+    project_key: str | None = None
+    sonar_organization: str | None = None
+
+
+@router.post("/user/settings/sonar/test")
+async def test_user_sonar_connection(
+    payload: SonarTestPayload,
+    current_user: User = Depends(get_current_user),  # noqa: B008
+):
+    """Test the user's SonarQube credentials and URL."""
+    mongo_db = await get_mongodb()
+    user_doc = (await mongo_db.users.find_one({"_id": _get_query_id(str(current_user.id))})) or {} if mongo_db is not None else {}
+    existing_qc_values = user_doc.get("quality_checks_values", {})
+
+    token = (payload.auth_token or "").strip()
+    if not token or token == "********" or token.startswith("****************"):
+        token = (
+            existing_qc_values.get("auth_token")
+            or existing_qc_values.get("sonar_token")
+            or getattr(settings, "sonar_token", "")
+            or getattr(settings, "sonarqube_token", "")
+            or ""
+        ).strip()
+
+    if not token:
+        raise HTTPException(status_code=400, detail="No SonarQube authentication token provided.")
+
+    raw_url = (payload.sonarqube_url or existing_qc_values.get("sonarqube_url") or "https://sonarcloud.io").strip().rstrip("/")
+    if not raw_url.startswith("http://") and not raw_url.startswith("https://"):
+        raw_url = f"https://{raw_url}" if "sonarcloud.io" in raw_url else f"http://{raw_url}"
+
+    auth_b64 = base64.b64encode(f"{token}:".encode("utf-8")).decode("ascii")
+    headers = {
+        "Authorization": f"Basic {auth_b64}",
+        "Accept": "application/json",
+        "User-Agent": "Java-APEX-Platform/1.0",
+    }
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            val_url = f"{raw_url}/api/authentication/validate"
+            response = await client.get(val_url, headers=headers)
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("valid") is True:
+                    return {"status": "success", "message": "SonarQube connection successful. Token is valid."}
+                else:
+                    raise HTTPException(status_code=400, detail="SonarQube token is invalid.")
+            elif response.status_code in (401, 403):
+                raise HTTPException(status_code=400, detail="SonarQube authentication failed. Invalid token.")
+            else:
+                logger.error("SonarQube validate failed status %d: %s", response.status_code, response.text)
+                raise HTTPException(status_code=400, detail=f"SonarQube returned status {response.status_code}.")
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error("SonarQube connection error: %s", str(e))
+            raise HTTPException(status_code=400, detail=f"Unable to connect to SonarQube at {raw_url}. Check the URL and network.")
+
+
+class FossaTestPayload(BaseModel):
+    fossa_api_key: str | None = None
+    fossa_endpoint: str | None = None
+
+
+@router.post("/user/settings/fossa/test")
+async def test_user_fossa_connection(
+    payload: FossaTestPayload,
+    current_user: User = Depends(get_current_user),  # noqa: B008
+):
+    """Test the user's FOSSA credentials and endpoint."""
+    mongo_db = await get_mongodb()
+    user_doc = (await mongo_db.users.find_one({"_id": _get_query_id(str(current_user.id))})) or {} if mongo_db is not None else {}
+    existing_qc_values = user_doc.get("quality_checks_values", {})
+
+    api_key = (payload.fossa_api_key or "").strip()
+    if not api_key or api_key == "********" or api_key.startswith("****************"):
+        api_key = (
+            existing_qc_values.get("fossa_api_key")
+            or existing_qc_values.get("fossa_token")
+            or getattr(settings, "fossa_api_key", "")
+            or ""
+        ).strip()
+
+    if not api_key:
+        raise HTTPException(status_code=400, detail="No FOSSA API Key provided.")
+
+    endpoint = (payload.fossa_endpoint or existing_qc_values.get("fossa_endpoint") or "https://app.fossa.com").strip().rstrip("/")
+    if not endpoint.startswith("http://") and not endpoint.startswith("https://"):
+        endpoint = f"https://{endpoint}"
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Accept": "application/json",
+    }
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            url = f"{endpoint}/api/users/me"
+            response = await client.get(url, headers=headers)
+            if response.status_code == 200:
+                user_info = response.json()
+                email = user_info.get("email") or user_info.get("username") or ""
+                msg = f"FOSSA connection successful. Connected as {email}." if email else "FOSSA connection successful."
+                return {"status": "success", "message": msg}
+            elif response.status_code in (401, 403):
+                raise HTTPException(status_code=400, detail="FOSSA authentication failed. Invalid API key.")
+            else:
+                logger.error("FOSSA validate failed status %d: %s", response.status_code, response.text)
+                raise HTTPException(status_code=400, detail=f"FOSSA returned status {response.status_code}.")
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error("FOSSA connection error: %s", str(e))
+            raise HTTPException(status_code=400, detail=f"Unable to connect to FOSSA at {endpoint}. Check the endpoint and network.")
  

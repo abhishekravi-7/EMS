@@ -200,6 +200,36 @@ export async function testUserGithubConnection(): Promise<{status: string, messa
     { method: "POST" }
   );
 }
+
+export async function testUserSonarConnection(payload: {
+  sonarqube_url?: string;
+  auth_token?: string;
+  project_key?: string;
+  sonar_organization?: string;
+}): Promise<{ status: string; message: string }> {
+  return requestJson<{ status: string; message: string }>(
+    "/v1/user/settings/sonar/test",
+    "Failed to test SonarQube connection",
+    {
+      method: "POST",
+      body: payload,
+    }
+  );
+}
+
+export async function testUserFossaConnection(payload: {
+  fossa_api_key?: string;
+  fossa_endpoint?: string;
+}): Promise<{ status: string; message: string }> {
+  return requestJson<{ status: string; message: string }>(
+    "/v1/user/settings/fossa/test",
+    "Failed to test FOSSA connection",
+    {
+      method: "POST",
+      body: payload,
+    }
+  );
+}
  
 export interface GithubRepo {
   id: number;

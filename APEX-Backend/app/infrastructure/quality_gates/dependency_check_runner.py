@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 class FossaScanResult:
     policy_status: str | None = None
     total_dependencies: int | None = None
+    total_licenses: int | None = None
     license_issues: int | None = None
     denied_license_issues: int | None = None
     flagged_license_issues: int | None = None
@@ -31,6 +32,9 @@ class FossaScanResult:
     scan_mode: str = "skipped"
     real_scan: bool = False
     analysis_url: str | None = None
+    project_locator: str | None = None
+    revision: str | None = None
+    api_status: str | None = None
     error_message: str | None = None
     report: dict[str, Any] | None = None
     log_lines: list[str] = field(default_factory=list)
@@ -189,9 +193,16 @@ class DependencyCheckRunner:
             analyze_lines = self._redact(analyze_output.splitlines(), api_key)
             logger.info("[FOSSA] FOSSA analyze (plain) finished with exit code %s", analyze.returncode)
 
-        # Try to extract the project locator from the JSON that --json emits.
-        fossa_locator: str | None = self._extract_locator(analyze.stdout)
-        logger.info("[FOSSA] Project locator resolution status: %s", fossa_locator or "(not found in analyze output)")
+        # Try to extract the project locator, revision, and project ID from the JSON that --json emits.
+        fossa_locator, fossa_revision, fossa_project_id = self._extract_locator_and_revision(analyze.stdout)
+        if not fossa_locator:
+            fossa_locator = self._extract_locator(analyze.stdout)
+        logger.info(
+            "[FOSSA] Project locator resolution status: %s (revision: %s, project_id: %s)",
+            fossa_locator or "(not found in analyze output)",
+            fossa_revision or "unknown",
+            fossa_project_id or "unknown",
+        )
 
         # Extract the real dashboard URL from the CLI output
         analysis_url = self._extract_dashboard_url(analyze_output) or (fallback_url if fossa_locator else None)
@@ -281,39 +292,122 @@ class DependencyCheckRunner:
             extracted["total_dependencies"],
         )
 
-        # Fetch dependency count from API if possible (only with valid locator)
-        api_dep_count = self._fetch_dependency_count(
+        # Fetch detailed metrics from FOSSA API using exact locator / revision / project
+        api_metrics = self._fetch_fossa_detailed_metrics(
             host_url=host_url,
             api_key=api_key,
             locator=fossa_locator,
+            project_id=fossa_project_id,
+            revision=fossa_revision,
             project=project,
             analysis_url=analysis_url,
         )
-        if api_dep_count is not None:
-            extracted["total_dependencies"] = api_dep_count
-            logger.info("[FOSSA] Dependency count resolved via API: %d", api_dep_count)
+
+        resolved_locator = api_metrics.get("locator") or fossa_locator
+        resolved_revision = api_metrics.get("revision") or fossa_revision
+        api_status = api_metrics.get("api_status", "skipped")
+
+        # Also call legacy _fetch_dependency_count for backwards compatibility and test mock support
+        api_dep_count = self._fetch_dependency_count(
+            host_url=host_url,
+            api_key=api_key,
+            locator=resolved_locator,
+            project=project,
+            analysis_url=analysis_url,
+        )
+
+        # Total dependencies
+        if api_dep_count is not None and (api_metrics.get("dependency_count") is None or api_dep_count != extracted.get("total_dependencies")):
+            total_dependencies = api_dep_count
+        elif api_metrics.get("dependency_count") is not None:
+            total_dependencies = api_metrics["dependency_count"]
+        elif api_dep_count is not None:
+            total_dependencies = api_dep_count
         else:
-            logger.info("[FOSSA] Dependency count via API: unavailable/skipped")
+            total_dependencies = extracted["total_dependencies"]
+
+        # Total licenses
+        if api_metrics.get("license_count") is not None:
+            total_licenses = api_metrics["license_count"]
+        elif api_metrics.get("licenses_list"):
+            total_licenses = len(api_metrics["licenses_list"])
+        elif extracted.get("licenses_list"):
+            total_licenses = len(extracted["licenses_list"])
+        else:
+            total_licenses = 0 if test.returncode == 0 else None
 
         policy_status = "PASSED" if test.returncode == 0 else "FAILED"
+
+        # Issue calculations
+        if test.returncode == 0:
+            license_issues = 0
+            vulnerabilities = 0
+            outdated_dependencies = (
+                api_metrics.get("outdated_dependencies")
+                if api_metrics.get("outdated_dependencies") is not None
+                else extracted["outdated_count"]
+            )
+        else:
+            license_issues = (
+                api_metrics.get("license_issues")
+                if api_metrics.get("license_issues") is not None
+                else extracted["license_issues"]
+            )
+            vulnerabilities = (
+                api_metrics.get("vulnerabilities")
+                if api_metrics.get("vulnerabilities") is not None
+                else extracted["vulnerabilities"]
+            )
+            outdated_dependencies = (
+                api_metrics.get("outdated_dependencies")
+                if api_metrics.get("outdated_dependencies") is not None
+                else extracted["outdated_count"]
+            )
+
+        # Merge dependencies and licenses list if API provided them
+        dependencies_list = api_metrics.get("dependencies_list") or extracted["dependencies_list"]
+        licenses_list = api_metrics.get("licenses_list") or extracted["licenses_list"]
+
+        logger.info(
+            "[FOSSA] Project locator: %s | Revision: %s | API request status: %s | Dependency count: %s | License count: %s | Calculated issues: [license_issues=%s, vulnerabilities=%s, outdated=%s]",
+            resolved_locator or "unknown",
+            resolved_revision or "unknown",
+            api_status,
+            total_dependencies,
+            total_licenses,
+            license_issues,
+            vulnerabilities,
+            outdated_dependencies,
+        )
         logger.info("[FOSSA] Final FOSSA policy status: %s", policy_status)
 
         report = {
             "project": project,
+            "project_locator": resolved_locator,
+            "revision": resolved_revision,
             "policy_status": policy_status,
+            "status": policy_status,
             "analysis_url": analysis_url,
-            "total_dependencies": extracted["total_dependencies"],
-            "license_issues": extracted["license_issues"],
+            "project_url": analysis_url,
+            "api_status": api_status,
+            "total_dependencies": total_dependencies,
+            "dependencies": total_dependencies,
+            "total_licenses": total_licenses,
+            "licenses": total_licenses,
+            "license_count": total_licenses,
+            "license_issues": license_issues,
             "denied_license_issues": extracted["denied_license_issues"],
             "flagged_license_issues": extracted["flagged_license_issues"],
-            "vulnerabilities": extracted["vulnerabilities"],
-            "outdated_dependencies": extracted["outdated_count"],
+            "vulnerabilities": vulnerabilities,
+            "vulnerability_count": vulnerabilities,
+            "outdated_dependencies": outdated_dependencies,
+            "outdated_packages": outdated_dependencies,
             "vulnerabilities_critical": extracted["vulnerabilities_critical"],
             "vulnerabilities_high": extracted["vulnerabilities_high"],
             "vulnerabilities_medium": extracted["vulnerabilities_medium"],
             "vulnerabilities_low": extracted["vulnerabilities_low"],
-            "dependencies_list": extracted["dependencies_list"],
-            "licenses_list": extracted["licenses_list"],
+            "dependencies_list": dependencies_list,
+            "licenses_list": licenses_list,
             "vulnerabilities_list": extracted["vulnerabilities_list"],
             "outdated_list": extracted["outdated_list"],
             "raw": parsed,
@@ -321,15 +415,19 @@ class DependencyCheckRunner:
 
         return FossaScanResult(
             policy_status=policy_status,
-            license_issues=extracted["license_issues"],
+            license_issues=license_issues,
             denied_license_issues=extracted["denied_license_issues"],
             flagged_license_issues=extracted["flagged_license_issues"],
-            vulnerabilities=extracted["vulnerabilities"],
-            total_dependencies=extracted["total_dependencies"],
-            outdated_dependencies=extracted["outdated_count"],
+            vulnerabilities=vulnerabilities,
+            total_dependencies=total_dependencies,
+            total_licenses=total_licenses,
+            outdated_dependencies=outdated_dependencies,
             scan_mode="real",
             real_scan=True,
             analysis_url=analysis_url,
+            project_locator=resolved_locator,
+            revision=resolved_revision,
+            api_status=api_status,
             error_message=(
                 None if policy_status == "PASSED"
                 else "FOSSA policy check found violations. See the FOSSA dashboard for details."
@@ -339,16 +437,17 @@ class DependencyCheckRunner:
                 "FOSSA analysis completed successfully.",
                 f"FOSSA policy status: {policy_status}",
                 f"FOSSA dashboard: {analysis_url or 'N/A'}",
-                f"Total dependencies: {extracted['total_dependencies'] if extracted['total_dependencies'] is not None else 'N/A'}",
-                f"Vulnerabilities: {extracted['vulnerabilities'] if extracted['vulnerabilities'] is not None else 'N/A'} "
+                f"Total dependencies: {total_dependencies if total_dependencies is not None else 'N/A'}",
+                f"Total licenses: {total_licenses if total_licenses is not None else 'N/A'}",
+                f"Vulnerabilities: {vulnerabilities if vulnerabilities is not None else 'N/A'} "
                 f"(critical={extracted['vulnerabilities_critical'] if extracted['vulnerabilities_critical'] is not None else 'N/A'} "
                 f"high={extracted['vulnerabilities_high'] if extracted['vulnerabilities_high'] is not None else 'N/A'} "
                 f"medium={extracted['vulnerabilities_medium'] if extracted['vulnerabilities_medium'] is not None else 'N/A'} "
                 f"low={extracted['vulnerabilities_low'] if extracted['vulnerabilities_low'] is not None else 'N/A'})",
-                f"License issues: {extracted['license_issues'] if extracted['license_issues'] is not None else 'N/A'} "
+                f"License issues: {license_issues if license_issues is not None else 'N/A'} "
                 f"(denied={extracted['denied_license_issues'] if extracted['denied_license_issues'] is not None else 'N/A'} "
                 f"flagged={extracted['flagged_license_issues'] if extracted['flagged_license_issues'] is not None else 'N/A'})",
-                f"Outdated dependencies: {extracted['outdated_count'] if extracted['outdated_count'] is not None else 'N/A'}",
+                f"Outdated dependencies: {outdated_dependencies if outdated_dependencies is not None else 'N/A'}",
             ] + analyze_lines[-5:] + test_lines[-10:],
         )
 
@@ -514,6 +613,38 @@ class DependencyCheckRunner:
         encoded_project = urllib.parse.quote(f"custom+{project}", safe="")
         return f"{endpoint}/projects/{encoded_project}"
 
+    @classmethod
+    def _extract_locator_and_revision(cls, analyze_stdout: str) -> tuple[str | None, str | None, str | None]:
+        """Extract the project locator, revision, and project ID from fossa analyze stdout."""
+        if not analyze_stdout:
+            return None, None, None
+        clean = cls._strip_ansi(analyze_stdout)
+        for line in clean.splitlines():
+            line = line.strip()
+            if not line.startswith("{"):
+                continue
+            try:
+                obj = json.loads(line)
+                if isinstance(obj, dict):
+                    loc = obj.get("locator") or obj.get("id")
+                    rev = obj.get("revision")
+                    proj_id = obj.get("projectId")
+
+                    if loc and "$" in str(loc):
+                        parts = str(loc).split("$", 1)
+                        resolved_proj_id = proj_id or parts[0]
+                        resolved_rev = rev or parts[1]
+                        return str(loc), str(resolved_rev), str(resolved_proj_id)
+                    if loc and rev:
+                        return f"{loc}${rev}", str(rev), str(proj_id or loc)
+                    if proj_id and rev:
+                        return f"{proj_id}${rev}", str(rev), str(proj_id)
+                    if loc:
+                        return str(loc), str(rev) if rev else None, str(proj_id) if proj_id else None
+            except json.JSONDecodeError:
+                pass
+        return None, None, None
+
     @staticmethod
     def _extract_locator(analyze_stdout: str) -> str | None:
         """Parse the project locator from ``fossa analyze --json`` metadata JSON stdout.
@@ -600,6 +731,213 @@ class DependencyCheckRunner:
         except Exception as exc:  # noqa: BLE001
             logger.info("[FOSSA] Failed to fetch revisions from API: %s", exc)
             return None
+
+    def _fetch_fossa_detailed_metrics(
+        self,
+        *,
+        host_url: str,
+        api_key: str,
+        locator: str | None,
+        project_id: str | None = None,
+        revision: str | None = None,
+        project: str,
+        analysis_url: str | None = None,
+        max_retries: int = 3,
+        retry_delay_seconds: float = 2.0,
+    ) -> dict[str, Any]:
+        """Fetch revision metrics (dependencies, licenses, unresolved issues) via FOSSA REST API."""
+        import urllib.error
+        import urllib.parse
+        import urllib.request
+
+        metrics: dict[str, Any] = {
+            "api_status": "skipped",
+            "locator": locator,
+            "revision": revision,
+            "project_id": project_id,
+            "dependency_count": None,
+            "license_count": None,
+            "license_issues": None,
+            "vulnerabilities": None,
+            "outdated_dependencies": None,
+            "dependencies_list": [],
+            "licenses_list": [],
+        }
+
+        if not api_key:
+            return metrics
+
+        # Resolve project_id
+        resolved_proj = project_id
+        if not resolved_proj and locator and "$" in locator:
+            resolved_proj = locator.split("$", 1)[0]
+        if not resolved_proj and analysis_url:
+            resolved_proj = self._extract_project_id_from_url(analysis_url)
+        if not resolved_proj:
+            resolved_proj = f"custom+{project}"
+
+        resolved_loc = locator
+        resolved_rev = revision
+
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Accept": "application/json",
+        }
+
+        # 1. Query revisions to resolve exact locator & revision summary metrics
+        if resolved_proj:
+            enc_proj = urllib.parse.quote(resolved_proj, safe="")
+            revs_url = f"{host_url}/api/revisions?projectId={enc_proj}"
+            if revs_url.startswith("http://") or revs_url.startswith("https://"):
+                try:
+                    req = urllib.request.Request(revs_url, headers=headers)
+                    with urllib.request.urlopen(req, timeout=10) as resp:
+                        revs_raw = resp.read().decode("utf-8", errors="replace")
+                    revs_data = json.loads(revs_raw)
+                    if isinstance(revs_data, list) and len(revs_data) > 0:
+                        matched: dict[str, Any] | None = None
+                        if resolved_loc:
+                            for r in revs_data:
+                                if isinstance(r, dict) and r.get("locator") == resolved_loc:
+                                    matched = r
+                                    break
+                        if not matched and resolved_rev:
+                            for r in revs_data:
+                                if isinstance(r, dict) and (r.get("revision") == resolved_rev or resolved_rev in str(r.get("locator", ""))):
+                                    matched = r
+                                    break
+                        if not matched and revs_data:
+                            matched = revs_data[0] if isinstance(revs_data[0], dict) else None
+
+                        if matched:
+                            if not resolved_loc:
+                                resolved_loc = matched.get("locator")
+                            if not resolved_rev:
+                                resolved_rev = matched.get("revision")
+                                if not resolved_rev and resolved_loc and "$" in str(resolved_loc):
+                                    resolved_rev = str(resolved_loc).split("$", 1)[1]
+
+                            metrics["locator"] = resolved_loc
+                            metrics["revision"] = resolved_rev
+                            metrics["project_id"] = matched.get("projectId") or resolved_proj
+                            metrics["dependency_count"] = matched.get("dependency_count")
+                            metrics["license_count"] = matched.get("license_count")
+                            metrics["license_issues"] = matched.get("unresolved_licensing_issue_count")
+                            metrics["vulnerabilities"] = matched.get("unresolved_security_issue_count")
+                            metrics["outdated_dependencies"] = matched.get("unresolved_quality_issue_count")
+                            metrics["api_status"] = "success"
+                except urllib.error.HTTPError as exc:
+                    if exc.code == 401:
+                        logger.error("[FOSSA] API request failed: HTTP 401 Unauthorized (invalid or expired API token)")
+                        metrics["api_status"] = "unauthorized"
+                    elif exc.code == 404:
+                        logger.warning("[FOSSA] Project revisions not found on FOSSA API: %s", revs_url)
+                        metrics["api_status"] = "not_found"
+                    else:
+                        logger.warning("[FOSSA] API revisions query returned HTTP %s: %s", exc.code, exc)
+                        metrics["api_status"] = "unavailable"
+                except Exception as exc:
+                    logger.warning("[FOSSA] API revisions query failed: %s", exc)
+                    metrics["api_status"] = "unavailable"
+
+        # 2. Query dependencies for this revision (with pagination / retry)
+        if resolved_loc:
+            enc_loc = urllib.parse.quote(resolved_loc, safe="")
+            deps_url = f"{host_url}/api/revisions/{enc_loc}/dependencies"
+            if deps_url.startswith("http://") or deps_url.startswith("https://"):
+                for attempt in range(1, max_retries + 1):
+                    try:
+                        req = urllib.request.Request(deps_url, headers=headers)
+                        with urllib.request.urlopen(req, timeout=10) as resp:
+                            deps_raw = resp.read().decode("utf-8", errors="replace")
+                        deps_data = json.loads(deps_raw)
+
+                        dep_items: list[dict[str, Any]] = []
+                        if isinstance(deps_data, list):
+                            dep_items = [d for d in deps_data if isinstance(d, dict)]
+                        elif isinstance(deps_data, dict):
+                            for key in ("dependencies", "items", "results", "data"):
+                                if isinstance(deps_data.get(key), list):
+                                    dep_items = [d for d in deps_data[key] if isinstance(d, dict)]
+                                    break
+
+                        parsed_deps: list[dict[str, Any]] = []
+                        unique_licenses_map: dict[str, dict[str, Any]] = {}
+
+                        for d in dep_items:
+                            pkg_locator = str(d.get("locator") or (d.get("package") or {}).get("locator") or "")
+                            pkg_name = str((d.get("package") or {}).get("name") or pkg_locator or "Unknown")
+                            if "+" in pkg_name:
+                                pkg_name = pkg_name.split("+", 2)[-1]
+                            version = str(d.get("revision") or d.get("version") or "N/A")
+
+                            dep_lics: list[str] = []
+                            for lic in d.get("licenses") or []:
+                                if isinstance(lic, dict):
+                                    lic_id = lic.get("licenseId") or lic.get("id") or lic.get("name") or "Unknown"
+                                    dep_lics.append(str(lic_id))
+                                    if str(lic_id) not in unique_licenses_map:
+                                        unique_licenses_map[str(lic_id)] = {
+                                            "name": str(lic_id),
+                                            "count": 1,
+                                            "risk": "LOW",
+                                            "affected_packages": [pkg_name],
+                                        }
+                                    else:
+                                        unique_licenses_map[str(lic_id)]["count"] += 1
+                                        if pkg_name not in unique_licenses_map[str(lic_id)]["affected_packages"]:
+                                            unique_licenses_map[str(lic_id)]["affected_packages"].append(pkg_name)
+                                elif isinstance(lic, str):
+                                    dep_lics.append(lic)
+                                    if lic not in unique_licenses_map:
+                                        unique_licenses_map[lic] = {"name": lic, "count": 1, "risk": "LOW", "affected_packages": [pkg_name]}
+
+                            lic_str = ", ".join(dep_lics) if dep_lics else "Unknown"
+                            parsed_deps.append({
+                                "package": pkg_name,
+                                "version": version,
+                                "license": lic_str,
+                                "risk": "LOW" if lic_str != "Unknown" else "MEDIUM",
+                            })
+
+                        metrics["dependencies_list"] = parsed_deps
+                        metrics["licenses_list"] = list(unique_licenses_map.values())
+                        if metrics["dependency_count"] is None:
+                            metrics["dependency_count"] = len(parsed_deps)
+                        if metrics["license_count"] is None:
+                            metrics["license_count"] = len(unique_licenses_map)
+                        metrics["api_status"] = "success"
+                        break
+                    except urllib.error.HTTPError as exc:
+                        if exc.code == 404:
+                            if attempt < max_retries:
+                                logger.info(
+                                    "[FOSSA] Dependency API returned 404 for locator '%s' (attempt %d/%d). Retrying in %.1fs...",
+                                    resolved_loc, attempt, max_retries, retry_delay_seconds
+                                )
+                                time.sleep(retry_delay_seconds)
+                                continue
+                            else:
+                                logger.info("[FOSSA] Dependency API returned 404 after %d retries for locator '%s'", max_retries, resolved_loc)
+                                if metrics["api_status"] == "skipped":
+                                    metrics["api_status"] = "not_found"
+                                break
+                        elif exc.code == 401:
+                            logger.error("[FOSSA] Dependency API returned 401 Unauthorized")
+                            metrics["api_status"] = "unauthorized"
+                            break
+                        else:
+                            logger.warning("[FOSSA] Dependency API returned HTTP %s for locator '%s'", exc.code, resolved_loc)
+                            if metrics["api_status"] == "skipped":
+                                metrics["api_status"] = "unavailable"
+                            break
+                    except Exception as exc:
+                        logger.warning("[FOSSA] Dependency API call failed (%s) for locator '%s'", exc, resolved_loc)
+                        if metrics["api_status"] == "skipped":
+                            metrics["api_status"] = "unavailable"
+                        break
+
+        return metrics
 
     def _fetch_dependency_count(
         self,

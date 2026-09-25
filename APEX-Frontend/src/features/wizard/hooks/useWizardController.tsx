@@ -139,6 +139,7 @@ const mergeMigrationSummaryIntoJob = (
     sonar_error_message: null,
     fossa_policy_status: null,
     fossa_total_dependencies: 0,
+    fossa_total_licenses: 0,
     fossa_license_issues: 0,
     fossa_vulnerabilities: 0,
     fossa_outdated_dependencies: 0,
@@ -214,12 +215,13 @@ const mergeMigrationSummaryIntoJob = (
   sonar_report: summary.sonar_report ?? previous?.sonar_report ?? null,
   fossa_policy_status: summary.fossa_policy_status ?? null,
   fossa_total_dependencies: summary.fossa_total_dependencies,
+  fossa_total_licenses: summary.fossa_total_licenses ?? (summary.fossa_report as any)?.total_licenses ?? (summary.fossa_report as any)?.license_count ?? 0,
   fossa_license_issues: summary.fossa_license_issues,
   fossa_vulnerabilities: summary.fossa_vulnerabilities,
   fossa_outdated_dependencies: summary.fossa_outdated_dependencies,
   fossa_scan_mode: summary.fossa_scan_mode ?? null,
   fossa_real_scan: summary.fossa_real_scan,
-  fossa_analysis_url: summary.fossa_analysis_url ?? null,
+  fossa_analysis_url: summary.fossa_analysis_url ?? summary.fossa_project_url ?? null,
   fossa_error_message: summary.fossa_error_message ?? null,
   error_message: summary.error_message ?? null,
   total_errors: summary.total_errors,
@@ -5089,6 +5091,12 @@ export function useWizardController() {
           setError(
             "Migration status is no longer available. The backend likely restarted and lost the in-memory job state. Please restart the migration."
           );
+          clearScheduledPoll();
+          return;
+        }
+
+        if (err instanceof ApiError && (err.status === 401 || err.code === "SESSION_EXPIRED")) {
+          setError("Your session has expired. Please sign in again.");
           clearScheduledPoll();
           return;
         }

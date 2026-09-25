@@ -7,6 +7,7 @@ export interface ApiRequestOptions extends Omit<RequestInit, "body" | "headers">
   query?: Record<string, ApiQueryValue>;
   body?: BodyInit | object | null;
   headers?: HeadersInit;
+  _isRetry?: boolean;
 }
 
 /**
@@ -173,11 +174,112 @@ function buildRequestInit(options: Omit<ApiRequestOptions, "baseUrl" | "query">)
   };
 }
 
+/**
+ * Authentication endpoints where automatic 401 token refresh should NOT be attempted.
+ */
+export function isAuthEndpoint(path: string): boolean {
+  const normalized = path.toLowerCase();
+  return (
+    normalized.includes("/auth/login") ||
+    normalized.includes("/auth/refresh") ||
+    normalized.includes("/auth/logout") ||
+    normalized.includes("/auth/signup") ||
+    normalized.includes("/auth/verify") ||
+    normalized.includes("/auth/forgot-password") ||
+    normalized.includes("/auth/reset-password") ||
+    normalized.includes("/auth/google") ||
+    normalized.includes("/auth/github")
+  );
+}
+
+let activeRefreshPromise: Promise<boolean> | null = null;
+let isSessionExpiredNotified = false;
+
+/**
+ * Broadcast a session-expired event across the application and reset after cooldown.
+ */
+export function notifySessionExpired(): void {
+  if (typeof window === "undefined") return;
+  if (isSessionExpiredNotified) return;
+  isSessionExpiredNotified = true;
+
+  setTimeout(() => {
+    isSessionExpiredNotified = false;
+  }, 3000);
+
+  window.dispatchEvent(new CustomEvent("javaapex:session-expired"));
+}
+
+/**
+ * Execute a single POST /api/v1/auth/refresh (or /api/auth/refresh) call using credentials: "include".
+ * Uses fetch directly so this request never goes through the 401 retry interceptor.
+ */
+async function executeTokenRefresh(): Promise<boolean> {
+  try {
+    console.log("[AUTH] Access token expired, attempting refresh");
+
+    let refreshUrl = buildApiUrl("/v1/auth/refresh");
+    let response = await fetch(refreshUrl, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        Accept: "application/json",
+      },
+    });
+
+    if (response.status === 404) {
+      refreshUrl = buildApiUrl("/auth/refresh");
+      response = await fetch(refreshUrl, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          Accept: "application/json",
+        },
+      });
+    }
+
+    if (response.ok) {
+      console.log("[AUTH] Token refresh successful, retrying request");
+      return true;
+    }
+
+    console.warn(`[AUTH] Token refresh failed with status ${response.status}, session expired`);
+    return false;
+  } catch (error) {
+    console.error("[AUTH] Token refresh network/unexpected error:", error);
+    return false;
+  }
+}
+
+/**
+ * Shared token refresh lock to coalesce concurrent 401 requests into a single refresh call.
+ */
+export function refreshAuthSession(): Promise<boolean> {
+  if (!activeRefreshPromise) {
+    activeRefreshPromise = executeTokenRefresh().finally(() => {
+      activeRefreshPromise = null;
+    });
+  }
+  return activeRefreshPromise;
+}
+
 export async function performRequest(path: string, options: ApiRequestOptions = {}): Promise<Response> {
   const { baseUrl, query, ...requestInit } = options;
   const init = buildRequestInit(requestInit);
 
-  return fetch(buildApiUrl(path, query, baseUrl), init);
+  const response = await fetch(buildApiUrl(path, query, baseUrl), init);
+
+  if (response.status === 401 && !options._isRetry && !isAuthEndpoint(path)) {
+    const refreshSuccess = await refreshAuthSession();
+
+    if (refreshSuccess) {
+      return performRequest(path, { ...options, _isRetry: true });
+    }
+
+    notifySessionExpired();
+  }
+
+  return response;
 }
 
 export async function requestJson<T>(
@@ -186,6 +288,15 @@ export async function requestJson<T>(
   options: ApiRequestOptions = {}
 ): Promise<T> {
   const response = await performRequest(path, options);
+
+  if (response.status === 401 && !isAuthEndpoint(path)) {
+    throw new ApiError(
+      "Your session has expired. Please sign in again.",
+      401,
+      "SESSION_EXPIRED"
+    );
+  }
+
   return parseJsonResponse<T>(response, fallbackMessage);
 }
 
@@ -197,6 +308,13 @@ export async function requestBlob(
   const response = await performRequest(path, options);
 
   if (!response.ok) {
+    if (response.status === 401 && !isAuthEndpoint(path)) {
+      throw new ApiError(
+        "Your session has expired. Please sign in again.",
+        401,
+        "SESSION_EXPIRED"
+      );
+    }
     const detail = await readErrorDetail(response);
     throw new ApiError(detail || fallbackMessage, response.status, undefined, detail);
   }

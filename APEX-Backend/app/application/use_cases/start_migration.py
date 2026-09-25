@@ -1259,6 +1259,7 @@ class StartMigrationUseCase:
                 updates.update(
                     fossa_policy_status=result.fossa.policy_status,
                     fossa_total_dependencies=result.fossa.total_dependencies,
+                    fossa_total_licenses=result.fossa.total_licenses,
                     fossa_license_issues=result.fossa.license_issues,
                     fossa_denied_license_issues=result.fossa.denied_license_issues,
                     fossa_flagged_license_issues=result.fossa.flagged_license_issues,
@@ -1267,6 +1268,10 @@ class StartMigrationUseCase:
                     fossa_scan_mode=result.fossa.scan_mode,
                     fossa_real_scan=result.fossa.real_scan,
                     fossa_analysis_url=result.fossa.analysis_url,
+                    fossa_project_url=result.fossa.analysis_url,
+                    fossa_project_locator=result.fossa.project_locator,
+                    fossa_revision=result.fossa.revision,
+                    fossa_api_status=result.fossa.api_status,
                     fossa_error_message=result.fossa.error_message,
                     fossa_report=result.fossa.report,
                 )

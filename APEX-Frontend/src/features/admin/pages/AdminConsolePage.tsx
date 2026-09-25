@@ -7,6 +7,8 @@ import {
   getUserSettings,
   updateUserSettings,
   testUserGithubConnection,
+  testUserSonarConnection,
+  testUserFossaConnection,
   fetchUserGithubRepos,
   fetchUserGithubBranches,
   type SystemSettings,
@@ -53,6 +55,8 @@ export default function AdminConsolePage() {
   };
 
   const [showSecrets, setShowSecrets] = useState<{ [key: string]: boolean }>({});
+  const [testingSonar, setTestingSonar] = useState(false);
+  const [testingFossa, setTestingFossa] = useState(false);
 
   const [availableRepos, setAvailableRepos] = useState<GithubRepo[]>([]);
   const [availableBranches, setAvailableBranches] = useState<GithubBranch[]>([]);
@@ -62,6 +66,12 @@ export default function AdminConsolePage() {
       try {
         setIsLoading(true);
         const userData = await getUserSettings();
+        if (!userData.quality_checks_values?.sonarqube_url) {
+          userData.quality_checks_values = {
+            ...(userData.quality_checks_values || {}),
+            sonarqube_url: "https://sonarcloud.io"
+          };
+        }
         setUserSettings(userData);
       } catch (err) {
         console.error(err);
@@ -120,6 +130,49 @@ export default function AdminConsolePage() {
       showToast("error", err.message || "Failed to test connection.");
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleTestSonarConnection = async () => {
+    setTestingSonar(true);
+    try {
+      await updateUserSettings(
+        userSettings.github_config,
+        userSettings.quality_checks_values,
+        userSettings.test_cases_values,
+        userSettings.llm_values
+      );
+      const res = await testUserSonarConnection({
+        sonarqube_url: userSettings.quality_checks_values?.sonarqube_url,
+        auth_token: userSettings.quality_checks_values?.auth_token,
+        project_key: userSettings.quality_checks_values?.project_key,
+        sonar_organization: userSettings.quality_checks_values?.sonar_organization,
+      });
+      showToast("success", res.message || "SonarQube connection successful.");
+    } catch (err: any) {
+      showToast("error", err.message || "Failed to connect to SonarQube.");
+    } finally {
+      setTestingSonar(false);
+    }
+  };
+
+  const handleTestFossaConnection = async () => {
+    setTestingFossa(true);
+    try {
+      await updateUserSettings(
+        userSettings.github_config,
+        userSettings.quality_checks_values,
+        userSettings.test_cases_values,
+        userSettings.llm_values
+      );
+      const res = await testUserFossaConnection({
+        fossa_api_key: userSettings.quality_checks_values?.fossa_api_key,
+      });
+      showToast("success", res.message || "FOSSA connection successful.");
+    } catch (err: any) {
+      showToast("error", err.message || "Failed to connect to FOSSA.");
+    } finally {
+      setTestingFossa(false);
     }
   };
 
@@ -259,27 +312,60 @@ export default function AdminConsolePage() {
               <div className="grid-2">
                 <div>
                   <label className="settings-label">SONARQUBE URL</label>
-                  <input type="text" className="settings-input" defaultValue="https://sonarcloud.io" />
+                  <input
+                    type="text"
+                    className="settings-input"
+                    value={userSettings.quality_checks_values?.sonarqube_url ?? "https://sonarcloud.io"}
+                    onChange={e => handleFieldChange("sonarqube_url", e.target.value, "quality")}
+                    placeholder="https://sonarcloud.io"
+                  />
                 </div>
                 <div>
                   <label className="settings-label">AUTH TOKEN</label>
                   <div className="settings-input-group">
-                    <input type="password" className="settings-input" defaultValue="**************" />
-                    <div className="settings-input-group-icon"><FaEye /></div>
+                    <input
+                      type={showSecrets["sonar_auth_token"] ? "text" : "password"}
+                      className="settings-input"
+                      value={userSettings.quality_checks_values?.auth_token || ""}
+                      onChange={e => handleFieldChange("auth_token", e.target.value, "quality")}
+                      placeholder="Enter SonarQube token"
+                    />
+                    <div className="settings-input-group-icon" onClick={() => toggleSecret("sonar_auth_token")}>
+                      {showSecrets["sonar_auth_token"] ? <FaEyeSlash /> : <FaEye />}
+                    </div>
                   </div>
                 </div>
               </div>
               <div className="grid-2" style={{ marginTop: "16px", marginBottom: "16px" }}>
                 <div>
                   <label className="settings-label">PROJECT KEY</label>
-                  <input type="text" className="settings-input" placeholder="Enter project key" />
+                  <input
+                    type="text"
+                    className="settings-input"
+                    value={userSettings.quality_checks_values?.project_key || ""}
+                    onChange={e => handleFieldChange("project_key", e.target.value, "quality")}
+                    placeholder="Enter project key"
+                  />
                 </div>
                 <div>
                   <label className="settings-label">SONAR ORGANISATION</label>
-                  <input type="text" className="settings-input" placeholder="Enter org key" />
+                  <input
+                    type="text"
+                    className="settings-input"
+                    value={userSettings.quality_checks_values?.sonar_organization || ""}
+                    onChange={e => handleFieldChange("sonar_organization", e.target.value, "quality")}
+                    placeholder="Enter org key"
+                  />
                 </div>
               </div>
-              <button className="settings-action-btn"><FaPlug /> Test Connection</button>
+              <button
+                className="settings-action-btn"
+                onClick={handleTestSonarConnection}
+                disabled={testingSonar}
+                type="button"
+              >
+                {testingSonar ? <FaSpinner className="animate-spin" /> : <FaPlug />} Test Connection
+              </button>
             </div>
             
             <div className="settings-toggle-card">
@@ -288,12 +374,27 @@ export default function AdminConsolePage() {
               <div>
                 <label className="settings-label">FOSSA API KEY</label>
                 <div className="settings-input-group" style={{ marginBottom: "16px" }}>
-                  <input type="password" className="settings-input" placeholder="Enter FOSSA API Key" />
-                  <div className="settings-input-group-icon"><FaEye /></div>
+                  <input
+                    type={showSecrets["fossa_api_key"] ? "text" : "password"}
+                    className="settings-input"
+                    value={userSettings.quality_checks_values?.fossa_api_key || ""}
+                    onChange={e => handleFieldChange("fossa_api_key", e.target.value, "quality")}
+                    placeholder="Enter FOSSA API Key"
+                  />
+                  <div className="settings-input-group-icon" onClick={() => toggleSecret("fossa_api_key")}>
+                    {showSecrets["fossa_api_key"] ? <FaEyeSlash /> : <FaEye />}
+                  </div>
                 </div>
               </div>
               <div style={{ marginTop: "auto" }}>
-                <button className="settings-action-btn"><FaPlug /> Test Connection</button>
+                <button
+                  className="settings-action-btn"
+                  onClick={handleTestFossaConnection}
+                  disabled={testingFossa}
+                  type="button"
+                >
+                  {testingFossa ? <FaSpinner className="animate-spin" /> : <FaPlug />} Test Connection
+                </button>
               </div>
             </div>
           </div>
@@ -304,7 +405,11 @@ export default function AdminConsolePage() {
                 <div className="settings-toggle-title"><FaFlask /> Continuous Integration (CI)</div>
                 <div className="switch-wrap">
                   <label className="switch-ios">
-                    <input type="checkbox" defaultChecked={true} />
+                    <input
+                      type="checkbox"
+                      checked={userSettings.quality_checks_values?.ci_enabled ?? true}
+                      onChange={e => handleFieldChange("ci_enabled", e.target.checked, "quality")}
+                    />
                     <span className="slider-ios"></span>
                   </label>
                   <span className="switch-label">Enabled</span>
@@ -317,7 +422,11 @@ export default function AdminConsolePage() {
                 <div className="settings-toggle-title"><FaFlask /> Continuous Deployment (CD)</div>
                 <div className="switch-wrap">
                   <label className="switch-ios">
-                    <input type="checkbox" defaultChecked={true} />
+                    <input
+                      type="checkbox"
+                      checked={userSettings.quality_checks_values?.cd_enabled ?? true}
+                      onChange={e => handleFieldChange("cd_enabled", e.target.checked, "quality")}
+                    />
                     <span className="slider-ios"></span>
                   </label>
                   <span className="switch-label">Enabled</span>
