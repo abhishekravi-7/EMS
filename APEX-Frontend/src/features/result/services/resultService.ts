@@ -379,6 +379,7 @@ export interface MigrationJobSummary {
   spring_conversion_requested?: boolean;
   spring_conversion_supported?: boolean | null;
   spring_conversion_note?: string | null;
+  run_functional_tests?: boolean;
 }
 
 // Start migration
@@ -463,8 +464,9 @@ export async function downloadTestcaseReport(jobId: string): Promise<Blob> {
   return requestBlob(`/v1/migration/${jobId}/testcase-report`, "Failed to download testcase report");
 }
 
-export async function downloadUnitTestReport(jobId: string): Promise<Blob> {
-  return requestBlob(`/v1/migration/${jobId}/unit-test-report`, "Failed to download unit test report");
+export async function downloadUnitTestReport(jobId: string, format: string = "html"): Promise<Blob> {
+  const path = format === "csv" ? `/v1/migration/${jobId}/unit-test-report-csv` : `/v1/migration/${jobId}/unit-test-report`;
+  return requestBlob(path, "Failed to download unit test report");
 }
 
 export async function downloadSonarReportPdf(jobId: string): Promise<Blob> {

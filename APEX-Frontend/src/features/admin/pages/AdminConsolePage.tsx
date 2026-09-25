@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars, react-hooks/exhaustive-deps */
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -5,7 +6,6 @@ import {
   updateAdminSettings,
   getUserSettings,
   updateUserSettings,
-  testAdminGithubConnection,
   testUserGithubConnection,
   fetchUserGithubRepos,
   fetchUserGithubBranches,
@@ -17,520 +17,458 @@ import {
 } from "../services/adminService";
 import { useAuth } from "@/shared/context/AuthContext";
 import {
-  FaGithub,
-  FaBrain,
-  FaShieldAlt,
-  FaEye,
-  FaEyeSlash,
-  FaArrowLeft,
-  FaSyncAlt,
-  FaCog,
-  FaLink,
+  FaGithub, FaBrain, FaShieldAlt, FaEye, FaEyeSlash,
+  FaCog, FaBriefcase, FaFlask, FaPlug, FaSpinner, FaCheckCircle, FaTimesCircle
 } from "react-icons/fa";
-import QualityChecksSettings from "../components/QualityChecksSettings";
 import UserQualityChecksSettings from "../components/UserQualityChecksSettings";
-import { TestCasesAdminSettings } from "../components/TestCasesAdminSettings";
-import { TestCasesUserSettings } from "../components/TestCasesUserSettings";
-import { LlmAdminSettings } from "../components/LlmAdminSettings";
-import { LlmUserSettings } from "../components/LlmUserSettings";
 import "./AdminConsolePage.css";
- 
-const ADMIN_RAIL_TABS = [
-  { id: "github", label: "GitHub", icon: FaGithub, category: "Infrastructure" },
-  { id: "quality", label: "Quality Checks", icon: FaShieldAlt, category: "Validation" },
-  { id: "testcases", label: "Test Cases Configuration", icon: FaShieldAlt, category: "Testing" },
-  { id: "ai", label: "Intelligence", icon: FaBrain, category: "Cognitive" },
+
+const TABS = [
+  { id: "general", label: "General", icon: FaCog },
+  { id: "business", label: "Business", icon: FaBriefcase },
+  { id: "testing", label: "Testing", icon: FaFlask },
+  { id: "quality", label: "Quality Gate", icon: FaShieldAlt },
+  { id: "ai", label: "LLM Configuration", icon: FaBrain },
 ];
- 
-const USER_RAIL_TABS = [
-  { id: "github", label: "GitHub", icon: FaGithub, category: "Personal Settings" },
-  { id: "user_quality", label: "Quality Checks", icon: FaShieldAlt, category: "Personal Settings" },
-  { id: "testcases", label: "Test Cases Configuration", icon: FaShieldAlt, category: "Personal Settings" },
-  { id: "ai", label: "Intelligence", icon: FaBrain, category: "Personal Settings" },
-];
- 
-const INITIAL_SETTINGS: SystemSettings = {
-  github_token: "",
-  github_api_base_url: "",
-  github_target_owner: "",
-  github_target_token: "",
-  github_client_id: "",
-  github_client_secret: "",
-  github_callback_url: "",
-  github_organization: "",
-  github_default_branch: "",
-  ollama_base_url: "",
-  rag_enabled: false,
-  sonarqube_host_url: "",
-  sonarqube_token: "",
-  fossa_api_key: "",
-  jwt_secret_key: "",
-  quality_checks_config: "",
-};
- 
+
 const INITIAL_USER_SETTINGS: FullUserSettings = {
-  github_config: {
-    github_account: "",
-    pat: "",
-    pat_scope: "",
-    repository: "",
-    branch: "",
-    user_access: "",
-  },
-  quality_checks_values: {}
+  github_config: { github_account: "", pat: "", pat_scope: "", repository: "", branch: "", user_access: "" },
+  quality_checks_values: {},
+  llm_values: {}
 };
- 
+
 export default function AdminConsolePage() {
-  const navigate = useNavigate();
   const { currentUser } = useAuth();
- 
-  const isSuperAdmin = currentUser?.role === "SUPERADMIN";
- 
-  const [showSecrets, setShowSecrets] = useState<{ [key: string]: boolean }>({});
- 
-  // State for SUPERADMIN
-  const [settings, setSettings] = useState<SystemSettings>(INITIAL_SETTINGS);
-  // State for USER
+  const [activeTab, setActiveTab] = useState("general");
+  
   const [userSettings, setUserSettings] = useState<FullUserSettings>(INITIAL_USER_SETTINGS);
- 
+  
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
- 
+  const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+
+  const showToast = (type: 'success' | 'error', text: string) => {
+    setToastMessage({ type, text });
+    setTimeout(() => setToastMessage(null), 3500);
+  };
+
+  const [showSecrets, setShowSecrets] = useState<{ [key: string]: boolean }>({});
+
   const [availableRepos, setAvailableRepos] = useState<GithubRepo[]>([]);
   const [availableBranches, setAvailableBranches] = useState<GithubBranch[]>([]);
-  const [isLoadingRepos, setIsLoadingRepos] = useState(false);
-  const [isLoadingBranches, setIsLoadingBranches] = useState(false);
- 
+
   useEffect(() => {
     async function fetchSettings() {
       try {
         setIsLoading(true);
-        if (isSuperAdmin) {
-          const data = await getAdminSettings();
-          setSettings(data);
-        } else {
-          const userData = await getUserSettings();
-          setUserSettings(userData);
-          // Pass test cases flags into the settings object so TestCasesUserSettings can read them
-          setSettings(prev => ({
-            ...prev,
-            ...(userData.system_test_cases_config || {})
-          }));
-        }
+        const userData = await getUserSettings();
+        setUserSettings(userData);
       } catch (err) {
-        setError("Failed to load settings. Please check your permissions.");
-        console.error("Failed to load settings:", err);
+        console.error(err);
       } finally {
         setIsLoading(false);
       }
     }
-    if (currentUser) {
-      fetchSettings();
-    }
-  }, [isSuperAdmin, currentUser]);
- 
-  useEffect(() => {
-    if (!isSuperAdmin) {
-      setIsLoadingRepos(true);
-      fetchUserGithubRepos()
-        .then(repos => setAvailableRepos(repos))
-        .catch(err => console.error("Failed to fetch repos", err))
-        .finally(() => setIsLoadingRepos(false));
-    }
-  }, [isSuperAdmin]);
+    if (currentUser) fetchSettings();
+  }, [currentUser]);
 
   useEffect(() => {
-    if (!isSuperAdmin && userSettings.github_config?.repository) {
-      const repoFullName = userSettings.github_config.repository;
-      const parts = repoFullName.split("/");
+    fetchUserGithubRepos().then(setAvailableRepos).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (userSettings.github_config?.repository) {
+      const parts = userSettings.github_config.repository.split("/");
       if (parts.length === 2) {
-        const [owner, repoName] = parts;
-        setIsLoadingBranches(true);
-        fetchUserGithubBranches(owner, repoName)
-          .then(branches => setAvailableBranches(branches))
-          .catch(err => console.error("Failed to fetch branches", err))
-          .finally(() => setIsLoadingBranches(false));
+        fetchUserGithubBranches(parts[0], parts[1]).then(setAvailableBranches).catch(() => {});
       }
     }
-  }, [isSuperAdmin, userSettings.github_config?.repository]);
- 
-  const toggleSecret = (id: string) => {
-    setShowSecrets(prev => ({ ...prev, [id]: !prev[id] }));
+  }, [userSettings.github_config?.repository]);
+
+  const toggleSecret = (id: string) => setShowSecrets(prev => ({ ...prev, [id]: !prev[id] }));
+
+  const handleFieldChange = (key: string, value: any, category: 'github' | 'quality' | 'llm' = 'github') => {
+    setUserSettings(prev => {
+      if (category === 'github') return { ...prev, github_config: { ...prev.github_config, [key]: value } };
+      if (category === 'quality') return { ...prev, quality_checks_values: { ...prev.quality_checks_values, [key]: value } };
+      if (category === 'llm') return { ...prev, llm_values: { ...prev.llm_values, [key]: value } };
+      return prev;
+    });
   };
- 
-  const handleFieldChange = (key: keyof SystemSettings, value: string | boolean) => {
-    setSettings(prev => ({ ...prev, [key]: value }));
-  };
- 
-  const handleUserFieldChange = (key: keyof UserGitHubConfig, value: string) => {
-    setUserSettings(prev => ({
-      ...prev,
-      github_config: { ...prev.github_config, [key]: value }
-    }));
-  };
- 
-  const handleUserSettingChange = (key: keyof FullUserSettings, value: any) => {
-    setUserSettings(prev => ({ ...prev, [key]: value }));
-  };
- 
+
   const handleDeploy = async () => {
     setIsSaving(true);
-    setError(null);
     try {
-      if (isSuperAdmin) {
-        await updateAdminSettings(settings);
-      } else {
-        await updateUserSettings(userSettings.github_config, userSettings.quality_checks_values, userSettings.test_cases_values, userSettings.llm_values);
-        // Notify other components (e.g. chatbot) that settings have been saved
-        window.dispatchEvent(new CustomEvent("javaapex:settings-saved"));
-      }
+      await updateUserSettings(userSettings.github_config, userSettings.quality_checks_values, userSettings.test_cases_values, userSettings.llm_values);
+      window.dispatchEvent(new CustomEvent("javaapex:settings-saved"));
+      showToast("success", "Settings saved successfully!");
     } catch (err) {
-      setError("Failed to save configuration.");
       console.error(err);
+      showToast("error", "Failed to save settings.");
     } finally {
       setIsSaving(false);
     }
   };
- 
+
   const handleTestConnection = async () => {
     setIsSaving(true);
-    setError(null);
     try {
-      if (isSuperAdmin) {
-        // Save first so test uses latest
-        await updateAdminSettings(settings);
-        const res = await testAdminGithubConnection();
-        alert(res.message);
-      } else {
-        await updateUserSettings(userSettings.github_config, userSettings.quality_checks_values, userSettings.test_cases_values, userSettings.llm_values);
-        // Notify other components that settings have been saved
-        window.dispatchEvent(new CustomEvent("javaapex:settings-saved"));
-        const res = await testUserGithubConnection();
-        alert(res.message);
-      }
+      await updateUserSettings(userSettings.github_config, userSettings.quality_checks_values, userSettings.test_cases_values, userSettings.llm_values);
+      const res = await testUserGithubConnection();
+      showToast("success", res.message);
     } catch (err: any) {
-      setError(err.message || "Failed to test connection.");
+      showToast("error", err.message || "Failed to test connection.");
     } finally {
       setIsSaving(false);
     }
   };
- 
-  const renderContent = () => {
-    if (isLoading) {
+
+  const renderTabContent = () => {
+    if (activeTab === "general") {
       return (
-        <div className="admin-loading-state">
-          <div className="spinner-modern"></div>
-          <span>Fetching configuration...</span>
+        <div className="settings-card">
+          <div className="settings-card-header">
+            <div className="settings-card-icon"><FaGithub /></div>
+            <div>
+              <h3 className="settings-card-title">GitHub Integration</h3>
+              <p className="settings-card-subtitle">Configure your GitHub credentials and repository defaults.</p>
+            </div>
+          </div>
+          <div className="grid-2">
+            <div>
+              <label className="settings-label">GITHUB ACCOUNT (USERNAME)</label>
+              <input type="text" className="settings-input" value={userSettings.github_config?.github_account || ""} onChange={e => handleFieldChange("github_account", e.target.value)} />
+            </div>
+            <div>
+              <label className="settings-label">PERSONAL ACCESS TOKEN (PAT)</label>
+              <div className="settings-input-group">
+                <input type={showSecrets["pat"] ? "text" : "password"} className="settings-input" value={userSettings.github_config?.pat || ""} onChange={e => handleFieldChange("pat", e.target.value)} />
+                <div className="settings-input-group-icon" onClick={() => toggleSecret("pat")}>
+                  {showSecrets["pat"] ? <FaEyeSlash /> : <FaEye />}
+                </div>
+              </div>
+            </div>
+            <div>
+              <label className="settings-label">DEFAULT REPOSITORY</label>
+              <select className="settings-select" value={userSettings.github_config?.repository || ""} onChange={e => handleFieldChange("repository", e.target.value)}>
+                <option value="">Select Repository</option>
+                {availableRepos.map(r => <option key={r.full_name} value={r.full_name}>{r.full_name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="settings-label">DEFAULT BRANCH</label>
+              <select className="settings-select" value={userSettings.github_config?.branch || ""} onChange={e => handleFieldChange("branch", e.target.value)}>
+                <option value="">Select Branch</option>
+                {availableBranches.map(b => <option key={b.name} value={b.name}>{b.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="settings-label">ACCESS LEVEL</label>
+              <select className="settings-select" value={userSettings.github_config?.user_access || ""} onChange={e => handleFieldChange("user_access", e.target.value)}>
+                <option value="">Select Access</option>
+                <option value="read">Read</option>
+                <option value="write">Write</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
+          </div>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "24px" }}>
+            <button className="settings-action-btn" style={{ width: "auto" }} onClick={handleTestConnection}>
+              <FaPlug /> Test Connection
+            </button>
+          </div>
         </div>
       );
     }
- 
-    if (isSuperAdmin) {
+    
+    if (activeTab === "business") {
       return (
-        <div className="admin-content-stacked">
-          {/* GitHub Section */}
-          <div className="admin-config-card">
-            <h3 className="card-heading-modern">
-              <FaGithub style={{ color: "#2563eb", marginRight: "8px" }} />
-              Platform GitHub Configuration
-            </h3>
-            <div className="field-grid-three">
-              <div className="field-modern">
-                <label className="label-modern">GitHub Client ID</label>
-                <input
-                  type="text"
-                  className="input-modern"
-                  value={settings.github_client_id || ""}
-                  onChange={(e) => handleFieldChange("github_client_id", e.target.value)}
-                />
-              </div>
-              <div className="field-modern">
-                <label className="label-modern">GitHub Client Secret</label>
-                <div className="input-wrap-modern">
-                  <input
-                    type={showSecrets["github_client_secret"] ? "text" : "password"}
-                    className="input-modern"
-                    value={settings.github_client_secret || ""}
-                    onChange={(e) => handleFieldChange("github_client_secret", e.target.value)}
-                  />
-                  <div className="toggle-modern" onClick={() => toggleSecret("github_client_secret")}>
-                    {showSecrets["github_client_secret"] ? <FaEyeSlash /> : <FaEye />}
-                  </div>
-                </div>
-              </div>
-              <div className="field-modern">
-                <label className="label-modern">Callback / Redirect URL</label>
-                <input
-                  type="text"
-                  className="input-modern"
-                  value={settings.github_redirect_uri || ""}
-                  onChange={(e) => handleFieldChange("github_redirect_uri", e.target.value)}
-                />
-              </div>
-              <div className="field-modern">
-                <label className="label-modern">GitHub Organization</label>
-                <input
-                  type="text"
-                  className="input-modern"
-                  value={settings.github_target_owner || ""}
-                  onChange={(e) => handleFieldChange("github_target_owner", e.target.value)}
-                />
-              </div>
- 
-              <div className="field-modern">
-                <label className="label-modern">Default Branch</label>
-                <input
-                  type="text"
-                  className="input-modern"
-                  value={settings.github_default_branch || ""}
-                  onChange={(e) => handleFieldChange("github_default_branch", e.target.value)}
-                />
-              </div>
-            </div>
-            <div style={{ marginTop: "16px", display: "flex", gap: "12px", justifyContent: "flex-end" }}>
-               <button className="deploy-btn-modern" onClick={handleTestConnection}>
-                 Test Connection
-               </button>
+        <div className="settings-card">
+          <div className="settings-card-header">
+            <div className="settings-card-icon"><FaBriefcase /></div>
+            <div>
+              <h3 className="settings-card-title">Business Analysis Configuration</h3>
+              <p className="settings-card-subtitle">Enable or disable BRD generation and Microservice assessment modes.</p>
             </div>
           </div>
- 
-          {/* Quality Checks Section */}
-          <div className="admin-config-card">
-            <h3 className="card-heading-modern">
-              <FaShieldAlt style={{ color: "#2563eb", marginRight: "8px" }} />
-              Quality Checks Configuration
-            </h3>
-            <QualityChecksSettings
-              configString={settings.quality_checks_config || ""}
-              onChange={(newConfig) => handleFieldChange("quality_checks_config", newConfig)}
-            />
-          </div>
- 
-          {/* Test Cases Section */}
-          <div className="admin-config-card">
-            <TestCasesAdminSettings
-              settings={settings}
-              onChange={handleFieldChange}
-            />
-          </div>
- 
-          {/* AI / LLM Section */}
-          <div className="admin-config-card">
-            <LlmAdminSettings
-              settings={settings}
-              onChange={handleFieldChange}
-            />
-          </div>
-         
-          <div className="admin-config-card">
-            <h3 className="card-heading-modern">
-              <FaLink style={{ color: "#2563eb", marginRight: "8px" }} />
-              Contextual RAG
-            </h3>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px" }}>
-              <div className="field-modern">
-                <label className="label-modern">Ollama Host</label>
-                <input
-                  type="text"
-                  className="input-modern"
-                  value={settings.ollama_base_url}
-                  onChange={(e) => handleFieldChange("ollama_base_url", e.target.value)}
-                />
-              </div>
-              <div className="field-modern">
-                <label className="label-modern">RAG Stack</label>
-                <div className="switch-row-modern">
-                  <label className="switch-modern">
-                    <input
-                      type="checkbox"
-                      checked={settings.rag_enabled === true || settings.rag_enabled === "True"}
-                      onChange={(e) => handleFieldChange("rag_enabled", e.target.checked)}
-                    />
-                    <span className="slider-modern"></span>
+          <div className="grid-2">
+            <div className="settings-toggle-card">
+              <div className="settings-toggle-header">
+                <div className="settings-toggle-title"><FaBriefcase /> BRD Generation</div>
+                <div className="switch-wrap">
+                  <label className="switch-ios">
+                    <input type="checkbox" defaultChecked={true} />
+                    <span className="slider-ios"></span>
                   </label>
-                  <span className="switch-label-modern">
-                    {settings.rag_enabled ? "Enabled" : "Disabled"}
-                  </span>
+                  <span className="switch-label">Enabled</span>
                 </div>
               </div>
+              <p className="settings-toggle-desc">Enable or disable automated Business Requirements Document (BRD) analysis and document export during modernization discovery.</p>
+            </div>
+            <div className="settings-toggle-card">
+              <div className="settings-toggle-header">
+                <div className="settings-toggle-title"><FaFlask /> Microservice Assessment</div>
+                <div className="switch-wrap">
+                  <label className="switch-ios">
+                    <input type="checkbox" defaultChecked={true} />
+                    <span className="slider-ios"></span>
+                  </label>
+                  <span className="switch-label">Enabled</span>
+                </div>
+              </div>
+              <p className="settings-toggle-desc">Enable or disable microservice eligibility scoring, architectural evaluation, and recommended service splitting analysis.</p>
             </div>
           </div>
         </div>
       );
-    } else {
-      // User Settings
+    }
+
+    if (activeTab === "testing") {
       return (
-        <div className="admin-content-stacked">
-          {/* GitHub Section */}
-          <div className="user-config-card">
-            <h3 className="card-heading-modern">
-              <FaGithub style={{ color: "#2563eb", marginRight: "8px" }} />
-              Personal GitHub Settings
-            </h3>
-            <div className="field-grid-three">
-              <div className="field-modern">
-                <label className="label-modern">GitHub Account (Username)</label>
-                <input
-                  type="text"
-                  className="input-modern"
-                  value={userSettings.github_config.github_account || ""}
-                  onChange={(e) => handleUserFieldChange("github_account", e.target.value)}
-                />
-              </div>
-              <div className="field-modern">
-                <label className="label-modern">Personal Access Token (PAT)</label>
-                <div className="input-wrap-modern">
-                  <input
-                    type={showSecrets["pat"] ? "text" : "password"}
-                    className="input-modern"
-                    value={userSettings.github_config.pat || ""}
-                    onChange={(e) => handleUserFieldChange("pat", e.target.value)}
-                  />
-                  <div className="toggle-modern" onClick={() => toggleSecret("pat")}>
-                    {showSecrets["pat"] ? <FaEyeSlash /> : <FaEye />}
+        <div className="settings-card">
+          <div className="settings-card-header">
+            <div className="settings-card-icon"><FaFlask /></div>
+            <div>
+              <h3 className="settings-card-title">Testing Framework Configuration</h3>
+              <p className="settings-card-subtitle">Configure JUnit unit test suite and functional UI testing frameworks.</p>
+            </div>
+          </div>
+          <UserQualityChecksSettings 
+            settings={userSettings} 
+            onChange={setUserSettings} 
+            mode="testing_only" 
+          />
+        </div>
+      );
+    }
+
+    if (activeTab === "quality") {
+      return (
+        <div className="settings-card">
+          <div className="settings-card-header">
+            <div className="settings-card-icon"><FaShieldAlt /></div>
+            <div>
+              <h3 className="settings-card-title">Quality Gate / CI & CD & Compliance</h3>
+              <p className="settings-card-subtitle">Configure SonarQube, FOSSA, CI, and CD quality gate pipelines.</p>
+            </div>
+          </div>
+          <div className="grid-2" style={{ marginBottom: "20px" }}>
+            <div className="settings-toggle-card">
+              <div className="settings-toggle-title" style={{ marginBottom: "12px" }}><FaShieldAlt /> SonarQube</div>
+              <p className="settings-toggle-desc" style={{ marginBottom: "16px" }}>Static code analysis to detect bugs and vulnerabilities.</p>
+              <div className="grid-2">
+                <div>
+                  <label className="settings-label">SONARQUBE URL</label>
+                  <input type="text" className="settings-input" defaultValue="https://sonarcloud.io" />
+                </div>
+                <div>
+                  <label className="settings-label">AUTH TOKEN</label>
+                  <div className="settings-input-group">
+                    <input type="password" className="settings-input" defaultValue="**************" />
+                    <div className="settings-input-group-icon"><FaEye /></div>
                   </div>
                 </div>
               </div>
- 
-              <div className="field-modern">
-                <label className="label-modern">Default Repository</label>
-                <select
-                  className="input-modern"
-                  value={userSettings.github_config.repository || ""}
-                  onChange={(e) => handleUserFieldChange("repository", e.target.value)}
-                  disabled={isLoadingRepos}
-                >
-                  <option value="">{isLoadingRepos ? "Loading Repositories..." : "Select Repository"}</option>
-                  {userSettings.github_config.repository && !availableRepos.some(r => r.full_name === userSettings.github_config.repository) && (
-                    <option value={userSettings.github_config.repository}>{userSettings.github_config.repository}</option>
-                  )}
-                  {availableRepos.map(repo => (
-                    <option key={repo.id} value={repo.full_name}>{repo.full_name}</option>
-                  ))}
-                </select>
+              <div className="grid-2" style={{ marginTop: "16px", marginBottom: "16px" }}>
+                <div>
+                  <label className="settings-label">PROJECT KEY</label>
+                  <input type="text" className="settings-input" placeholder="Enter project key" />
+                </div>
+                <div>
+                  <label className="settings-label">SONAR ORGANISATION</label>
+                  <input type="text" className="settings-input" placeholder="Enter org key" />
+                </div>
               </div>
-              <div className="field-modern">
-                <label className="label-modern">Default Branch</label>
-                <select
-                  className="input-modern"
-                  value={userSettings.github_config.branch || ""}
-                  onChange={(e) => handleUserFieldChange("branch", e.target.value)}
-                  disabled={isLoadingBranches || !userSettings.github_config.repository}
-                >
-                  <option value="">{isLoadingBranches ? "Loading Branches..." : "Select Branch"}</option>
-                  {userSettings.github_config.branch && !availableBranches.some(b => b.name === userSettings.github_config.branch) && (
-                    <option value={userSettings.github_config.branch}>{userSettings.github_config.branch}</option>
-                  )}
-                  {availableBranches.map(branch => (
-                    <option key={branch.name} value={branch.name}>{branch.name}</option>
-                  ))}
-                </select>
+              <button className="settings-action-btn"><FaPlug /> Test Connection</button>
+            </div>
+            
+            <div className="settings-toggle-card">
+              <div className="settings-toggle-title" style={{ marginBottom: "12px" }}><FaShieldAlt /> FOSSA</div>
+              <p className="settings-toggle-desc" style={{ marginBottom: "16px" }}>Open source license compliance and dependency scanning.</p>
+              <div>
+                <label className="settings-label">FOSSA API KEY</label>
+                <div className="settings-input-group" style={{ marginBottom: "16px" }}>
+                  <input type="password" className="settings-input" placeholder="Enter FOSSA API Key" />
+                  <div className="settings-input-group-icon"><FaEye /></div>
+                </div>
               </div>
-              <div className="field-modern">
-                <label className="label-modern">Access Level</label>
-                <select
-                  className="input-modern"
-                  value={userSettings.github_config.user_access || ""}
-                  onChange={(e) => handleUserFieldChange("user_access", e.target.value)}
-                >
-                  <option value="">Select Access</option>
-                  <option value="read">Read</option>
-                  <option value="write">Write</option>
-                </select>
+              <div style={{ marginTop: "auto" }}>
+                <button className="settings-action-btn"><FaPlug /> Test Connection</button>
               </div>
             </div>
-            <div style={{ marginTop: "16px", display: "flex", gap: "12px", justifyContent: "flex-end" }}>
-               <button className="deploy-btn-modern" onClick={handleTestConnection}>
-                 Test Connection
-               </button>
+          </div>
+          
+          <div className="grid-2">
+            <div className="settings-toggle-card">
+              <div className="settings-toggle-header">
+                <div className="settings-toggle-title"><FaFlask /> Continuous Integration (CI)</div>
+                <div className="switch-wrap">
+                  <label className="switch-ios">
+                    <input type="checkbox" defaultChecked={true} />
+                    <span className="slider-ios"></span>
+                  </label>
+                  <span className="switch-label">Enabled</span>
+                </div>
+              </div>
+              <p className="settings-toggle-desc">Enable or disable automated CI build validation and quality gate checks on pull requests and commits.</p>
+            </div>
+            <div className="settings-toggle-card">
+              <div className="settings-toggle-header">
+                <div className="settings-toggle-title"><FaFlask /> Continuous Deployment (CD)</div>
+                <div className="switch-wrap">
+                  <label className="switch-ios">
+                    <input type="checkbox" defaultChecked={true} />
+                    <span className="slider-ios"></span>
+                  </label>
+                  <span className="switch-label">Enabled</span>
+                </div>
+              </div>
+              <p className="settings-toggle-desc">Enable or disable automated deployment pipelines and artifact publishing upon successful migration verification.</p>
             </div>
           </div>
- 
-          {/* Quality Checks Section */}
-          <UserQualityChecksSettings
-            settings={userSettings}
-            onChange={setUserSettings}
-          />
- 
-          {/* Test Cases Section */}
-          <div className="user-config-card">
-            <TestCasesUserSettings
-              settings={userSettings}
-              adminSettings={settings}
-              onChange={(key, value) => {
-                setUserSettings((prev) => ({
-                  ...prev,
-                  [key]: value
-                }));
-              }}
-            />
-          </div>
- 
-          {/* AI / LLM Section */}
-          <div className="user-config-card">
-            <LlmUserSettings
-              settings={userSettings}
-              onChange={handleUserSettingChange}
-              isAdminEnabled={
-                userSettings.system_llm_config?.llm_enabled === true ||
-                String(userSettings.system_llm_config?.llm_enabled).toLowerCase() === "true" ||
-                userSettings.system_llm_config?.llm_enabled === "1"
-              }
-              allowedGroqModelsStr={userSettings.system_llm_config?.groq_models}
-              allowedHuggingFaceModelsStr={userSettings.system_llm_config?.huggingface_models}
-            />
-          </div>
+        </div>
+      );
+    }
+
+    if (activeTab === "ai") {
+      return (
+        <div className="settings-card">
+          <div className="settings-card-header">
+            <div className="settings-card-icon"><FaBrain /></div>
+            <div>
+              <h3 className="settings-card-title">LLM Configuration</h3>
+                <p className="settings-card-subtitle">Manage Intelligence providers, models, and features.</p>
+              </div>
+            </div>
+            
+            <div style={{ marginBottom: "24px" }}>
+              <h4 style={{ fontSize: "16px", fontWeight: 700, margin: "0 0 16px 0", color: "#0f172a" }}>LLM 1</h4>
+              <label className="settings-label">MODEL</label>
+              <select 
+                className="settings-select" 
+                style={{ marginBottom: "16px" }}
+                value={userSettings.llm_values?.llm1_model || ""}
+                onChange={e => handleFieldChange("llm1_model", e.target.value, "llm")}
+              >
+                <option value="">Select Model</option>
+                <option value="gpt-4o">gpt-4o</option>
+                <option value="claude-3.5-sonnet">claude-3.5-sonnet</option>
+                <option value="meta-llama/Llama-3.1-8B-Instruct">meta-llama/Llama-3.1-8B-Instruct</option>
+                <option value="meta-llama/Llama-3.1-8B-Instruct:novita">meta-llama/Llama-3.1-8B-Instruct:novita</option>
+                <option value="qwen/qwen3.8-27b">qwen/qwen3.8-27b</option>
+              </select>
+              <label className="settings-label">API KEY</label>
+              <div className="settings-input-group">
+                <input 
+                  type={showSecrets["llm1_api_key"] ? "text" : "password"} 
+                  className="settings-input" 
+                  placeholder="Enter your API Key"
+                  value={userSettings.llm_values?.llm1_api_key || ""}
+                  onChange={e => handleFieldChange("llm1_api_key", e.target.value, "llm")}
+                />
+                <div className="settings-input-group-icon" onClick={() => toggleSecret("llm1_api_key")} style={{ cursor: "pointer" }}>
+                  {showSecrets["llm1_api_key"] ? <FaEyeSlash /> : <FaEye />}
+                </div>
+              </div>
+            </div>
+            
+            <div>
+              <h4 style={{ fontSize: "16px", fontWeight: 700, margin: "0 0 16px 0", color: "#0f172a" }}>LLM 2</h4>
+              <label className="settings-label">MODEL</label>
+              <select 
+                className="settings-select" 
+                style={{ marginBottom: "16px" }}
+                value={userSettings.llm_values?.llm2_model || ""}
+                onChange={e => handleFieldChange("llm2_model", e.target.value, "llm")}
+              >
+                <option value="">Select Model</option>
+                <option value="gpt-4o">gpt-4o</option>
+                <option value="claude-3.5-sonnet">claude-3.5-sonnet</option>
+                <option value="meta-llama/Llama-3.1-8B-Instruct">meta-llama/Llama-3.1-8B-Instruct</option>
+                <option value="meta-llama/Llama-3.1-8B-Instruct:novita">meta-llama/Llama-3.1-8B-Instruct:novita</option>
+                <option value="qwen/qwen3.8-27b">qwen/qwen3.8-27b</option>
+              </select>
+              <label className="settings-label">API KEY</label>
+              <div className="settings-input-group">
+                <input 
+                  type={showSecrets["llm2_api_key"] ? "text" : "password"} 
+                  className="settings-input" 
+                  placeholder="Enter your API Key"
+                  value={userSettings.llm_values?.llm2_api_key || ""}
+                  onChange={e => handleFieldChange("llm2_api_key", e.target.value, "llm")}
+                />
+                <div className="settings-input-group-icon" onClick={() => toggleSecret("llm2_api_key")} style={{ cursor: "pointer" }}>
+                  {showSecrets["llm2_api_key"] ? <FaEyeSlash /> : <FaEye />}
+                </div>
+              </div>
+                      </div>
         </div>
       );
     }
   };
- 
+
   return (
-    <div className="admin-console-layout">
-      <main className="admin-main-surface">
-        <header className="admin-main-header">
-          <div className="header-title-group">
-            <div className="header-symbol-wrap">
-              <FaCog size={22} />
-            </div>
-            <div className="header-text-stack">
-              <h2 className="header-heading">
-                Settings
-              </h2>
-            </div>
-          </div>
- 
-          <div className="header-actions">
-            <button
-              className="deploy-btn-modern"
-              onClick={handleDeploy}
-              disabled={isSaving || isLoading}
-            >
-              {isSaving ? (
-                <>
-                  <div className="spinner-small"></div>
-                  <span>Saving...</span>
-                </>
-              ) : (
-                <>
-                  <span>Save Configuration</span>
-                </>
-              )}
-            </button>
-          </div>
+    <div className="settings-page-container">
+      {toastMessage && (
+        <div style={{
+          position: "fixed",
+          top: "32px",
+          left: "50%",
+          transform: "translateX(-50%)",
+          zIndex: 9999,
+          backgroundColor: toastMessage.type === "success" ? "#10b981" : "#ef4444",
+          color: "white",
+          padding: "14px 28px",
+          borderRadius: "8px",
+          boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)",
+          display: "flex",
+          alignItems: "center",
+          gap: "12px",
+          fontSize: "1rem",
+          fontWeight: 600,
+          transition: "all 0.3s ease-in-out",
+          animation: "toast-slide-down 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards"
+        }}>
+          {toastMessage.type === "success" ? <FaCheckCircle size={20} /> : <FaTimesCircle size={20} />}
+          {toastMessage.text}
+        </div>
+      )}
+      <style>{`
+        @keyframes toast-slide-down {
+          0% { opacity: 0; transform: translate(-50%, -20px); }
+          100% { opacity: 1; transform: translate(-50%, 0); }
+        }
+      `}</style>
+
+      <aside className="settings-sidebar">
+        <div style={{ marginBottom: "16px" }}>
+        </div>
+        {TABS.map(tab => (
+          <button
+            key={tab.id}
+            className={`settings-sidebar-tab ${activeTab === tab.id ? "active" : ""}`}
+            onClick={() => setActiveTab(tab.id)}
+          >
+            <tab.icon />
+            {tab.label}
+          </button>
+        ))}
+      </aside>
+
+      <main className="settings-main-area">
+        <header className="settings-header">
+          <h1>Settings</h1>
+          <button className="settings-save-btn" onClick={handleDeploy} disabled={isSaving || isLoading}>
+            {isSaving ? <FaSpinner className="animate-spin" /> : "Save Configuration"}
+          </button>
         </header>
- 
-        {error && (
-          <div className="admin-error-banner">
-            <FaShieldAlt />
-            <span>{error}</span>
-            <button onClick={() => setError(null)}>×</button>
-          </div>
-        )}
- 
-        <div className="admin-scroll-canvas">
-          {renderContent()}
+        
+        <div className="settings-scroll-content">
+          {isLoading ? (
+            <div style={{ padding: "40px", textAlign: "center", color: "#64748b" }}><FaSpinner className="animate-spin" /> Loading...</div>
+          ) : (
+            renderTabContent()
+          )}
         </div>
       </main>
     </div>

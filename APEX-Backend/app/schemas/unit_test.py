@@ -68,13 +68,22 @@ class TestingPromptAnalysis(BaseModel):
     __test__ = False
     user_prompt: str | None = Field(None, description="Original natural language user testing prompt")
     testing_focus: str = Field("General Testing Focus", description="Summary of user's requested testing focus")
+    testing_objective: str = Field("", description="Primary testing objective and scope summary")
+    coverage_target: str = Field("80-90%", description="Target coverage percentage range")
     target_areas: list[str] = Field(default_factory=list, description="Target functional areas")
     target_classes: list[str] = Field(default_factory=list, description="Target class names or patterns")
     target_methods: list[str] = Field(default_factory=list, description="Target method names")
-    priority: list[str] = Field(default_factory=list, description="High-priority scenarios")
-    scenarios: list[str] = Field(default_factory=list, description="Specific positive and negative test scenarios")
+    business_logic_areas: list[str] = Field(default_factory=list, description="Core business logic areas")
+    execution_paths: list[str] = Field(default_factory=list, description="Execution paths to test")
+    branches: list[str] = Field(default_factory=list, description="Conditional branches and decision paths")
     edge_cases: list[str] = Field(default_factory=list, description="Edge cases and boundary conditions")
-
+    negative_scenarios: list[str] = Field(default_factory=list, description="Negative testing scenarios and validation failures")
+    exception_scenarios: list[str] = Field(default_factory=list, description="Exception handling scenarios")
+    coverage_gaps: list[str] = Field(default_factory=list, description="Identified JaCoCo coverage gaps")
+    priority: list[str] = Field(default_factory=list, description="High-priority scenarios")
+    priority_areas: list[str] = Field(default_factory=list, description="High priority focus areas")
+    scenarios: list[str] = Field(default_factory=list, description="Specific positive and negative test scenarios")
+    additional_tests_required: list[str] = Field(default_factory=list, description="Suggested additional tests to close gaps")
 
 
 class PromptCoverageEvaluation(BaseModel):
@@ -114,10 +123,15 @@ class UnitTestGenerateAndRunRequest(BaseModel):
     enable_validation_agent: bool = Field(True, description="Enable Multi-Agent Critic and Smell Detector validation")
     test_command: str | None = Field(None, description="Optional custom test command to run instead of default maven/gradle test")
     testing_prompt: str | None = Field(None, description="Arbitrary user natural language testing prompt to guide focus")
+    selected_predefined_prompts: list[str] | None = Field(default_factory=list, description="List of selected predefined prompt IDs")
+    manual_prompt: str | None = Field(None, description="User manual testing prompt")
 
 
 class TestingPromptAnalysisRequest(BaseModel):
     __test__ = False
-    prompt: str = Field(..., description="Free-form user testing focus prompt")
+    prompt: str | None = Field(None, description="Free-form user testing focus prompt or combined prompt")
+    manual_prompt: str | None = Field(None, description="User manual testing prompt")
+    selected_predefined_prompts: list[str] | None = Field(default_factory=list, description="List of selected predefined prompt IDs")
     project_context: str | None = Field(None, description="Optional Java project/class context string")
+
 

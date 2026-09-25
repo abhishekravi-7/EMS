@@ -7,6 +7,9 @@ export function useModernizationState(persistedFormState: PersistedWizardFormSta
   const [selectedLLMProvider, setSelectedLLMProvider] = useState("groq");
   const [runSonar, setRunSonar] = useState(persistedFormState?.runSonar ?? true);
   const [runFossa, setRunFossa] = useState(persistedFormState?.runFossa ?? false);
+  const [runFunctionalTests, setRunFunctionalTests] = useState(
+    (persistedFormState as any)?.runFunctionalTests ?? true
+  );
   const [fixBusinessLogic, setFixBusinessLogic] = useState(
     persistedFormState?.fixBusinessLogic ?? true
   );
@@ -33,6 +36,8 @@ export function useModernizationState(persistedFormState: PersistedWizardFormSta
     setRunSonar,
     runFossa,
     setRunFossa,
+    runFunctionalTests,
+    setRunFunctionalTests,
     fixBusinessLogic,
     setFixBusinessLogic,
     selectedTestSources,
