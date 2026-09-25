@@ -37,6 +37,19 @@ const DEFAULT_CONFIG: Record<string, QualityCheckConfig> = {
       { id: "sonar_organization", name: "Sonar Organisation", visible: true, required: false }
     ],
   },
+  CYCODE: {
+    name: "Cycode",
+    description: "Secrets and application security scans of migrated code (advisory).",
+    enabled: false,
+    required: false,
+    execution_enabled: true,
+    fields: [
+      { id: "cycode_api_url", name: "Cycode API / Tenant URL", visible: true, required: true, defaultValue: "https://api.cycode.com" },
+      { id: "cycode_tenant", name: "Cycode Account / Tenant", visible: true, required: true },
+      { id: "cycode_api_token", name: "Cycode API Token", visible: true, required: true },
+      { id: "cycode_scopes", name: "Cycode API Scopes", visible: true, required: true, defaultValue: "secrets,sast" },
+    ],
+  },
   FOSSA: {
     name: "FOSSA",
     description: "Open source dependency management and license compliance scanning.",

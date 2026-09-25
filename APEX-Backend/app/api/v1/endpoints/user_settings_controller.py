@@ -156,9 +156,8 @@ async def get_user_quality_checks_config(
     current_user: User = Depends(get_current_user),  # noqa: B008
 ):
     """Fetch the Super Admin's quality checks configuration."""
-    from app.api.v1.endpoints.admin_settings_controller import _get_live_env_values
-    env_values = _get_live_env_values()
-    return {"quality_checks_config": env_values.get("QUALITY_CHECKS_CONFIG", "{}")}
+    from app.infrastructure.quality_gates.cycode_config import quality_checks_config
+    return {"quality_checks_config": quality_checks_config()}
 
 @router.post("/user/settings/github/test")
 async def test_user_github_connection(

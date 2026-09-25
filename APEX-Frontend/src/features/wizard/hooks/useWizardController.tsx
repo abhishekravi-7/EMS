@@ -1264,6 +1264,7 @@ export function useWizardController() {
     runSonar,
     setRunSonar,
     runFossa,
+    runCycode,
     setRunFossa,
     fixBusinessLogic,
   } = modernizationState;
@@ -2870,7 +2871,7 @@ export function useWizardController() {
         targetJavaVersion: effectiveTargetVersion,
         buildTool: repoAnalysis?.build_tool || null,
         conversionTypes: selectedConversions,
-        options: { runTests, runSonar, runFossa, fixBusinessLogic },
+        options: { runTests, runSonar, runFossa, runCycode, fixBusinessLogic },
       };
 
       // Fire-and-forget: saving config must not block navigation.
@@ -3482,6 +3483,7 @@ export function useWizardController() {
       runTests,
       runSonar,
       runFossa,
+      runCycode,
       fixBusinessLogic,
       functionalTestToolMethod,
       migrationApproach,
@@ -3513,6 +3515,7 @@ export function useWizardController() {
       runTests,
       runSonar,
       runFossa,
+      runCycode,
       fixBusinessLogic,
       functionalTestToolMethod,
       migrationApproach,
@@ -5049,6 +5052,7 @@ export function useWizardController() {
       llm_test_provider: selectedLLMProvider,
       run_sonar: runSonar,
       run_fossa: runFossa,
+      run_cycode: runCycode,
       run_functional_tests: modernizationState.runFunctionalTests,
       fix_business_logic: fixBusinessLogic,
       functional_test_method: functionalTestToolMethod.length > 0 ? functionalTestToolMethod : undefined,
@@ -5074,6 +5078,7 @@ export function useWizardController() {
     selectedLLMProvider,
     runSonar,
     runFossa,
+    runCycode,
     fixBusinessLogic,
     functionalTestToolMethod,
     modernizationState.selectedTestSources,
@@ -5112,6 +5117,7 @@ export function useWizardController() {
     migrationApproach,
     repoUrl,
     runFossa,
+    runCycode,
     runSonar,
     runTests,
     selectedConversions,
@@ -5272,6 +5278,7 @@ export function useWizardController() {
     modernizationState.setSelectedLLMProvider("groq");
     modernizationState.setRunSonar(true);
     modernizationState.setRunFossa(false);
+    modernizationState.setRunCycode(false);
     modernizationState.setFixBusinessLogic(true);
     modernizationState.setSelectedTestSources({ llm: true, functionalDoc: false, existing: true });
     setFunctionalTestToolMethod([]);
@@ -5462,6 +5469,7 @@ export function useWizardController() {
     migrationTimerNow,
     animationProgress,
     runFossa,
+    runCycode,
     runSonar,
     runTests,
     runFunctionalTests: modernizationState.runFunctionalTests,

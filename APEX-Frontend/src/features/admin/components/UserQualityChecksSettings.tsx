@@ -573,6 +573,19 @@ export default function UserQualityChecksSettings({
       )}
     </div>
   );
+  const handleToggleFeature = (featureKey: string) => {
+    onChange((prev) => {
+      const currentVal = prev.quality_checks_values?.[featureKey] ?? true;
+      return {
+        ...prev,
+        quality_checks_values: {
+          ...(prev.quality_checks_values || {}),
+          [featureKey]: !currentVal
+        }
+      };
+    });
+  };
+
   let renderedFunctionalPromptInCheck = false;
 
   if (mode === "testing_only") {
@@ -670,9 +683,6 @@ export default function UserQualityChecksSettings({
         const isFunctionalTestCheck = (check.id || "").toLowerCase().includes("functional") || 
                                       (check.name || "").toLowerCase().includes("functional");
 
-        if (isUnitTestCheck) {
-          renderedPromptInCheck = true;
-        }
         if (isFunctionalTestCheck) {
           renderedFunctionalPromptInCheck = true;
         }
@@ -771,17 +781,3 @@ export default function UserQualityChecksSettings({
     </div>
   );
 }
-  const handleToggleFeature = (featureKey: string) => {
-    onChange((prev) => {
-      const currentVal = prev.quality_checks_values?.[featureKey] ?? true;
-      return {
-        ...prev,
-        quality_checks_values: {
-          ...(prev.quality_checks_values || {}),
-          [featureKey]: !currentVal
-        }
-      };
-    });
-  };
-
-  

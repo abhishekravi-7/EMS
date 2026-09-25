@@ -397,6 +397,8 @@ def build_summary(report: dict[str, Any]) -> dict[str, Any]:
     return {
         **core,
         **_analysis(report),
+        "run_cycode": bool(report.get("run_cycode", report.get("runCycode", False))),
+        "cycode_report": report.get("cycode_report") if report.get("run_cycode", report.get("runCycode", False)) else None,
         "issues_fixed": core["issues_fixed"],
         "api_endpoint_count": 0,
         "issue_count": len(issues),
@@ -429,6 +431,8 @@ def build_result(report: dict[str, Any]) -> dict[str, Any]:
     return {
         **core,
         **_analysis(report),
+        "run_cycode": bool(report.get("run_cycode", report.get("runCycode", False))),
+        "cycode_report": report.get("cycode_report") if report.get("run_cycode", report.get("runCycode", False)) else None,
         "issues_fixed": core["issues_fixed"],
         "migration_log": log_lines,
         "issues": issues,

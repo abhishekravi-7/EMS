@@ -35,6 +35,7 @@ class MigrationConfigOptions(BaseModel):
     run_tests: bool = Field(False, alias="runTests")
     run_sonar: bool = Field(False, alias="runSonar")
     run_fossa: bool = Field(False, alias="runFossa")
+    run_cycode: bool = Field(False, alias="runCycode")
     fix_business_logic: bool = Field(False, alias="fixBusinessLogic")
 
     model_config = {"populate_by_name": True}

@@ -195,6 +195,8 @@ export function ModernizationStepView({
     setRunSonar,
     runFossa,
     setRunFossa,
+    runCycode,
+    setRunCycode,
     runFunctionalTests,
     setRunFunctionalTests,
   } = modernization;
@@ -214,6 +216,7 @@ export function ModernizationStepView({
   const [discoveredTests, setDiscoveredTests] = useState<TestSelectionItem[]>(() => cachedScan?.test_cases || []);
   const [isLoadingDiscoveredTests, setIsLoadingDiscoveredTests] = useState(false);
   const [isSonarConfigured, setIsSonarConfigured] = useState(true);
+  const [isCycodeConfigured, setIsCycodeConfigured] = useState(false);
   const [isFossaConfigured, setIsFossaConfigured] = useState(false);
   const [isLlmConfiguredMod, setIsLlmConfiguredMod] = useState<boolean | null>(null);
   const [adminConfig, setAdminConfig] = useState<any[]>([]);
@@ -648,6 +651,9 @@ export function ModernizationStepView({
         const fossaConf = Boolean(qc.fossa_api_key);
         setIsSonarConfigured(sonarConf);
         setIsFossaConfigured(fossaConf);
+        const cycodeConf = Boolean(qc.cycode_client_id && qc.cycode_client_secret);
+        setIsCycodeConfigured(cycodeConf);
+        if (!cycodeConf) setRunCycode(false);
 
         // Check LLM configuration
         const llm = settings.llm_values || {};
@@ -702,6 +708,8 @@ export function ModernizationStepView({
 
           if (sonarGlobal === false) setRunSonar(false);
           if (fossaGlobal === false) setRunFossa(false);
+          const cycodeConfig = configArray.find((c: any) => c.name === "Cycode");
+          if (!cycodeConfig?.enabled || cycodeConfig.execution_enabled === false) setRunCycode(false);
           if (testsGlobal === false) setRunTests(false);
         } else {
           setAdminConfig([]);
@@ -744,6 +752,20 @@ export function ModernizationStepView({
     if (!isSonarConfigured) return "Not configured. Set up in User Settings.";
     return "Static analysis for bug and vulnerability detection.";
   };
+
+  const cycodeConfig = adminConfig.find((c: any) => c.name === "Cycode");
+  const isCycodeAvailable = !isQualityChecksLoading && !adminConfigError && !userSettingsError &&
+    Boolean(cycodeConfig?.enabled) && cycodeConfig?.execution_enabled !== false && isCycodeConfigured;
+  useEffect(() => {
+    if (!isQualityChecksLoading && !isCycodeAvailable) setRunCycode(false);
+  }, [isQualityChecksLoading, isCycodeAvailable, setRunCycode]);
+  const cycodeSubtitle = isQualityChecksLoading ? "Checking authorization..."
+    : adminConfigError ? "Unable to verify admin authorization."
+    : userSettingsError ? "Unable to verify user settings."
+    : !cycodeConfig?.enabled ? "Not authorized by Super Admin."
+    : cycodeConfig.execution_enabled === false ? "Execution disabled by Super Admin."
+    : !isCycodeConfigured ? "Not configured. Set up in User Settings."
+    : "Scan migrated code for secrets and security issues.";
 
   const getFossaSubtitle = () => {
     if (isQualityChecksLoading) return "Checking authorization...";
@@ -915,6 +937,29 @@ export function ModernizationStepView({
               RECOMMENDED
             </span>
           </div>
+
+          <label style={{
+            display: "flex", alignItems: "center", gap: 12, padding: "14px 18px", borderRadius: 12,
+            border: `2px solid ${runCycode && isCycodeAvailable ? "#6366f1" : "#e2e8f0"}`,
+            background: runCycode && isCycodeAvailable ? "#eef2ff" : "#f8fafc",
+            cursor: isCycodeAvailable ? "pointer" : "not-allowed", minHeight: 88,
+            opacity: isCycodeAvailable ? 1 : 0.6,
+          }}>
+            <input type="checkbox" aria-label="Run Cycode security scans"
+              checked={runCycode && isCycodeAvailable} disabled={!isCycodeAvailable}
+              onChange={(event) => setRunCycode(event.target.checked)}
+              style={{ width: 18, height: 18, accentColor: "#6366f1", flexShrink: 0 }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a", display: "flex", alignItems: "center", gap: 8 }}>
+                <FaShieldAlt aria-hidden="true" /><span>Cycode</span>
+              </div>
+              <div style={{ fontSize: 12, color: "#64748b", marginTop: 2, lineHeight: 1.3 }}>{cycodeSubtitle}</div>
+            </div>
+            <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 6,
+              color: "#4338ca", background: "#e0e7ff", flexShrink: 0 }}>
+              {runCycode && isCycodeAvailable ? "ENABLED" : "OPTIONAL"}
+            </span>
+          </label>
 
           {/* 3. Run Unit Test Suite */}
           <div

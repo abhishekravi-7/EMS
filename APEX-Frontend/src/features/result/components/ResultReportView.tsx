@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { MigrationCycodeSection } from "./MigrationCycodeSection";
 import React from "react";
 import {
   FaCheckCircle,
@@ -1131,6 +1132,8 @@ export function ResultReportView({
               migrationJob={migrationJob}
               dependencyUpdates={dependencyUpdates}
             />
+
+            {migrationJob.run_cycode && <MigrationCycodeSection report={migrationJob.cycode_report} />}
 
             {/* DETAILED MIGRATION DASHBOARD */}
             <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 16, marginTop: 16, marginBottom: 16, alignItems: "stretch" }}>

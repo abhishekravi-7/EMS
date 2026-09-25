@@ -296,6 +296,43 @@ export default function AdminConsolePage() {
                 <button className="settings-action-btn"><FaPlug /> Test Connection</button>
               </div>
             </div>
+
+            <div className="settings-toggle-card">
+              <div className="settings-toggle-title" style={{ marginBottom: "12px" }}><FaShieldAlt /> Cycode</div>
+              <p className="settings-toggle-desc" style={{ marginBottom: "16px" }}>
+                Scan migrated code for exposed secrets and application security findings.
+              </p>
+              <div style={{ marginBottom: "12px" }}>
+                <label className="settings-label">CYCODE API / TENANT URL</label>
+                <input type="url" className="settings-input" placeholder="https://api.cycode.com"
+                  value={userSettings.quality_checks_values?.cycode_api_url || "https://api.cycode.com"}
+                  onChange={e => handleFieldChange("cycode_api_url", e.target.value, "quality")} />
+              </div>
+              <div style={{ marginBottom: "12px" }}>
+                <label className="settings-label">CYCODE ACCOUNT / TENANT</label>
+                <input type="text" className="settings-input" placeholder="Enter business group or tenant"
+                  value={userSettings.quality_checks_values?.cycode_tenant || ""}
+                  onChange={e => handleFieldChange("cycode_tenant", e.target.value, "quality")} />
+              </div>
+              <div style={{ marginTop: "12px", marginBottom: "12px" }}>
+                <label className="settings-label">CYCODE API TOKEN</label>
+                <div className="settings-input-group">
+                  <input type={showSecrets["cycode_api_token"] ? "text" : "password"} className="settings-input"
+                    placeholder="Enter Cycode API token" value={userSettings.quality_checks_values?.cycode_api_token || ""}
+                    onChange={e => handleFieldChange("cycode_api_token", e.target.value, "quality")} />
+                  <div className="settings-input-group-icon" onClick={() => toggleSecret("cycode_api_token")} style={{ cursor: "pointer" }}>
+                    {showSecrets["cycode_api_token"] ? <FaEyeSlash /> : <FaEye />}
+                  </div>
+                </div>
+              </div>
+              <div>
+                <label className="settings-label">REQUIRED SCOPES</label>
+                <input type="text" className="settings-input" placeholder="secrets,sast"
+                  value={userSettings.quality_checks_values?.cycode_scopes || "secrets,sast"}
+                  onChange={e => handleFieldChange("cycode_scopes", e.target.value, "quality")} />
+                <div className="settings-toggle-desc" style={{ marginTop: "4px" }}>Required: secrets,sast</div>
+              </div>
+            </div>
           </div>
           
           <div className="grid-2">

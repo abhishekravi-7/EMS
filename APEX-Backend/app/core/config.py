@@ -167,6 +167,10 @@ class Settings(BaseSettings):
     # Internal prefixes and CLI command names used by runners:
     sonarqube_project_key_prefix: str = "java-apex"
     sonarqube_scanner_command: str = "sonar-scanner"
+    cycode_cli_command: str = "cycode"
+    cycode_timeout_seconds: int = 600
+    cycode_api_url: str = Field(default="https://api.cycode.com", validation_alias=AliasChoices("CYCODE_API_URL", "cycode_api_url"))
+    cycode_app_url: str = Field(default="https://app.cycode.com", validation_alias=AliasChoices("CYCODE_APP_URL", "cycode_app_url"))
     # FOSSA API key. Required only when the FOSSA quality gate card is active.
     fossa_api_key: str = Field(
         default="",

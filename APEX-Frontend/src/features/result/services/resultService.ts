@@ -174,6 +174,8 @@ export interface MigrationStageInfo {
 }
 
 export interface MigrationResult {
+  run_cycode?: boolean;
+  cycode_report?: CycodeReport | null;
   job_id: string;
   status: string;
   source_repo: string;
@@ -301,7 +303,24 @@ export interface MigrationResult {
   spring_conversion_note?: string | null;
 }
 
+export interface CycodeReport {
+  execution_status: string;
+  gate_status: string;
+  error_message?: string | null;
+  scanned_at?: string;
+  scans: Array<{
+    scan_type: string;
+    gate_status: string;
+    execution_status: string;
+    finding_count: number | null;
+    error_message?: string | null;
+    findings: Array<{ severity: string; file: string; rule: string }>;
+  }>;
+}
+
 export interface MigrationJobSummary {
+  run_cycode?: boolean;
+  cycode_report?: CycodeReport | null;
   job_id: string;
   status: string;
   source_repo: string;
