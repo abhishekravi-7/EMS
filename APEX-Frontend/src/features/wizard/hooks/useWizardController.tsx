@@ -23,6 +23,7 @@ import {
 import {
   listRepoFiles,
   getFileContent,
+  getDiscoveryFileContent,
   listDiscoveryFiles,
   getMicroserviceEligibility,
   getDiscoveryMicroserviceEligibility,
@@ -894,23 +895,45 @@ const categorizeDependencies = (
   dependencies: DependencyInfo[],
   analysis?: DependencyAnalysisResponse | null
 ): CategorizedDependency[] => {
-  const analyzedMap = new Map<string, AnalyzedDependencyItem>();
-  if (analysis?.dependencies) {
-    for (const item of analysis.dependencies) {
-      if (item.id) analyzedMap.set(item.id.toLowerCase(), item);
-      if (item.group && item.artifact) {
-        analyzedMap.set(`${item.group}:${item.artifact}`.toLowerCase(), item);
-      }
-      if (item.artifact) analyzedMap.set(item.artifact.toLowerCase(), item);
+  // Deduplicate discovery dependencies by stable coordinate key (group_id:artifact_id:version)
+  const seenKeys = new Set<string>();
+  const uniqueDependencies: DependencyInfo[] = [];
+  for (const dep of dependencies) {
+    const gid = (dep.group_id || "").trim().toLowerCase();
+    const aid = (dep.artifact_id || "").trim().toLowerCase();
+    const ver = (dep.current_version || dep.resolvedVersion || dep.declaredVersion || "").trim().toLowerCase();
+    const key = `${gid}:${aid}:${ver}`;
+    if (!seenKeys.has(key)) {
+      seenKeys.add(key);
+      uniqueDependencies.push(dep);
     }
   }
 
-  const result = dependencies.map((dep) => {
-    const coord = `${dep.group_id}:${dep.artifact_id}`.toLowerCase();
+  const analyzedMap = new Map<string, AnalyzedDependencyItem>();
+  if (analysis?.dependencies) {
+    for (const item of analysis.dependencies) {
+      const gid = (item.group || "").trim().toLowerCase();
+      const aid = (item.artifact || "").trim().toLowerCase();
+      const ver = (item.version || "").trim().toLowerCase();
+      if (gid && aid && ver) analyzedMap.set(`${gid}:${aid}:${ver}`, item);
+      if (gid && aid) analyzedMap.set(`${gid}:${aid}`, item);
+      if (item.id) analyzedMap.set(item.id.trim().toLowerCase(), item);
+      if (aid) analyzedMap.set(aid, item);
+    }
+  }
+
+  const result: CategorizedDependency[] = uniqueDependencies.map((dep) => {
+    const gid = (dep.group_id || "").trim().toLowerCase();
+    const aid = (dep.artifact_id || "").trim().toLowerCase();
+    const ver = (dep.current_version || dep.resolvedVersion || dep.declaredVersion || "").trim().toLowerCase();
+    const keyWithVer = `${gid}:${aid}:${ver}`;
+    const keyCoord = `${gid}:${aid}`;
+
     const found =
-      analyzedMap.get(coord) ||
-      analyzedMap.get(dep.artifact_id?.toLowerCase() || "") ||
-      analyzedMap.get(dep.group_id?.toLowerCase() || "");
+      (ver ? analyzedMap.get(keyWithVer) : undefined) ||
+      analyzedMap.get(keyCoord) ||
+      (aid ? analyzedMap.get(aid) : undefined) ||
+      (dep.group_id ? analyzedMap.get(dep.group_id.toLowerCase()) : undefined);
 
     if (found) {
       const riskNormalized = (found.risk || "LOW").toLowerCase() as DependencyRiskLevel;
@@ -1388,6 +1411,7 @@ export function useWizardController() {
   const [versionRecommendationLoading, setVersionRecommendationLoading] = useState(false);
   const [versionRecommendationError, setVersionRecommendationError] = useState("");
   const [dependencyRiskFilter, setDependencyRiskFilter] = useState<DependencyRiskFilter>("all");
+  const [isAttentionListExpanded, setIsAttentionListExpanded] = useState(false);
 
   // Functional test tool selection for Strategy page (multi-select)
   const [functionalTestToolMethod, setFunctionalTestToolMethod] = useState<string[]>(
@@ -2133,10 +2157,10 @@ export function useWizardController() {
       setActiveScoreTooltip(null);
       setMicroserviceExpandedSections({});
       const effectiveJobId = jobId || connectState?.jobId || readPersistedValue(WIZARD_JOB_ID_KEY) || "";
-      const result = isLocalRepoRef(selectedRepo.url)
-        ? await getLocalProjectMicroserviceEligibility(extractLocalRepoPath(selectedRepo.url), repoAnalysis)
-        : effectiveJobId
-          ? await getDiscoveryMicroserviceEligibility(effectiveJobId)
+      const result = effectiveJobId
+        ? await getDiscoveryMicroserviceEligibility(effectiveJobId)
+        : isLocalRepoRef(selectedRepo.url)
+          ? await getLocalProjectMicroserviceEligibility(extractLocalRepoPath(selectedRepo.url), repoAnalysis)
           : null;
       setMicroserviceResult(result);
     } catch (err) {
@@ -2896,6 +2920,43 @@ export function useWizardController() {
       },
       { critical: 0, high: 0, medium: 0, low: 0 } as Record<DependencyRiskLevel, number>
     );
+
+    const attentionCount = riskCounts.critical + riskCounts.high + riskCounts.medium;
+
+    // Structured logging for dependency validation
+    const discoveryDependencyCount = dependencies.length;
+    const uniqueDependencyCount = categorizedDependencies.length;
+    const analysisResultCount = dependencyAnalysis?.dependencies?.length ?? 0;
+    const finalCategorizedCount = categorizedDependencies.length;
+    const critical = riskCounts.critical;
+    const high = riskCounts.high;
+    const medium = riskCounts.medium;
+    const low = riskCounts.low;
+    const riskTotal = critical + high + medium + low;
+
+    console.log("[DependencyCountValidation]", {
+      "Discovery dependency count": discoveryDependencyCount,
+      "Unique dependency count": uniqueDependencyCount,
+      "Analysis result count": analysisResultCount,
+      "Final categorized dependency count": finalCategorizedCount,
+      Critical: critical,
+      High: high,
+      Medium: medium,
+      Low: low,
+      InvariantPassed: riskTotal === finalCategorizedCount && finalCategorizedCount === discoveryDependencyCount,
+    });
+
+    if (finalCategorizedCount !== discoveryDependencyCount) {
+      console.warn(
+        `[DependencyCountValidation] Count mismatch: finalCategorizedCount (${finalCategorizedCount}) !== discoveryDependencyCount (${discoveryDependencyCount})`
+      );
+    }
+
+    // Generate single overall summary - never concatenate or display batch sizes
+    const summaryText = dependencyAnalysisLoading
+      ? "Analyzing dependencies with AI..."
+      : `Based on ${categorizedDependencies.length} dependencies, ${attentionCount} require explicit migration attention.`;
+
     const visibleDependencies =
       dependencyRiskFilter === "all"
         ? categorizedDependencies
@@ -2905,7 +2966,10 @@ export function useWizardController() {
     const dominantRisk: DependencyRiskLevel =
       (dependencyAnalysis?.overall_risk?.toLowerCase() as DependencyRiskLevel) ||
       (riskCounts.critical > 0 ? "critical" : riskCounts.high > 0 ? "high" : riskCounts.medium > 0 ? "medium" : "low");
-    const topAttentionNames = attentionDependencies.slice(0, 5).map((dep) => dep.artifact_id).join(", ");
+    const ATTENTION_PREVIEW_LIMIT = 8;
+    const displayedAttentionDeps = isAttentionListExpanded
+      ? attentionDependencies
+      : attentionDependencies.slice(0, ATTENTION_PREVIEW_LIMIT);
     const activeFilterLabel = dependencyRiskFilter === "all" ? "All Dependencies" : `${dependencyRiskFilter.toUpperCase()} Only`;
 
     const getSummaryCardStyle = (risk: DependencyRiskFilter) => {
@@ -3002,10 +3066,8 @@ export function useWizardController() {
           <div style={styles.dependencyInsightsSubtitle}>
             {dependencyAnalysisLoading ? (
               <span style={{ color: "#2563eb", fontWeight: 600 }}>Analyzing dependencies with AI...</span>
-            ) : dependencyAnalysis?.overall_explanation ? (
-              dependencyAnalysis.overall_explanation
             ) : (
-              "Categorized from repository analysis. Risk levels are migration compatibility signals, not live CVE results."
+              summaryText
             )}
           </div>
         </div>
@@ -3049,10 +3111,59 @@ export function useWizardController() {
         {attentionDependencies.length > 0 && (
           <>
             <div style={styles.dependencyAlertBox}>
-              <div style={styles.dependencyAlertTitle}>Warning: {attentionDependencies.length} dependencies need migration attention</div>
+              <div style={styles.dependencyAlertTitle}>
+                Warning: {attentionDependencies.length} dependencies need migration attention
+              </div>
               <div style={styles.dependencyAlertText}>
-                Review runtime-facing, legacy, or incomplete-version dependencies first.
-                {topAttentionNames ? ` Priority artifacts: ${topAttentionNames}${attentionDependencies.length > 5 ? "..." : ""}` : ""}
+                <div>Review runtime-facing, legacy, or incomplete-version dependencies first.</div>
+                {attentionDependencies.length > 0 && (
+                  <div
+                    style={{
+                      marginTop: 6,
+                      lineHeight: 1.6,
+                      wordBreak: "break-word",
+                      overflowWrap: "anywhere",
+                    }}
+                  >
+                    <span style={{ fontWeight: 600, color: "#9a3412" }}>Priority artifacts: </span>
+                    <span
+                      style={{
+                        wordBreak: "break-word",
+                        overflowWrap: "anywhere",
+                        whiteSpace: "normal",
+                      }}
+                    >
+                      {displayedAttentionDeps.map((dep, idx) => (
+                        <span key={`${dep.artifact_id || dep.displayName}:${idx}`}>
+                          {dep.artifact_id || dep.displayName}
+                          {idx < displayedAttentionDeps.length - 1 ? ", " : ""}
+                        </span>
+                      ))}
+                    </span>
+                    {attentionDependencies.length > ATTENTION_PREVIEW_LIMIT && (
+                      <button
+                        type="button"
+                        onClick={() => setIsAttentionListExpanded((prev) => !prev)}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          color: "#c2410c",
+                          fontSize: 12,
+                          fontWeight: 700,
+                          cursor: "pointer",
+                          padding: "0 0 0 6px",
+                          textDecoration: "underline",
+                          display: "inline",
+                          whiteSpace: "nowrap",
+                        }}
+                        title={isAttentionListExpanded ? "Show less" : "Show more"}
+                        aria-expanded={isAttentionListExpanded}
+                      >
+                        {isAttentionListExpanded ? "Show less" : "View all"}
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
             <div style={styles.categorizedDependenciesSection}>
@@ -3099,9 +3210,12 @@ export function useWizardController() {
     }
 
     try {
-      const response = isLocalRepoRef(repoUrlToAnalyze)
-        ? await getLocalProjectFileContent(extractLocalRepoPath(repoUrlToAnalyze), "pom.xml")
-        : await getFileContent(repoUrlToAnalyze, "pom.xml", token);
+      const activeJobId = jobId || connectState?.jobId || readPersistedValue(WIZARD_JOB_ID_KEY) || "";
+      const response = activeJobId
+        ? await getDiscoveryFileContent(activeJobId, "pom.xml")
+        : isLocalRepoRef(repoUrlToAnalyze)
+          ? await getLocalProjectFileContent(extractLocalRepoPath(repoUrlToAnalyze), "pom.xml")
+          : await getFileContent(repoUrlToAnalyze, "pom.xml", token);
       const fallbackJavaVersion = detectJavaVersionFromPomContent(response.content || "");
       if (!fallbackJavaVersion) {
         return analysis;
@@ -3213,6 +3327,7 @@ export function useWizardController() {
     documentPrefetchPromiseRef.current = null;
     discoveryInFlightKeyRef.current = "";
     resetTargetRepoNaming();
+    setIsAttentionListExpanded(false);
   }
 
   const handleOpenFrameworkFile = useCallback(async (framework: { name: string; path: string; type: string }) => {
@@ -3220,10 +3335,13 @@ export function useWizardController() {
 
     setFrameworkFileLoading(true);
     setViewingFrameworkFile({ name: framework.name, path: framework.path, content: "" });
+    const activeJobId = jobId || connectState?.jobId || readPersistedValue(WIZARD_JOB_ID_KEY) || "";
     try {
-      const response = isLocalRepoRef(selectedRepo.url)
-        ? await getLocalProjectFileContent(extractLocalRepoPath(selectedRepo.url), framework.path)
-        : await getFileContent(selectedRepo.url, framework.path, currentToken);
+      const response = activeJobId
+        ? await getDiscoveryFileContent(activeJobId, framework.path)
+        : isLocalRepoRef(selectedRepo.url)
+          ? await getLocalProjectFileContent(extractLocalRepoPath(selectedRepo.url), framework.path)
+          : await getFileContent(selectedRepo.url, framework.path, currentToken);
       setViewingFrameworkFile({ name: framework.name, path: framework.path, content: response.content });
     } catch {
       setViewingFrameworkFile({ name: framework.name, path: framework.path, content: `// Error loading file: ${framework.path}` });
@@ -4296,12 +4414,12 @@ export function useWizardController() {
       }
 
       try {
-        const analyzePromise = isLocalProject
-          ? analyzeLocalProject(extractLocalRepoPath(selectedRepo.url))
-            .then(async (result) => enrichAnalysisWithPomVersion(result.analysis, selectedRepo.url, ""))
-          : effectiveJobId
-            ? runDiscovery(effectiveJobId, currentToken, isRerun)
-              .then(async (result) => enrichAnalysisWithPomVersion(result.analysis, selectedRepo.url, currentToken))
+        const analyzePromise = effectiveJobId
+          ? runDiscovery(effectiveJobId, currentToken, isRerun)
+            .then(async (result) => enrichAnalysisWithPomVersion(result.analysis, selectedRepo.url, currentToken))
+          : isLocalProject
+            ? analyzeLocalProject(extractLocalRepoPath(selectedRepo.url))
+              .then(async (result) => enrichAnalysisWithPomVersion(result.analysis, selectedRepo.url, ""))
             : analyzeRepoUrl(selectedRepo.url, currentToken, true)
               .then(async (result) => enrichAnalysisWithPomVersion(result.analysis, selectedRepo.url, currentToken));
 
@@ -4651,13 +4769,11 @@ export function useWizardController() {
     if (step === 2 && selectedRepo && repoAnalysis && !analysisLoading) {
       const isLocalProject = isLocalRepoRef(selectedRepo.url);
       const effectiveJobId = jobId || connectState?.jobId || readPersistedValue(WIZARD_JOB_ID_KEY) || "";
-      // GitHub repos: read the clone Discovery already made on disk (fast,
-      // works for any repo, no GitHub API calls). Falls back to the direct
-      // GitHub file-browser only if no job id is available (edge case).
-      const filesPromise = isLocalProject
-        ? listLocalProjectFiles(extractLocalRepoPath(selectedRepo.url), currentPath)
-        : effectiveJobId
-          ? listDiscoveryFiles(effectiveJobId, currentPath)
+      // Prefer job clone on disk via listDiscoveryFiles for both GitHub and local jobs.
+      const filesPromise = effectiveJobId
+        ? listDiscoveryFiles(effectiveJobId, currentPath)
+        : isLocalProject
+          ? listLocalProjectFiles(extractLocalRepoPath(selectedRepo.url), currentPath)
           : listRepoFiles(selectedRepo.url, currentToken, currentPath);
 
       setRepoFilesLoading(true);

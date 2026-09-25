@@ -107,15 +107,35 @@ def _get_cache_file_path(fingerprint: str, job_id: str | None = None) -> Path:
     return _CACHE_DIR / folder / f"{fingerprint}.json"
 
 
+def _normalize_explanation(resp: DependencyAnalysisResponse | None) -> None:
+    """Ensure overall_explanation is calculated once across all dependencies, not repeated per batch."""
+    if not resp:
+        return
+    tot_cnt = len(resp.dependencies) if resp.dependencies else (resp.counts.total if resp.counts else 0)
+    crit = resp.counts.critical if resp.counts else 0
+    high = resp.counts.high if resp.counts else 0
+    med = resp.counts.medium if resp.counts else 0
+    att_cnt = crit + high + med
+    if (
+        not resp.overall_explanation
+        or resp.overall_explanation.count("Based on") > 1
+        or "require explicit migration attention" in resp.overall_explanation
+    ):
+        resp.overall_explanation = f"Based on {tot_cnt} dependencies, {att_cnt} require explicit migration attention."
+
+
 def _read_from_cache(fingerprint: str, job_id: str | None = None) -> DependencyAnalysisResponse | None:
     if fingerprint in _memory_cache:
-        return _memory_cache[fingerprint]
+        resp = _memory_cache[fingerprint]
+        _normalize_explanation(resp)
+        return resp
 
     cache_file = _get_cache_file_path(fingerprint, job_id)
     if cache_file.exists():
         try:
             data = json.loads(cache_file.read_text(encoding="utf-8"))
             parsed = DependencyAnalysisResponse.model_validate(data)
+            _normalize_explanation(parsed)
             _memory_cache[fingerprint] = parsed
             return parsed
         except Exception as exc:  # noqa: BLE001
@@ -124,6 +144,7 @@ def _read_from_cache(fingerprint: str, job_id: str | None = None) -> DependencyA
 
 
 def _write_to_cache(fingerprint: str, job_id: str | None, response: DependencyAnalysisResponse) -> None:
+    _normalize_explanation(response)
     _memory_cache[fingerprint] = response
     try:
         cache_file = _get_cache_file_path(fingerprint, job_id)
@@ -237,10 +258,11 @@ def _build_fallback_analysis(
     else:
         complexity = "COMPLEX"
 
+    attention_cnt = crit_cnt + high_cnt + med_cnt
     return DependencyAnalysisResponse(
         overall_risk=overall_risk,
         complexity=complexity,
-        overall_explanation=f"Based on {tot_cnt} dependencies, {crit_cnt + high_cnt} require explicit migration attention.",
+        overall_explanation=f"Based on {tot_cnt} dependencies, {attention_cnt} require explicit migration attention.",
         complexity_explanation=f"Dependency volume ({tot_cnt}) and framework distribution evaluated.",
         counts=DependencyRiskCounts(
             critical=crit_cnt,
@@ -578,9 +600,8 @@ class AnalyzeDependenciesUseCase:
                     else "COMPLEX"
                 )
 
-            overall_explanation = " ".join(overall_explanations).strip()
-            if not overall_explanation:
-                overall_explanation = f"Analysis of {tot_cnt} dependencies indicates {overall_risk.lower()} overall migration friction."
+            attention_cnt = crit_cnt + high_cnt + med_cnt
+            overall_explanation = f"Based on {tot_cnt} dependencies, {attention_cnt} require explicit migration attention."
 
             complexity_explanation = " ".join(complexity_explanations).strip()
             if not complexity_explanation:
