@@ -238,6 +238,23 @@ class AstMigrationRunner:
                 source = source.replace("@After\n", "@AfterEach\n")
                 source = source.replace("@Ignore\n", "@Disabled\n")
 
+            # Java 8 -> 11 -> 17 modernization rules
+            if target_major >= 8:
+                # 1. Diamond operator modernization: new ArrayList<Type>() -> new ArrayList<>()
+                source = re.sub(
+                    r'\bnew\s+(ArrayList|LinkedList|HashMap|HashSet|TreeMap|TreeSet|ConcurrentHashMap|PriorityQueue|ArrayDeque|Vector|Hashtable)\s*<[^>]+>\s*\(',
+                    r'new \1<>(',
+                    source
+                )
+                # 2. Redundant super() constructor removal
+                source = re.sub(r'^\s*super\(\);\s*\r?\n', '', source, flags=re.MULTILINE)
+                # 3. Null-safe literal string comparison
+                source = re.sub(
+                    r'\b([a-zA-Z_]\w*)\.equals\((["\'][^"\']+["\'])\)',
+                    r'\2.equals(\1)',
+                    source
+                )
+
             if source != original_source:
                 java_path.write_text(source, encoding="utf-8")
                 rel_path = java_path.relative_to(project_dir).as_posix()

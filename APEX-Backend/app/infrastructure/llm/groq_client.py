@@ -155,6 +155,20 @@ class GroqClient:
                             # 429 = rate limit → switch model if daily limit, or retry with backoff
                             if response.status_code == 429:
                                 import re
+                                limit_match = re.search(r"Limit\s+(\d+),\s*Requested\s+(\d+)", body_preview, re.IGNORECASE)
+                                if limit_match and "reduce max_tokens" in body_preview.lower():
+                                    enforced_limit = int(limit_match.group(1))
+                                    safe_tokens = max(128, enforced_limit - 50)
+                                    logger.warning(
+                                        "[GROQ] Output token limit hit for model %s (Limit: %s, Requested: %s). Auto-reducing max_tokens to %s and retrying immediately.",
+                                        self._model,
+                                        enforced_limit,
+                                        limit_match.group(2),
+                                        safe_tokens,
+                                    )
+                                    payload["max_tokens"] = safe_tokens
+                                    continue
+
                                 wait_match = re.search(r"try again in (\d+(?:\.\d+)?)s", body_preview, re.IGNORECASE)
                                 if wait_match:
                                     retry_after = int(float(wait_match.group(1))) + 1

@@ -382,6 +382,8 @@ def _core(report: dict[str, Any]) -> dict[str, Any]:
         "jsf_files_migrated": jsf_migrated,
         "jsp_frontend_framework": report.get("jspFrontendFramework"),
         "jsf_frontend_framework": report.get("jsfFrontendFramework"),
+        "ui_transformations": ui_trans,
+        "uiTransformations": ui_trans,
         "spring_conversion_note": report.get("springConversionNote"),
         "run_sonar": bool(report.get("run_sonar") if "run_sonar" in report else (report.get("runSonar") if "runSonar" in report else False)),
         "run_fossa": bool(report.get("run_fossa") if "run_fossa" in report else (report.get("runFossa") if "runFossa" in report else False)),
@@ -606,7 +608,7 @@ def build_report_details(report: dict[str, Any], detail_type: str) -> dict[str, 
             items.append({
                 "name": name,
                 "file": "pom.xml" if str(report.get("buildTool", "")).lower() == "maven" else "build.gradle",
-                "old_version": dep.get("sourceVersion") or dep.get("current_version") or dep.get("oldVersion") or "managed",
+                "old_version": dep.get("sourceVersion") or dep.get("old_version") or dep.get("current_version") or dep.get("oldVersion") or "managed",
                 "new_version": dep.get("resolvedTargetVersion") or dep.get("new_version") or dep.get("newVersion") or "updated",
                 "status": dep.get("status") or "UPGRADED",
                 "scope": dep.get("scope") or "compile",
@@ -660,7 +662,7 @@ def build_report_details(report: dict[str, Any], detail_type: str) -> dict[str, 
             target_lower = target.lower()
             src_fw = ut.get("sourceFramework") or ("JSP" if src_lower.endswith((".jsp", ".jspf")) else ("JSF" if src_lower.endswith((".xhtml", ".jsf")) else "Legacy Template"))
             tgt_fw = ut.get("targetFramework") or ("React" if target_lower.endswith((".tsx", ".jsx")) else ("Angular" if target_lower.endswith((".ts", ".html")) else "Modern Component"))
-            items.append({
+            item = {
                 "source_file": src,
                 "target_file": target or f"Converted {tgt_fw} component",
                 "transformation_type": ut.get("category") or f"{src_fw} -> {tgt_fw}",
@@ -669,7 +671,10 @@ def build_report_details(report: dict[str, Any], detail_type: str) -> dict[str, 
                 "status": ut.get("status") or "Completed",
                 "additions": ut.get("additions") or 0,
                 "deletions": ut.get("deletions") or 0,
-            })
+            }
+            if ut.get("accuracy") is not None:
+                item["accuracy"] = ut.get("accuracy")
+            items.append(item)
         # 2. Import Changes (Java namespace refactoring)
         for ic in (report.get("importChanges") or []):
             fpath = ic.get("file") or ""

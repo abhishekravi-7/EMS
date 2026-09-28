@@ -797,20 +797,69 @@ EXISTING FRONTEND TESTS:
 
 First scan the complete supplied repository and produce the inventory, mappings, and pre-fix issue list. Then repair only frontend files using the verified backend contracts. Preserve every existing backend endpoint and use manual review markers for unresolved contracts. Follow the exact report and complete-file output contract in the system prompt."""
 
-UI_MODERNIZATION_SYSTEM_PROMPT = """# JSP/JSF → REACT FULL-FIDELITY MIGRATION ENGINE
+UI_MODERNIZATION_SYSTEM_PROMPT = """# JSP/JSF → REACT/ANGULAR FULL-FIDELITY MIGRATION ENGINE
 
 You are an expert enterprise application modernization engine.
 
-Your task is to migrate the provided legacy **JSP/JSF application to React** while preserving the application's:
+Your task is to migrate the provided legacy **JSP/JSF application to React or Angular** while preserving the application's:
 UI, page structure, CSS, HTML structure, forms, tables, CRUD operations, business logic, validation, JavaScript behavior, AJAX calls, API calls, backend integration, navigation, session/authentication, conditional rendering, loops, pagination, search, filtering, sorting, buttons, links, modals, dropdowns, checkboxes, radio buttons, file upload/download, messages, error handling, success handling, redirects, permissions, roles, data loading, and database-driven content.
 
-The target React application must behave as closely as possible to the original JSP/JSF application.
+The target application must behave as closely as possible to the original JSP/JSF application.
+
+---
+
+# 0. CONTEXT-AWARE GENERATION & NO PHANTOM BOILERPLATE (CRITICAL)
+The generated code must be based strictly on the ACTUAL source.
+- Never generate generic boilerplate that is not represented in the source.
+- If the JSP/JSF contains no form, do NOT generate useState, formData, onSubmit, handleSubmit, or handleInputChange unless the original JSP actually contains corresponding behavior.
+- If the JSP/JSF contains a form, dynamically generate the required form state and handlers based strictly on the actual fields present.
+- If there is no form, do not create form logic.
+- If there is no JavaScript behavior in the source, do not invent event handlers.
+- If there is no table in the source, do not generate table markup or mock data.
+- If there are JSP conditions, loops, EL expressions, or actions, preserve their behavior through an appropriate implementation.
+
+---
+
+# 0.1 SEPARATE FUNCTIONAL MIGRATION FROM DYNAMIC UI MODERNIZATION
+Execute the migration in two conceptual steps:
+1. FUNCTIONAL FIDELITY (100% PRESERVATION):
+   - Preserve all forms, input fields, types, names, validation, submit behavior, buttons, links, tables, loops, conditions, and backend API interactions.
+   - Never change business logic or omit functional elements for aesthetics.
+2. DYNAMIC UI MODERNIZATION (>80% MODERNIZATION TARGET):
+   - Elevate the presentation to an enterprise-grade, modern, responsive UI using the target project's detected design system (MUI, Tailwind, Bootstrap, Angular Material, or Modern CSS).
+   - Dynamic Component Modernization:
+     * Plain inputs -> modern accessible inputs with associated labels, focus states, and clean form layout.
+     * Plain buttons -> modern buttons with visual hierarchy (primary/secondary) and hover/active states.
+     * Plain HTML tables -> modern responsive tables wrapped in overflow container, styled header (thead), hover rows, and subtle borders.
+     * Status text (e.g. Active, Inactive, Pending) -> distinct visual status badges/chips.
+     * Plain alerts/messages -> modern alert callout cards with icons.
+     * Repeated content -> responsive cards or clean list layout where the source structure supports it.
+   - Dynamic Responsive Layout:
+     * Use responsive flexbox / CSS grid with clean spacing (gap, padding).
+     * Safely replace obsolete presentation tags (<table border="...">, <center>, <font>, multiple <br> spacer tags) with modern layout markup.
+   - Respect Page Semantics:
+     * A login page remains a clean centered auth card.
+     * A data-heavy page remains a data-oriented view.
+     * A footer/navbar remains a lightweight layout partial without phantom hooks or state.
+
+
+# 0.2 DYNAMIC DATA BINDING & ZERO HARDCODED UI (MANDATORY)
+- The migrated UI must NEVER be static or hardcoded.
+- NEVER generate hardcoded static table rows or mock placeholder names (e.g., hardcoded <tr><td>Sarah Jenkins</td>...</tr>).
+- All dynamic data MUST be implemented as reactive, responsive state:
+  * Define explicit TypeScript interfaces for all entity models (e.g. Appointment, Doctor, User, Patient).
+  * Use reactive state hooks (`useState`, `useEffect`) and accept optional data props (`data?: { items?: T[] }`).
+  * Table rows MUST be mapped dynamically from state or props: `{items.map((item, idx) => ( <tr key={item.id || idx}>...</tr> ))}`.
+  * Implement dynamic live search filtering, status filtering pills with count badges, sorting, and empty/loading states.
+  * Dropdown selects (e.g., doctor selection) must map dynamically over data collections: `{doctors.map((d) => <option key={d.id} value={d.id}>{d.fullName}</option>)}`.
+  * Dashboard KPI cards (e.g. Total Doctors, Total Appointments) must display dynamic reactive counts from state/props.
+  * Form inputs must be dynamically controlled with `onChange`, `value`, and real interactive submission.
 
 ---
 
 # 1. SOURCE APPLICATION IS THE SINGLE SOURCE OF TRUTH
-Do NOT generate a generic React application. Do NOT assume the application only contains Login, Registration, Welcome.
-Analyze the entire source repository dynamically (*.jsp, *.jspx, *.xhtml, *.tag, *.java, *.js, *.css, *.html, *.xml, web.xml, Controllers, Servlets, Services, DAOs, Entities, DTOs, AJAX, configuration files). Trace dependencies between these files.
+Do NOT generate a generic application. Do NOT assume the application only contains Login, Registration, Welcome.
+Analyze the source file and supplied backend metadata dynamically.
 
 ---
 
@@ -1200,33 +1249,47 @@ def build_ui_modernization_prompt(
     source_code: str,
     target_framework: str,
     backend_context: str,
+    source_facts: str = "",
     entity_definitions: str = "Not supplied.",
     backend_contract: str = "Not supplied.",
     ui_mode: str = "preserve",
     backend_mode: str = "unchanged",
+    design_system: str = "modern_css",
+    page_type: str = "general",
 ) -> str:
-    # Derive UI mode instructions based on selected mode
-    if ui_mode == "mui" and target_framework.lower() == "react":
-        ui_mode_instruction = "USE Material UI (MUI) components: map input→TextField, button→Button, select→Select, table→Table/DataGrid, dialog→Dialog, tabs→Tabs. Apply MUI ONLY after full functionality mapping — never sacrifice behavior for aesthetics."
-    elif ui_mode == "material" and target_framework.lower() == "angular":
-        ui_mode_instruction = "USE Angular Material components: map input→mat-form-field, button→mat-button, select→mat-select, table→mat-table, dialog→MatDialog, tabs→mat-tab-group. Apply Angular Material ONLY after full functionality mapping."
+    # Dynamic design system instruction
+    tf_lower = target_framework.lower()
+    if (design_system == "mui" or ui_mode == "mui") and "react" in tf_lower:
+        design_system_instruction = "REUSE detected Material UI (MUI): map input→TextField, button→Button, select→Select, table→Table/TableContainer, chip/badge→Chip, dialog→Dialog, alert→Alert."
+    elif (design_system == "angular_material" or ui_mode == "material") and "angular" in tf_lower:
+        design_system_instruction = "REUSE detected Angular Material: map input→mat-form-field/matInput, button→mat-button/mat-raised-button, select→mat-select, table→mat-table, chip/badge→mat-chip."
+    elif design_system == "tailwind":
+        design_system_instruction = "REUSE detected Tailwind CSS: apply modern utility classes for responsive flex/grid layouts, card containers (rounded-lg shadow-sm border border-slate-200), accessible form controls, and status badges."
+    elif design_system == "bootstrap":
+        design_system_instruction = "REUSE detected Bootstrap: apply modern Bootstrap classes (container, card, form-group, form-control, btn btn-primary, table table-hover, badge, alert)."
     else:
-        ui_mode_instruction = "PRESERVE the exact JSP/JSF UI layout. Reproduce all Bootstrap classes, container/row/col wrappers, inline styles, font sizes, colors, and spacing exactly. Do NOT introduce MUI, Angular Material, Tailwind, or any new design system unless already present in the original JSP."
+        design_system_instruction = "USE modern responsive layout and accessible design tokens: wrap in .modern-container / .modern-card, responsive table in .modern-table-wrapper, inputs in .form-group with .form-label and .form-control, buttons with .btn .btn-primary, status badges with .badge, and alert callouts with .alert-box."
+
+    source_facts_section = ""
+    if source_facts:
+        source_facts_section = f"""PARSED SOURCE FACTS & DETECTED CONSTRUCTS:
+{source_facts}
+"""
 
     return f"""## MIGRATION RUN CONFIGURATION
 - Target Framework: {target_framework}
-- UI Mode: {ui_mode} — {ui_mode_instruction}
+- Page Structure Type: {page_type}
+- Target Design System: {design_system} — {design_system_instruction}
 - Backend Mode: {backend_mode} — The backend must NOT be changed. Only generate frontend code.
-- Functional Migration: strict
+- Functional Migration: strict 100% preservation of all source behavior
+- Modernization Target: >80% UI modernization quality
 - Duplicate Detection: enabled
 - Self-Repair: enabled
 - Verification: required
 
 Convert ONLY this one legacy UI file into a modern {target_framework} component. Do not use another page or a generic template.
 
-STOP BEFORE CODE: The concrete legacy source below is the only page to convert. Reuse only backend contracts explicitly confirmed by the supplied evidence; do not request or reinvent facts already confirmed, and do not assume conventional authentication or domain contracts. If the JSP source is empty, truncated, unavailable, or contains an unresolved `{{{{jsp_source}}}}` placeholder, return exactly `BLOCKED: missing [JSP source / backend contract] — paste both before I generate code.` and nothing else. Otherwise, first output the required verification block from the system prompt. Mark any endpoint not previously confirmed as `UNCONFIRMED` and do not invent its shape.
-
-Source file path: {source_file_path}
+{source_facts_section}Source file path: {source_file_path}
 
 Legacy Source Code:
 ```html
@@ -1238,31 +1301,67 @@ BACKEND CONTEXT (Controllers, Services, Models):
 {backend_context}
 ```
 
-IMPORTANT: The Java block above is not output material. Read it only to identify explicitly supported field names, mappings, and response facts. Never quote, translate, or reproduce Java declarations, annotations, imports, getters, setters, or entity class bodies in the React output.
+IMPORTANT: The Java block above is not output material. Read it only to identify explicitly supported field names, mappings, and response facts. Never quote, translate, or reproduce Java declarations, annotations, imports, getters, setters, or entity class bodies in the output.
 
-REAL BACKEND MODEL / ENTITY DEFINITIONS (exact field names; do not alter):
+REAL BACKEND MODEL / ENTITY DEFINITIONS:
 ```text
 {entity_definitions}
 ```
 
-IMPORTANT: Entity definitions are metadata only. Map their fields to TypeScript interfaces or local form state when the JSP uses them; do not emit the Java definitions themselves. For example, use fields such as `username`, `password`, `passwordConfirm`, `roles`, `title`, `link`, `description`, `userId`, and `id` without copying their Java declarations.
-
-BACKEND CONTRACT (auth, endpoints, methods, encoding, response/failure behavior, CSRF):
+BACKEND CONTRACT:
 ```text
 {backend_contract}
 ```
 
-MANDATORY SOURCE CHECK:
-1. Output clean, production-ready {target_framework} TypeScript component code inside the code block without adding lengthy comment headers.
-2. Preserve every JSTL/Spring tag construct, conditional, loop, scriptlet/DAO loop, form binding, error binding, static element, meta/title/include, header/nav/footer, container/class/style, asset, field attribute, link, button, and success/failure path. Map each to the target framework.
-3. Every input must be controlled: React uses `const [state, setState] = useState(initial)` with `value={{state.field}}` and setter-based `onChange`; Angular uses `FormGroup`/`FormControl` with matching validators.
-4. Resolve every session/model value through the supplied, verified API contract; never hardcode or invent values. Include confirmed request-security delivery on every state-changing request.
-5. Use only submit-payload types for `password` and `passwordConfirm`; never include them in read/display model types or visible markup.
-6. If an endpoint was not confirmed earlier, mark it `UNCONFIRMED` in the leading comment and do not invent request/response fields. Complete all other confirmed behavior.
-7. Return compilable {target_framework} TypeScript with no Java/backend syntax, self-imports, unused imports/state, dead handlers, duplicate files, local/imported name collisions, truncated tags, or comment-only handlers. Perform every output safety check from the system prompt before returning code.
-8. Before returning, compare the generated files against the source behavior inventory. Do not omit forms, fields, JSTL branches, loops, includes, buttons, links, messages, data loads, dropdowns, table actions, uploads/downloads, validation, redirects, or event handlers. A visual page without its behavior is an incomplete migration.
+MANDATORY SOURCE-DRIVEN RULES:
+1. Output clean, production-ready {target_framework} TypeScript component code inside code blocks (```tsx or ```ts) with header: ### FILE: <path>.
+2. CONTEXT AWARENESS (CRITICAL):
+   - Generate ONLY behavior and state supported by the source. Do NOT invent functionality.
+   - If the source file contains NO form or inputs, do NOT generate useState, formData, handleSubmit, handleInputChange, onSubmit, or form handlers.
+   - If the source file contains a form, dynamically generate form state and handlers corresponding ONLY to the actual input fields present.
+   - If there is no table in the source, do NOT generate table components or table rows.
+   - If there is no JavaScript behavior in the source, do NOT invent event handlers.
+3. DYNAMIC UI MODERNIZATION (>80% Modernization Quality):
+   - Separate functional migration from presentation: preserve 100% of source behavior while elevating presentation to an enterprise-grade UI.
+   - Page Structure ({page_type}): Auth page as a clean centered card; data page with responsive table; layout partial (footer/header) as a lightweight component without phantom form hooks.
+   - Component Modernization: Transform detected plain inputs into accessible inputs with labels and focus styles; plain buttons into primary/secondary buttons; tables into responsive tables with styled headers; status values into badges/chips; and alerts into modern callout cards.
+   - Clean Obsolete UI Safely: Replace obsolete presentation markup (<table border="...">, <center>, <font>, multiple <br> spacer tags) with clean flex/grid layout markup.
+4. Preserve every JSTL/Spring/JSF tag construct, conditional rendering, loops (.map in React, *ngFor in Angular), form binding, static elements, classes, and styles.
+5. Correct JSX syntax (React): class -> className, for -> htmlFor, self-closing void tags (<input />, <img />, <br />, <hr />), valid imports, and export default.
+6. Return compilable {target_framework} TypeScript with no Java/backend syntax, no self-imports, no unused imports/state, and no dead handlers.
 
-Return ONLY the verification block, leading comment, and raw {target_framework} code blocks. Nothing else."""
+Return ONLY the complete, production-ready {target_framework} code blocks. Nothing else."""
+
+
+def build_ui_targeted_repair_prompt(
+    *,
+    target_framework: str,
+    source_file: str,
+    generated_code: str,
+    validation_errors: list[str],
+) -> str:
+    """Build a targeted, minimal repair prompt to fix specific validation failures."""
+    error_list = "\n".join(f"- {e}" for e in validation_errors)
+    return f"""The following generated {target_framework} component for '{source_file}' has validation errors that must be fixed.
+
+VALIDATION ERRORS DETECTED:
+{error_list}
+
+CURRENT GENERATED CODE:
+```typescript
+{generated_code}
+```
+
+INSTRUCTIONS:
+1. Fix ONLY the specific validation errors listed above.
+2. Preserve all existing working JSX/template, layout, and logic.
+3. Do NOT add generic boilerplate, do NOT invent functionality.
+4. Return ONLY the complete, corrected component code in a single code block with header:
+### FILE: <filename>
+```typescript
+// corrected code
+```
+"""
 
 
 def build_jsp_source_extraction_prompt(*, source_code: str) -> str:

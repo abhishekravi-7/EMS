@@ -21,9 +21,9 @@ class FileDiffService:
         migrated_root = paths.migrated_repo_dir
 
         all_changed = list(report.get("modifiedFiles") or [])
-        if not all_changed and original_root.exists() and migrated_root.exists():
+        if original_root.exists() and migrated_root.exists():
             added, removed, modified = file_utils.diff_relative_files(original_root, migrated_root)
-            all_changed = sorted({*added, *removed, *modified})
+            all_changed = sorted({*all_changed, *added, *removed, *modified})
 
         # Gather UI transformations (JSP/JSF -> React/Angular)
         ui_transformations = report.get("uiTransformations") or []

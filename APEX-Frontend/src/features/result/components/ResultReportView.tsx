@@ -395,27 +395,53 @@ export function ResultReportView({
       e.preventDefault();
       e.stopPropagation();
     }
-    const targetFileName = entry.file ?? entry.targetSourceFile ?? "MigratedPage.tsx";
-    if (sandboxEntry && sandboxEntry.fileName === targetFileName) {
+    const rawTarget = entry.targetSourceFile ?? entry.file ?? "MigratedPage.tsx";
+    if (sandboxEntry && sandboxEntry.fileName === rawTarget) {
       setSandboxEntry(null);
       return;
     }
-    if (!entry.afterLines?.length) {
-      onError("The generated React page has no previewable markup.");
+
+    const allUiFiles = (migrationJob?.uiTransformations ?? []).map((t: any) => ({
+      fileName: t.targetSourceFile ?? t.file ?? "MigratedPage.tsx",
+      code: (t.afterLines ?? []) as Array<{ text: string }>,
+    }));
+
+    let targetFileName = rawTarget;
+    let targetCode = entry.afterLines;
+
+    // If a stylesheet was passed, route to first actual UI component
+    if (rawTarget.toLowerCase().endsWith(".css")) {
+      const firstComponent = allUiFiles.find((f: any) => !f.fileName.toLowerCase().endsWith(".css"));
+      if (firstComponent && firstComponent.code.length > 0) {
+        targetFileName = firstComponent.fileName;
+        targetCode = firstComponent.code;
+      }
+    }
+
+    if (!targetCode?.length) {
+      onError("The selected page has no previewable markup.");
       return;
     }
     const mainEl = document.querySelector(".wizard-main-content");
     const prevScrollTop = mainEl ? mainEl.scrollTop : 0;
 
-    const css = (migrationJob.uiTransformations ?? [])
+    const cssFromUi = (migrationJob.uiTransformations ?? [])
       .filter((transformation: any) => String(transformation.targetSourceFile ?? transformation.file ?? "").toLowerCase().endsWith(".css"))
       .flatMap((transformation: any) => transformation.afterLines ?? [])
       .map((line: { text?: string }) => line.text ?? "")
       .join("\n");
 
+    const cssFromDiffs = diffData
+      .filter((f) => String(f.file || "").toLowerCase().endsWith(".css"))
+      .flatMap((f) => f.afterLines ?? [])
+      .map((line: { text?: string }) => line.text ?? "")
+      .join("\n");
+
+    const css = [cssFromUi, cssFromDiffs].filter(Boolean).join("\n");
+
     setSandboxEntry({
       fileName: targetFileName,
-      code: entry.afterLines,
+      code: targetCode,
       css,
     });
 
@@ -757,10 +783,7 @@ export function ResultReportView({
         : "#ef4444";
   const rawDepList: Array<DependencyInfo | Record<string, unknown>> = (migrationJob?.dependency_upgrades?.length
     ? migrationJob.dependency_upgrades
-    : (migrationJob?.dependencies?.length ? migrationJob.dependencies : [
-      { group_id: "jakarta.persistence", artifact_id: "jakarta.persistence-api", current_version: "2.2.0 (javax)", new_version: "3.1.0 (jakarta)", status: "UPGRADED" },
-      { group_id: "org.junit.jupiter", artifact_id: "junit-jupiter", current_version: "4.12 (JUnit 4)", new_version: "5.10.2 (JUnit 5)", status: "UPGRADED" },
-    ])) as Array<DependencyInfo | Record<string, unknown>>;
+    : (migrationJob?.dependencies?.length ? migrationJob.dependencies : [])) as Array<DependencyInfo | Record<string, unknown>>;
   const detectedDependencyCount = migrationJob?.dependency_count ?? rawDepList.length;
   const dependencyUpdates = rawDepList.map((dep) => {
     const source = dep as Record<string, unknown> & {
@@ -1637,29 +1660,49 @@ export function ResultReportView({
                               >
                                 {copiedDiffCode ? <FaCheck size={12} /> : <FaCopy size={12} />}
                               </button>
-                              <button
-                                type="button"
-                                onClick={(e) => handleShowReactUi(current, e)}
-                                title="Show the migrated React page UI"
-                                aria-label="Show the migrated React page UI"
-                                style={{
-                                  display: "inline-flex",
-                                  alignItems: "center",
-                                  gap: 6,
-                                  height: 30,
-                                  padding: "0 10px",
-                                  border: "1px solid #bfdbfe",
-                                  borderRadius: 6,
-                                  background: "#eff6ff",
-                                  color: "#1d4ed8",
-                                  cursor: "pointer",
-                                  fontSize: 12,
-                                  fontWeight: 700,
-                                }}
-                              >
-                                <FaExternalLinkAlt size={11} />
-                                View UI
-                              </button>
+                              {Boolean(
+                                current &&
+                                !String(current.file || "").toLowerCase().endsWith(".css") &&
+                                !String(current.file || "").toLowerCase().endsWith(".java") &&
+                                !String(current.file || "").toLowerCase().endsWith(".xml") &&
+                                !String(current.file || "").toLowerCase().endsWith(".json") &&
+                                !String(current.file || "").toLowerCase().endsWith(".sql") &&
+                                !String(current.file || "").toLowerCase().endsWith(".properties") &&
+                                (
+                                  current.category?.toLowerCase().includes("jsp") ||
+                                  current.category?.toLowerCase().includes("jsf") ||
+                                  current.category?.toLowerCase().includes("ui") ||
+                                  current.category?.toLowerCase().includes("angular") ||
+                                  current.category?.toLowerCase().includes("react") ||
+                                  /\.(tsx|jsx|vue|html)$/i.test(current.file || "") ||
+                                  (/\.component\.ts$/i.test(current.file || "")) ||
+                                  Boolean(current.targetSourceFile && /\.(tsx|jsx|ts|html)$/i.test(current.targetSourceFile))
+                                )
+                              ) && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleShowReactUi(current, e)}
+                                  title="Show the migrated UI preview"
+                                  aria-label="Show the migrated UI preview"
+                                  style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: 6,
+                                    height: 30,
+                                    padding: "0 10px",
+                                    border: "1px solid #bfdbfe",
+                                    borderRadius: 6,
+                                    background: "#eff6ff",
+                                    color: "#1d4ed8",
+                                    cursor: "pointer",
+                                    fontSize: 12,
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  <FaExternalLinkAlt size={11} />
+                                  View UI
+                                </button>
+                              )}
                             </div>
                           </div>
 

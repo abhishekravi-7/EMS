@@ -63,7 +63,22 @@ class MigrationExecutionPipeline:
 
     @staticmethod
     def _require_report(job_id: str) -> dict[str, Any]:
-        report = MigrationReportStore(WorkspacePaths(job_id)).read()
+        store = MigrationReportStore(WorkspacePaths(job_id))
+        report = store.read()
         if not report:
             raise MigrationJobNotFoundError()
+
+        # If report is marked 'running' but the worker thread is dead (e.g. server reload/restart)
+        if str(report.get("status", "")).lower() == "running":
+            is_alive = any(
+                t.name == f"migration-{job_id}" and t.is_alive()
+                for t in threading.enumerate()
+            )
+            if not is_alive:
+                store.update(
+                    status="FAILED",
+                    errorMessage="Migration was interrupted due to a backend server restart or process termination. Please start a new migration run.",
+                )
+                report = store.read() or report
+
         return report
