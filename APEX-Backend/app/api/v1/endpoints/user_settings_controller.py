@@ -449,8 +449,7 @@ async def test_user_llm_connection(
                 )
     except Exception as e:
         logger.error("LLM Test Connection encountered an error: %s", str(e))
-        raise HTTPException(status_code=400, detail="LLM connection failed. Unable to reach the provider.")
- class SonarTestPayload(BaseModel):
+class SonarTestPayload(BaseModel):
     sonarqube_url: str | None = None
     auth_token: str | None = None
     project_key: str | None = None

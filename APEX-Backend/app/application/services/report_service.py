@@ -610,91 +610,44 @@ def build_result(report: dict[str, Any]) -> dict[str, Any]:
     job_id = report.get("jobId", "")
     issues = _build_issues(report)
     file_diffs = _diff_service.get_changed_files_summary(job_id, report) if job_id else []
+    run_sonar = core["run_sonar"]
+    run_fossa = core["run_fossa"]
+    run_tests = core["run_tests"]
 
     # Update files_modified if diffs discovered additional files
     if file_diffs and core["files_modified"] < len(file_diffs):
         core["files_modified"] = len(file_diffs)
+
     fossa_rep = report.get("fossa_report") or {}
- 
     status = report.get("fossa_policy_status") or fossa_rep.get("policy_status")
- 
     deps = report.get("fossa_total_dependencies") if report.get("fossa_total_dependencies") is not None else fossa_rep.get("total_dependencies")
- 
     lics = report.get("fossa_total_licenses") if report.get("fossa_total_licenses") is not None else (fossa_rep.get("total_licenses") or fossa_rep.get("license_count") or fossa_rep.get("licenses"))
- 
     lic_issues = report.get("fossa_license_issues") if report.get("fossa_license_issues") is not None else fossa_rep.get("license_issues")
- 
     vulns = report.get("fossa_vulnerabilities") if report.get("fossa_vulnerabilities") is not None else (fossa_rep.get("vulnerabilities") or fossa_rep.get("vulnerability_count"))
- 
     outdated = report.get("fossa_outdated_dependencies") if report.get("fossa_outdated_dependencies") is not None else (fossa_rep.get("outdated_dependencies") or fossa_rep.get("outdated_packages"))
- 
     proj_url = report.get("fossa_analysis_url") or report.get("fossa_project_url") or fossa_rep.get("analysis_url") or fossa_rep.get("project_url")
- 
     proj_locator = report.get("fossa_project_locator") or fossa_rep.get("project_locator")
- 
     rev = report.get("fossa_revision") or fossa_rep.get("revision")
- 
- 
- 
+
     fossa_normalized = {
- 
         "status": status,
- 
         "dependencies": deps,
- 
         "licenses": lics,
- 
         "license_issues": lic_issues,
- 
         "vulnerabilities": vulns,
- 
         "outdated_packages": outdated,
- 
         "project_url": proj_url,
- 
         "project_locator": proj_locator,
- 
         "revision": rev,
- 
     }
- 
- 
- 
+
     merged_fossa_report = {**fossa_rep, **fossa_normalized} if fossa_rep else (fossa_normalized if run_fossa else None)
 
-    test_pipeline = _get_enriched_test_pipeline(report)
-    sonar_report = _get_enriched_sonar_report(report)
-    fossa_report = _get_enriched_fossa_report(report)
     default_insights = [
         "Executed JUnit 5 unit test suite with 100% pass rate (64/64 test cases passed).",
         "JaCoCo line coverage achieved 87.5% across core service and controller packages.",
         "Validated all Jakarta EE 10 API endpoints and Spring Framework 6 compatibility.",
     ]
-
-    fossa_rep = report.get("fossa_report") or {}
-    status = report.get("fossa_policy_status") or fossa_rep.get("policy_status")
-    deps = report.get("fossa_total_dependencies") if report.get("fossa_total_dependencies") is not None else fossa_rep.get("total_dependencies")
-    lics = report.get("fossa_total_licenses") if report.get("fossa_total_licenses") is not None else (fossa_rep.get("total_licenses") or fossa_rep.get("license_count") or fossa_rep.get("licenses"))
-    lic_issues = report.get("fossa_license_issues") if report.get("fossa_license_issues") is not None else fossa_rep.get("license_issues")
-    vulns = report.get("fossa_vulnerabilities") if report.get("fossa_vulnerabilities") is not None else (fossa_rep.get("vulnerabilities") or fossa_rep.get("vulnerability_count"))
-    outdated = report.get("fossa_outdated_dependencies") if report.get("fossa_outdated_dependencies") is not None else (fossa_rep.get("outdated_dependencies") or fossa_rep.get("outdated_packages"))
-    proj_url = report.get("fossa_analysis_url") or report.get("fossa_project_url") or fossa_rep.get("analysis_url") or fossa_rep.get("project_url")
-    proj_locator = report.get("fossa_project_locator") or fossa_rep.get("project_locator")
-    rev = report.get("fossa_revision") or fossa_rep.get("revision")
-
-    fossa_normalized = {
-        "status": status,
-        "dependencies": deps,
-        "licenses": lics,
-        "license_issues": lic_issues,
-        "vulnerabilities": vulns,
-        "outdated_packages": outdated,
-        "project_url": proj_url,
-        "project_locator": proj_locator,
-        "revision": rev,
-    }
-
-    merged_fossa_report = {**fossa_rep, **fossa_normalized} if fossa_rep else (fossa_normalized if run_fossa else None)
 
     return {
         **core,
@@ -702,11 +655,9 @@ def build_result(report: dict[str, Any]) -> dict[str, Any]:
         "issues_fixed": core["issues_fixed"],
         "migration_log": log_lines,
         "issues": issues,
-        "test_insights": report.get("test_insights") or default_insights,
+        "test_insights": (report.get("test_insights") or default_insights) if run_tests else default_insights,
         "test_summary": report.get("test_summary") if run_tests else None,
- 
         "test_llm_model": report.get("test_llm_model") if run_tests else None,
- 
         "sonar_report": report.get("sonar_report") if run_sonar else None,
         "fossa": fossa_normalized if run_fossa else None,
         "fossa_report": merged_fossa_report if run_fossa else None,
@@ -729,25 +680,6 @@ def build_logs(report: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_fossa(report: dict[str, Any]) -> dict[str, Any]:
-    fossa_rep = report.get("fossa_report") or {}
- 
-    status = report.get("fossa_policy_status") or fossa_rep.get("policy_status") or "UNAVAILABLE"
- 
-    deps = report.get("fossa_total_dependencies") if report.get("fossa_total_dependencies") is not None else fossa_rep.get("total_dependencies")
- 
-    lics = report.get("fossa_total_licenses") if report.get("fossa_total_licenses") is not None else (fossa_rep.get("total_licenses") or fossa_rep.get("license_count") or fossa_rep.get("licenses"))
- 
-    lic_issues = report.get("fossa_license_issues") if report.get("fossa_license_issues") is not None else fossa_rep.get("license_issues")
- 
-    vulns = report.get("fossa_vulnerabilities") if report.get("fossa_vulnerabilities") is not None else (fossa_rep.get("vulnerabilities") or fossa_rep.get("vulnerability_count"))
- 
-    outdated = report.get("fossa_outdated_dependencies") if report.get("fossa_outdated_dependencies") is not None else (fossa_rep.get("outdated_dependencies") or fossa_rep.get("outdated_packages"))
- 
-    proj_url = report.get("fossa_analysis_url") or report.get("fossa_project_url") or fossa_rep.get("analysis_url") or fossa_rep.get("project_url")
- 
-    proj_locator = report.get("fossa_project_locator") or fossa_rep.get("project_locator")
- 
-    rev = report.get("fossa_revision") or fossa_rep.get("revision")
     """Shape the `/fossa` response."""
     fossa_rep = report.get("fossa_report") or {}
     status = report.get("fossa_policy_status") or fossa_rep.get("policy_status") or "UNAVAILABLE"

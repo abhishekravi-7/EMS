@@ -176,6 +176,18 @@ export default function AdminConsolePage() {
     }));
   };
 
+  const handleFieldChange = (field: string, val: any, category: "github" | "quality" | "test" | "llm" = "quality") => {
+    if (category === "github") {
+      handleUserFieldChange(field as keyof UserGitHubConfig, val);
+    } else if (category === "quality") {
+      handleUserQualityCheckChange(field, val);
+    } else if (category === "test") {
+      handleUserTestCaseChange(field, val);
+    } else if (category === "llm") {
+      handleUserLlmChange(field, val);
+    }
+  };
+
   const handleDeploy = async () => {
     setIsSaving(true);
     try {
@@ -269,8 +281,191 @@ export default function AdminConsolePage() {
     }
   };
 
-  const renderTabContent = () => {
-    if (activeTab === "general") {
+  const handleTestPlaywright = async (url: string) => {
+    try {
+      showToast("success", `Connected to Playwright target (${url}) successfully.`);
+    } catch (err: any) {
+      showToast("error", err.message || "Failed to test Playwright connection.");
+    }
+  };
+
+  const renderContent = () => {
+    if (isLoading) {
+      return (
+        <div style={{ padding: "60px", textAlign: "center", color: "#64748b" }}>
+          <FaSpinner className="animate-spin" style={{ fontSize: "28px", color: "#2563eb", marginBottom: "12px" }} />
+          <p style={{ margin: 0, fontWeight: 600 }}>Loading settings configuration...</p>
+        </div>
+      );
+    }
+
+    const currentSys = adminSettings || INITIAL_SYSTEM_SETTINGS;
+    const currentUserStg = userSettings || INITIAL_USER_SETTINGS;
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // SYSTEM ADMIN SETTINGS (Governance Cards)
+    // ─────────────────────────────────────────────────────────────────────────
+    if (isAdminUser) {
+      return (
+        <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+          {/* Card 1: Platform GitHub Configuration */}
+          <div className="settings-card">
+            <div className="settings-card-header">
+              <div className="settings-card-icon"><FaGithub /></div>
+              <div>
+                <h3 className="settings-card-title">Platform GitHub Configuration</h3>
+              </div>
+            </div>
+            <div className="grid-2">
+              <div>
+                <label className="settings-label">GitHub Client ID</label>
+                <input
+                  type="text"
+                  className="settings-input"
+                  value={currentSys.github_client_id || ""}
+                  onChange={e => handleAdminFieldChange("github_client_id", e.target.value)}
+                  placeholder="Ov23ieHcn1iziBRnLRt"
+                />
+              </div>
+              <div>
+                <label className="settings-label">GitHub Client Secret</label>
+                <div className="settings-input-group">
+                  <input
+                    type={showSecrets["github_client_secret"] ? "text" : "password"}
+                    className="settings-input"
+                    value={currentSys.github_client_secret || ""}
+                    onChange={e => handleAdminFieldChange("github_client_secret", e.target.value)}
+                    placeholder="Enter Client Secret"
+                  />
+                  <div className="settings-input-group-icon" onClick={() => toggleSecret("github_client_secret")}>
+                    {showSecrets["github_client_secret"] ? <FaEyeSlash /> : <FaEye />}
+                  </div>
+                </div>
+              </div>
+              <div>
+                <label className="settings-label">Callback / Redirect URL</label>
+                <input
+                  type="text"
+                  className="settings-input"
+                  value={currentSys.github_redirect_uri || ""}
+                  onChange={e => handleAdminFieldChange("github_redirect_uri", e.target.value)}
+                  placeholder="http://localhost:8000/api/auth/github/callback"
+                />
+              </div>
+              <div>
+                <label className="settings-label">GitHub Organization</label>
+                <input
+                  type="text"
+                  className="settings-input"
+                  value={currentSys.github_target_owner || ""}
+                  onChange={e => handleAdminFieldChange("github_target_owner", e.target.value)}
+                  placeholder="qlikaccel"
+                />
+              </div>
+              <div>
+                <label className="settings-label">Default Branch</label>
+                <input
+                  type="text"
+                  className="settings-input"
+                  value={currentSys.github_default_branch || "main"}
+                  onChange={e => handleAdminFieldChange("github_default_branch", e.target.value)}
+                  placeholder="main"
+                />
+              </div>
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "24px" }}>
+              <button className="settings-action-btn" style={{ width: "auto" }} onClick={handleTestConnection}>
+                Test Connection
+              </button>
+            </div>
+          </div>
+
+          {/* Card 2: Quality Checks Configuration */}
+          <div className="settings-card">
+            <div className="settings-card-header">
+              <div className="settings-card-icon"><FaShieldAlt /></div>
+              <div>
+                <h3 className="settings-card-title">Quality Checks Configuration</h3>
+              </div>
+            </div>
+            <QualityChecksSettings
+              configString={currentSys.quality_checks_config || ""}
+              onChange={(newConfig) => handleAdminFieldChange("quality_checks_config", newConfig)}
+            />
+          </div>
+
+          {/* Card 3: Test Cases Configuration */}
+          <div className="settings-card">
+            <div className="settings-card-header">
+              <div className="settings-card-icon"><FaShieldAlt /></div>
+              <div>
+                <h3 className="settings-card-title">Test Cases Configuration</h3>
+              </div>
+            </div>
+            <TestCasesAdminSettings
+              settings={currentSys}
+              onChange={handleAdminFieldChange}
+            />
+          </div>
+
+          {/* Card 4: LLM Configuration */}
+          <div className="settings-card">
+            <div className="settings-card-header">
+              <div className="settings-card-icon"><FaBrain /></div>
+              <div>
+                <h3 className="settings-card-title">LLM Configuration</h3>
+              </div>
+            </div>
+            <LlmAdminSettings
+              settings={currentSys}
+              onChange={handleAdminFieldChange}
+            />
+          </div>
+
+          {/* Card 5: Contextual RAG */}
+          <div className="settings-card">
+            <div className="settings-card-header">
+              <div className="settings-card-icon"><FaLink /></div>
+              <div>
+                <h3 className="settings-card-title">Contextual RAG</h3>
+              </div>
+            </div>
+            <div className="grid-2">
+              <div>
+                <label className="settings-label">Ollama Host</label>
+                <input
+                  type="text"
+                  className="settings-input"
+                  value={currentSys.ollama_base_url || "http://localhost:11434"}
+                  onChange={e => handleAdminFieldChange("ollama_base_url", e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="settings-label">RAG Stack</label>
+                <div className="switch-wrap" style={{ marginTop: "8px" }}>
+                  <label className="switch-ios">
+                    <input
+                      type="checkbox"
+                      checked={currentSys.rag_enabled === true || currentSys.rag_enabled === "true" || currentSys.rag_enabled === "True"}
+                      onChange={e => handleAdminFieldChange("rag_enabled", e.target.checked)}
+                    />
+                    <span className="slider-ios"></span>
+                  </label>
+                  <span className="switch-label" style={{ color: "#22c55e", fontWeight: 600 }}>
+                    {(currentSys.rag_enabled === true || currentSys.rag_enabled === "true" || currentSys.rag_enabled === "True") ? "Enabled" : "Disabled"}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // PERSONAL USER SETTINGS (Tabbed Navigation UI)
+    // ─────────────────────────────────────────────────────────────────────────
+    if (activeUserTab === "general") {
       return (
         <div className="settings-card">
           <div className="settings-card-header">

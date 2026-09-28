@@ -217,7 +217,6 @@ const mergeMigrationSummaryIntoJob = (
   fossa_total_dependencies: summary.fossa_total_dependencies,
   fossa_total_licenses: summary.fossa_total_licenses ?? (summary.fossa_report as any)?.total_licenses ?? (summary.fossa_report as any)?.license_count ?? 0,
   fossa_license_issues: summary.fossa_license_issues,
-  fossa_total_licenses: summary.fossa_total_licenses ?? (summary.fossa_report as any)?.total_licenses ?? (summary.fossa_report as any)?.license_count ?? 0,
   fossa_vulnerabilities: summary.fossa_vulnerabilities,
   fossa_outdated_dependencies: summary.fossa_outdated_dependencies,
   fossa_scan_mode: summary.fossa_scan_mode ?? null,
