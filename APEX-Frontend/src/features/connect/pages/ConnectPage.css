@@ -17,8 +17,8 @@
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  padding: 24px 40px;
+  justify-content: flex-start;
+  padding: 40px 40px 60px;
 }
 
 /* Background Watermarks & Decorative Patterns - Static & Non-Distracting */
@@ -72,8 +72,8 @@
   flex-direction: column;
   align-items: center;
   text-align: center;
-  margin-top: -10px;
-  margin-bottom: clamp(100px, 7vh, 80px);
+  margin-top: 0;
+  margin-bottom: clamp(30px, 4vh, 40px);
   animation: heroReveal 0.5s ease-out;
 }
 
@@ -384,7 +384,7 @@
   position: relative;
   width: 100%;
   max-width: 1520px;
-  margin: 70px auto 0;
+  margin: 24px auto 0;
   box-sizing: border-box;
 }
 

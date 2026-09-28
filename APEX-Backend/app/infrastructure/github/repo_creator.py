@@ -67,12 +67,19 @@ class RepoCreator:
         )
         if not effective_token:
             raise PushFailedError(
-                "No target GitHub token configured. Set GITHUB_TARGET_TOKEN or provide a PAT."
+                "DESTINATION_REPO_UNAUTHORIZED: No target GitHub token configured. Set GITHUB_TARGET_TOKEN or provide a PAT."
             )
         token = effective_token
 
         repo_name = self.clean_repo_name(repo_name)
         profile: TargetProfile = self._profiles.resolve(owner=owner, host=host, token=token)
+        auth_user = None
+        try:
+            auth_user = self._github.get_authenticated_user_sync(token=token)
+        except Exception:
+            auth_user = None
+        auth_login = auth_user.get("login", "") if isinstance(auth_user, dict) else ""
+
         logger.info(
             "Creating repo %s/%s (%s)",
             profile.owner,
@@ -89,10 +96,10 @@ class RepoCreator:
             description=description,
         )
 
-        # If creation via org endpoint returns 404 or 422, attempt creating via user endpoint
-        if response.status_code in (404, 422) and profile.is_org:
-            logger.info("Org repo creation returned %d for %s/%s; attempting fallback via user endpoint.", response.status_code, profile.owner, repo_name)
-            fallback_res = self._github.create_repository_sync(
+        # If org creation returned 404, fallback to user repo creation
+        if response.status_code == 404 and profile.is_org:
+            logger.info("Org creation returned 404 for %s; attempting user repository creation.", profile.owner)
+            fallback_response = self._github.create_repository_sync(
                 profile.owner,
                 repo_name,
                 token,
@@ -100,14 +107,17 @@ class RepoCreator:
                 private=private,
                 description=description,
             )
-            if fallback_res.status_code in (200, 201) and isinstance(fallback_res.data, dict):
-                return self._created_repo_from_response(profile, repo_name, fallback_res.data)
-            response = fallback_res
+            if fallback_response.status_code in (200, 201):
+                response = fallback_response
+
+        repo_created = False
+        created_repo: CreatedRepo | None = None
 
         if response.status_code in (200, 201) and isinstance(response.data, dict):
-            return self._created_repo_from_response(profile, repo_name, response.data)
+            repo_created = True
+            created_repo = self._created_repo_from_response(profile, repo_name, response.data)
 
-        if response.status_code == 422:
+        elif response.status_code == 422:
             gh_message = ""
             if isinstance(response.data, dict):
                 gh_message = str(response.data.get("message", ""))
@@ -119,55 +129,99 @@ class RepoCreator:
                 existing = self._github.get_repository_sync(profile.owner, repo_name, token)
                 if existing.status_code == 200 and isinstance(existing.data, dict):
                     logger.info("Target repo %s/%s already exists; reusing it.", profile.owner, repo_name)
-                    return self._created_repo_from_response(profile, repo_name, existing.data)
+                    created_repo = self._created_repo_from_response(profile, repo_name, existing.data)
+                elif existing.status_code == 401:
+                    raise PushFailedError("DESTINATION_REPO_UNAUTHORIZED: Destination PAT is invalid or expired (HTTP 401).")
+                elif existing.status_code == 403:
+                    raise PushFailedError("DESTINATION_REPO_FORBIDDEN: Destination PAT lacks write permission to the existing repository (HTTP 403).")
+                elif existing.status_code == 404:
+                    raise PushFailedError(f"DESTINATION_REPO_NOT_FOUND: Target repo {profile.owner}/{repo_name} not found or token has no access (HTTP 404).")
+                else:
+                    logger.info(
+                        "Target repo %s/%s already exists (GET returned %s); reusing with constructed URL.",
+                        profile.owner, repo_name, existing.status_code,
+                    )
+                    created_repo = CreatedRepo(
+                        owner=profile.owner,
+                        name=repo_name,
+                        html_url=f"https://{profile.host}/{profile.owner}/{repo_name}",
+                        clone_url=f"https://{profile.host}/{profile.owner}/{repo_name}.git",
+                    )
+            else:
+                raise PushFailedError(self._error_message(response.status_code, response.data, profile.owner))
 
-                # If GET returned 404 or cannot access, generate a fresh unique repo name to guarantee clean creation
-                from datetime import datetime, timezone
-                fresh_suffix = datetime.now(timezone.utc).strftime("%H%M%S")
-                fresh_repo_name = f"{repo_name}_{fresh_suffix}"
-                logger.info(
-                    "Target repo %s/%s collision detected (GET returned %s). Creating fresh repository %s/%s...",
-                    profile.owner, repo_name, existing.status_code, profile.owner, fresh_repo_name,
-                )
-                retry_res = self._github.create_repository_sync(
-                    profile.owner,
-                    fresh_repo_name,
-                    token,
-                    is_org=profile.is_org,
-                    private=private,
-                    description=description,
-                )
-                if retry_res.status_code in (200, 201) and isinstance(retry_res.data, dict):
-                    return self._created_repo_from_response(profile, fresh_repo_name, retry_res.data)
+        else:
+            # Log diagnostic info (never log the token value itself)
+            gh_message = ""
+            if isinstance(response.data, dict):
+                gh_message = str(response.data.get("message", ""))
+                errors = response.data.get("errors", [])
+                if errors:
+                    gh_message += f" | errors: {errors}"
+            logger.error(
+                "GitHub repo creation failed | status=%s | owner=%s | repo=%s | is_org=%s "
+                "| token_present=%s | token_len=%d | github_message=%r",
+                response.status_code,
+                profile.owner,
+                repo_name,
+                profile.is_org,
+                bool(token),
+                len(token),
+                gh_message,
+            )
+            raise PushFailedError(self._error_message(response.status_code, response.data, profile.owner))
 
-                # Fallback to constructed URL if retry also returned status
-                return CreatedRepo(
-                    owner=profile.owner,
-                    name=repo_name,
-                    html_url=f"https://{profile.host}/{profile.owner}/{repo_name}",
-                    clone_url=f"https://{profile.host}/{profile.owner}/{repo_name}.git",
-                )
+        # Immediately verify access using the SAME destination token
+        access_check = self._github.get_repository_sync(created_repo.owner, created_repo.name, token)
+        repo_accessible = access_check.status_code == 200
 
-        # Log diagnostic info (never log the token value itself)
-        gh_message = ""
-        if isinstance(response.data, dict):
-            gh_message = str(response.data.get("message", ""))
-            errors = response.data.get("errors", [])
-            if errors:
-                gh_message += f" | errors: {errors}"
-        logger.error(
-            "GitHub repo creation failed | status=%s | owner=%s | repo=%s | is_org=%s "
-            "| token_present=%s | token_len=%d | github_message=%r",
-            response.status_code,
-            profile.owner,
-            repo_name,
-            profile.is_org,
-            bool(token),
-            len(token),
-            gh_message,
+        if access_check.status_code == 401:
+            logger.error(
+                "[GITHUB DESTINATION]\nowner=%s\nrepo=%s\nauthenticated_user=%s\nrepository_access=false\nrepository_created=%s\npush_started=false\npush_result=failure",
+                created_repo.owner,
+                created_repo.name,
+                auth_login or "<unknown>",
+                "true" if repo_created else "false",
+            )
+            raise PushFailedError("DESTINATION_REPO_UNAUTHORIZED: Destination PAT is invalid or expired (HTTP 401).")
+        elif access_check.status_code == 403:
+            logger.error(
+                "[GITHUB DESTINATION]\nowner=%s\nrepo=%s\nauthenticated_user=%s\nrepository_access=false\nrepository_created=%s\npush_started=false\npush_result=failure",
+                created_repo.owner,
+                created_repo.name,
+                auth_login or "<unknown>",
+                "true" if repo_created else "false",
+            )
+            raise PushFailedError("DESTINATION_REPO_FORBIDDEN: Destination PAT lacks permission to access the destination repository (HTTP 403).")
+        elif access_check.status_code == 404:
+            logger.error(
+                "[GITHUB DESTINATION]\nowner=%s\nrepo=%s\nauthenticated_user=%s\nrepository_access=false\nrepository_created=%s\npush_started=false\npush_result=failure",
+                created_repo.owner,
+                created_repo.name,
+                auth_login or "<unknown>",
+                "true" if repo_created else "false",
+            )
+            raise PushFailedError(f"DESTINATION_REPO_NOT_FOUND: Unable to access destination repository {created_repo.owner}/{created_repo.name} (HTTP 404).")
+        elif not repo_accessible:
+            logger.error(
+                "[GITHUB DESTINATION]\nowner=%s\nrepo=%s\nauthenticated_user=%s\nrepository_access=false\nrepository_created=%s\npush_started=false\npush_result=failure",
+                created_repo.owner,
+                created_repo.name,
+                auth_login or "<unknown>",
+                "true" if repo_created else "false",
+            )
+            raise PushFailedError(f"DESTINATION_REPO_CREATION_FAILED: Repository access verification returned HTTP {access_check.status_code}.")
+
+        logger.info(
+            "[GITHUB DESTINATION]\nowner=%s\nrepo=%s\nauthenticated_user=%s\nrepository_access=%s\nrepository_created=%s\npush_started=false\npush_result=pending",
+            created_repo.owner,
+            created_repo.name,
+            auth_login or "<unknown>",
+            "true" if repo_accessible else "false",
+            "true" if repo_created else "false",
         )
 
-        raise PushFailedError(self._error_message(response.status_code, response.data))
+        return created_repo
 
     @staticmethod
     def _created_repo_from_response(
@@ -175,38 +229,39 @@ class RepoCreator:
         repo_name: str,
         data: dict,
     ) -> CreatedRepo:
+        owner_val = profile.owner
+        if isinstance(data.get("owner"), dict) and data["owner"].get("login"):
+            owner_val = str(data["owner"]["login"])
         return CreatedRepo(
-            owner=profile.owner,
+            owner=owner_val,
             name=str(data.get("name", repo_name)),
-            html_url=str(data.get("html_url", f"https://{profile.host}/{profile.owner}/{repo_name}")),
-            clone_url=str(data.get("clone_url", f"https://{profile.host}/{profile.owner}/{repo_name}.git")),
+            html_url=str(data.get("html_url", f"https://{profile.host}/{owner_val}/{repo_name}")),
+            clone_url=str(data.get("clone_url", f"https://{profile.host}/{owner_val}/{repo_name}.git")),
         )
 
     @staticmethod
-    def _error_message(status_code: int, data: dict | None) -> str:
+    def _error_message(status_code: int, data: dict | None, target_owner: str = "JavaAPEX") -> str:
         detail = ""
         if isinstance(data, dict):
             detail = str(data.get("message", ""))
         if status_code == 401:
             return (
-                "Target GitHub token is invalid or expired (HTTP 401). "
-                "Regenerate GITHUB_TARGET_TOKEN at github.com/settings/tokens "
-                "with 'repo' scope, then restart the backend."
+                "DESTINATION_REPO_UNAUTHORIZED: Target GitHub token is invalid or expired (HTTP 401). "
+                "Regenerate your PAT at github.com/settings/tokens with 'repo' scope."
             )
         if status_code == 403:
             return (
-                "Target token lacks permission to create repositories (HTTP 403). "
-                "Ensure the token has 'repo' scope and — if JavaAPEX is an org — "
-                "that the token is approved for that organization (SSO / third-party access)."
+                "DESTINATION_REPO_FORBIDDEN: Target token lacks permission to create repositories (HTTP 403). "
+                "Ensure the token has 'repo' scope and — if the target owner is an organization — "
+                "that the token is approved for third-party organization access."
             )
         if status_code == 404:
             return (
-                "Target owner not found, or the token cannot access it (HTTP 404). "
-                f"Verify GITHUB_TARGET_OWNER='{data.get('message', 'JavaAPEX') if isinstance(data, dict) else 'JavaAPEX'}' "
-                "exists and the token has access to it."
+                f"DESTINATION_REPO_NOT_FOUND: Target owner '{target_owner}' not found, or the token cannot access it (HTTP 404). "
+                f"Verify that the account/organization exists and your PAT has access."
             )
         if status_code == 422 and "already exists" in detail.lower():
-            return "A repository with this name already exists under the target owner."
+            return "DESTINATION_REPO_CREATION_FAILED: A repository with this name already exists under the target owner."
         if detail:
-            return f"Could not create the target repository (HTTP {status_code}): {detail}"
-        return f"Could not create the target repository (HTTP {status_code})."
+            return f"DESTINATION_REPO_CREATION_FAILED: Could not create the target repository (HTTP {status_code}): {detail}"
+        return f"DESTINATION_REPO_CREATION_FAILED: Could not create the target repository (HTTP {status_code})."

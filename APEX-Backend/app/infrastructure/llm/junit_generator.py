@@ -26,42 +26,72 @@ from app.schemas.unit_test import (
 logger = logging.getLogger(__name__)
 
 
-def extract_prompt_target_classes(effective_prompt: str) -> tuple[list[str], list[str]]:
+def extract_prompt_target_classes(
+    effective_prompt: str,
+    available_class_names: list[str] | None = None,
+    selected_prompt_ids: list[str] | None = None,
+) -> tuple[list[str], list[str]]:
     p = (effective_prompt or "").strip()
     p_lower = p.lower()
-    if not p_lower:
-        return ["AuthService", "AuthenticationController"], ["Validate authentication flow", "Test password constraints"]
+    selected_ids = selected_prompt_ids or []
 
-    if "security" in p_lower or "auth" in p_lower or "login" in p_lower or "credential" in p_lower or "password" in p_lower:
-        t_classes = ["SecurityService", "SecurityController"] if "security" in p_lower else ["AuthService", "AuthenticationController"]
-        scen = ["Validate security authorization & tokens", "Test credential encryption & hash validation", "Verify invalid credentials return 401 Unauthorized"]
-    elif "user" in p_lower or "account" in p_lower or "profile" in p_lower:
-        t_classes = ["UserService", "UserController"]
-        scen = ["Verify user account registration", "Validate user profile update", "Test duplicate email rejection"]
-    elif "pay" in p_lower or "transaction" in p_lower or "billing" in p_lower:
-        t_classes = ["PaymentService", "PaymentController"]
-        scen = ["Calculate transaction totals & taxes", "Verify payment gateway execution", "Test payment processing exception handling"]
-    elif "file" in p_lower or "upload" in p_lower or "download" in p_lower:
-        t_classes = ["FileUploadService", "FileUploadController"]
-        scen = ["Process multipart file upload", "Validate file size boundary limit", "Verify file extension validation"]
-    elif "order" in p_lower or "cart" in p_lower:
-        t_classes = ["OrderService", "OrderController"]
-        scen = ["Verify order checkout workflow", "Validate cart item quantities", "Test order status updates"]
-    else:
-        stop_words = {
-            "focus", "mainly", "on", "part", "for", "junit", "unit", "test", "testing",
-            "the", "a", "an", "and", "or", "to", "in", "of", "page", "please", "give",
-            "more", "coverage", "should", "receive", "area", "areas", "component",
-            "components", "scenario", "scenarios", "functionality"
-        }
-        words = [w.capitalize() for w in p.replace("_", " ").replace("-", " ").split() if w.lower() not in stop_words and len(w) > 1]
-        if words:
-            concept = "".join(words[:2])
-        else:
-            concept = "Custom"
-        t_classes = [f"{concept}Service", f"{concept}Controller"]
-        scen = [f"Validate {p} success workflow", f"Verify {p} boundary conditions & error handling"]
+    if available_class_names and len(available_class_names) > 0:
+        matched: list[str] = []
 
+        # 1. Direct word matching for manual prompt or explicit class mentions
+        direct_matches = [c for c in available_class_names if any(part in c.lower() for part in p_lower.split() if len(part) > 3 and part not in ("test", "coverage", "junit", "prompt", "analyze", "create", "service", "controller", "repository", "entire", "application", "code"))]
+
+        # 2. Match targeted classes based on active prompt IDs & keywords
+        if "business_logic_functional_paths" in selected_ids or "business" in p_lower or "functional" in p_lower:
+            matched.extend([c for c in available_class_names if any(k in c.lower() for k in ("service", "manager", "processor", "logic", "workflow", "handler"))])
+        if "branch_condition_edge_case" in selected_ids or "branch" in p_lower or "edge" in p_lower or "condition" in p_lower:
+            matched.extend([c for c in available_class_names if any(k in c.lower() for k in ("validator", "calculator", "rule", "checker", "controller", "util"))])
+        if "exception_negative_scenario" in selected_ids or "exception" in p_lower or "negative" in p_lower or "error" in p_lower:
+            matched.extend([c for c in available_class_names if any(k in c.lower() for k in ("exception", "handler", "auth", "security", "validator"))])
+        if "jacoco_dynamic_coverage_gap" in selected_ids or "jacoco" in p_lower or "gap" in p_lower:
+            matched.extend([c for c in available_class_names if any(k in c.lower() for k in ("impl", "util", "helper", "service", "component"))])
+
+        if direct_matches:
+            for dm in direct_matches:
+                if dm not in matched:
+                    matched.insert(0, dm)
+
+        # Deduplicate while preserving order
+        unique_matched: list[str] = []
+        for m in matched:
+            if m not in unique_matched:
+                unique_matched.append(m)
+
+        t_classes = unique_matched if unique_matched else available_class_names[:5]
+        scen_list: list[str] = []
+        for c in t_classes:
+            clean = c.replace("Test", "")
+            scen_list.extend([
+                f"Verify {clean} core execution path and business logic",
+                f"Test {clean} boundary conditions & input validations",
+                f"Validate {clean} exception handling & failure scenarios"
+            ])
+        return t_classes, scen_list
+
+    stop_words = {
+        "analyze", "entire", "application", "create", "comprehensive", "junit", "test", "coverage", "across",
+        "repository", "dynamically", "identify", "important", "classes", "methods", "business", "logic",
+        "execution", "paths", "validations", "conditions", "dependencies", "behavior", "require", "unit",
+        "testing", "cover", "positive", "negative", "boundary", "edge", "exception", "scenarios", "wherever",
+        "applicable", "goal", "achieve", "approximately", "meaningful", "code", "without", "creating",
+        "redundant", "artificial", "tests", "rely", "predefined", "class", "names", "modules", "assumptions",
+        "determine", "relevant", "scope", "actual", "focus", "mainly", "on", "part", "for", "the", "a", "an",
+        "and", "or", "to", "in", "of", "page", "please", "give", "more", "coverage", "should", "receive", "area", "areas"
+    }
+    words = [w.capitalize() for w in p.replace("_", " ").replace("-", " ").split() if w.lower() not in stop_words and len(w) > 2]
+    concept = "".join(words[:2]) if words else "Application"
+
+    t_classes = [f"{concept}Service", f"{concept}Controller"]
+    scen = [
+        f"Validate {concept} positive execution path",
+        f"Test {concept} boundary conditions & negative inputs",
+        f"Verify {concept} exception handling"
+    ]
     return t_classes, scen
 
 
@@ -112,7 +142,8 @@ class JUnitLLMGenerator:
             target_areas = _clean_str_list(parsed.get("target_areas")) or _clean_str_list(parsed.get("target_classes"))
             target_classes = _clean_str_list(parsed.get("target_classes")) or target_areas
 
-            fallback_classes, fallback_scen = extract_prompt_target_classes(effective_prompt)
+            avail_names = [c.get("name") if isinstance(c, dict) else str(c) for c in (available_classes or [])]
+            fallback_classes, fallback_scen = extract_prompt_target_classes(effective_prompt, available_class_names=avail_names)
             if not target_areas or target_areas == ["Requested Focus"] or any("focus" in t.lower() for t in target_areas):
                 target_areas = fallback_classes
                 target_classes = fallback_classes
@@ -137,7 +168,8 @@ class JUnitLLMGenerator:
             )
         except Exception as exc:
             logger.warning(f"Failed to analyze user testing prompt via LLM: {exc}")
-            t_classes, scen = extract_prompt_target_classes(effective_prompt)
+            avail_names = [c.get("name") if isinstance(c, dict) else str(c) for c in (available_classes or [])]
+            t_classes, scen = extract_prompt_target_classes(effective_prompt, available_class_names=avail_names)
             return TestingPromptAnalysis(
                 user_prompt=effective_prompt,
                 testing_focus=effective_prompt or "General Testing Focus",

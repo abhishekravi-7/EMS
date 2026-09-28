@@ -77,6 +77,28 @@ resolve_app_url = resolve_migrated_app_url
 class ProposedTestExecutor:
     """Executes approved proposed tests across API and Playwright UI layers against the migrated application."""
 
+    _playwright_browsers_installed = False
+
+    @classmethod
+    def ensure_playwright_browsers(cls) -> None:
+        if cls._playwright_browsers_installed:
+            return
+        
+        try:
+            import subprocess
+            import sys
+            logger.info("Checking Playwright browsers... Installing Chromium if missing.")
+            # Run playwright install chromium synchronously
+            subprocess.run(
+                [sys.executable, "-m", "playwright", "install", "chromium"],
+                check=True,
+                capture_output=True
+            )
+            cls._playwright_browsers_installed = True
+            logger.info("Playwright browsers installation completed.")
+        except Exception as e:
+            logger.warning(f"Failed to auto-install Playwright browsers: {e}")
+
     def __init__(
         self,
         job_id: str,
@@ -237,6 +259,9 @@ class ProposedTestExecutor:
         if explicit_actual_status is None:
             # Execute real HTTP request using Playwright APIRequestContext
             try:
+                # Auto-install Playwright browser binaries if missing
+                ProposedTestExecutor.ensure_playwright_browsers()
+                
                 with sync_playwright() as p:
                     req_context = p.request.new_context(
                         base_url=self.base_url,
@@ -569,6 +594,9 @@ class ProposedTestExecutor:
 
         try:
             from playwright.sync_api import sync_playwright
+            
+            # Auto-install Playwright browser binaries if missing
+            ProposedTestExecutor.ensure_playwright_browsers()
 
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=True)

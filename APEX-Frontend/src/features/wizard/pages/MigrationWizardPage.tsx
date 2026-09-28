@@ -114,6 +114,7 @@ export default function MigrationWizardPage() {
     runFossa,
     runSonar,
     runTests,
+    runFunctionalTests,
     selectedSourceVersion,
     resetWizard,
     resultExecState,
@@ -627,6 +628,7 @@ export default function MigrationWizardPage() {
               runSonar={runSonar}
               runFossa={runFossa}
               runTests={runTests}
+              runFunctionalTests={runFunctionalTests}
               selectedLLMProvider={selectedLLMProvider}
               useLLMTests={useLLMTests}
               resetWizard={resetWizard}

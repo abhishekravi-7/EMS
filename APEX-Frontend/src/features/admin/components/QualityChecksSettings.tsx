@@ -58,6 +58,16 @@ const DEFAULT_CONFIG: Record<string, QualityCheckConfig> = {
       { id: "test_command", name: "Test Command / Configuration", visible: true, required: false },
     ],
   },
+  FUNCTIONAL_TESTING: {
+    name: "Functional Testing",
+    description: "Generate and execute functional API and UI tests for the migrated application.",
+    enabled: true,
+    required: false,
+    execution_enabled: true,
+    fields: [
+      { id: "functional_test_command", name: "Test Command / Configuration", visible: true, required: false },
+    ],
+  },
 };
 
 export default function QualityChecksSettings({ configString, onChange }: QualityChecksSettingsProps) {

@@ -77,18 +77,42 @@ class StaticAnalysisRunner:
         quality_checks_values: dict | None = None,
     ) -> SonarScanResult:
         qc_config = quality_checks_values or {}
-        token = (qc_config.get("auth_token") or "").strip()
+        token = (
+            qc_config.get("auth_token")
+            or qc_config.get("sonar_token")
+            or qc_config.get("sonarqube_token")
+            or qc_config.get("sonarToken")
+            or qc_config.get("token")
+            or qc_config.get("apiKey")
+            or qc_config.get("api_key")
+            or getattr(settings, "sonar_token", "")
+            or getattr(settings, "sonarqube_token", "")
+            or ""
+        ).strip()
         if not token:
             return SonarScanResult(
                 quality_gate="UNAVAILABLE",
                 scan_mode="missing_token",
-                error_message="SonarQube token missing. Configure it in User Settings.",
-                log_lines=["SonarQube skipped: Token is not configured in user settings."],
+                error_message="SonarQube token missing. Configure it in User Settings or set SONAR_TOKEN in .env.",
+                log_lines=["SonarQube skipped: Token is not configured in user settings or .env."],
             )
 
-        proj_key_val = qc_config.get("project_key") or ""
+        proj_key_val = (
+            qc_config.get("project_key")
+            or qc_config.get("sonar_project_key")
+            or qc_config.get("projectKey")
+            or ""
+        )
         project_key = self._project_key(job_id, project_name or project_dir.name, proj_key_val)
-        raw_host = (qc_config.get("sonarqube_url") or "http://localhost:9000").strip().rstrip("/")
+        raw_host = (
+            qc_config.get("sonarqube_url")
+            or qc_config.get("sonar_url")
+            or qc_config.get("sonar_host_url")
+            or qc_config.get("sonarHostUrl")
+            or qc_config.get("host_url")
+            or qc_config.get("url")
+            or "http://localhost:9000"
+        ).strip().rstrip("/")
         if not raw_host.startswith(("http://", "https://")):
             host_url = f"https://{raw_host}" if "sonarcloud.io" in raw_host else f"http://{raw_host}"
         else:
@@ -117,7 +141,13 @@ class StaticAnalysisRunner:
             return early_error
 
         # Append optional org flag
-        sonar_org = (qc_config.get("sonar_organization") or "").strip()
+        sonar_org = (
+            qc_config.get("sonar_organization")
+            or qc_config.get("organization")
+            or qc_config.get("sonar_org")
+            or qc_config.get("sonarOrg")
+            or ""
+        ).strip()
         if sonar_org:
             command.append(f"-Dsonar.organization={sonar_org}")
 

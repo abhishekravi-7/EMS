@@ -201,3 +201,29 @@ export async function getLocalProjectFileContent(projectPath: string, filePath: 
     }
   );
 }
+export interface RecentRepository {
+  jobId: string;
+  repositoryName: string;
+  owner: string;
+  techStack: string;
+  componentsCount: string;
+  defaultBranch: string;
+  visibility: string;
+  lastUpdatedFormatted: string;
+  status: string;
+}
+
+export const fetchRecentRepositories = async (): Promise<RecentRepository[]> => {
+  const token = localStorage.getItem("auth_token") || "mock-token";
+  const response = await fetch("/api/v1/connect/recent-repositories", {
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  });
+  if (!response.ok) {
+    console.error("Failed to fetch recent repositories");
+    return [];
+  }
+  const data = await response.json();
+  return data.repositories || data || [];
+};

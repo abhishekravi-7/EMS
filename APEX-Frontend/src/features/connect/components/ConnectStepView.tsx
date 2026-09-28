@@ -1,9 +1,14 @@
-import React, { useRef, useState } from "react";
+import React, { useRef, useState, useEffect } from "react";
 import {
   FaCheckCircle,
   FaExclamationTriangle,
   FaFileAlt,
   FaFolderOpen,
+  FaFolder,
+  FaJava,
+  FaCodeBranch,
+  FaClock,
+  FaCircle,
   FaGithub,
   FaInfoCircle,
   FaLock,
@@ -15,6 +20,7 @@ import {
 import { useAuth } from "@/shared/context/AuthContext";
 import { getUserSettings } from "@/features/admin/services/adminService";
 import type { useRepositoryConnect } from "../hooks/useRepositoryConnect";
+import { fetchRecentRepositories, type RecentRepository } from "../services/connectService";
 import "../pages/ConnectPage.css";
 
 interface ConnectStepViewProps {
@@ -24,6 +30,20 @@ interface ConnectStepViewProps {
 }
 
 export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: ConnectStepViewProps) {
+  const [recentRepos, setRecentRepos] = useState<RecentRepository[]>([]);
+  const [loadingRecent, setLoadingRecent] = useState(true);
+
+  useEffect(() => {
+    fetchRecentRepositories()
+      .then(data => {
+        setRecentRepos(data);
+        setLoadingRecent(false);
+      })
+      .catch(err => {
+        console.error("Failed to load recent repos:", err);
+        setLoadingRecent(false);
+      });
+  }, []);
   const {
     repoUrl,
     setRepoUrl,
@@ -59,7 +79,6 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const zipInputRef = useRef<HTMLInputElement | null>(null);
   const tokenCardTitle = showEnterpriseToken ? "Enterprise Access Token" : "Personal Access Token";
-
 
   const tokenStatusColor =
     accessTokenValidationState === "valid"
@@ -181,16 +200,15 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
           <h1 className="connect-hero-title">
             Start Your <span className="connect-hero-emphasized">Migration</span> Journey
           </h1>
-
         </div>
 
         {/* Action Cards: GitHub Repository & Upload Local Project */}
         <div className="connect-cards-container">
           {/* Card 1: Connect GitHub Repository */}
           <div
-            className={`connect-action-card${isGithubDisabled ? " is-card-disabled" : ""}`}
-            style={{ opacity: isGithubDisabled ? 0.6 : 1, pointerEvents: isGithubDisabled ? "none" : "auto", filter: isGithubDisabled ? "grayscale(100%)" : "none" }}
-          >
+                      className={`connect-action-card${isGithubDisabled ? " is-card-disabled" : ""}`}
+                      style={{ opacity: isGithubDisabled ? 0.6 : 1, pointerEvents: isGithubDisabled ? "none" : "auto", filter: isGithubDisabled ? "grayscale(100%)" : "none" }}
+                    >
             <div className="connect-card-accent-github" />
             <div className="connect-card-icon-badge is-blue">
               <FaGithub size={30} />
@@ -230,7 +248,7 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
               {/* Pre-input PAT helper when URL is empty */}
               {!repoUrl && !shouldShowPatInput && (
                 <div style={{ marginTop: 6, display: "flex", justifyContent: "center", alignItems: "center", minHeight: 20, fontSize: 11, color: "#64748b", gap: 6 }}>
-
+                  
                   <button
                     type="button"
                     onClick={() => {
@@ -249,7 +267,7 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
                       textDecoration: "underline",
                     }}
                   >
-
+                   
                   </button>
                 </div>
               )}
@@ -520,9 +538,9 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
 
           {/* Card 2: Upload Local Project */}
           <div
-            className={`connect-action-card${isUploadDisabled ? " is-card-disabled" : ""}`}
-            style={{ opacity: isUploadDisabled ? 0.6 : 1, pointerEvents: isUploadDisabled ? "none" : "auto", filter: isUploadDisabled ? "grayscale(100%)" : "none" }}
-          >
+                      className={`connect-action-card${isUploadDisabled ? " is-card-disabled" : ""}`}
+                      style={{ opacity: isUploadDisabled ? 0.6 : 1, pointerEvents: isUploadDisabled ? "none" : "auto", filter: isUploadDisabled ? "grayscale(100%)" : "none" }}
+                    >
             <div className="connect-card-accent-upload" />
             <div className="connect-card-icon-badge is-green">
               <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -548,36 +566,36 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
               type="file"
               multiple
               style={{ display: "none" }}
-              onChange={(e) => { setActiveCard(e.target.files && e.target.files.length > 0 ? "upload" : null); handleLocalProjectFilesChange(e.target.files); }}
+               onChange={(e) => { handleLocalProjectFilesChange(e.target.files); }}
             />
             <input
               ref={zipInputRef}
               type="file"
               accept=".zip"
               style={{ display: "none" }}
-              onChange={(e) => { setActiveCard(e.target.files && e.target.files.length > 0 ? "upload" : null); handleLocalProjectFilesChange(e.target.files); }}
+             onChange={(e) => { handleLocalProjectFilesChange(e.target.files); }}
             />
 
-            {/* Wrapped in same class as GitHub URL input box for vertical alignment */}
-            <div className="connect-card-input-box" style={{ marginBottom: 43 }}>
-              <div className="connect-upload-options" style={{ marginBottom: 0 }}>
-                <button
-                  type="button"
-                  className="connect-upload-pill"
-                  onClick={() => folderInputRef.current?.click()}
-                >
-                  <FaFolderOpen />
-                  <span>Select Folder</span>
-                </button>
-                <button
-                  type="button"
-                  className="connect-upload-pill"
-                  onClick={() => zipInputRef.current?.click()}
-                >
-                  <FaFileAlt />
-                  <span>Select ZIP</span>
-                </button>
-              </div>
+           {/* Wrapped in same class as GitHub URL input box for vertical alignment */}
+                       <div className="connect-card-input-box" style={{ marginBottom: 43 }}>
+                         <div className="connect-upload-options" style={{ marginBottom: 0 }}>
+                           <button
+                             type="button"
+                             className="connect-upload-pill"
+                             onClick={() => folderInputRef.current?.click()}
+                           >
+                             <FaFolderOpen />
+                             <span>Select Folder</span>
+                           </button>
+                           <button
+                             type="button"
+                             className="connect-upload-pill"
+                             onClick={() => zipInputRef.current?.click()}
+                           >
+                             <FaFileAlt />
+                             <span>Select ZIP</span>
+                           </button>
+                         </div>
             </div>
 
             {localProjectUploadFiles.length > 0 && (
@@ -834,6 +852,71 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
           </div>
         </div>
         */}
+
+
+      {/* RECENT REPOSITORIES TABLE */}
+      <div style={{ width: "100%", maxWidth: "1520px", margin: "24px auto 0", backgroundColor: "#ffffff", borderRadius: "16px", border: "1px solid #e2e8f0", overflow: "hidden", boxShadow: "0 2px 12px rgba(15, 23, 42, 0.03)" }}>
+        <div style={{ padding: "12px 24px", borderBottom: "1px solid #e2e8f0" }}>
+          <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700, color: "#1e293b" }}>Recent Repositories</h3>
+        </div>
+        
+        {loadingRecent ? (
+          <div style={{ padding: "40px", textAlign: "center", color: "#64748b" }}>Loading recent repositories...</div>
+        ) : recentRepos.length === 0 ? (
+          <div style={{ padding: "40px", textAlign: "center", color: "#64748b" }}>No recent repositories found.</div>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "0.875rem" }}>
+              <thead style={{ backgroundColor: "#f8fafc", color: "#64748b", fontWeight: 600, borderBottom: "1px solid #e2e8f0" }}>
+                <tr>
+                  <th style={{ padding: "12px 24px", whiteSpace: "nowrap" }}>Repository Name</th>
+                  <th style={{ padding: "12px 24px" }}>Owner</th>
+                  <th style={{ padding: "12px 24px", whiteSpace: "nowrap" }}>Tech Stack</th>
+                  <th style={{ padding: "12px 24px" }}>Components</th>
+                  <th style={{ padding: "12px 24px", whiteSpace: "nowrap" }}>Default Branch</th>
+                  <th style={{ padding: "12px 24px" }}>Visibility</th>
+                  <th style={{ padding: "12px 24px", whiteSpace: "nowrap" }}>Last Updated</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentRepos.map((repo, idx) => (
+                  <tr key={repo.jobId || idx} style={{ borderBottom: idx === recentRepos.length - 1 ? "none" : "1px solid #f1f5f9" }}>
+                    <td style={{ padding: "12px 24px", color: "#0f172a", fontWeight: 600, display: "flex", alignItems: "center", gap: "8px" }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "32px", height: "32px", backgroundColor: "#eff6ff", borderRadius: "8px", color: "#3b82f6" }}>
+                        <FaFolder size={14} />
+                      </div>
+                      {repo.repositoryName}
+                    </td>
+                    <td style={{ padding: "12px 24px", color: "#64748b" }}>{repo.owner}</td>
+                    <td style={{ padding: "12px 24px", color: "#64748b", display: "flex", alignItems: "center", gap: "6px" }}>
+                      <FaJava color="#ea580c" />
+                      {repo.techStack}
+                    </td>
+                    <td style={{ padding: "12px 24px", color: "#64748b" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                        <FaFileAlt color="#94a3b8" />
+                        {repo.componentsCount}
+                      </div>
+                    </td>
+                    <td style={{ padding: "12px 24px" }}>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", padding: "4px 10px", backgroundColor: "#f1f5f9", color: "#475569", borderRadius: "16px", fontSize: "0.8rem", fontWeight: 500 }}>
+                        <FaCodeBranch size={12} />
+                        {repo.defaultBranch}
+                      </span>
+                    </td>
+                    <td style={{ padding: "12px 24px" }}>
+                      <span style={{ display: "inline-block", padding: "4px 12px", backgroundColor: repo.visibility.toLowerCase() === "private" ? "#fef3c7" : "#e0f2fe", color: repo.visibility.toLowerCase() === "private" ? "#d97706" : "#0284c7", borderRadius: "16px", fontSize: "0.8rem", fontWeight: 600 }}>
+                        {repo.visibility}
+                      </span>
+                    </td>
+                    <td style={{ padding: "12px 24px", color: "#64748b" }}>{repo.lastUpdatedFormatted}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
       </div>
     </div>
   );

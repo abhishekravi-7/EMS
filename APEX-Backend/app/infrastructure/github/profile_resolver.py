@@ -19,15 +19,27 @@ class ProfileResolver:
     def __init__(self, github_client: GithubClient | None = None) -> None:
         self._github = github_client or GithubClient()
 
-    def resolve(self, owner: str | None = None, host: str | None = None, token: str | None = None) -> TargetProfile:
+    def resolve(
+        self,
+        owner: str | None = None,
+        host: str | None = None,
+        token: str | None = None,
+    ) -> TargetProfile:
         effective_token = (token or "").strip() or (settings.github_target_token or "").strip() or (settings.github_token or "").strip() or None
+        resolved_owner = (owner or settings.github_target_owner or "").strip()
+        auth_user = None
+        if effective_token:
+            try:
+                auth_user = self._github.get_authenticated_user_sync(token=effective_token)
+            except Exception:
+                auth_user = None
 
-        auth_user = self._github.get_authenticated_user_sync(effective_token) if effective_token else None
-        auth_login = auth_user.get("login") if auth_user else None
+        auth_login = auth_user.get("login", "") if isinstance(auth_user, dict) else ""
+        if not resolved_owner and auth_login:
+            resolved_owner = auth_login
 
-        resolved_owner = (owner or auth_login or settings.github_target_owner or "").strip()
-
-        if auth_login and resolved_owner.lower() == auth_login.lower():
+        if resolved_owner and auth_login and resolved_owner.lower() == auth_login.lower():
+            # Matches authenticated user login directly -> personal user repository
             return TargetProfile(
                 owner=resolved_owner,
                 is_org=False,
@@ -35,7 +47,7 @@ class ProfileResolver:
             )
 
         owner_type = self._github.get_owner_type_sync(
-            resolved_owner, token=effective_token
+            resolved_owner, token=token or settings.github_target_token or None
         )
         is_org = owner_type == "Organization"
         return TargetProfile(

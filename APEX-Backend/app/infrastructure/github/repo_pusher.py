@@ -44,6 +44,18 @@ class RepoPusher:
 
         auth_url = self._build_auth_url(clone_url, effective_token)
 
+        # Extract owner/repo cleanly for structured diagnostic logging
+        owner = ""
+        repo = ""
+        try:
+            norm = self._normalize_repo_url(clone_url)
+            parts = norm.split("/")
+            if len(parts) >= 2:
+                owner = parts[-2].split(":")[-1]
+                repo = parts[-1]
+        except Exception:
+            pass
+
         # 1. Clean up heavy build output binaries to prevent bloated git push payloads
         self._cleanup_build_artifacts(repo_dir)
 
@@ -60,8 +72,18 @@ class RepoPusher:
             self._git(repo_dir, ["commit", "-q", "-m", commit_message])
             self._git(repo_dir, ["remote", "add", "origin", auth_url], sensitive=True)
             logger.info("Pushing migrated repo to %s", self._mask(clone_url))
+            logger.info(
+                "[GITHUB DESTINATION]\nowner=%s\nrepo=%s\nrepository_access=true\npush_started=true\npush_result=in_progress",
+                owner,
+                repo,
+            )
             push_result = self._run_git(repo_dir, ["push", "-u", "origin", branch])
             if push_result.succeeded:
+                logger.info(
+                    "[GITHUB DESTINATION]\nowner=%s\nrepo=%s\nrepository_access=true\npush_started=true\npush_result=success",
+                    owner,
+                    repo,
+                )
                 return branch
 
             if allow_force_update_existing and self._is_non_fast_forward(push_result.stderr):
@@ -79,9 +101,24 @@ class RepoPusher:
                     ["push", "--force-with-lease", "-u", "origin", branch],
                 )
                 if force_result.succeeded:
+                    logger.info(
+                        "[GITHUB DESTINATION]\nowner=%s\nrepo=%s\nrepository_access=true\npush_started=true\npush_result=success",
+                        owner,
+                        repo,
+                    )
                     return branch
+                logger.error(
+                    "[GITHUB DESTINATION]\nowner=%s\nrepo=%s\nrepository_access=true\npush_started=true\npush_result=failure",
+                    owner,
+                    repo,
+                )
                 self._raise_git_failure(force_result, action="push")
 
+            logger.error(
+                "[GITHUB DESTINATION]\nowner=%s\nrepo=%s\nrepository_access=true\npush_started=true\npush_result=failure",
+                owner,
+                repo,
+            )
             self._raise_git_failure(push_result, action="push")
             return branch
         finally:
@@ -133,32 +170,32 @@ class RepoPusher:
         lowered_err = stderr.lower()
         if "filename too long" in lowered_err or "path too long" in lowered_err or "unable to index file" in lowered_err:
             raise PushFailedError(
-                "Failed to publish the migrated repository because one or more file paths exceed the Windows path length limit. "
+                "DESTINATION_REPO_PUSH_FAILED: Failed to publish the migrated repository because one or more file paths exceed the Windows path length limit. "
                 "Ensure Git long-path support is enabled ('git config --system core.longpaths true') or publish from a long-path supported environment."
             )
         if "401" in lowered_err or "bad credentials" in lowered_err or "invalid username or password" in lowered_err:
             raise PushFailedError(
-                "Invalid GitHub token. Please verify that your PAT is valid and has not expired."
+                "DESTINATION_REPO_UNAUTHORIZED: Invalid GitHub token. Please verify that your PAT is valid and has not expired."
             )
         if "permission" in lowered_err or "403" in lowered_err or "access denied" in lowered_err or "write access" in lowered_err:
             raise PushFailedError(
-                "Unable to push to the destination repository. Please verify that your PAT has write permission."
+                "DESTINATION_REPO_FORBIDDEN: Unable to push to the destination repository. Please verify that your PAT has write permission."
             )
         if "repository not found" in lowered_err or "not found" in lowered_err or "does not exist" in lowered_err:
             raise PushFailedError(
-                "Unable to access the destination repository. Please verify that the repository exists and that your PAT has access."
+                "DESTINATION_REPO_NOT_FOUND: Unable to access the destination repository. Please verify that the repository exists and that your PAT has access."
             )
         if self._is_non_fast_forward(lowered_err):
             raise PushFailedError(
-                "Failed to push: the branch already exists on the destination repository or has conflicting commits."
+                "DESTINATION_REPO_PUSH_FAILED: Failed to push: the branch already exists on the destination repository or has conflicting commits."
             )
         if "rpc failed" in lowered_err or "http 408" in lowered_err or "send-pack" in lowered_err or "curl 22" in lowered_err:
             raise PushFailedError(
-                "Failed to publish the migrated repository due to network payload timeout (HTTP 408 send-pack). "
+                "DESTINATION_REPO_PUSH_FAILED: Failed to publish the migrated repository due to network payload timeout (HTTP 408 send-pack). "
                 "The Git push payload exceeded buffer limits. Heavy build artifacts have been stripped for retries."
             )
         raise PushFailedError(
-            "Unable to access the destination repository. Please verify the repository URL and PAT permissions."
+            "DESTINATION_REPO_PUSH_FAILED: Unable to access the destination repository. Please verify the repository URL and PAT permissions."
         )
 
     @staticmethod

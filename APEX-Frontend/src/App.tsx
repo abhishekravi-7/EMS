@@ -10,6 +10,7 @@ const MigrationWizardPage = lazy(() => import("@/features/wizard/pages/Migration
 // const LandingPage = lazy(() => import("@/features/auth/pages/LandingPage"));
 const SignUpPage = lazy(() => import("@/features/auth/pages/SignUpPage"));
 const SignInPage = lazy(() => import("@/features/auth/pages/SignInPage"));
+const VerifyEmailPage = lazy(() => import("@/features/auth/pages/VerifyEmailPage"));
 const ResetPasswordPage = lazy(() => import("@/features/auth/pages/ResetPasswordPage"));
 const AdminConsolePage = lazy(() => import("@/features/admin/pages/AdminConsolePage"));
 const UsageDashboardPage = lazy(() => import("@/features/usage/pages/UsageDashboardPage"));
@@ -21,32 +22,34 @@ export default function App() {
         <ChatbotProvider>
           <BrowserRouter>
             <AppShell>
-            <Suspense
-              fallback={
-                <div
-                  style={{
-                    minHeight: "60vh",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    color: "#475569",
-                    fontSize: 16,
-                    fontWeight: 600,
-                  }}
-                >
-                  Loading migration workspace...
-                </div>
-              }
-            >
-              <Routes>
-                <Route path="/signup" element={<SignUpPage />} />
-                <Route path="/signin" element={<SignInPage />} />
-                <Route path="/reset-password" element={<ResetPasswordPage />} />
-                <Route path="/admin" element={<AdminConsolePage />} />
-                <Route path="/usage" element={<UsageDashboardPage />} />
-                <Route path="/*" element={<MigrationWizardPage />} />
-              </Routes>
-            </Suspense>
+              <Suspense
+                fallback={
+                  <div
+                    style={{
+                      minHeight: "60vh",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      color: "#475569",
+                      fontSize: 16,
+                      fontWeight: 600,
+                    }}
+                  >
+                    Loading migration workspace...
+                  </div>
+                }
+              >
+                <Routes>
+                  {/* <Route path="/" element={<LandingPage />} /> */}
+                  <Route path="/signup" element={<SignUpPage />} />
+                  <Route path="/signin" element={<SignInPage />} />
+                  <Route path="/verify-email" element={<VerifyEmailPage />} />
+                  <Route path="/reset-password" element={<ResetPasswordPage />} />
+                  <Route path="/admin" element={<AdminConsolePage />} />
+                  <Route path="/usage" element={<UsageDashboardPage />} />
+                  <Route path="/*" element={<MigrationWizardPage />} />
+                </Routes>
+              </Suspense>
             </AppShell>
           </BrowserRouter>
         </ChatbotProvider>

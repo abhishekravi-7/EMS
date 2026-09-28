@@ -10,25 +10,25 @@ interface TestCasesUserSettingsProps {
 }
 
 export function TestCasesUserSettings({ settings, onChange, adminSettings }: TestCasesUserSettingsProps) {
-  const sysTestConfig = settings.system_test_cases_config || {};
+  const sysTestConfig = settings?.system_test_cases_config || {};
   const playwrightEnabled =
-    adminSettings.test_cases_playwright_enabled === undefined ||
-    adminSettings.test_cases_playwright_enabled === true ||
-    adminSettings.test_cases_playwright_enabled === "true" ||
+    adminSettings?.test_cases_playwright_enabled === undefined ||
+    adminSettings?.test_cases_playwright_enabled === true ||
+    adminSettings?.test_cases_playwright_enabled === "true" ||
     sysTestConfig.test_cases_playwright_enabled === true ||
     sysTestConfig.test_cases_playwright_enabled === "true";
 
   const cypressEnabled =
-    adminSettings.test_cases_cypress_enabled === undefined ||
-    adminSettings.test_cases_cypress_enabled === true ||
-    adminSettings.test_cases_cypress_enabled === "true" ||
+    adminSettings?.test_cases_cypress_enabled === undefined ||
+    adminSettings?.test_cases_cypress_enabled === true ||
+    adminSettings?.test_cases_cypress_enabled === "true" ||
     sysTestConfig.test_cases_cypress_enabled === true ||
     sysTestConfig.test_cases_cypress_enabled === "true";
 
   const seleniumEnabled =
-    adminSettings.test_cases_selenium_enabled === undefined ||
-    adminSettings.test_cases_selenium_enabled === true ||
-    adminSettings.test_cases_selenium_enabled === "true" ||
+    adminSettings?.test_cases_selenium_enabled === undefined ||
+    adminSettings?.test_cases_selenium_enabled === true ||
+    adminSettings?.test_cases_selenium_enabled === "true" ||
     sysTestConfig.test_cases_selenium_enabled === true ||
     sysTestConfig.test_cases_selenium_enabled === "true";
 

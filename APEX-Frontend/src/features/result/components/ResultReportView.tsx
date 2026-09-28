@@ -93,6 +93,7 @@ interface ResultReportViewProps {
   runSonar: boolean;
   runFossa: boolean;
   runTests?: boolean;
+  runFunctionalTests?: boolean;
   selectedLLMProvider: string;
   useLLMTests: boolean;
   resetWizard: () => void;
@@ -105,6 +106,7 @@ export function ResultReportView({
   runSonar,
   runFossa,
   runTests,
+  runFunctionalTests,
   selectedLLMProvider,
   useLLMTests,
   resetWizard,
@@ -370,14 +372,15 @@ export function ResultReportView({
     }
   };
 
-  const handleDownloadUnitTestReport = async () => {
+  const handleDownloadUnitTestReport = async (format: string = "html") => {
     if (!migrationJob) return;
     try {
-      const blob = await downloadUnitTestReport(migrationJob.job_id);
+      const isCsv = format === "csv";
+      const blob = await downloadUnitTestReport(migrationJob.job_id, isCsv ? "csv" : "html");
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `unit-test-report-${migrationJob.job_id}.html`;
+      link.download = `unit-test-report-${migrationJob.job_id}.${isCsv ? "csv" : "html"}`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -1817,10 +1820,13 @@ export function ResultReportView({
             </div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: 16, marginBottom: 16 }}>
-                <MigrationProposedTestSection
-                  styles={styles}
-                  migrationJob={migrationJob}
-                />
+                {/* Proposed Test Case Information — only shown when Functional Testing was enabled */}
+                {(runFunctionalTests ?? migrationJob.run_functional_tests ?? true) && (
+                  <MigrationProposedTestSection
+                    styles={styles}
+                    migrationJob={migrationJob}
+                  />
+                )}
 
                 <MigrationSonarSection
                   styles={styles}

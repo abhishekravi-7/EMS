@@ -75,6 +75,7 @@ export interface MigrationRequest {
   llm_test_provider?: string;
   run_sonar: boolean;
   run_fossa?: boolean;
+  run_functional_tests?: boolean;
   fix_business_logic: boolean;
   functional_test_method?: string[];
   functional_test_execution_mode?: string;
