@@ -97,6 +97,35 @@ def _fetch_user_quality_checks_sync(user_id: Any, job_id: str | None = None) -> 
         return {}
 
 
+def _fetch_pipeline_flags_sync() -> tuple[bool, bool]:
+    """Read persisted CI/CD switches, defaulting to the legacy enabled state."""
+    from app.core.config import settings
+    import dotenv
+    import pymongo
+
+    values = dotenv.dotenv_values(Path('.env').resolve())
+    ci_value = values.get('CI_ENABLED')
+    cd_value = values.get('CD_ENABLED')
+    try:
+        client = pymongo.MongoClient(settings.mongodb_uri, serverSelectionTimeoutMS=2000)
+        docs = client[settings.mongodb_database].system_settings.find(
+            {'key': {'$in': ['ci_enabled', 'cd_enabled']}}
+        )
+        for doc in docs:
+            if doc.get('key') == 'ci_enabled':
+                ci_value = doc.get('value')
+            elif doc.get('key') == 'cd_enabled':
+                cd_value = doc.get('value')
+        client.close()
+    except Exception:
+        pass
+
+    def as_bool(value: Any) -> bool:
+        return str(value if value is not None else 'true').strip().lower() in {'1', 'true', 'yes', 'on'}
+
+    return as_bool(ci_value), as_bool(cd_value)
+
+
 def _fetch_user_github_pat(user_id: Any, job_id: str | None = None) -> str | None:
     from app.core.config import settings
     import pymongo
@@ -274,6 +303,13 @@ class StartMigrationUseCase:
             )
         )
 
+        ci_enabled, cd_enabled = _fetch_pipeline_flags_sync()
+        if not ci_enabled:
+            run_sonar = False
+            run_fossa = False
+            run_cycode = False
+            run_tests = False
+
         store = MigrationReportStore(WorkspacePaths(job_id))
         report = {
             "jobId": job_id,
@@ -296,6 +332,10 @@ class StartMigrationUseCase:
             "run_tests": run_tests,
             "runFunctionalTests": run_functional_tests,
             "run_functional_tests": run_functional_tests,
+            "ciEnabled": ci_enabled,
+            "ci_enabled": ci_enabled,
+            "cdEnabled": cd_enabled,
+            "cd_enabled": cd_enabled,
             "proposedTestSources": proposed_test_sources,
             "destination": destination,
             "targetRepo": initial_target_repo,

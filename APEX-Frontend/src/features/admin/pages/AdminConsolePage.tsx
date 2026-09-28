@@ -46,6 +46,8 @@ export default function AdminConsolePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+  const [ciEnabled, setCiEnabled] = useState(true);
+  const [cdEnabled, setCdEnabled] = useState(true);
 
   const showToast = (type: 'success' | 'error', text: string) => {
     setToastMessage({ type, text });
@@ -61,10 +63,15 @@ export default function AdminConsolePage() {
     async function fetchSettings() {
       try {
         setIsLoading(true);
-        const userData = await getUserSettings();
+        const [userData, systemData] = await Promise.all([getUserSettings(), getAdminSettings()]);
         setUserSettings(userData);
-      } catch (err) {
+        setCiEnabled(String(systemData.ci_enabled ?? "true").toLowerCase() === "true");
+        setCdEnabled(String(systemData.cd_enabled ?? "true").toLowerCase() === "true");
+      } catch (err: any) {
         console.error(err);
+        if (err?.status === 403) {
+          showToast("error", "Super Admin access is required to manage CI/CD settings.");
+        }
       } finally {
         setIsLoading(false);
       }
@@ -99,12 +106,20 @@ export default function AdminConsolePage() {
   const handleDeploy = async () => {
     setIsSaving(true);
     try {
+      // Persist the application-wide pipeline switches first. This keeps the
+      // Migration page behavior reliable even if a user-specific setting fails
+      // validation or the secondary save is interrupted.
+      const savedSystemSettings = await updateAdminSettings({ ci_enabled: ciEnabled, cd_enabled: cdEnabled });
+      setCiEnabled(String(savedSystemSettings.ci_enabled ?? "true").toLowerCase() === "true");
+      setCdEnabled(String(savedSystemSettings.cd_enabled ?? "true").toLowerCase() === "true");
       await updateUserSettings(userSettings.github_config, userSettings.quality_checks_values, userSettings.test_cases_values, userSettings.llm_values);
       window.dispatchEvent(new CustomEvent("javaapex:settings-saved"));
       showToast("success", "Settings saved successfully!");
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      showToast("error", "Failed to save settings.");
+      showToast("error", err?.status === 403
+        ? "Super Admin access is required to save CI/CD settings."
+        : (err?.message || "Failed to save settings."));
     } finally {
       setIsSaving(false);
     }
@@ -197,10 +212,10 @@ export default function AdminConsolePage() {
                 <div className="settings-toggle-title"><FaBriefcase /> BRD Generation</div>
                 <div className="switch-wrap">
                   <label className="switch-ios">
-                    <input type="checkbox" defaultChecked={true} />
+                    <input type="checkbox" checked={ciEnabled} onChange={e => setCiEnabled(e.target.checked)} />
                     <span className="slider-ios"></span>
                   </label>
-                  <span className="switch-label">Enabled</span>
+                  <span className="switch-label">{ciEnabled ? "Enabled" : "Disabled"}</span>
                 </div>
               </div>
               <p className="settings-toggle-desc">Enable or disable automated Business Requirements Document (BRD) analysis and document export during modernization discovery.</p>
@@ -210,10 +225,10 @@ export default function AdminConsolePage() {
                 <div className="settings-toggle-title"><FaFlask /> Microservice Assessment</div>
                 <div className="switch-wrap">
                   <label className="switch-ios">
-                    <input type="checkbox" defaultChecked={true} />
+                    <input type="checkbox" checked={cdEnabled} onChange={e => setCdEnabled(e.target.checked)} />
                     <span className="slider-ios"></span>
                   </label>
-                  <span className="switch-label">Enabled</span>
+                  <span className="switch-label">{cdEnabled ? "Enabled" : "Disabled"}</span>
                 </div>
               </div>
               <p className="settings-toggle-desc">Enable or disable microservice eligibility scoring, architectural evaluation, and recommended service splitting analysis.</p>
@@ -341,10 +356,10 @@ export default function AdminConsolePage() {
                 <div className="settings-toggle-title"><FaFlask /> Continuous Integration (CI)</div>
                 <div className="switch-wrap">
                   <label className="switch-ios">
-                    <input type="checkbox" defaultChecked={true} />
+                    <input type="checkbox" checked={ciEnabled} onChange={e => setCiEnabled(e.target.checked)} />
                     <span className="slider-ios"></span>
                   </label>
-                  <span className="switch-label">Enabled</span>
+                  <span className="switch-label">{ciEnabled ? "Enabled" : "Disabled"}</span>
                 </div>
               </div>
               <p className="settings-toggle-desc">Enable or disable automated CI build validation and quality gate checks on pull requests and commits.</p>
@@ -354,10 +369,10 @@ export default function AdminConsolePage() {
                 <div className="settings-toggle-title"><FaFlask /> Continuous Deployment (CD)</div>
                 <div className="switch-wrap">
                   <label className="switch-ios">
-                    <input type="checkbox" defaultChecked={true} />
+                    <input type="checkbox" checked={cdEnabled} onChange={e => setCdEnabled(e.target.checked)} />
                     <span className="slider-ios"></span>
                   </label>
-                  <span className="switch-label">Enabled</span>
+                  <span className="switch-label">{cdEnabled ? "Enabled" : "Disabled"}</span>
                 </div>
               </div>
               <p className="settings-toggle-desc">Enable or disable automated deployment pipelines and artifact publishing upon successful migration verification.</p>

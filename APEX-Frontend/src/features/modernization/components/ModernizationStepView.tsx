@@ -224,6 +224,8 @@ export function ModernizationStepView({
   const [isUserSettingsLoading, setIsUserSettingsLoading] = useState(true);
   const [adminConfigError, setAdminConfigError] = useState<string | null>(null);
   const [userSettingsError, setUserSettingsError] = useState<string | null>(null);
+  const [ciEnabled, setCiEnabled] = useState(true);
+  const [cdEnabled, setCdEnabled] = useState(true);
 
 
 
@@ -243,7 +245,7 @@ export function ModernizationStepView({
 
   const handleStartMigrationClick = () => {
     if (loading) return;
-    if (!runSonar || !runFossa) {
+    if (ciEnabled && (!runSonar || !runFossa)) {
       setShowQualityGateReminder(true);
       return;
     }
@@ -700,6 +702,19 @@ export function ModernizationStepView({
             ? parsed
             : (typeof parsed === "object" && parsed !== null ? Object.values(parsed) : []);
           setAdminConfig(configArray);
+          const ciIsEnabled = String(res.ci_enabled ?? "true").toLowerCase() !== "false";
+          const cdIsEnabled = String(res.cd_enabled ?? "true").toLowerCase() !== "false";
+          setCiEnabled(ciIsEnabled);
+          setCdEnabled(cdIsEnabled);
+          // Quality gates are available only when both CI and CD are enabled.
+          // Clear any previous selections when either pipeline is disabled so
+          // hidden checks cannot still be submitted with the migration.
+          if (!ciIsEnabled || !cdIsEnabled) {
+            setRunSonar(false);
+            setRunFossa(false);
+            setRunCycode(false);
+            setRunTests(false);
+          }
 
           // Auto-disable state if not authorized globally
           const sonarGlobal = configArray.find((c: any) => c.name === "SonarQube")?.enabled;
@@ -822,8 +837,17 @@ export function ModernizationStepView({
         </div>
       )}
 
+      {!cdEnabled && (
+        <div style={{
+          background: "#f8fafc", border: "1px solid #cbd5e1", borderRadius: 10,
+          padding: "10px 16px", marginBottom: 16, fontSize: 13, color: "#475569",
+        }}>
+          Continuous Deployment is disabled in Settings. Deployment and artifact publishing are unavailable for this migration.
+        </div>
+      )}
+
       {/* ── Quality Gates & Test Suites Selection (3 Equal Cards in 1 Row) ── */}
-      <div style={{ marginBottom: 28, marginTop: 24 }}>
+      {ciEnabled && cdEnabled && <div style={{ marginBottom: 28, marginTop: 24 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
           <FaShieldAlt style={{ fontSize: 18, color: "#0f172a" }} />
           <span style={{ fontWeight: 800, fontSize: 18, color: "#0f172a" }}>Quality Gates</span>
@@ -1067,7 +1091,7 @@ export function ModernizationStepView({
             </span>
           </div>
         </div>
-      </div>
+      </div>}
 
       {/* Existing Test Cases Section (Discovered Only - No Execution) */}
       <ExistingTestCasesPanel
