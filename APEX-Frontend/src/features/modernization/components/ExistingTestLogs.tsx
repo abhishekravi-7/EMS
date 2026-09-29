@@ -21,7 +21,7 @@ export function ExistingTestLogs({ logs }: ExistingTestLogsProps) {
     originalLineNumber: index + 1
   })).filter((log) => {
     if (!searchQuery) return true;
-    return log.msg.toLowerCase().includes(searchQuery.toLowerCase()) || 
+    return log.msg.toLowerCase().includes(searchQuery.toLowerCase()) ||
            log.ts.toLowerCase().includes(searchQuery.toLowerCase());
   });
 

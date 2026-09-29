@@ -14,6 +14,10 @@ from app.core.config import settings
 from app.infrastructure.analyzers.microservice.chunk_builder import build_chunks, classify_role
 from app.infrastructure.analyzers.microservice.java_class_scanner import JavaClassInfo, JavaClassScanner
 from app.infrastructure.analyzers.project_analyzer import ProjectAnalysis, ProjectAnalyzer
+from app.infrastructure.analyzers.view_technology_inspector import (
+    DeepViewAnalysis,
+    ViewTechnologyInspector,
+)
 from app.infrastructure.git.repository_cloner import RepositoryCloner
 from app.infrastructure.persistence.job_repository import JobRepository
 from app.infrastructure.workspace.workspace_paths import WorkspacePaths
@@ -37,11 +41,13 @@ class GenerateTechnicalDocumentUseCase:
         analyzer: ProjectAnalyzer | None = None,
         scanner: JavaClassScanner | None = None,
         cloner: RepositoryCloner | None = None,
+        view_inspector: ViewTechnologyInspector | None = None,
     ) -> None:
         self._job_repository = job_repository or JobRepository()
         self._analyzer = analyzer or ProjectAnalyzer()
         self._scanner = scanner or JavaClassScanner()
         self._cloner = cloner or RepositoryCloner()
+        self._view_inspector = view_inspector or ViewTechnologyInspector()
 
     def execute(self, request: TechnicalDocumentRequest) -> dict[str, str]:
         repo_root, cleanup = self._resolve_repository_root(request)
@@ -77,6 +83,12 @@ class GenerateTechnicalDocumentUseCase:
         chunks = build_chunks(classes)
         endpoints = self._collect_endpoints(class_groups.controllers)
         tables = self._collect_tables(repo_root, class_groups.entities)
+        deep_view_analysis = self._view_inspector.inspect(
+            repo_root=repo_root,
+            jsp_file_paths=analysis.jsp_files,
+            jsf_file_paths=analysis.jsf_files,
+            java_file_paths=analysis.java_files,
+        )
 
         repo_name = self._project_name(request, analysis)
         generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -91,6 +103,7 @@ class GenerateTechnicalDocumentUseCase:
             "chunks": chunks,
             "endpoints": endpoints,
             "tables": tables,
+            "deep_view_analysis": deep_view_analysis,
             "request": request,
         }
         html_content = self._render_template(context)
@@ -203,6 +216,8 @@ class GenerateTechnicalDocumentUseCase:
         endpoints: list[dict[str, str]] = context["endpoints"]
         tables: list[dict[str, Any]] = context["tables"]
 
+        deep_view: DeepViewAnalysis | None = context.get("deep_view_analysis")
+
         repo_name = context["project_name"]
         repo_url = context["repo_url"]
         date_str = context["generated_at"]
@@ -210,12 +225,17 @@ class GenerateTechnicalDocumentUseCase:
         spring_ver = str(analysis.spring_boot_version or "3.2.0")
         build_tool = str(analysis.build_tool or "Maven")
 
-        total_files = len(analysis.java_files) or len(classes) or 1
-        total_loc = total_files * 185
+        jsp_count = deep_view.jsp_file_count if deep_view else 0
+        jsf_count = deep_view.jsf_file_count if deep_view else 0
+        java_count = len(analysis.java_files) or len(classes) or 1
+        total_files = java_count + jsp_count + jsf_count
+        java_loc = java_count * 185
+        view_loc = (deep_view.jsp_total_loc + deep_view.jsf_total_loc) if deep_view else 0
+        total_loc = java_loc + view_loc
         used_files = total_files
 
         # Derive capabilities from controllers/services
-        controller_names = [c.class_name.replace("Controller", "") for c in groups.controllers] or ["Core", "Management", "Operations"]
+        controller_names = [c.class_name.replace("Controller", "").replace("Servlet", "") for c in groups.controllers] or ["Core", "Management", "Operations"]
         cap1 = controller_names[0] if len(controller_names) > 0 else "System Core"
         cap2 = controller_names[1] if len(controller_names) > 1 else "Data Processing"
         cap3 = controller_names[2] if len(controller_names) > 2 else "Reporting & Analytics"
@@ -223,12 +243,14 @@ class GenerateTechnicalDocumentUseCase:
         # Build dynamic HTML blocks
         er_grid_html = self._build_er_grid_html(tables, groups)
         full_class_model = self._build_class_model_html(groups)
-        full_tech_stack_table = self._build_tech_stack_table_html(analysis, groups)
+        full_tech_stack_table = self._build_tech_stack_table_html(analysis, groups, deep_view)
         full_db_schema = self._build_db_schema_html(tables, groups)
         full_module_breakdown = self._build_module_breakdown_html(analysis)
         class_cards_grid_html = self._build_class_cards_grid_html(classes)
         api_spec_html = self._build_api_specification_html(endpoints, groups)
-        file_guide_html = self._build_file_guide_html(classes)
+        file_guide_html = self._build_file_guide_html(classes, deep_view)
+        static_analysis_table_html = self._build_static_code_analysis_table_html(groups, deep_view, total_files, total_loc)
+        view_analysis_section_html = self._build_view_layer_analysis_section_html(deep_view, repo_name) if deep_view else ""
 
         # Build comprehensive dictionary covering all 230+ template placeholders
         replacements = self._build_master_replacement_dict(
@@ -256,11 +278,29 @@ class GenerateTechnicalDocumentUseCase:
             api_spec_html=api_spec_html,
             file_guide_html=file_guide_html,
             project_type=analysis.project_type,
+            deep_view=deep_view,
         )
 
         content = raw_template
         for key, val in replacements.items():
             content = content.replace(key, str(val))
+
+        # Inject dynamic Static Code Analysis table
+        content = re.sub(r'<table class="static-table">[\s\S]*?</table>', static_analysis_table_html, content, count=1)
+
+        # Inject JSP / JSF View Layer Analysis section & update Table of Contents
+        if view_analysis_section_html and (jsp_count > 0 or jsf_count > 0):
+            toc_needle = '<tr><td>Section 5</td><td><a href="#ch5">Technical Stack &amp; Technologies</a></td><td>08</td></tr>'
+            if toc_needle in content:
+                toc_entry = (
+                    toc_needle
+                    + '\n      <tr><td>Section 5A</td><td><a href="#ch-view-analysis">JSP / JSF View Layer Analysis</a></td><td>08A</td></tr>'
+                )
+                content = content.replace(toc_needle, toc_entry, 1)
+
+            ch6_needle = '<div class="page" id="ch6">'
+            if ch6_needle in content:
+                content = content.replace(ch6_needle, f"{view_analysis_section_html}\n{ch6_needle}", 1)
 
         # Inject class cards grid
         if "<!-- STATIC_CLASS_GRID_START -->" in content and "<!-- STATIC_CLASS_GRID_END -->" in content:
@@ -354,6 +394,7 @@ class GenerateTechnicalDocumentUseCase:
         api_spec_html: str,
         file_guide_html: str,
         project_type: str,
+        deep_view: DeepViewAnalysis | None = None,
     ) -> dict[str, str]:
         c1_name = groups.controllers[0].class_name if groups.controllers else "CoreController"
         c2_name = groups.controllers[1].class_name if len(groups.controllers) > 1 else "DataController"
@@ -365,6 +406,160 @@ class GenerateTechnicalDocumentUseCase:
         r1_name = groups.repositories[0].class_name if groups.repositories else "CoreRepository"
 
         e1_name = tables[0]["model"] if tables else (groups.entities[0].class_name if groups.entities else "CoreEntity")
+
+        has_jsp = bool(deep_view and deep_view.jsp_file_count > 0)
+        has_jsf = bool(deep_view and deep_view.jsf_file_count > 0)
+        has_jstl = bool(deep_view and any(j.has_jstl for j in deep_view.jsp_files))
+        jsp_count = deep_view.jsp_file_count if deep_view else 0
+        jsf_count = deep_view.jsf_file_count if deep_view else 0
+
+        if has_jsp:
+            tech_2 = f"Servlet {deep_view.web_config.servlet_version or '3.0'} API"
+            tech_4 = f"JSP ({deep_view.jsp_file_count} Views)"
+            tech_5 = "JSTL Standard Tags" if has_jstl else "Unified EL Engine"
+            tech_6 = "Servlet Filter Security" if deep_view.web_config.filters else "Java Standard Platform"
+            tech_7 = "WAR / Web Container"
+            tech_8 = f"{total_files} Total Scanned Files"
+            app_purpose_desc = f"The application is an enterprise Java web application built with Java {html.escape(java_ver)}, {html.escape(build_tool)}, and JavaServer Pages (JSP), exposing {deep_view.jsp_file_count} JSP views across {len(groups.controllers)} servlets/controllers."
+            processing_modes = "JSP / Servlet Web Application / Synchronous HTTP"
+            total_progs = f"{total_files} Scanned Files ({len(classes)} Java, {deep_view.jsp_file_count} JSP Views)"
+            in_scope_1 = f"Automated refactoring of {total_files} source files ({len(classes)} Java, {deep_view.jsp_file_count} JSP)."
+            in_scope_2 = f"Presentation view layer modernization across {deep_view.jsp_file_count} JSP templates to modern SPA components."
+            out_scope_2 = "Non-JVM legacy interop (Mainframe / C++)"
+            arch_intro = f"{html.escape(repo_name)} employs a multi-tier MVC architecture consisting of JavaServer Pages (JSP), Servlet Controllers, Business Services, and Domain Models."
+            ui_comp_1 = f"JSP Views ({', '.join(j.file_name for j in deep_view.jsp_files[:3])})"
+            ui_comp_2 = f"Servlet Handlers ({', '.join(s.servlet_name for s in deep_view.web_config.servlets[:3]) or c1_name})"
+            ui_comp_3 = "JSTL / Expression Language Engine"
+        elif has_jsf:
+            tech_2 = "JavaServer Faces (JSF)"
+            tech_4 = f"JSF ({deep_view.jsf_file_count} Facelets)"
+            tech_5 = "Managed Beans & CDI"
+            tech_6 = "Faces Servlet Controller"
+            tech_7 = "Java EE Application Server"
+            tech_8 = f"{total_files} Total Scanned Files"
+            app_purpose_desc = f"The application is an enterprise JavaServer Faces (JSF) application built with Java {html.escape(java_ver)}, {html.escape(build_tool)}, and Facelets, exposing {deep_view.jsf_file_count} XHTML views across {len(groups.controllers)} managed beans/controllers."
+            processing_modes = "JSF Web Application / Stateful HTTP Lifecycle"
+            total_progs = f"{total_files} Scanned Files ({len(classes)} Java, {deep_view.jsf_file_count} JSF Views)"
+            in_scope_1 = f"Automated refactoring of {total_files} source files ({len(classes)} Java, {deep_view.jsf_file_count} JSF)."
+            in_scope_2 = f"JSF view layer modernization across {deep_view.jsf_file_count} XHTML views to modern frontend."
+            out_scope_2 = "Non-JVM legacy interop (Mainframe / C++)"
+            arch_intro = f"{html.escape(repo_name)} employs a component-based architecture consisting of JSF Facelets, Managed Beans, Business Services, and Entities."
+            ui_comp_1 = f"JSF / XHTML Views ({', '.join(f.file_name for f in deep_view.jsf_files[:3])})"
+            ui_comp_2 = f"Managed Beans ({', '.join(deep_view.jsf_files[0].managed_beans[:2]) if deep_view.jsf_files[0].managed_beans else 'Backing Beans'})"
+            ui_comp_3 = "JSF Lifecycle & Component Engine"
+        else:
+            tech_2 = f"Spring Boot {spring_ver}"
+            tech_4 = "Spring Web REST API"
+            tech_5 = "Spring Data JPA"
+            tech_6 = "JUnit 5 & Mockito"
+            tech_7 = "Docker / Kubernetes"
+            tech_8 = f"{total_files} Java Source Classes"
+            app_purpose_desc = f"The application is a {html.escape(project_type)} built with Java {html.escape(java_ver)} and {html.escape(build_tool)}, exposing {len(endpoints)} REST API endpoints across {len(groups.controllers)} controllers."
+            processing_modes = "REST API Web Application / Synchronous HTTP"
+            total_progs = f"{total_files} Java Source Classes"
+            in_scope_1 = f"Automated refactoring of {total_files} Java source files."
+            in_scope_2 = f"REST API endpoint migration across {len(endpoints)} routes."
+            out_scope_2 = "UI/UX frontend design modifications."
+            arch_intro = f"{html.escape(repo_name)} employs a multi-tier layered architecture consisting of Web Controllers, Business Services, Data Repositories, and Entities."
+            ui_comp_1 = c1_name
+            ui_comp_2 = c2_name
+            ui_comp_3 = "JSON Serializer & Response Handlers"
+
+        if has_jsp and deep_view:
+            flow_1_title = f"{repo_name} JSP Screen Flow & Navigation"
+            jsp_screen_names = [j.file_name for j in deep_view.jsp_files if not j.is_fragment]
+            for j in deep_view.jsp_files:
+                if j.file_name not in jsp_screen_names:
+                    jsp_screen_names.append(j.file_name)
+            screen_1_name = jsp_screen_names[0] if len(jsp_screen_names) > 0 else "LOGIN VIEW"
+            screen_1_desc = "User Authentication & Credential Entry"
+            screen_2_name = jsp_screen_names[1] if len(jsp_screen_names) > 1 else "MAIN VIEW"
+            screen_2_desc = "Primary Navigation & Application Interface"
+            screen_3_name = jsp_screen_names[2] if len(jsp_screen_names) > 2 else "DETAIL VIEW"
+            screen_3_desc = "Item Listing & Management Actions"
+            screen_4_name = jsp_screen_names[3] if len(jsp_screen_names) > 3 else "FORM VIEW"
+            screen_4_desc = "Data Input & Action Dispatcher"
+            screen_5_name = jsp_screen_names[4] if len(jsp_screen_names) > 4 else "CONFIRMATION"
+            screen_5_desc = "Transaction Feedback & Confirmation"
+
+            if deep_view.view_flow:
+                vf1 = deep_view.view_flow[0]
+                key_flow_1_title = f"{vf1.from_view} -> {vf1.to_destination}"
+                key_flow_1_desc = f"From {vf1.from_view}: User initiates '{vf1.trigger}' -> Handled by {vf1.handler} ({vf1.service_action}) -> Dispatches to {vf1.to_destination}."
+            else:
+                key_flow_1_title = "User Authentication Flow"
+                key_flow_1_desc = "User submits credentials via login form -> LoginServlet validates credentials -> Redirects to main view."
+
+            if len(deep_view.view_flow) > 1:
+                vf2 = deep_view.view_flow[1]
+                key_flow_2_title = f"{vf2.from_view} -> {vf2.to_destination}"
+                key_flow_2_desc = f"From {vf2.from_view}: User initiates '{vf2.trigger}' -> Handled by {vf2.handler} ({vf2.service_action}) -> Dispatches to {vf2.to_destination}."
+            else:
+                key_flow_2_title = "Data Retrieval Flow"
+                key_flow_2_desc = "User navigates to list page -> Servlet queries business service -> Populates request attributes -> Renders JSP view."
+
+            if len(deep_view.view_flow) > 2:
+                vf3 = deep_view.view_flow[2]
+                key_flow_3_title = f"{vf3.from_view} -> {vf3.to_destination}"
+                key_flow_3_desc = f"From {vf3.from_view}: User initiates '{vf3.trigger}' -> Handled by {vf3.handler} ({vf3.service_action}) -> Dispatches to {vf3.to_destination}."
+            else:
+                key_flow_3_title = "Data Mutation & Action Flow"
+                key_flow_3_desc = "User submits modification form -> Servlet processes action -> Redirects to refreshed view."
+        elif has_jsf and deep_view:
+            flow_1_title = f"{repo_name} JSF Facelets Navigation Flow"
+            jsf_screen_names = [f.file_name for f in deep_view.jsf_files]
+            screen_1_name = jsf_screen_names[0] if len(jsf_screen_names) > 0 else "LOGIN VIEW"
+            screen_1_desc = "User Authentication & Facelet Form"
+            screen_2_name = jsf_screen_names[1] if len(jsf_screen_names) > 1 else "DASHBOARD"
+            screen_2_desc = "Managed Bean Component Binding"
+            screen_3_name = jsf_screen_names[2] if len(jsf_screen_names) > 2 else "DATA TABLE"
+            screen_3_desc = "UI Repeat & Data Model Rendering"
+            screen_4_name = jsf_screen_names[3] if len(jsf_screen_names) > 3 else "ENTRY FORM"
+            screen_4_desc = "JSF Converters & Validators"
+            screen_5_name = jsf_screen_names[4] if len(jsf_screen_names) > 4 else "RESULT VIEW"
+            screen_5_desc = "Navigation Outcome & Response"
+
+            if deep_view.view_flow:
+                vf1 = deep_view.view_flow[0]
+                key_flow_1_title = f"{vf1.from_view} -> {vf1.to_destination}"
+                key_flow_1_desc = f"From {vf1.from_view}: User initiates '{vf1.trigger}' -> Handled by {vf1.handler} ({vf1.service_action}) -> Navigates to {vf1.to_destination}."
+            else:
+                key_flow_1_title = "JSF Action Execution Flow"
+                key_flow_1_desc = "User triggers h:commandButton -> Invokes managed bean action method -> Returns navigation outcome rule."
+
+            if len(deep_view.view_flow) > 1:
+                vf2 = deep_view.view_flow[1]
+                key_flow_2_title = f"{vf2.from_view} -> {vf2.to_destination}"
+                key_flow_2_desc = f"From {vf2.from_view}: User initiates '{vf2.trigger}' -> Handled by {vf2.handler} ({vf2.service_action}) -> Navigates to {vf2.to_destination}."
+            else:
+                key_flow_2_title = "Component Data Binding Flow"
+                key_flow_2_desc = "JSF renders UI components -> Values resolved via EL #{bean.property} -> Data fetched from business service."
+
+            if len(deep_view.view_flow) > 2:
+                vf3 = deep_view.view_flow[2]
+                key_flow_3_title = f"{vf3.from_view} -> {vf3.to_destination}"
+                key_flow_3_desc = f"From {vf3.from_view}: User initiates '{vf3.trigger}' -> Handled by {vf3.handler} ({vf3.service_action}) -> Navigates to {vf3.to_destination}."
+            else:
+                key_flow_3_title = "Form Validation & Processing Flow"
+                key_flow_3_desc = "User posts input fields -> JSF lifecycle processes conversions and validations -> Updates model values."
+        else:
+            flow_1_title = f"{repo_name} Core Interaction Flow"
+            screen_1_name = "AUTH API"
+            screen_1_desc = "Authenticate user & issue JWT token"
+            screen_2_name = "REQUEST GATEWAY"
+            screen_2_desc = "Validate HTTP request & headers"
+            screen_3_name = "CONTROLLER"
+            screen_3_desc = "Route to target endpoint handler"
+            screen_4_name = "SERVICE LAYER"
+            screen_4_desc = "Execute business logic & rules"
+            screen_5_name = "PERSISTENCE"
+            screen_5_desc = "Save transaction to database"
+            key_flow_1_title = "Create & Persist Record Flow"
+            key_flow_1_desc = "User submits JSON payload -> Web Controller validates fields -> Service executes business logic -> Repository saves entity -> Returns 201 Created DTO."
+            key_flow_2_title = "Query & Filter Record Flow"
+            key_flow_2_desc = "User sends GET request with criteria -> Controller maps parameters -> Service calls Repository query -> Returns 200 OK JSON list."
+            key_flow_3_title = "Update Record Flow"
+            key_flow_3_desc = "User submits PUT update -> Controller verifies existence -> Service updates entity fields transactionally -> Returns updated DTO."
 
         return {
             "{{ORG_INITIAL}}": "J",
@@ -395,13 +590,13 @@ class GenerateTechnicalDocumentUseCase:
 
             # Technology Stack Pills
             "{{TECH_1}}": f"Java {java_ver}",
-            "{{TECH_2}}": f"Spring Boot {spring_ver}",
+            "{{TECH_2}}": tech_2,
             "{{TECH_3}}": build_tool,
-            "{{TECH_4}}": "Spring Web REST API",
-            "{{TECH_5}}": "Spring Data JPA",
-            "{{TECH_6}}": "JUnit 5 & Mockito",
-            "{{TECH_7}}": "Docker / Kubernetes",
-            "{{TECH_8}}": f"{total_files} Java Source Classes",
+            "{{TECH_4}}": tech_4,
+            "{{TECH_5}}": tech_5,
+            "{{TECH_6}}": tech_6,
+            "{{TECH_7}}": tech_7,
+            "{{TECH_8}}": tech_8,
 
             # Static Code Analysis Table
             "{{PROG_TYPE_1}}": "Java Controllers",
@@ -437,10 +632,10 @@ class GenerateTechnicalDocumentUseCase:
 
             # Chapter 1 & 2
             "{{DOC_PURPOSE_DESCRIPTION}}": f"This Technical Specification Document synthesizes the baseline architecture for repository {html.escape(repo_name)} to guide automated migration and SME review.",
-            "{{APP_PURPOSE_DESCRIPTION}}": f"The application is a {html.escape(project_type)} built with Java {html.escape(java_ver)} and {html.escape(build_tool)}, exposing {len(endpoints)} REST API endpoints across {len(groups.controllers)} controllers.",
+            "{{APP_PURPOSE_DESCRIPTION}}": app_purpose_desc,
             "{{APP_MODERNIZATION_CONTEXT}}": f"Target: Upgrade from Java {java_ver} to Java 17/21 and Spring Boot {spring_ver} to Spring Boot 3.x with automated test validation.",
-            "{{PROCESSING_MODES}}": "REST API Web Application / Synchronous HTTP",
-            "{{TOTAL_PROGRAMS}}": f"{total_files} Java Source Classes",
+            "{{PROCESSING_MODES}}": processing_modes,
+            "{{TOTAL_PROGRAMS}}": total_progs,
             "{{TOTAL_LOC}}": f"{total_loc} Lines of Code",
             "{{ORPHAN_FILES}}": "0 Orphan Files (100% Referenced)",
 
@@ -454,15 +649,15 @@ class GenerateTechnicalDocumentUseCase:
             "{{OBJECTIVE_4_TITLE}}": "Enforce Quality & Security Controls",
             "{{OBJECTIVE_4_DESC}}": "Scan for vulnerable dependencies and verify code quality metrics.",
 
-            "{{IN_SCOPE_1}}": f"Automated refactoring of {total_files} Java source files.",
-            "{{IN_SCOPE_2}}": f"REST API endpoint migration across {len(endpoints)} routes.",
+            "{{IN_SCOPE_1}}": in_scope_1,
+            "{{IN_SCOPE_2}}": in_scope_2,
             "{{IN_SCOPE_3}}": f"Dependency modernization in {html.escape(build_tool)} build manifest.",
             "{{IN_SCOPE_4}}": "JUnit 5 test suite generation and execution.",
             "{{IN_SCOPE_5}}": "JPA Entity and database schema validation.",
             "{{IN_SCOPE_6}}": "Technical Specification and Migration Reporting.",
 
             "{{OUT_SCOPE_1}}": "Third-party external database infrastructure provisioning.",
-            "{{OUT_SCOPE_2}}": "UI/UX frontend design modifications.",
+            "{{OUT_SCOPE_2}}": out_scope_2,
             "{{OUT_SCOPE_3}}": "Legacy mainframe or non-JVM language interop.",
             "{{OUT_SCOPE_4}}": "Secondary shell scripting automation.",
 
@@ -493,14 +688,14 @@ class GenerateTechnicalDocumentUseCase:
             "{{CAPABILITY_3_VALUE}}": f"Provides resilient communication and fault tolerance for {cap3}.",
 
             # Chapter 4: Architecture Overview
-            "{{ARCHITECTURE_INTRO}}": f"{html.escape(repo_name)} employs a multi-tier layered architecture consisting of Web Controllers, Business Services, Data Repositories, and Entities.",
-            "{{ACTOR_1}}": "Client REST API Consumers",
-            "{{ACTOR_2}}": "Web Browser / Mobile Clients",
-            "{{ACTOR_3}}": "Internal Microservices",
+            "{{ARCHITECTURE_INTRO}}": arch_intro,
+            "{{ACTOR_1}}": "Web Browser Clients" if (has_jsp or has_jsf) else "Client REST API Consumers",
+            "{{ACTOR_2}}": "Authenticated Enterprise Users" if (has_jsp or has_jsf) else "Web Browser / Mobile Clients",
+            "{{ACTOR_3}}": "Application Servlets / Controllers" if (has_jsp or has_jsf) else "Internal Microservices",
 
-            "{{UI_COMPONENT_1}}": c1_name,
-            "{{UI_COMPONENT_2}}": c2_name,
-            "{{UI_COMPONENT_3}}": "JSON Serializer & Response Handlers",
+            "{{UI_COMPONENT_1}}": ui_comp_1,
+            "{{UI_COMPONENT_2}}": ui_comp_2,
+            "{{UI_COMPONENT_3}}": ui_comp_3,
 
             "{{BIZ_COMPONENT_1}}": s1_name,
             "{{BIZ_COMPONENT_2}}": s2_name,
@@ -509,26 +704,30 @@ class GenerateTechnicalDocumentUseCase:
             "{{BIZ_COMPONENT_5}}": "Domain Event Processors",
 
             "{{DATA_ACCESS_1}}": r1_name,
-            "{{DATA_ACCESS_2}}": "Spring Data Interfaces",
-            "{{DATA_ACCESS_3}}": "EntityManager & Persistence Context",
+            "{{DATA_ACCESS_2}}": "Spring Data Interfaces" if not (has_jsp or has_jsf) else "Data Access Objects (DAO)",
+            "{{DATA_ACCESS_3}}": "EntityManager & Persistence Context" if not (has_jsp or has_jsf) else "Database Connection & Statement Manager",
 
             "{{DATA_STORE_1}}": e1_name,
-            "{{DATA_STORE_2}}": "JPA Relational Tables",
+            "{{DATA_STORE_2}}": "JPA Relational Tables" if not (has_jsp or has_jsf) else "Relational Tables",
             "{{DATA_STORE_3}}": "H2 / PostgreSQL / MySQL",
-            "{{DATA_STORE_4}}": "Hibernate Metadata",
+            "{{DATA_STORE_4}}": "Hibernate Metadata" if not (has_jsp or has_jsf) else "JDBC Data Source",
 
-            "{{EXT_SYSTEM_1}}": "OAuth2 / Security Provider",
+            "{{EXT_SYSTEM_1}}": "OAuth2 / Security Provider" if not (has_jsp or has_jsf) else "Servlet Security Filter",
             "{{EXT_SYSTEM_2}}": "External Audit API",
             "{{EXT_SYSTEM_3}}": "Notification Service",
 
-            "{{ARCH_PATTERN_1}}": "Layered Controller-Service-Repository Architecture",
-            "{{ARCH_PATTERN_1_DESC}}": "Decouples presentation HTTP endpoints from business services and data access repositories.",
-            "{{ARCH_PATTERN_2}}": "Dependency Injection (IoC)",
-            "{{ARCH_PATTERN_2_DESC}}": "Spring Framework container manages bean lifecycles and injects dependencies.",
-            "{{ARCH_PATTERN_3}}": "RESTful Interface & Data Transfer Objects",
-            "{{ARCH_PATTERN_3_DESC}}": "Exposes stateless HTTP REST JSON endpoints backed by DTO serialization.",
+            "{{ARCH_PATTERN_1}}": "Layered MVC Architecture" if (has_jsp or has_jsf) else "Layered Controller-Service-Repository Architecture",
+            "{{ARCH_PATTERN_1_DESC}}": "Decouples presentation view layer from request dispatchers, business logic services, and models." if (has_jsp or has_jsf) else "Decouples presentation HTTP endpoints from business services and data access repositories.",
+            "{{ARCH_PATTERN_2}}": "Front Controller / Servlet Dispatcher" if (has_jsp or has_jsf) else "Dependency Injection (IoC)",
+            "{{ARCH_PATTERN_2_DESC}}": "Centralizes HTTP request interception, session verification, and forward routing." if (has_jsp or has_jsf) else "Spring Framework container manages bean lifecycles and injects dependencies.",
+            "{{ARCH_PATTERN_3}}": "Server-Side Template & Component Rendering" if (has_jsp or has_jsf) else "RESTful Interface & Data Transfer Objects",
+            "{{ARCH_PATTERN_3_DESC}}": "Renders dynamic HTML views on the server using JSP/JSF EL and tag libraries." if (has_jsp or has_jsf) else "Exposes stateless HTTP REST JSON endpoints backed by DTO serialization.",
 
-            "{{BUSINESS_FLOW_OVERVIEW}}": f"Incoming HTTP requests are routed through {len(groups.controllers)} REST controllers to {len(groups.services)} business services, persisting state via {len(groups.repositories)} repositories.",
+            "{{BUSINESS_FLOW_OVERVIEW}}": (
+                f"Incoming HTTP requests are routed through {len(groups.controllers)} servlets/controllers to {len(groups.services)} business services, dispatching responses to {jsp_count if has_jsp else jsf_count} view templates."
+                if (has_jsp or has_jsf)
+                else f"Incoming HTTP requests are routed through {len(groups.controllers)} REST controllers to {len(groups.services)} business services, persisting state via {len(groups.repositories)} repositories."
+            ),
 
             # Chapter 5: Technical Stack
             "{{LANG_1}}": f"Java {java_ver}",
@@ -544,8 +743,8 @@ class GenerateTechnicalDocumentUseCase:
             "{{LANG_3_LOC}}": "80",
             "{{LANG_3_NOTES}}": "Application environment profiles and database configs.",
 
-            "{{RUNTIME_1}}": "Spring Embedded Tomcat Container",
-            "{{RUNTIME_1_DESC}}": "Embedded web server handling HTTP request processing and dispatching.",
+            "{{RUNTIME_1}}": "Servlet Container (Apache Tomcat / Jetty / Java EE)" if (has_jsp or has_jsf) else "Spring Embedded Tomcat Container",
+            "{{RUNTIME_1_DESC}}": "Web servlet container handling HTTP session lifecycle, servlet routing, and view rendering." if (has_jsp or has_jsf) else "Embedded web server handling HTTP request processing and dispatching.",
             "{{RUNTIME_2}}": "Java Virtual Machine (JVM)",
             "{{RUNTIME_2_DESC}}": "Runtime environment providing bytecode execution, garbage collection, and thread pooling.",
 
@@ -648,24 +847,24 @@ class GenerateTechnicalDocumentUseCase:
             "{{JOB_STREAM_DEPENDENCY_DESC}}": "Batch jobs execute asynchronously using Spring TaskScheduler and do not block online REST API traffic.",
 
             # Chapter 9: User Journey
-            "{{FLOW_1_TITLE}}": f"{repo_name} Core Interaction Flow",
-            "{{SCREEN_1_NAME}}": "AUTH API",
-            "{{SCREEN_1_DESC}}": "Authenticate user & issue JWT token",
-            "{{SCREEN_2_NAME}}": "REQUEST GATEWAY",
-            "{{SCREEN_2_DESC}}": "Validate HTTP request & headers",
-            "{{SCREEN_3_NAME}}": "CONTROLLER",
-            "{{SCREEN_3_DESC}}": "Route to target endpoint handler",
-            "{{SCREEN_4_NAME}}": "SERVICE LAYER",
-            "{{SCREEN_4_DESC}}": "Execute business logic & rules",
-            "{{SCREEN_5_NAME}}": "PERSISTENCE",
-            "{{SCREEN_5_DESC}}": "Save transaction to database",
+            "{{FLOW_1_TITLE}}": flow_1_title,
+            "{{SCREEN_1_NAME}}": screen_1_name,
+            "{{SCREEN_1_DESC}}": screen_1_desc,
+            "{{SCREEN_2_NAME}}": screen_2_name,
+            "{{SCREEN_2_DESC}}": screen_2_desc,
+            "{{SCREEN_3_NAME}}": screen_3_name,
+            "{{SCREEN_3_DESC}}": screen_3_desc,
+            "{{SCREEN_4_NAME}}": screen_4_name,
+            "{{SCREEN_4_DESC}}": screen_4_desc,
+            "{{SCREEN_5_NAME}}": screen_5_name,
+            "{{SCREEN_5_DESC}}": screen_5_desc,
 
-            "{{KEY_FLOW_1_TITLE}}": "Create & Persist Record Flow",
-            "{{KEY_FLOW_1_DESC}}": "User submits JSON payload -> Web Controller validates fields -> Service executes business logic -> Repository saves entity -> Returns 201 Created DTO.",
-            "{{KEY_FLOW_2_TITLE}}": "Query & Filter Record Flow",
-            "{{KEY_FLOW_2_DESC}}": "User sends GET request with criteria -> Controller maps parameters -> Service calls Repository query -> Returns 200 OK JSON list.",
-            "{{KEY_FLOW_3_TITLE}}": "Update Record Flow",
-            "{{KEY_FLOW_3_DESC}}": "User submits PUT update -> Controller verifies existence -> Service updates entity fields transactionally -> Returns updated DTO.",
+            "{{KEY_FLOW_1_TITLE}}": key_flow_1_title,
+            "{{KEY_FLOW_1_DESC}}": key_flow_1_desc,
+            "{{KEY_FLOW_2_TITLE}}": key_flow_2_title,
+            "{{KEY_FLOW_2_DESC}}": key_flow_2_desc,
+            "{{KEY_FLOW_3_TITLE}}": key_flow_3_title,
+            "{{KEY_FLOW_3_DESC}}": key_flow_3_desc,
 
             # Chapter 10: Use Cases
             "{{UC1_TITLE}}": f"{cap1} Record Management",
@@ -1009,6 +1208,402 @@ class GenerateTechnicalDocumentUseCase:
         }
 
     @staticmethod
+    def _build_static_code_analysis_table_html(
+        groups: DocumentClassGroup,
+        deep_view: DeepViewAnalysis | None,
+        total_files: int,
+        total_loc: int,
+    ) -> str:
+        rows = [
+            ("Java Controllers / Servlets", len(groups.controllers), len(groups.controllers) * 140),
+            ("Java Services", len(groups.services), len(groups.services) * 190),
+            ("Repositories & Entities", len(groups.repositories) + len(groups.entities), (len(groups.repositories) + len(groups.entities)) * 120),
+        ]
+        if deep_view and deep_view.jsp_file_count > 0:
+            rows.append(("JSP Views", deep_view.jsp_file_count, deep_view.jsp_total_loc))
+        if deep_view and deep_view.jsf_file_count > 0:
+            rows.append(("JSF / XHTML Views", deep_view.jsf_file_count, deep_view.jsf_total_loc))
+
+        tbody_lines = []
+        for prog_type, phy_files, phy_loc in rows:
+            tbody_lines.append(
+                f"<tr><td>{html.escape(prog_type)}</td><td>{phy_files}</td><td>{phy_files}</td>"
+                f"<td>0</td><td>{phy_loc}</td><td>{phy_loc}</td><td>0</td></tr>"
+            )
+
+        return f"""<table class="static-table">
+    <thead>
+      <tr>
+        <th>Program Type</th><th>Physical Files</th><th>Used Files</th>
+        <th>Orphan Files</th><th>Physical LOC</th><th>Used LOC</th><th>Orphan LOC</th>
+      </tr>
+    </thead>
+    <tbody>
+      {"".join(tbody_lines)}
+    </tbody>
+    <tfoot>
+      <tr><td>Total</td><td>{total_files}</td><td>{total_files}</td><td>0</td><td>{total_loc}</td><td>{total_loc}</td><td>0</td></tr>
+    </tfoot>
+  </table>"""
+
+    @staticmethod
+    def _build_view_layer_analysis_section_html(deep_view: DeepViewAnalysis, repo_name: str) -> str:
+        if deep_view.jsp_file_count == 0 and deep_view.jsf_file_count == 0:
+            return ""
+
+        escaped_repo = html.escape(repo_name)
+
+        # 1. Compact Summary Table (Section 4 of prompt)
+        summary_rows = []
+        if deep_view.jsp_file_count > 0:
+            jstl_details = (
+                "JSTL tags, Expression Language, and composite fragment includes detected"
+                if any(f.has_jstl for f in deep_view.jsp_files)
+                else "Server-rendered JavaServer Pages"
+            )
+            summary_rows.append(
+                f'<tr><td><b>JSP / JSPF</b></td><td style="text-align:center">{deep_view.jsp_file_count}</td><td style="text-align:center">{deep_view.jsp_total_loc}</td>'
+                f'<td style="text-align:center"><span class="badge badge-done">Active View Layer</span></td><td>{html.escape(jstl_details)}</td></tr>'
+            )
+        else:
+            summary_rows.append(
+                '<tr><td><b>JSP / JSPF</b></td><td style="text-align:center">0</td><td style="text-align:center">0</td>'
+                '<td style="text-align:center"><span class="badge badge-low">Not Detected</span></td><td>No JSP files discovered in repository scan</td></tr>'
+            )
+
+        if deep_view.jsf_file_count > 0:
+            summary_rows.append(
+                f'<tr><td><b>JSF / XHTML</b></td><td style="text-align:center">{deep_view.jsf_file_count}</td><td style="text-align:center">{deep_view.jsf_total_loc}</td>'
+                f'<td style="text-align:center"><span class="badge badge-done">Active View Layer</span></td><td>JavaServer Faces / Facelets views</td></tr>'
+            )
+        else:
+            summary_rows.append(
+                '<tr><td><b>JSF / XHTML</b></td><td style="text-align:center">0</td><td style="text-align:center">0</td>'
+                '<td style="text-align:center"><span class="badge badge-low">Not Detected</span></td><td>No JSF Facelets or XHTML view templates discovered</td></tr>'
+            )
+
+        summary_table_html = f"""<table class="brd-table">
+  <thead>
+    <tr>
+      <th style="width:22%">View Technology</th>
+      <th style="width:14%;text-align:center">Files Detected</th>
+      <th style="width:12%;text-align:center">Physical LOC</th>
+      <th style="width:16%;text-align:center">Detection Status</th>
+      <th style="width:36%">Analysis &amp; Architecture Details</th>
+    </tr>
+  </thead>
+  <tbody>{"".join(summary_rows)}</tbody>
+</table>"""
+
+        # 2. JSP File Inventory Table (Section 5 of prompt)
+        sec_num = 2
+        jsp_inventory_html = ""
+        if deep_view.jsp_files:
+            jsp_rows = []
+            for j in deep_view.jsp_files:
+                features = []
+                if j.is_fragment:
+                    features.append("Fragment (JSPF)")
+                if j.directives:
+                    features.append(f"Directives ({', '.join(j.directives)})")
+                if j.has_jstl:
+                    features.append(f"JSTL ({', '.join(j.jstl_tags[:3]) or 'core'})")
+                if j.el_expressions:
+                    features.append(f"EL ({len(j.el_expressions)} exprs)")
+                if j.has_scriptlets:
+                    features.append(f"Scriptlets ({j.scriptlet_count})")
+                if j.includes:
+                    features.append(f"Includes ({len(j.includes)})")
+                feat_str = ", ".join(features) or "Static Markup"
+
+                refs = []
+                if j.actions:
+                    refs.append(f"Action: {', '.join(j.actions)}")
+                if j.taglibs:
+                    refs.append(f"Taglibs: {', '.join(t['prefix'] for t in j.taglibs if t.get('prefix'))}")
+                if j.links:
+                    refs.append(f"Links: {', '.join(j.links[:2])}")
+                if j.request_attributes:
+                    refs.append(f"Attrs: {', '.join(j.request_attributes[:3])}")
+                ref_str = "; ".join(refs) or "None"
+
+                jsp_rows.append(
+                    f"<tr><td><b>{html.escape(j.file_name)}</b></td>"
+                    f"<td><code>{html.escape(j.relative_path)}</code></td>"
+                    f"<td style=\"text-align:center\">{j.loc}</td>"
+                    f"<td>{html.escape(feat_str)}</td>"
+                    f"<td>{html.escape(ref_str)}</td>"
+                    f"<td>{html.escape(j.purpose)}</td></tr>"
+                )
+            jsp_inventory_html = f"""<h2>5A.{sec_num} JSP File Inventory</h2>
+<p>Catalog of all {deep_view.jsp_file_count} JavaServer Pages discovered in repository source code, including directives, tag libraries, Expression Language bindings, and actions.</p>
+<table class="brd-table">
+  <thead>
+    <tr>
+      <th style="width:15%">File</th>
+      <th style="width:25%">Repository Path</th>
+      <th style="width:7%;text-align:center">LOC</th>
+      <th style="width:18%">JSP Features</th>
+      <th style="width:16%">Dependencies / References</th>
+      <th style="width:19%">Usage / Inferred Purpose</th>
+    </tr>
+  </thead>
+  <tbody>{"".join(jsp_rows)}</tbody>
+</table>"""
+            sec_num += 1
+
+        # 3. JSF File Inventory Table (Section 6 of prompt - only if JSF exists)
+        jsf_inventory_html = ""
+        if deep_view.jsf_files:
+            jsf_rows = []
+            for f in deep_view.jsf_files:
+                comps = ", ".join(f.components[:4]) or "Standard Components"
+                beans = ", ".join(f.managed_beans[:3]) or "None"
+                el = ", ".join(f.el_expressions[:3]) or "None"
+                nav = ", ".join(f.navigation_outcomes[:2]) or "Default"
+                jsf_rows.append(
+                    f"<tr><td><b>{html.escape(f.file_name)}</b></td>"
+                    f"<td><code>{html.escape(f.relative_path)}</code></td>"
+                    f"<td style=\"text-align:center\">{f.loc}</td>"
+                    f"<td>{html.escape(comps)}</td>"
+                    f"<td>{html.escape(beans)}</td>"
+                    f"<td>{html.escape(el)}</td>"
+                    f"<td>{html.escape(nav)}</td></tr>"
+                )
+            jsf_inventory_html = f"""<h2>5A.{sec_num} JSF / XHTML File Inventory</h2>
+<table class="brd-table">
+  <thead>
+    <tr>
+      <th style="width:15%">File</th>
+      <th style="width:24%">Repository Path</th>
+      <th style="width:7%;text-align:center">LOC</th>
+      <th style="width:18%">JSF Components</th>
+      <th style="width:14%">Managed Beans</th>
+      <th style="width:12%">EL Usage</th>
+      <th style="width:10%">Navigation</th>
+    </tr>
+  </thead>
+  <tbody>{"".join(jsf_rows)}</tbody>
+</table>"""
+            sec_num += 1
+
+        trace_sec = sec_num
+        flow_sec = sec_num + 1
+        cfg_sec = sec_num + 2
+        dep_sec = sec_num + 3
+        mod_sec = sec_num + 4
+
+        # 4. View-to-Backend Traceability Matrix (Sections 9 & 10 of prompt)
+        rel_rows = []
+        for r in deep_view.relationships:
+            rel_rows.append(
+                f"<tr><td><b>{html.escape(r.view_file)}</b></td>"
+                f"<td><code>{html.escape(r.action_or_url)}</code></td>"
+                f"<td><b>{html.escape(r.servlet_or_controller)}</b></td>"
+                f"<td>{html.escape(r.service_class)}</td>"
+                f"<td>{html.escape(r.model_or_entity)}</td>"
+                f"<td>{html.escape(r.interaction_type)}</td></tr>"
+            )
+        rel_table_html = f"""<table class="brd-table">
+  <thead>
+    <tr>
+      <th style="width:15%">View Template</th>
+      <th style="width:15%">Action / Route</th>
+      <th style="width:18%">Servlet / Controller</th>
+      <th style="width:18%">Backing Service</th>
+      <th style="width:14%">Model / Entity</th>
+      <th style="width:20%">Interaction Pattern</th>
+    </tr>
+  </thead>
+  <tbody>{"".join(rel_rows) if rel_rows else '<tr><td colspan="6" class="muted">No direct form-to-servlet mappings discovered.</td></tr>'}</tbody>
+</table>"""
+
+        # 5. View Flow Cards (Section 11 of prompt)
+        flow_cards = []
+        for st in deep_view.view_flow:
+            flow_cards.append(
+                f"""<div class="api-endpoint">
+  <span class="method-badge method-post">STEP {st.step_num}</span>
+  <span class="api-path">{html.escape(st.from_view)} &rarr; {html.escape(st.handler)}</span>
+  <div class="api-desc">
+    <b>Trigger:</b> {html.escape(st.trigger)} &nbsp;|&nbsp;
+    <b>Service Operation:</b> {html.escape(st.service_action)}<br>
+    <b>Navigation Destination:</b> <code>{html.escape(st.to_destination)}</code>
+  </div>
+</div>"""
+            )
+        view_flow_html = "".join(flow_cards)
+
+        # 6. Web Configuration Analysis Table (Section 13 of prompt)
+        web_cfg_rows = []
+        for s in deep_view.web_config.servlets:
+            patterns = ", ".join(s.url_patterns) or "-"
+            fwds = f"Forwards: {', '.join(s.forward_jsps)}" if s.forward_jsps else "Direct Response"
+            web_cfg_rows.append(
+                f"<tr><td><b>{html.escape(s.servlet_name)}</b></td><td>Servlet Handler</td>"
+                f"<td><code>{html.escape(patterns)}</code></td><td>{html.escape(s.source)}</td>"
+                f"<td>{html.escape(fwds)}</td></tr>"
+            )
+        for f in deep_view.web_config.filters:
+            patterns = ", ".join(f.url_patterns) or "/*"
+            web_cfg_rows.append(
+                f"<tr><td><b>{html.escape(f.filter_name)}</b></td><td>Servlet Filter</td>"
+                f"<td><code>{html.escape(patterns)}</code></td><td>{html.escape(f.source)}</td>"
+                f"<td>Interception Filter Chain</td></tr>"
+            )
+        for wf in deep_view.web_config.welcome_files:
+            web_cfg_rows.append(
+                f"<tr><td><b>{html.escape(wf)}</b></td><td>Welcome File</td>"
+                f"<td><code>/{html.escape(wf)}</code></td><td>web.xml</td>"
+                f"<td>Default Application Entry Point</td></tr>"
+            )
+        web_cfg_table = f"""<table class="brd-table">
+  <thead>
+    <tr>
+      <th style="width:22%">Component</th>
+      <th style="width:14%">Type</th>
+      <th style="width:20%">Mappings / Pattern</th>
+      <th style="width:12%">Source</th>
+      <th style="width:32%">Configuration &amp; Target Details</th>
+    </tr>
+  </thead>
+  <tbody>{"".join(web_cfg_rows) if web_cfg_rows else '<tr><td colspan="5" class="muted">No explicit deployment descriptor components mapped.</td></tr>'}</tbody>
+</table>"""
+
+        # 7. Dependencies Table (Section 12 of prompt)
+        dep_rows = []
+        for d in deep_view.dependencies:
+            dep_rows.append(
+                f"<tr><td><b>{html.escape(d.artifact_id)}</b></td><td>{html.escape(d.group_id)}</td>"
+                f"<td style=\"text-align:center\"><code>{html.escape(d.version)}</code></td>"
+                f"<td style=\"text-align:center\">{html.escape(d.scope)}</td>"
+                f"<td><span class=\"badge badge-done\">{html.escape(d.category)}</span></td><td>{html.escape(d.source)}</td></tr>"
+            )
+        dep_table = f"""<table class="brd-table">
+  <thead>
+    <tr>
+      <th style="width:22%">Artifact ID</th>
+      <th style="width:22%">Group ID</th>
+      <th style="width:12%;text-align:center">Version</th>
+      <th style="width:10%;text-align:center">Scope</th>
+      <th style="width:18%">Category</th>
+      <th style="width:16%">Build Source</th>
+    </tr>
+  </thead>
+  <tbody>{"".join(dep_rows) if dep_rows else '<tr><td colspan="6" class="muted">Standard Container Provided Runtimes</td></tr>'}</tbody>
+</table>"""
+
+        # 8. Modernization Considerations Table (Section 19 of prompt)
+        mod_rows = []
+        for m in deep_view.modernization_considerations:
+            mod_rows.append(
+                f"<tr><td><b>{html.escape(m.category)}</b></td>"
+                f"<td>{html.escape(m.detected_construct)}</td>"
+                f"<td><code>{html.escape(m.evidence_source)}</code></td>"
+                f"<td>{html.escape(m.migration_impact)}</td>"
+                f"<td><b>{html.escape(m.target_recommendation)}</b></td></tr>"
+            )
+        mod_table = f"""<table class="brd-table">
+  <thead>
+    <tr>
+      <th style="width:18%">Modernization Dimension</th>
+      <th style="width:18%">Detected Construct</th>
+      <th style="width:16%">Source Evidence</th>
+      <th style="width:24%">Migration Impact</th>
+      <th style="width:24%">Target Modernization Recommendation</th>
+    </tr>
+  </thead>
+  <tbody>{"".join(mod_rows)}</tbody>
+</table>"""
+
+        return f"""
+<!-- ═══════════════════════════════════════════════════════════════
+     JSP / JSF VIEW LAYER ANALYSIS — PART 1 (INVENTORY & CATALOG)
+═══════════════════════════════════════════════════════════════ -->
+<div class="page" id="ch-view-analysis">
+<div class="page-inner">
+  <div class="ch-header">
+    <div class="ch-header-left">
+      <div class="ch-num">Section 5A</div>
+      <div class="ch-title">JSP / JSF View Layer Analysis</div>
+    </div>
+    <div class="ch-subtitle">Repository-grounded presentation architecture, source inventory, and runtime analysis</div>
+  </div>
+
+  <h2>5A.1 View Technology Detection &amp; Architecture Summary</h2>
+  <p>Static code inspection of repository <b>{escaped_repo}</b> analyzed the presentation view layer. Below is the ground-truth summary of view-layer technologies, file counts, physical LOC, and runtime mechanisms discovered in the source tree.</p>
+
+  {summary_table_html}
+
+  {jsp_inventory_html}
+
+  {jsf_inventory_html}
+
+</div>
+<div class="pg-watermark">{escaped_repo} Technical Document v1.0.0 &mdash; Confidential</div>
+<div class="pg-num">08A</div>
+</div><!-- /ch-view-analysis -->
+
+
+<!-- ═══════════════════════════════════════════════════════════════
+     JSP / JSF VIEW LAYER ANALYSIS — PART 2 (TRACEABILITY & FLOW)
+═══════════════════════════════════════════════════════════════ -->
+<div class="page" id="ch-view-analysis-traceability">
+<div class="page-inner">
+  <div class="ch-header">
+    <div class="ch-header-left">
+      <div class="ch-num">Section 5A (Cont.)</div>
+      <div class="ch-title">View Traceability &amp; User Navigation</div>
+    </div>
+    <div class="ch-subtitle">View-to-backend linkage and end-to-end user navigation flow</div>
+  </div>
+
+  <h2>5A.{trace_sec} View-to-Backend Architecture &amp; Traceability Matrix</h2>
+  <p>Every view component is mapped to its handling Java Servlet / Controller, backing business service, and domain model based on actual form action URLs, request dispatchers, and servlet annotations:</p>
+  {rel_table_html}
+
+  <h2>5A.{flow_sec} JSP / JSF Application View Flow &amp; User Journey</h2>
+  <p>End-to-end screen transitions and user journey derived from entry points, form submission actions, and servlet redirection paths:</p>
+  <div class="api-group">{view_flow_html}</div>
+
+</div>
+<div class="pg-watermark">{escaped_repo} Technical Document v1.0.0 &mdash; Confidential</div>
+<div class="pg-num">08B</div>
+</div><!-- /ch-view-analysis-traceability -->
+
+
+<!-- ═══════════════════════════════════════════════════════════════
+     JSP / JSF VIEW LAYER ANALYSIS — PART 3 (CONFIG & MODERNIZATION)
+═══════════════════════════════════════════════════════════════ -->
+<div class="page" id="ch-view-analysis-modernization">
+<div class="page-inner">
+  <div class="ch-header">
+    <div class="ch-header-left">
+      <div class="ch-num">Section 5A (Cont.)</div>
+      <div class="ch-title">Configuration &amp; Modernization</div>
+    </div>
+    <div class="ch-subtitle">Web deployment descriptor analysis, view dependencies, and modernization considerations</div>
+  </div>
+
+  <h2>5A.{cfg_sec} Web Configuration Analysis (web.xml &amp; Annotations)</h2>
+  <p>Deployment descriptor (<code>web.xml</code>) and servlet annotation metadata configured for this web application:</p>
+  {web_cfg_table}
+
+  <h2>5A.{dep_sec} View Layer Dependencies</h2>
+  <p>Build manifest dependencies declared for the view layer and servlet container runtime:</p>
+  {dep_table}
+
+  <h2>5A.{mod_sec} JSP / JSF Modernization Considerations</h2>
+  <p>Modernization recommendations derived strictly from the actual constructs detected in the codebase:</p>
+  {mod_table}
+
+</div>
+<div class="pg-watermark">{escaped_repo} Technical Document v1.0.0 &mdash; Confidential</div>
+<div class="pg-num">08C</div>
+</div><!-- /ch-view-analysis-modernization -->
+"""
+
+    @staticmethod
     def _build_er_grid_html(tables: list[dict[str, Any]], groups: DocumentClassGroup) -> str:
         items = tables if tables else [{"model": c.class_name, "table": c.class_name.upper(), "fields": ["id", "name", "created_at", "status"]} for c in groups.repositories[:6]]
         if not items:
@@ -1112,41 +1707,92 @@ class GenerateTechnicalDocumentUseCase:
         return "\n".join(api_groups_html)
 
     @staticmethod
-    def _build_file_guide_html(classes: list[JavaClassInfo]) -> str:
-        if not classes:
-            return '<p class="muted">No files scanned.</p>'
-
-        pkg_groups: dict[str, list[JavaClassInfo]] = {}
-        for c in classes:
-            pkg = c.package or "root"
-            pkg_groups.setdefault(pkg, []).append(c)
-
+    def _build_file_guide_html(classes: list[JavaClassInfo], deep_view: DeepViewAnalysis | None = None) -> str:
         file_groups_html = []
-        for pkg_name, c_list in list(pkg_groups.items())[:12]:
-            rows = []
-            for c in c_list[:8]:
-                role = classify_role(c).upper()
-                rows.append(f'<div class="file-row"><span class="fname">{html.escape(c.class_name)}.java</span><span class="fdesc">{html.escape(role)} - {html.escape(c.relative_path)}</span></div>')
 
+        # View layer files
+        if deep_view and deep_view.jsp_files:
+            jsp_rows = []
+            for j in deep_view.jsp_files:
+                notes = []
+                if j.has_jstl:
+                    notes.append("JSTL")
+                if j.actions:
+                    notes.append(f"Action: {', '.join(j.actions)}")
+                if j.includes:
+                    notes.append(f"{len(j.includes)} includes")
+                note_str = f" [{'; '.join(notes)}]" if notes else ""
+                jsp_rows.append(
+                    f'<div class="file-row"><span class="fname">{html.escape(j.file_name)}</span>'
+                    f'<span class="fdesc">{html.escape(j.purpose)} &mdash; {html.escape(j.relative_path)} ({j.loc} LOC{note_str})</span></div>'
+                )
             file_groups_html.append(
                 f"""<div class="file-group">
+  <div class="file-group-title">View Layer: JavaServer Pages (JSP / JSPF)</div>
+  {"".join(jsp_rows)}
+</div>"""
+            )
+
+        if deep_view and deep_view.jsf_files:
+            jsf_rows = []
+            for f in deep_view.jsf_files:
+                comps = f" [{', '.join(f.components[:3])}]" if f.components else ""
+                jsf_rows.append(
+                    f'<div class="file-row"><span class="fname">{html.escape(f.file_name)}</span>'
+                    f'<span class="fdesc">{html.escape(f.purpose)} &mdash; {html.escape(f.relative_path)} ({f.loc} LOC{comps})</span></div>'
+                )
+            file_groups_html.append(
+                f"""<div class="file-group">
+  <div class="file-group-title">View Layer: JavaServer Faces (JSF / XHTML)</div>
+  {"".join(jsf_rows)}
+</div>"""
+            )
+
+        if classes:
+            pkg_groups: dict[str, list[JavaClassInfo]] = {}
+            for c in classes:
+                pkg = c.package or "root"
+                pkg_groups.setdefault(pkg, []).append(c)
+
+            for pkg_name, c_list in list(pkg_groups.items())[:12]:
+                rows = []
+                for c in c_list[:8]:
+                    role = classify_role(c).upper()
+                    rows.append(f'<div class="file-row"><span class="fname">{html.escape(c.class_name)}.java</span><span class="fdesc">{html.escape(role)} - {html.escape(c.relative_path)}</span></div>')
+
+                file_groups_html.append(
+                    f"""<div class="file-group">
   <div class="file-group-title">Package: {html.escape(pkg_name)}</div>
   {"".join(rows)}
 </div>"""
-            )
-        return "\n".join(file_groups_html)
+                )
+
+        return "\n".join(file_groups_html) or '<p class="muted">No files scanned.</p>'
 
     @staticmethod
-    def _build_tech_stack_table_html(analysis: ProjectAnalysis, groups: DocumentClassGroup) -> str:
+    def _build_tech_stack_table_html(
+        analysis: ProjectAnalysis,
+        groups: DocumentClassGroup,
+        deep_view: DeepViewAnalysis | None = None,
+    ) -> str:
         rows = [
             ("Programming Language", f"Java {analysis.current_java_version}"),
-            ("Framework Baseline", f"Spring Boot {analysis.spring_boot_version or 'Legacy Spring'}"),
+            (
+                "Framework Baseline",
+                f"Spring Boot {analysis.spring_boot_version}"
+                if analysis.spring_boot_version
+                else ("Java EE / Servlet Container" if (deep_view and deep_view.jsp_file_count > 0) else "Java Standard Platform"),
+            ),
             ("Build Automation", analysis.build_tool),
-            ("Web / Controller Layer", f"{len(groups.controllers)} REST Controllers"),
-            ("Service Business Layer", f"{len(groups.services)} Service Classes"),
-            ("Persistence Layer", f"{len(groups.repositories)} Repositories / {len(groups.entities)} Entities"),
-            ("Test Framework", "JUnit 5 & Mockito" if analysis.has_tests else "Manual / Pending Generation"),
         ]
+        if deep_view and deep_view.detected_technologies:
+            rows.append(("Web / View Layer", ", ".join(deep_view.detected_technologies)))
+        rows.extend([
+            ("Web / Controller Layer", f"{len(groups.controllers)} Controllers / Servlets"),
+            ("Service Business Layer", f"{len(groups.services)} Service Classes"),
+            ("Persistence Layer", f"{len(groups.repositories)} Repositories / {len(groups.entities)} Entities" if (groups.repositories or groups.entities) else "In-Memory / Model State"),
+            ("Test Framework", "JUnit 5 & Mockito" if analysis.has_tests else "Manual / Pending Generation"),
+        ])
         body = "".join(f"<tr><td><b>{html.escape(k)}</b></td><td>{html.escape(v)}</td></tr>" for k, v in rows)
         return f'<table class="brd-table"><thead><tr><th>Layer</th><th>Technology Component</th></tr></thead><tbody>{body}</tbody></table>'
 

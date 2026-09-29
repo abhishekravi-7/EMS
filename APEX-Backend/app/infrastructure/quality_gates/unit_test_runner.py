@@ -7,7 +7,6 @@ from pathlib import Path
 
 import defusedxml.ElementTree as ET
 
-from app.infrastructure.java_runtime import build_tool_env
 from app.schemas.unit_test import TestExecutionDetail, UnitTestSuiteResult
 from app.shared.command_runner import resolve_executable, run_command
 

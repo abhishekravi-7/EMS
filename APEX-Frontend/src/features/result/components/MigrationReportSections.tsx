@@ -803,6 +803,7 @@ export function MigrationUnitTestSection({
         </div>
       )}
 
+
       {/* Table Heading */}
       <h5 style={{ margin: "0 0 16px 0", fontSize: 15, fontWeight: 700, color: "#0f172a" }}>
         Executed Test Method Details ({executedDetails.length} methods)
@@ -983,7 +984,6 @@ export function MigrationSonarSection({
   const vulnCount = sonarReport?.vulnerabilities || 0;
   const codeSmellsCount = sonarReport?.code_smells || 0;
   const hotspotsCount = sonarReport?.security_hotspots || 0;
-  const sonarAnalysisUrl = sonarReport?.analysis_url || migrationJob?.sonar_analysis_url || null;
 
   return (
     <div style={{ ...styles.reportSection, background: "#ffffff", border: "1px solid #eef2f6", borderRadius: 16, padding: "32px 40px", boxShadow: "0 4px 20px rgba(0,0,0,0.03)" }}>
@@ -1011,32 +1011,7 @@ export function MigrationSonarSection({
               <span style={{ padding: "6px 16px", borderRadius: 20, background: "#f1f5f9", color: "#475569", fontSize: 12, fontWeight: 700, border: "1px solid #e2e8f0" }}>Scan Mode: {migrationJob?.sonar_scan_mode || "missing_cli"}</span>
               <span style={{ padding: "6px 16px", borderRadius: 20, background: "#fff7ed", color: "#c2410c", fontSize: 12, fontWeight: 700, border: "1px solid #ffedd5" }}>Result Recorded</span>
            </div>
-           <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-              {sonarAnalysisUrl && (
-                <a
-                  href={sonarAnalysisUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{
-                    background: "#eff6ff",
-                    border: "1px solid #bfdbfe",
-                    padding: "8px 16px",
-                    borderRadius: 8,
-                    fontSize: 13,
-                    fontWeight: 700,
-                    color: "#2563eb",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    textDecoration: "none",
-                    cursor: "pointer",
-                  }}
-                >
-                  <FaShieldAlt size={13} color="#2563eb" />
-                  View Sonar Dashboard
-                  <FaExternalLinkAlt size={11} />
-                </a>
-              )}
+           <div style={{ display: "flex", gap: 12 }}>
               <button style={{ background: "#fff", border: "1px solid #cbd5e1", padding: "8px 16px", borderRadius: 8, fontSize: 13, fontWeight: 700, color: "#334155", display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}><FaDownload size={12}/> Export CSV</button>
               <button style={{ background: "#fff", border: "1px solid #cbd5e1", padding: "8px 16px", borderRadius: 8, fontSize: 13, fontWeight: 700, color: "#334155", display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}><FaDownload size={12}/> Export JSON</button>
            </div>
@@ -1181,55 +1156,26 @@ export function MigrationFossaSection({
 
   return (
     <div style={{ padding: 0 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
-        <h3 style={{ fontSize: 18, fontWeight: 800, color: "#0f172a", margin: 0, display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{ background: "#2563eb", color: "#fff", width: 28, height: 28, borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>
-            <FaShieldAlt />
-          </div>
-          FOSSA License & Dependency Scan
-        </h3>
-        {fossaAnalysisUrl && (
-          <a
-            href={fossaAnalysisUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              fontSize: 12,
-              fontWeight: 700,
-              color: "#2563eb",
-              textDecoration: "none",
-              background: "#eff6ff",
-              border: "1px solid #bfdbfe",
-              padding: "6px 12px",
-              borderRadius: 8,
-              cursor: "pointer",
-              transition: "all 0.2s ease",
-            }}
-            title="Open FOSSA compliance and dependency dashboard"
-          >
-            <span>View FOSSA Dashboard</span>
-            <FaExternalLinkAlt size={10} />
-          </a>
-        )}
-      </div>
-
-      {warningText && (
-        <div style={{ background: "#fff7ed", border: "1px solid #fdba74", color: "#9a3412", borderRadius: 12, padding: "12px 16px", marginBottom: 20, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, fontSize: 13, fontWeight: 600 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <FaExclamationTriangle style={{ color: "#f59e0b", fontSize: 16, flexShrink: 0 }} />
-            <span>{warningText}</span>
-          </div>
+       <h3 style={{ fontSize: 18, fontWeight: 800, color: "#0f172a", marginBottom: 20, display: "flex", alignItems: "center", gap: 12 }}>
+        <div style={{ background: "#2563eb", color: "#fff", width: 28, height: 28, borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>
+          <FaShieldAlt />
         </div>
-      )}
+        FOSSA License & Dependency Scan
+      </h3>
+
+      <div style={{ background: "#fff7ed", border: "1px solid #fdba74", color: "#9a3412", borderRadius: 12, padding: "12px 16px", marginBottom: 20, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, fontSize: 13, fontWeight: 600 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <FaExclamationTriangle style={{ color: "#f59e0b", fontSize: 16 }} />
+          <span>FOSSA CLI (fossa) was not found in PATH or known locations.</span>
+        </div>
+        <button style={{ background: "none", border: "none", color: "#2563eb", fontSize: 12, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+          <FaRedo /> Re-scan
+        </button>
+      </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
         <div style={{ background: "#f8fafc", border: "1px solid #eef2f6", borderRadius: 12, padding: "12px", textAlign: "center" }}>
-          <div style={{ background: badgeBg, color: badgeColor, padding: "2px 8px", borderRadius: 6, fontSize: 11, fontWeight: 800, border: `1px solid ${badgeBorder}`, marginBottom: 4, display: "inline-block" }}>
-            {statusLabel}
-          </div>
+          <div style={{ background: "#fff7ed", color: "#c2410c", padding: "2px 8px", borderRadius: 6, fontSize: 11, fontWeight: 800, border: "1px solid #ffedd5", marginBottom: 4, display: "inline-block" }}>UNAVAILABLE</div>
           <div style={{ fontSize: 11, fontWeight: 600, color: "#64748b", textTransform: "uppercase" }}>Policy Status</div>
         </div>
         {[
@@ -1241,7 +1187,7 @@ export function MigrationFossaSection({
           { label: "Outdated Packages", value: outdated, color: typeof outdated === "number" && outdated > 0 ? "#f59e0b" : "#10b981" }
         ].map((card, idx) => (
           <div key={idx} style={{ background: "#f8fafc", border: "1px solid #eef2f6", borderRadius: 12, padding: "12px", textAlign: "center" }}>
-            <div style={{ fontSize: 20, fontWeight: 800, color: card.color }}>{card.value}</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: "#10b981" }}>{card.value}</div>
             <div style={{ fontSize: 11, fontWeight: 600, color: "#64748b", textTransform: "uppercase" }}>{card.label}</div>
           </div>
         ))}

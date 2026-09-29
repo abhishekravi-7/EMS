@@ -192,5 +192,3 @@ def test_migration_execution_pipeline_start():
     result = pipeline.start("test-job-123", {"github_token": "ghp_xyz123", "target_java_version": "17"}, current_user_id=1)
     assert result is not None
     mock_use_case.prepare.assert_called_once_with("test-job-123", {"github_token": "ghp_xyz123", "target_java_version": "17"})
-
-

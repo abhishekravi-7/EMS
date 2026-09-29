@@ -39,6 +39,11 @@ class WorkspaceManager:
         if original.exists():
             logger.info("Removing existing original-repo before re-clone: %s", original.name)
             file_utils.remove_tree(original)
+            if original.exists():
+                try:
+                    original.rmdir()
+                except OSError:
+                    logger.warning("original-repo directory could not be completely removed: %s", original)
         original.parent.mkdir(parents=True, exist_ok=True)
 
     def prepare_migrated_repo(self) -> None:

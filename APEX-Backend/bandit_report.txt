@@ -19,7 +19,7 @@ Test results:
 50	                if 'rest-assured' in c or 'restassured' in c or 'mockmvc' in c: self.has_api_dep = True
 51	            except Exception:
 52	                pass
-53	
+53
 
 --------------------------------------------------
 >> Issue: [B110:try_except_pass] Try, Except, Pass detected.
@@ -30,7 +30,7 @@ Test results:
 62	                    if 'rest-assured' in c or 'restassured' in c or 'mockmvc' in c: self.has_api_dep = True
 63	                except Exception:
 64	                    pass
-65	
+65
 
 --------------------------------------------------
 >> Issue: [B110:try_except_pass] Try, Except, Pass detected.
@@ -41,7 +41,7 @@ Test results:
 94	                            self.api_classes.add(class_name.lower())
 95	                    except Exception:
 96	                        pass
-97	
+97
 
 --------------------------------------------------
 >> Issue: [B112:try_except_continue] Try, Except, Continue detected.
@@ -63,7 +63,7 @@ Test results:
 222	                if 'supertest' in deps: self.frameworks.add('Supertest')
 223	            except Exception:
 224	                pass
-225	
+225
 
 --------------------------------------------------
 >> Issue: [B110:try_except_pass] Try, Except, Pass detected.
@@ -74,7 +74,7 @@ Test results:
 234	                if 'rest-assured' in content or 'restassured' in content: self.frameworks.add('RestAssured')
 235	            except Exception:
 236	                pass
-237	
+237
 
 --------------------------------------------------
 >> Issue: [B110:try_except_pass] Try, Except, Pass detected.
@@ -85,7 +85,7 @@ Test results:
 247	                    if 'rest-assured' in content or 'restassured' in content: self.frameworks.add('RestAssured')
 248	                except Exception:
 249	                    pass
-250	
+250
 
 --------------------------------------------------
 >> Issue: [B110:try_except_pass] Try, Except, Pass detected.
@@ -96,7 +96,7 @@ Test results:
 257	                if 'pytest' in reqs: self.frameworks.add('PyTest')
 258	            except Exception:
 259	                pass
-260	                
+260
 
 --------------------------------------------------
 >> Issue: [B110:try_except_pass] Try, Except, Pass detected.
@@ -107,7 +107,7 @@ Test results:
 287	                self.skipped = 0
 288	            except Exception:
 289	                pass
-290	        
+290
 
 --------------------------------------------------
 >> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
@@ -220,7 +220,7 @@ Test results:
 772	                }
 773	            except Exception:
 774	                pass
-775	
+775
 
 --------------------------------------------------
 >> Issue: [B110:try_except_pass] Try, Except, Pass detected.
@@ -231,7 +231,7 @@ Test results:
 787	                }
 788	            except Exception:
 789	                pass
-790	
+790
 
 --------------------------------------------------
 >> Issue: [B110:try_except_pass] Try, Except, Pass detected.
@@ -253,7 +253,7 @@ Test results:
 826	                }
 827	        except Exception:
 828	            pass
-829	
+829
 
 --------------------------------------------------
 >> Issue: [B110:try_except_pass] Try, Except, Pass detected.
@@ -264,7 +264,7 @@ Test results:
 868	                paths.existing_test_state_path.unlink(missing_ok=True)
 869	        except Exception:
 870	            pass
-871	
+871
 
 --------------------------------------------------
 >> Issue: [B110:try_except_pass] Try, Except, Pass detected.
@@ -275,7 +275,7 @@ Test results:
 900	                    temp_path.replace(paths.existing_test_state_path)
 901	            except Exception:
 902	                pass
-903	
+903
 
 --------------------------------------------------
 >> Issue: [B110:try_except_pass] Try, Except, Pass detected.
@@ -297,7 +297,7 @@ Test results:
 946	                            content = f_path.read_text(encoding="utf-8", errors="ignore")
 947	                        except Exception:
 948	                            continue
-949	
+949
 
 --------------------------------------------------
 >> Issue: [B110:try_except_pass] Try, Except, Pass detected.
@@ -418,7 +418,7 @@ Test results:
 2453	                                proj_content += bgf.read_text(encoding="utf-8", errors="ignore").lower()
 2454	                            except Exception:
 2455	                                pass
-2456	
+2456
 
 --------------------------------------------------
 >> Issue: [B110:try_except_pass] Try, Except, Pass detected.
@@ -429,7 +429,7 @@ Test results:
 3205	                                self._log(job_id, "[PLAYWRIGHT] Screenshot captured")
 3206	                            except Exception:
 3207	                                pass
-3208	
+3208
 
 --------------------------------------------------
 >> Issue: [B110:try_except_pass] Try, Except, Pass detected.
@@ -440,7 +440,7 @@ Test results:
 3214	                                self._log(job_id, "[PLAYWRIGHT] Video captured")
 3215	                            except Exception:
 3216	                                pass
-3217	
+3217
 
 --------------------------------------------------
 >> Issue: [B110:try_except_pass] Try, Except, Pass detected.
@@ -451,7 +451,7 @@ Test results:
 3275	                            self._log(job_id, f"Evidence saved to ui/{sanitized_id}")
 3276	                        except Exception:
 3277	                            pass
-3278	
+3278
 
 --------------------------------------------------
 >> Issue: [B110:try_except_pass] Try, Except, Pass detected.
@@ -473,7 +473,7 @@ Test results:
 81	                            )
 82	                    except Exception:
 83	                        pass
-84	
+84
 
 --------------------------------------------------
 >> Issue: [B112:try_except_continue] Try, Except, Continue detected.
@@ -484,7 +484,7 @@ Test results:
 176	            content = path.read_text(encoding="utf-8", errors="ignore")
 177	        except Exception:
 178	            continue
-179	            
+179
 
 --------------------------------------------------
 >> Issue: [B112:try_except_continue] Try, Except, Continue detected.
@@ -495,7 +495,7 @@ Test results:
 74	                    content = filepath.read_text(encoding="utf-8", errors="ignore")
 75	                except Exception:
 76	                    continue
-77	
+77
 
 --------------------------------------------------
 >> Issue: [B112:try_except_continue] Try, Except, Continue detected.
@@ -506,7 +506,7 @@ Test results:
 195	                    content = filepath.read_text(encoding="utf-8", errors="ignore")
 196	                except Exception:
 197	                    continue
-198	
+198
 
 --------------------------------------------------
 >> Issue: [B110:try_except_pass] Try, Except, Pass detected.
@@ -528,7 +528,7 @@ Test results:
 298	                            })
 299	                    except Exception:
 300	                        pass
-301	
+301
 
 --------------------------------------------------
 >> Issue: [B110:try_except_pass] Try, Except, Pass detected.
@@ -539,7 +539,7 @@ Test results:
 240	            screenshot_available = True
 241	        except Exception:
 242	            pass
-243	
+243
 
 --------------------------------------------------
 >> Issue: [B110:try_except_pass] Try, Except, Pass detected.
@@ -550,7 +550,7 @@ Test results:
 279	                persisted_status = sdata.get("status", "IDLE")
 280	            except Exception:
 281	                pass
-282	
+282
 
 --------------------------------------------------
 >> Issue: [B110:try_except_pass] Try, Except, Pass detected.
@@ -561,7 +561,7 @@ Test results:
 303	                return json.loads(res_file.read_text(encoding="utf-8"))
 304	            except Exception:
 305	                pass
-306	
+306
 
 --------------------------------------------------
 >> Issue: [B112:try_except_continue] Try, Except, Continue detected.
@@ -572,7 +572,7 @@ Test results:
 238	                    )
 239	                except Exception:
 240	                    continue
-241	
+241
 
 --------------------------------------------------
 >> Issue: [B105:hardcoded_password_string] Possible hardcoded password: 'oauth_state'
@@ -580,9 +580,9 @@ Test results:
    CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
    More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b105_hardcoded_password_string.html
    Location: app\core\security.py:151:26
-150	
+150
 151	_OAUTH_STATE_TOKEN_TYPE = "oauth_state"
-152	
+152
 
 --------------------------------------------------
 >> Issue: [B112:try_except_continue] Try, Except, Continue detected.
@@ -593,7 +593,7 @@ Test results:
 93	                    })
 94	            except Exception:
 95	                continue
-96	
+96
 
 --------------------------------------------------
 >> Issue: [B405:blacklist] Using Element to parse untrusted XML data is known to be vulnerable to XML attacks. Replace Element with the equivalent defusedxml package, or make sure defusedxml.defuse_stdlib() is called.
@@ -622,9 +622,9 @@ Test results:
    CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
    More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b105_hardcoded_password_string.html
    Location: app\infrastructure\git\repository_cloner.py:21:14
-20	
+20
 21	_TOKEN_MASK = "***"
-22	
+22
 
 --------------------------------------------------
 >> Issue: [B105:hardcoded_password_string] Possible hardcoded password: '***'
@@ -632,9 +632,9 @@ Test results:
    CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
    More Info: https://bandit.readthedocs.io/en/1.7.6/plugins/b105_hardcoded_password_string.html
    Location: app\infrastructure\github\repo_pusher.py:19:14
-18	
+18
 19	_TOKEN_MASK = "***"
-20	
+20
 
 --------------------------------------------------
 >> Issue: [B110:try_except_pass] Try, Except, Pass detected.
@@ -656,7 +656,7 @@ Test results:
 93	                )
 94	            except Exception:
 95	                pass
-96	
+96
 
 --------------------------------------------------
 >> Issue: [B105:hardcoded_password_string] Possible hardcoded password: 'https://github.com/login/oauth/access_token'

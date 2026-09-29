@@ -621,4 +621,3 @@ class ProposedTestAnalyzer:
                     coverage["endpoints"].add(f"{verb}_{name}")
 
         return {k: list(v) for k, v in coverage.items()}
-

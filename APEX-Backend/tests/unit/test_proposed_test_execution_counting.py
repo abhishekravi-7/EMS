@@ -1,6 +1,22 @@
+"""
+Unit tests for the execution result-counting fix.
+
+Verifies that Executed / Passed / Failed / Not-Executed counts are derived
+ONLY from actual Playwright execution results, never from validation status
+or the number of valid tests available.
+
+Scenarios covered
+-----------------
+1. Source build FAILED   -> executed=0, not_executed=len(valid_tests), passed=0, failed=0
+2. Build OK + app READY + 5 Playwright results -> executed=5
+3. 5 tests selected, app UNAVAILABLE -> executed=0, app_unavailable=5, failed=0
+4. valid_count must NEVER be confused with executed_count
+5. Master inventory (108 tests) is unchanged after any execution attempt
+6. Duplicate/hallucinated tests retain their validation_status regardless of execution
+"""
+
 from __future__ import annotations
 
-import threading
 import time
 from unittest.mock import MagicMock, patch
 
@@ -244,12 +260,6 @@ def test_completion_log_reports_metrics_executed_not_len_tests_to_run(tmp_path):
     fake_file = MagicMock()
     fake_file.write_text = MagicMock()
 
-    class MockThread:
-        def __init__(self, target, daemon=False):
-            self.target = target
-        def start(self):
-            self.target()
-
     with (
         patch.object(svc, "_log", side_effect=fake_log),
         patch.object(svc, "_save_proposals"),
@@ -257,22 +267,18 @@ def test_completion_log_reports_metrics_executed_not_len_tests_to_run(tmp_path):
         patch.object(svc, "_get_results_file",          return_value=fake_file),
         patch.object(svc, "_get_baseline_results_file", return_value=fake_file),
         patch.object(svc, "get_proposed_tests",         return_value=proposals),
-        patch("app.infrastructure.workspace.workspace_paths.WorkspacePaths") as wp,
+        patch("app.application.use_cases.proposed_tests.proposed_test_service.WorkspacePaths") as wp,
         patch("app.infrastructure.build.build_validator.BuildValidator.validate", return_value=failed_build),
         patch("app.application.use_cases.proposed_tests.proposed_test_executor.resolve_app_port", return_value=8081),
-        patch.object(threading, "Thread", MockThread),
     ):
-        repo_dir = tmp_path / "repo"
-        repo_dir.mkdir(parents=True, exist_ok=True)
-        job_dir = tmp_path / job_id
-        job_dir.mkdir(parents=True, exist_ok=True)
-        wp.return_value.job_dir          = job_dir
-        wp.return_value.original_repo_dir = repo_dir
+        wp.return_value.job_dir          = tmp_path / job_id
+        wp.return_value.original_repo_dir = tmp_path / "repo"
 
-        svc.run_approved_tests(job_id, sources=["LLM"])
+        svc.run_approved_tests(job_id, {})
+        time.sleep(1.2)  # let background thread finish
 
     completion = [m for m in captured if "Baseline execution completed" in m]
-    assert completion, f"Expected a 'Baseline execution completed' log line, captured: {captured}"
+    assert completion, "Expected a 'Baseline execution completed' log line"
     msg = completion[0]
     assert "Executed: 0/" in msg, \
         f"Expected executed=0 after build failure, got: {msg!r}"

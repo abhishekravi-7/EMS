@@ -153,9 +153,9 @@ const AuthLayout: React.FC<AuthLayoutProps> = ({ children }) => {
 
               {/* Visualization Diagram (Full prominent width with stat card removed) */}
               <div className="apex-exact-visual-row" style={{ flexGrow: 1, display: 'flex', alignItems: 'center' }}>
-                <div className="apex-exact-diagram-box" style={{ 
-                  padding: '0', 
-                  display: 'flex', 
+                <div className="apex-exact-diagram-box" style={{
+                  padding: '0',
+                  display: 'flex',
                   justifyContent: 'flex-start',
                   alignItems: 'center',
                   width: '100%',

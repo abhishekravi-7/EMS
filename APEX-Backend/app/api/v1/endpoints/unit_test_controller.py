@@ -125,4 +125,3 @@ async def generate_and_run_unit_tests(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"An error occurred during test generation and execution: {exc}",
         ) from exc
-

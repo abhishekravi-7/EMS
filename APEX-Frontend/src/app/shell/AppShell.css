@@ -77,10 +77,21 @@
 }
 
 .app-shell-brand-logo-wrap {
-  width: 280px; /* Match sidebar width exactly */
+  width: auto;
   display: flex;
   align-items: center;
   flex-shrink: 0;
+}
+
+.app-shell-logo-image {
+  height: 44px;
+  width: auto;
+  max-width: none !important;
+  flex-shrink: 0 !important;
+  object-fit: contain;
+  border-radius: 8px;
+  user-select: none;
+  transition: none !important;
 }
 
 .app-shell-brand-divider {

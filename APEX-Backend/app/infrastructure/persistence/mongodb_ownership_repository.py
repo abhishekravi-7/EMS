@@ -13,10 +13,10 @@ async def get_job_owner_user_id(db: AsyncIOMotorDatabase, job_id: str) -> Option
     return doc["user_id"] if doc else None
 
 async def record_job_owner(
-    db: AsyncIOMotorDatabase, 
-    job_id: str, 
-    user_id: str, 
-    owner_name: Optional[str] = None, 
+    db: AsyncIOMotorDatabase,
+    job_id: str,
+    user_id: str,
+    owner_name: Optional[str] = None,
     owner_email: Optional[str] = None,
     repository_name: Optional[str] = None,
 ):
@@ -24,7 +24,7 @@ async def record_job_owner(
     if db is None:
         return
     update_doc = {"$set": {"user_id": str(user_id)}}
-    
+
     set_on_insert = {
         "last_updated": datetime.now(timezone.utc)
     }
@@ -32,12 +32,12 @@ async def record_job_owner(
         set_on_insert["owner_name"] = owner_name
     if owner_email is not None:
         set_on_insert["owner_email"] = owner_email
-        
+
     if repository_name is not None:
         update_doc["$set"]["repository_name"] = repository_name
     else:
         set_on_insert["repository_name"] = None
-        
+
     if set_on_insert:
         update_doc["$setOnInsert"] = set_on_insert
 

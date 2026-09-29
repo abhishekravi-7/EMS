@@ -25,7 +25,7 @@ from app.main import app
 async def test_signup_creates_unverified_user_and_verification_code(mongodb_db, monkeypatch):
     """Local signup creates temporary pending_signups record, does NOT create user in users collection, and sends 6-digit code."""
     monkeypatch.setattr("app.api.v1.endpoints.auth_controller.get_mongodb", AsyncMock(return_value=mongodb_db))
-    
+
     mock_send_email = AsyncMock(return_value=True)
     monkeypatch.setattr("app.application.services.mongodb_auth_service.send_verification_email", mock_send_email)
 
@@ -98,7 +98,7 @@ async def test_email_verification_code_flow(mongodb_db, monkeypatch):
     """Verifying email with valid 6-digit code creates user in users collection, deletes pending signup, and establishes session."""
     monkeypatch.setattr("app.api.v1.endpoints.auth_controller.get_mongodb", AsyncMock(return_value=mongodb_db))
     monkeypatch.setattr("app.infrastructure.persistence.mongodb.get_mongodb", AsyncMock(return_value=mongodb_db))
-    
+
     captured_code = None
     async def mock_email(to_email, user_name, verification_code):
         nonlocal captured_code
@@ -275,7 +275,7 @@ async def test_resend_verification_code(mongodb_db, monkeypatch):
 async def test_google_id_token_authentication(mongodb_db, monkeypatch):
     """Google ID token sign-in (One Tap/Button) verifies token, creates user, auto-verifies email, and returns session cookies."""
     monkeypatch.setattr("app.api.v1.endpoints.auth_controller.get_mongodb", AsyncMock(return_value=mongodb_db))
-    
+
     mock_claims = {
         "sub": "google-user-123456",
         "email": "google.user@gmail.com",
@@ -319,7 +319,7 @@ async def test_google_id_token_authentication(mongodb_db, monkeypatch):
 async def test_safe_account_linking_with_existing_email(mongodb_db, monkeypatch):
     """OAuth login with verified email matching an existing local account safely links without duplicating user."""
     auth_service = MongoDBAuthService(mongodb_db)
-    
+
     # 1. User created locally with verified email javaapex@linktest.com
     local_user = await mongodb_user_repository.create_user(
         mongodb_db,
@@ -653,7 +653,7 @@ async def test_github_oauth_existing_user_login_and_session(mongodb_db, monkeypa
         me_resp = await client.get("/api/auth/me", cookies=callback_resp.cookies)
         assert me_resp.status_code == 200
         me_data = me_resp.json()
-        assert me_data["id"] == user_id
+        assert str(me_data["id"]) == str(user_id)
         assert me_data["email"] == "existing.gh@domain.com"
 
         # 7. Ensure no duplicate user was created
@@ -1373,12 +1373,3 @@ async def test_github_oauth_full_flow_sets_cookies_and_allows_me_endpoint(mongod
         me_data = me_resp.json()
         assert me_data["email"] == "fullflow@domain.com"
         assert me_data["isEmailVerified"] is True
-
-
-
-
-
-
-
-
-

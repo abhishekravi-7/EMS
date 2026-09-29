@@ -77,6 +77,16 @@ export function useStrategyState(
   const [dependencyAnalysisLoading, setDependencyAnalysisLoading] = useState(false);
   const [dependencyAnalysisStatus, setDependencyAnalysisStatus] = useState<DependencyAnalysisStatus>("idle");
 
+  const [uiFrameworkTarget, setUiFrameworkTarget] = useState<"React" | "Angular">(
+    (persistedFormState as any)?.uiFrameworkTarget ?? "React"
+  );
+  const [uiFrameworkVersion, setUiFrameworkVersion] = useState<string>(
+    (persistedFormState as any)?.uiFrameworkVersion ?? ""
+  );
+  const [uiModMode, setUiModMode] = useState<string>(
+    (persistedFormState as any)?.uiModMode ?? ""
+  );
+
   function applyDetectedSourceVersion(version: string, status: "detected" | "unknown") {
     setSelectedSourceVersion(version);
     setSourceVersionStatus(status);
@@ -122,11 +132,15 @@ export function useStrategyState(
     setDependencyAnalysis,
     dependencyAnalysisLoading,
     setDependencyAnalysisLoading,
+    uiFrameworkTarget,
+    setUiFrameworkTarget,
+    uiFrameworkVersion,
+    setUiFrameworkVersion,
+    uiModMode,
+    setUiModMode,
     dependencyAnalysisStatus,
     setDependencyAnalysisStatus,
     applyDetectedSourceVersion,
     resetTargetRepoNaming,
   };
 }
-
-

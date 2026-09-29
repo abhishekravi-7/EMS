@@ -327,8 +327,7 @@ export function buildMigrationState(params: BuildMigrationStateParams): Migratio
       });
     });
   } else {
-    // If backend did not provide explicit list, adopt the canonical upgraded dependencies
-    CANONICAL_UPGRADED_DEPENDENCIES.forEach((d) => depItems.push(d));
+    // No dependency upgrade data available from backend — leave depItems empty
   }
 
   const depError = migrationJob?.error_message?.toLowerCase().includes("dependency")

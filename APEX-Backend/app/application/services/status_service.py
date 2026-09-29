@@ -142,9 +142,7 @@ class MigrationReportStore:
         sanitized = migration_log_sanitizer.sanitize_lines(lines)
         if not sanitized:
             return
-        with _CACHE_LOCK:
-            report = self.read() or {}
-            existing = report.get("logLines") or []
-            report["logLines"] = existing + [line for line in sanitized if line not in existing]
-            self.write(report, force_db=False)
-
+        report = self.read() or {}
+        existing = report.get("logLines") or []
+        report["logLines"] = existing + [line for line in sanitized if line not in existing]
+        self.write(report, force_db=False)

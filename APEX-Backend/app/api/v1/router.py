@@ -36,4 +36,3 @@ api_router.include_router(existing_test_report_controller.router)
 api_router.include_router(proposed_test_controller.router)
 api_router.include_router(admin_settings_controller.router)
 api_router.include_router(user_settings_controller.router)
-

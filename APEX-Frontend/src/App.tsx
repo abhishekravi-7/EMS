@@ -7,10 +7,9 @@ import { SidebarProvider } from "@/shared/context/SidebarContext";
 import "./App.css";
 
 const MigrationWizardPage = lazy(() => import("@/features/wizard/pages/MigrationWizardPage"));
-//const LandingPage = lazy(() => import("@/features/auth/pages/LandingPage"));
+// const LandingPage = lazy(() => import("@/features/auth/pages/LandingPage"));
 const SignUpPage = lazy(() => import("@/features/auth/pages/SignUpPage"));
 const SignInPage = lazy(() => import("@/features/auth/pages/SignInPage"));
-const ResetPasswordPage = lazy(() => import("@/features/auth/pages/ResetPasswordPage"));
 const VerifyEmailPage = lazy(() => import("@/features/auth/pages/VerifyEmailPage"));
 import AdminConsolePage from "@/features/admin/pages/AdminConsolePage";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
@@ -20,25 +19,21 @@ export default function App() {
   return (
     <AuthProvider>
       <SidebarProvider>
-              <ChatbotProvider>
-                <BrowserRouter>
-                  <AppShell>
-                  <Suspense
-                    fallback={
-                      <div
-                        style={{
-                          minHeight: "60vh",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          color: "#475569",
-                          fontSize: 16,
-                          fontWeight: 600,
-                        }}
-                      >
-                        Loading migration workspace...
-                      </div>
-                    }
+        <ChatbotProvider>
+          <BrowserRouter>
+            <AppShell>
+              <Suspense
+                fallback={
+                  <div
+                    style={{
+                      minHeight: "60vh",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      color: "#475569",
+                      fontSize: 16,
+                      fontWeight: 600,
+                    }}
                   >
                     <Routes>
                       {/* <Route path="/" element={<LandingPage />} /> */}

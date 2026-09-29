@@ -32,6 +32,8 @@ import { QualityCheckDetailsModal } from "./QualityCheckDetailsModal";
 import { MigrationStepper, type MigrationStepItem as StepperStepItem } from "./MigrationStepper";
 import { displayError } from "@/shared/utils/llmError";
 import "./MigrationAnimationView.css";
+import { getMigrationElapsedSeconds } from "../utils/migrationTiming";
+
 
 export interface MigrationStepConfig {
   id: number;
@@ -429,7 +431,7 @@ export function MigrationAnimationView({
 
   // Live Elapsed Timer
   const [startTime] = useState<number>(() => Date.now());
-  const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
+
 
   // 5-Second Automatic Navigation State & Refs
   const [redirectCountdown, setRedirectCountdown] = useState<number | null>(null);
@@ -457,7 +459,7 @@ export function MigrationAnimationView({
   // Backend Status Detection & Genuine Migration Status
   const backendStatus = (migrationJob?.status || "").toLowerCase();
   const isBackendFailed = backendStatus === "failed" || Boolean(migrationJob?.error_message);
-  const isBackendCompleted = backendStatus === "completed" || backendStatus === "success";
+  const isBackendCompleted = backendStatus === "completed" || backendStatus === "success" || (progressPercent >= 100 && backendStatus !== "running" && backendStatus !== "queued");
 
   // Overall Genuine Completion Condition
   const isAllComplete = isBackendCompleted && !isBackendFailed;
@@ -529,13 +531,18 @@ export function MigrationAnimationView({
     progressPercent,
   ]);
 
+  const [localTick, setLocalTick] = useState<number>(() => Date.now());
   useEffect(() => {
     if (isAllComplete || isBackendFailed) return;
     const interval = setInterval(() => {
-      setElapsedSeconds(Math.floor((Date.now() - startTime) / 1000));
+      setLocalTick(Date.now());
     }, 1000);
     return () => clearInterval(interval);
-  }, [isAllComplete, isBackendFailed, startTime]);
+  }, [isAllComplete, isBackendFailed]);
+
+  const elapsedSeconds = useMemo(() => {
+    return getMigrationElapsedSeconds(migrationJob, localTick, startTime);
+  }, [migrationJob, localTick, startTime]);
 
   const formattedElapsed = useMemo(() => {
     const mins = Math.floor(elapsedSeconds / 60);

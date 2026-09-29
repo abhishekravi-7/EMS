@@ -126,4 +126,3 @@ async def verify_id_token(credential: str) -> GoogleUserProfile:
         full_name=id_info.get("name"),
         profile_image=id_info.get("picture"),
     )
-

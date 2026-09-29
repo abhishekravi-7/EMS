@@ -7,6 +7,7 @@ import type {
   MicroserviceEligibilityResult,
   RepoFile,
   SpringBootConversionEligibility,
+  FrameworkRecommendations,
 } from "@/shared/types/domain";
 
 /* -------------------------------------------------------------------------- */
@@ -56,6 +57,10 @@ export interface DiscoveryProject {
   configFiles?: string[];
   otherFileCount?: number;
   otherFiles?: string[];
+  jspFileCount?: number;
+  jsfFileCount?: number;
+  jspFiles?: string[];
+  jsfFiles?: string[];
   totalFileCount?: number;
   defaultBranch?: string;
   buildWarning?: string | null;
@@ -72,6 +77,7 @@ export interface DiscoveryProject {
   springBootUpgradeEligible?: boolean;
   eligibilityReason?: string;
   springBootConversion?: SpringBootConversionEligibility;
+  frameworkRecommendations?: FrameworkRecommendations;
   frameworks?: string[];
   discoveryStages?: {
     repositoryMap?: {
@@ -196,22 +202,43 @@ export function mapDiscoveryToRepoAnalysis(response: DiscoveryResponse): RepoAna
     versionSource: dep.versionSource,
   }));
 
-  return {
-    name: repository.repoName,
-    full_name: `${repository.owner}/${repository.repoName}`,
-    default_branch: project.defaultBranch || "main",
-    language: "Java",
-    build_tool: normalizeBuildTool(project.buildTool),
-    java_version: javaVersion,
-    java_version_from_build: javaVersion,
-    spring_boot_version: project.springBootVersion ?? null,
-    java_files: project.javaFiles ?? (project as any).java_files ?? [],
-    java_file_count: project.javaFileCount ?? (project.javaFiles?.length || 0),
-    config_files: project.configFiles ?? (project as any).config_files ?? [],
-    config_file_count: project.configFileCount ?? (project.configFiles?.length || 0),
-    other_files: project.otherFiles ?? (project as any).other_files ?? [],
-    other_file_count: project.otherFileCount ?? (project.otherFiles?.length || 0),
-    total_file_count: project.totalFileCount,
+    const rawOtherFiles: string[] = project.otherFiles ?? (project as any).other_files ?? [];
+    const cleanOtherFiles = rawOtherFiles.filter((f: string) => {
+      const lower = (typeof f === "string" ? f : "").toLowerCase();
+      return (
+        !lower.endsWith(".jsp") &&
+        !lower.endsWith(".jspf") &&
+        !lower.endsWith(".jspx") &&
+        !lower.endsWith(".xhtml") &&
+        !lower.endsWith(".jsf")
+      );
+    });
+    const cleanOtherCount =
+      cleanOtherFiles.length !== rawOtherFiles.length
+        ? cleanOtherFiles.length
+        : (project.otherFileCount ?? cleanOtherFiles.length);
+
+    return {
+      name: repository.repoName,
+      full_name: `${repository.owner}/${repository.repoName}`,
+      default_branch: project.defaultBranch || "main",
+      language: "Java",
+      build_tool: normalizeBuildTool(project.buildTool),
+      java_version: javaVersion,
+      java_version_from_build: javaVersion,
+      spring_boot_version: project.springBootVersion ?? null,
+      java_files: project.javaFiles ?? (project as any).java_files ?? [],
+      java_file_count: project.javaFileCount ?? (project.javaFiles?.length || 0),
+      config_files: project.configFiles ?? (project as any).config_files ?? [],
+      config_file_count: project.configFileCount ?? (project.configFiles?.length || 0),
+      other_files: cleanOtherFiles,
+      other_file_count: cleanOtherCount,
+      total_file_count: project.totalFileCount,
+      jsp_count: project.jspFileCount,
+      jsf_count: project.jsfFileCount,
+      jsp_files: project.jspFiles ?? [],
+      jsf_files: project.jsfFiles ?? [],
+      view_technologies: (project as any).viewTechnologies ?? (project as any).view_technologies ?? undefined,
     has_tests: Boolean(project.hasTests),
     dependencies,
     api_endpoints: project.apiEndpoints ?? [],
@@ -227,8 +254,11 @@ export function mapDiscoveryToRepoAnalysis(response: DiscoveryResponse): RepoAna
       has_build_gradle_kts: Boolean(project.detectedFiles?.buildGradleKts),
       has_src_main: Boolean(project.sourceLayout?.hasSrcMain),
       has_src_test: Boolean(project.sourceLayout?.hasSrcTest),
+      jsp_count: project.jspFileCount,
+      jsf_count: project.jsfFileCount,
     },
     spring_boot_eligibility: springBootEligibility,
+    framework_recommendations: project.frameworkRecommendations,
     discovery_stages: project.discoveryStages,
   };
 }
@@ -663,4 +693,3 @@ export async function getDashboardStats(jobId: string): Promise<DashboardStatsRe
     "Failed to fetch dashboard statistics"
   );
 }
-

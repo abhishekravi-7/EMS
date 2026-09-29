@@ -39,7 +39,6 @@ from app.infrastructure.migration_engine.change_analyzer import ChangeAnalysis, 
 from app.infrastructure.migration_engine.ast_rule_mapper import (
     _parse_major,
 )
-from app.infrastructure.analyzers.junit_analyzer import JavaASTAnalyzer
 from app.infrastructure.persistence.job_repository import JobRepository
 from app.infrastructure.quality_gates.quality_gate_runner import QualityGateRunner
 from app.infrastructure.workspace.workspace_manager import WorkspaceManager
@@ -367,17 +366,7 @@ class StartMigrationUseCase:
                 status=MigrationStatus.RUNNING.value,
                 log_message="[CODE VERSION] Preparing workspace and analyzing Java version compatibility...",
             )
-            logger.info("[MIGRATION WORKER] Step 1 started for job %s", job_id)
             WorkspaceManager(paths).prepare_migrated_repo()
-            pom_p = paths.migrated_repo_dir / "pom.xml"
-            gradle_p = paths.migrated_repo_dir / "build.gradle"
-            gradle_kts_p = paths.migrated_repo_dir / "build.gradle.kts"
-            if pom_p.exists():
-                store.append_logs(["[PREPARE] Verified pom.xml build file present."])
-            elif gradle_p.exists() or gradle_kts_p.exists():
-                store.append_logs(["[PREPARE] Verified build.gradle build file present."])
-            else:
-                store.append_logs(["[PREPARE] Notice: No standard pom.xml or build.gradle found in repository."])
             store.append_logs([f"[CODE VERSION] Target Java version configured: Java {target_java}."])
             store.update(progressPercent=16)
 
@@ -483,15 +472,10 @@ class StartMigrationUseCase:
             # --- Step 5: Automatically generate and run Unit Test Suite ---
             if report.get("runTests"):
                 try:
-                    store.append_logs([
-                        "[QUALITY CHECK] ===== AUTOMATED UNIT TEST SUITE EXECUTION =====",
-                        "[JUnit] JUnit test generation started for migrated repository...",
-                    ])
-                    logger.info("[JUnit] JUnit test generation started for migrated repository: %s", paths.migrated_repo_dir)
+                    store.append_logs(["[QUALITY CHECK] ===== AUTOMATED UNIT TEST SUITE EXECUTION ====="])
                     import asyncio
                     from app.application.use_cases.run_unit_tests import RunUnitTestSuiteUseCase
                     from app.schemas.unit_test import TestExecutionDetail, UnitTestGenerateAndRunRequest, UnitTestSuiteResult
-                    from app.infrastructure.analyzers.junit_analyzer import JavaASTAnalyzer
                     from app.infrastructure.analyzers.junit_prompt_compliance_analyzer import JUnitPromptComplianceAnalyzer
                     from app.infrastructure.quality_gates.unit_test_runner import UnitTestRunner
                     from app.infrastructure.quality_gates.jacoco_service import JaCoCoService
@@ -565,7 +549,6 @@ class StartMigrationUseCase:
                     req = UnitTestGenerateAndRunRequest(
                         job_id=job_id,
                         project_dir=str(paths.migrated_repo_dir),
-                        java_version=str(result.effective_target_java_version or target_java or ""),
                         relative_source_path="",
                         build_tool="maven" if (paths.migrated_repo_dir / "pom.xml").exists() else "gradle",
                         enable_validation_agent=True,
@@ -601,12 +584,6 @@ class StartMigrationUseCase:
                     mig_repo = paths.migrated_repo_dir
                     orig_repo = paths.original_repo_dir if paths.original_repo_dir.exists() else mig_repo
                     if test_result is None or test_timed_out:
-                        target_major_val = None
-                        if target_java:
-                            try:
-                                target_major_val = int(str(target_java).strip())
-                            except ValueError:
-                                pass
                         surefire_dir = mig_repo / "target" / "surefire-reports" if req.build_tool == "maven" else mig_repo / "build" / "test-results" / "test"
                         runner_inst = getattr(unit_test_use_case, "_runner", None) or UnitTestRunner()
                         parsed_sf = runner_inst.parse_junit_reports(surefire_dir, exit_code=1 if test_timed_out else 0) if surefire_dir.exists() else None
@@ -624,11 +601,11 @@ class StartMigrationUseCase:
                                 from app.infrastructure.quality_gates.unit_test_runner import build_tool_env
                                 is_win = sys.platform == "win32"
                                 exec_cmd_name = "mvn.cmd" if is_win else "mvn"
-                                subprocess.run([exec_cmd_name, "org.jacoco:jacoco-maven-plugin:0.8.13:report", "-Dgit.commit.id.skip=true"], cwd=mig_repo, timeout=120, env=build_tool_env(target_major_val), capture_output=True)
+                                subprocess.run([exec_cmd_name, "org.jacoco:jacoco-maven-plugin:0.8.13:report", "-Dgit.commit.id.skip=true"], cwd=mig_repo, timeout=120, env=build_tool_env(None), capture_output=True)
                             except Exception as j_err:
                                 store.append_logs([f"[JACOCO] Report generation failed: {j_err}"])
 
-                        cov_sum = JaCoCoService.get_coverage_summary(mig_repo, target_major=target_major_val)
+                        cov_sum = JaCoCoService.get_coverage_summary(mig_repo)
                         is_cov_av = bool(cov_sum.get("available") and cov_sum.get("line_coverage_pct") is not None)
                         
                         test_result = UnitTestSuiteResult(
@@ -753,9 +730,6 @@ class StartMigrationUseCase:
 
                     # Structured logging for verified test execution and JaCoCo coverage
                     log_entries = [
-                        "[JUnit] JUnit compilation started",
-                        "[JUnit] JUnit execution started",
-                        f"[JUnit] Surefire results collected: total={actual_tests_run}, passed={actual_tests_passed}, failed={actual_tests_failed}, skipped={actual_tests_skipped}",
                         "[JUnit] Test execution completed",
                         f"[JUnit] Tests run: {actual_tests_run}",
                         f"[JUnit] Passed: {actual_tests_passed}",
@@ -776,13 +750,12 @@ class StartMigrationUseCase:
                     if orig_cov.get("available") and orig_cov.get("line_coverage_pct") is not None:
                         log_entries.append(f"[JaCoCo] Original line coverage: {orig_cov.get('line_coverage_pct')}%")
                     
-                    log_entries.append("[JACOCO] JaCoCo generation started")
                     if final_cov.get("exec_path"):
                         log_entries.append(f"[JACOCO] Execution data found: {final_cov.get('exec_path')}")
 
                     if final_available:
                         if final_cov.get("report_path"):
-                            log_entries.append(f"[JACOCO] JaCoCo XML generated: {final_cov.get('report_path')}")
+                            log_entries.append(f"[JACOCO] XML report generated: {final_cov.get('report_path')}")
                         log_entries.append("[JACOCO] Coverage parsed")
                         log_entries.append(f"[JACOCO] Line coverage: {final_line_cov}%")
                         log_entries.append(f"[JACOCO] Branch coverage: {final_branch_cov}%")
@@ -796,8 +769,6 @@ class StartMigrationUseCase:
                     if cov_improv.get("text"):
                         log_entries.append(f"[JACOCO] Coverage improvement: {cov_improv.get('text')}")
 
-                    log_entries.append("[REPORT] Unit Test Report generated")
-                    log_entries.append("[REPORT] Results persisted")
                     store.append_logs(log_entries)
 
                     publish_target_java = result.effective_target_java_version or target_java
@@ -1516,11 +1487,8 @@ class StartMigrationUseCase:
                     fossa_real_scan=result.fossa.real_scan,
                     fossa_analysis_url=result.fossa.analysis_url,
                     fossa_project_url=result.fossa.analysis_url,
- 
                     fossa_project_locator=result.fossa.project_locator,
- 
                     fossa_revision=result.fossa.revision,
- 
                     fossa_api_status=result.fossa.api_status,
                     fossa_error_message=result.fossa.error_message,
                     fossa_report=result.fossa.report,

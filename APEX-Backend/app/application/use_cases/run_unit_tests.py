@@ -170,17 +170,10 @@ class RunUnitTestSuiteUseCase:
             last_result: UnitTestSuiteResult | None = None
 
             for attempt in range(max_retries):
-                target_major = None
-                if req.java_version:
-                    try:
-                        target_major = int(str(req.java_version).strip())
-                    except ValueError:
-                        pass
                 run_result = self._runner.run(
                     project_dir=project_dir,
                     build_tool=req.build_tool,
                     target_class_name=analysis.target_class,
-                    target_major=target_major,
                 )
                 run_result.generated_code = generated_code
                 run_result.generated_test_file_path = str(generated_file_path.relative_to(project_dir))
@@ -306,6 +299,10 @@ class RunUnitTestSuiteUseCase:
 
             target_files = self.discover_target_classes(project_dir)
 
+
+            if not target_files:
+                return self._runner.run(project_dir=project_dir, build_tool=req.build_tool)
+
             # Analyze dynamic testing prompt if provided
             effective_prompt = combine_junit_prompts(
                 selected_prompt_ids=req.selected_predefined_prompts,
@@ -426,6 +423,7 @@ class RunUnitTestSuiteUseCase:
             known_generated_classes: set[str] = set()
 
             logger.info("[JUnit] JUnit test generation started for %d target class(es)", len(target_files))
+
 
             for target_file in target_files:
                 target_class = target_file.stem
@@ -670,6 +668,7 @@ class RunUnitTestSuiteUseCase:
                     logger.warning(f"Error computing prompt compliance in execute_project_suite: {comp_err}")
 
             return final_res
+
         finally:
             if db:
                 self._generator._chat_llm = original_chat

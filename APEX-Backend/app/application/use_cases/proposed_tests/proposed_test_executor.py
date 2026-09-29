@@ -228,7 +228,7 @@ class ProposedTestExecutor:
         method = spec.method.upper() if spec else "GET"
         raw_endpoint = spec.endpoint if spec else "/"
         expected_status = spec.expected_status if spec else 200
-        
+
         # 1. Resolve path parameters before execution
         resolved_endpoint = self._resolve_path_params(raw_endpoint, test.test_data, spec)
         full_url = f"{self.base_url.rstrip('/')}/{resolved_endpoint.lstrip('/')}"
@@ -289,7 +289,7 @@ class ProposedTestExecutor:
 
                         content_type = response_headers.get("content-type", "").lower()
                         is_html_response = "text/html" in content_type or response_text.lstrip().startswith("<!DOCTYPE") or response_text.lstrip().startswith("<!doctype") or response_text.lstrip().startswith("<html")
-                        
+
                         # Detect HTML login / redirect responses
                         if is_html_response:
                             lower_text = response_text.lower()
@@ -350,7 +350,7 @@ class ProposedTestExecutor:
         # Assertion 2: Content-Type & HTML Authentication Redirect Check
         # If the test expected JSON or successful API response, but got an unexpected HTML login page
         expected_content_type = (spec.headers.get("Content-Type") or spec.headers.get("content-type") or "application/json").lower() if (spec and spec.headers) else "application/json"
-        
+
         if is_html_response and html_login_detected:
             # Check if this endpoint is supposed to return an HTML login page or if it was expecting an API contract
             if "application/json" in req_headers.get("Accept", "") or "json" in expected_content_type or expected_status in [200, 201, 204]:

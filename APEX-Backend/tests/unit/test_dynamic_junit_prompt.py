@@ -54,7 +54,7 @@ def test_schema_models():
 
 def test_prompt_templates():
     user_prompt = "Test invalid credentials and expired token scenarios"
-    
+
     analysis_prompt = build_testing_prompt_analysis_prompt(user_prompt, project_context="AuthService.java")
     assert user_prompt in analysis_prompt
     assert "AuthService.java" in analysis_prompt
@@ -90,7 +90,7 @@ async def test_junit_generator_analyze_prompt():
         "scenarios": ["Zero amount discount", "Negative price input"],
         "edge_cases": ["Floating point rounding"]
     }"""
-    
+
     async def mock_stream(*args, **kwargs):
         yield mock_llm_json
 
@@ -104,7 +104,7 @@ async def test_junit_generator_analyze_prompt():
 async def test_use_case_backward_compatibility():
     """Ensure that when no testing_prompt is provided, RunUnitTestSuiteUseCase runs standard JUnit execution."""
     use_case = RunUnitTestSuiteUseCase()
-    
+
     mock_runner_result = UnitTestSuiteResult(
         build_tool="maven",
         passed_count=2,
@@ -128,6 +128,3 @@ async def test_use_case_backward_compatibility():
             res = await use_case.execute(req)
             assert res.prompt_analysis is None
             assert res.prompt_coverage_evaluation is None
-
-
-

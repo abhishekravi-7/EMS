@@ -100,10 +100,10 @@ class DependencyAnalyzer:
         try:
             run_command(cmd_tree, cwd=project_root, timeout=120)
             run_command(cmd_pom, cwd=project_root, timeout=120)
-            
+
             tree_content = tree_file.read_text(encoding="utf-8") if tree_file.exists() else ""
             pom_content = pom_file.read_text(encoding="utf-8") if pom_file.exists() else ""
-            
+
             tree_file.unlink(missing_ok=True)
             pom_file.unlink(missing_ok=True)
 
@@ -115,10 +115,10 @@ class DependencyAnalyzer:
     def _parse_maven_outputs(self, tree_content: str, pom_content: str) -> list[Dependency]:
         """Parse dependency:tree and help:effective-pom to extract every dependency."""
         resolved_deps: dict[tuple[str, str, str, str, str], Dependency] = {}
-        
+
         current_module = "root"
         lines = tree_content.splitlines()
-        
+
         # 0. Identify internal modules
         internal_modules = set()
         for line in lines:
@@ -127,12 +127,12 @@ class DependencyAnalyzer:
             if m: internal_modules.add((m.group(1), m.group(2)))
 
         dep_re = re.compile(r"([\w.\-]+):([\w.\-]+):([\w.\-]+):(?:([\w.\-]+):)?([\w.\-]+):([\w.\-]+)$")
-        
+
         for line in lines:
             info_content = line.split("[INFO]", 1)[1] if "[INFO]" in line else line
             clean_line = info_content.strip()
             if not clean_line: continue
-            
+
             if not any(m in info_content[:10] for m in ["+-", "\\-", "|"]):
                 module_match = re.match(r"^([\w.\-]+):([\w.\-]+):pom:([\w.\-]+)$", clean_line)
                 if module_match:
@@ -142,21 +142,21 @@ class DependencyAnalyzer:
             dep_match = dep_re.search(clean_line)
             if dep_match:
                 gid, aid, dtype, classifier, version, scope = dep_match.groups()
-                
+
                 marker_idx = info_content.find("+-")
                 if marker_idx == -1: marker_idx = info_content.find("\\-")
-                
+
                 # Heuristic for direct vs transitive
                 prefix = info_content[:marker_idx] if marker_idx != -1 else info_content
                 is_direct = "|" not in prefix and marker_idx != -1
-                
+
                 key = (current_module, gid, aid, scope, classifier or "")
-                
+
                 if key not in resolved_deps:
                     v_source = "TRANSITIVE" if not is_direct else "UNKNOWN"
                     if (gid, aid) in internal_modules:
                          v_source = "INTERNAL_MODULE"
-                         
+
                     resolved_deps[key] = Dependency(
                         group_id=gid,
                         artifact_id=aid,
@@ -177,17 +177,17 @@ class DependencyAnalyzer:
                 for el in root.iter():
                     if isinstance(el.tag, str) and "}" in el.tag:
                         el.tag = el.tag.split("}", 1)[1]
-                
+
                 for dep in resolved_deps.values():
                     if dep.version_source == "UNKNOWN":
                          source = "DIRECT"
                          if dep.group_id.startswith("org.springframework.boot"):
                               source = "SPRING_BOOT_PARENT"
-                         
+
                          object.__setattr__(dep, 'version_source', source)
             except:
                 pass
-        
+
         return list(resolved_deps.values())
 
     # -- Gradle -------------------------------------------------------------- #

@@ -105,7 +105,7 @@ export default function Header({ showBackButton = false, onBackToHome }: HeaderP
         >
           Support Us
         </a>
-        
+
         {showBackButton && onBackToHome ? (
           <button
             style={styles.backButton}
@@ -115,7 +115,7 @@ export default function Header({ showBackButton = false, onBackToHome }: HeaderP
             ← Home
           </button>
         ) : null}
-        
+
         {/* Profile Icon */}
         <button
           style={styles.iconButton}

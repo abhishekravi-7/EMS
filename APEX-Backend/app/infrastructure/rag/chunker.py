@@ -272,7 +272,7 @@ def chunk_java_file(content: str, file_path: str, version: str) -> list[Knowledg
     if not lines:
         return []
     chunks = []
-    
+
     # 1. Extract package and imports
     package_imports_lines = []
     first_class_line_idx = -1
@@ -288,9 +288,9 @@ def chunk_java_file(content: str, file_path: str, version: str) -> list[Knowledg
                 break
         if stripped.startswith(("package ", "import ")):
             package_imports_lines.append(line)
-            
+
     header = "\n".join(package_imports_lines) if package_imports_lines else ""
-    
+
     # If no class declaration was found, index the whole file
     if first_class_line_idx == -1:
         chunks.append(KnowledgeChunk(
@@ -311,29 +311,29 @@ def chunk_java_file(content: str, file_path: str, version: str) -> list[Knowledg
     class_name = "UnknownClass"
     current_block_lines = []
     block_start_line = 1
-    
+
     for idx in range(first_class_line_idx, len(lines)):
         line = lines[idx]
         current_block_lines.append(line)
-        
+
         # Simple clean line ignoring brackets inside strings or comments
         clean_line = line
         if "//" in clean_line:
             clean_line = clean_line.split("//")[0]
         clean_line = re.sub(r'".*?"', '""', clean_line)
         clean_line = re.sub(r"'.*?'", "''", clean_line)
-        
+
         open_brackets = clean_line.count("{")
         close_brackets = clean_line.count("}")
-        
+
         if not in_class:
             class_match = re.search(r'(?:class|interface|enum)\s+([A-Za-z0-9_]+)', line)
             if class_match:
                 class_name = class_match.group(1)
                 in_class = True
-                
+
         bracket_count += open_brackets - close_brackets
-        
+
         if bracket_count <= 0 and in_class:
             text = (header + "\n" + "\n".join(current_block_lines)).strip()
             chunks.append(KnowledgeChunk(
@@ -373,7 +373,7 @@ def chunk_java_file(content: str, file_path: str, version: str) -> list[Knowledg
             ))
             current_block_lines = []
             block_start_line = idx + 2
-            
+
     if current_block_lines:
         text = (header + "\n" + "\n".join(current_block_lines)).strip()
         chunks.append(KnowledgeChunk(
@@ -387,7 +387,7 @@ def chunk_java_file(content: str, file_path: str, version: str) -> list[Knowledg
                 "end_line": len(lines)
             }
         ))
-        
+
     return chunks
 
 
@@ -407,7 +407,7 @@ def chunk_text_file(content: str, file_path: str, version: str, chunk_type: str 
                 "end_line": len(lines)
             }
         )]
-        
+
     chunks = []
     chunk_size = 40
     overlap = 10
@@ -429,4 +429,3 @@ def chunk_text_file(content: str, file_path: str, version: str, chunk_type: str 
             ))
         i += chunk_size - overlap
     return chunks
-

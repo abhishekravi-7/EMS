@@ -53,6 +53,7 @@ class ChatLLM:
         system_prompt: str,
         user_prompt: str,
         endpoint: str | None = None,
+        first_token_timeout: float | None = None,
         max_tokens: int | None = None,
     ) -> AsyncIterator[str]:
         # Require Groq to be configured in User Settings
@@ -65,7 +66,7 @@ class ChatLLM:
 
         errors: list[tuple[str, Exception]] = []
         total_start = time.time()
-        fallback_timeout = settings.chat_llm_fallback_timeout_seconds
+        fallback_timeout = first_token_timeout or settings.chat_llm_fallback_timeout_seconds
 
         for i, provider in enumerate(providers):
             started = False
@@ -166,4 +167,3 @@ class ChatLLM:
             )
         except Exception as trace_exc:  # noqa: BLE001
             logger.warning("[ChatLLM] Token tracing failed: %s", type(trace_exc).__name__)
-

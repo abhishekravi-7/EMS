@@ -139,28 +139,6 @@ class UnsupportedProjectError(DiscoveryError):
         super().__init__(message)
 
 
-class MigrationEngineJarNotFoundError(DiscoveryError, RuntimeError):
-    """Migration engine JAR is missing."""
-
-    status = "MIGRATION_ENGINE_JAR_NOT_FOUND"
-    http_status = 500
-
-    def __init__(
-        self,
-        jar_path: Any = "",
-        message: str | None = None,
-    ) -> None:
-        expected = str(jar_path)
-        msg = (
-            message
-            or f"Migration engine JAR not found at '{expected}'. "
-               f"Please build it by running 'mvn clean package' in the 'migration-engine' directory."
-        )
-        DiscoveryError.__init__(self, msg)
-        RuntimeError.__init__(self, msg)
-        self.jar_path = expected
-
-
 # --------------------------------------------------------------------------- #
 # Migration Config stage
 # --------------------------------------------------------------------------- #
@@ -753,4 +731,3 @@ class UnitTestError(APEXError):
 
     status: str = "UNIT_TEST_ERROR"
     http_status: int = 400
-

@@ -525,30 +525,30 @@ const DynamicRobotHero: React.FC<DynamicRobotHeroProps> = ({ activeTheme = "blue
   );
 };
 
-export default function FloatingChatbot() {
-  const { repoUrl, strategyContext, projectContext, appContext } = useChatbot();
-  const assistantName = "JavaApex Assistant";
-
-  // Thinking indicator component with subtle animation
-  const AnimatedRetrieving: React.FC<{ label?: string }> = ({ label = "Preparing answer..." }) => {
-    return (
-      <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="strategy-chat-spin" style={{ color: "#3b82f6" }}>
-          <circle cx="12" cy="2" r="2.5" fill="currentColor" opacity="1" />
-          <circle cx="19" cy="5" r="2.5" fill="currentColor" opacity="0.8" />
-          <circle cx="22" cy="12" r="2.5" fill="currentColor" opacity="0.6" />
-          <circle cx="19" cy="19" r="2.5" fill="currentColor" opacity="0.4" />
-          <circle cx="12" cy="22" r="2.5" fill="currentColor" opacity="0.2" />
-          <circle cx="5" cy="19" r="2.5" fill="currentColor" opacity="0.2" />
-          <circle cx="2" cy="12" r="2.5" fill="currentColor" opacity="0.2" />
-          <circle cx="5" cy="5" r="2.5" fill="currentColor" opacity="0.2" />
-        </svg>
-        <span style={{ color: "#0f172a", fontWeight: 500, fontSize: "14px", whiteSpace: "nowrap" }}>
-          {label}
-        </span>
+// Thinking indicator component with subtle animation
+const AnimatedRetrieving: React.FC<{ label?: string }> = ({ label = "Preparing answer..." }) => {
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="strategy-chat-spin" style={{ color: "#3b82f6" }}>
+        <circle cx="12" cy="2" r="2.5" fill="currentColor" opacity="1" />
+        <circle cx="19" cy="5" r="2.5" fill="currentColor" opacity="0.8" />
+        <circle cx="22" cy="12" r="2.5" fill="currentColor" opacity="0.6" />
+        <circle cx="19" cy="19" r="2.5" fill="currentColor" opacity="0.4" />
+        <circle cx="12" cy="22" r="2.5" fill="currentColor" opacity="0.2" />
+        <circle cx="5" cy="19" r="2.5" fill="currentColor" opacity="0.2" />
+        <circle cx="2" cy="12" r="2.5" fill="currentColor" opacity="0.2" />
+        <circle cx="5" cy="5" r="2.5" fill="currentColor" opacity="0.2" />
+      </svg>
+      <span style={{ color: "#0f172a", fontWeight: 500, fontSize: "14px", whiteSpace: "nowrap" }}>
+        {label}
       </span>
-    );
-  };
+    </span>
+  );
+};
+
+export default function FloatingChatbot() {
+  const { repoUrl, strategyContext, projectContext, appContext, hideChatbot } = useChatbot();
+  const assistantName = "JavaApex Assistant";
 
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
@@ -742,14 +742,14 @@ export default function FloatingChatbot() {
         );
       } else {
         const isNotConfigured = err instanceof Error && err.message === "LLM_NOT_CONFIGURED";
-        
+
         // Graceful error display without exposing technical stack traces or tokens
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantPlaceholder.id
               ? {
                   ...m,
-                  content: isNotConfigured 
+                  content: isNotConfigured
                     ? "LLM is not configured, please setup in settings."
                     : "I couldn't complete that request right now. Please try asking again or select one of the quick actions.",
                 }
@@ -799,6 +799,8 @@ export default function FloatingChatbot() {
       // ignore
     }
   };
+
+  if (hideChatbot) return null;
 
   return (
     <div>

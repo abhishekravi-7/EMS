@@ -25,11 +25,12 @@ class ProfileResolver:
         host: str | None = None,
         token: str | None = None,
     ) -> TargetProfile:
+        effective_token = (token or "").strip() or (settings.github_target_token or "").strip() or (settings.github_token or "").strip() or None
         resolved_owner = (owner or settings.github_target_owner or "").strip()
         auth_user = None
-        if token:
+        if effective_token:
             try:
-                auth_user = self._github.get_authenticated_user_sync(token=token)
+                auth_user = self._github.get_authenticated_user_sync(token=effective_token)
             except Exception:
                 auth_user = None
 

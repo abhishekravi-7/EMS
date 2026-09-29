@@ -109,7 +109,7 @@ async def query_stream(
                 yield _sse("chunk", {"chunk": delta})
 
             answer = "".join(buffer).strip()
-            
+
             # Final source list using the standardized SourceReference format
             sources = []
             seen_files = set()
@@ -127,7 +127,7 @@ async def query_stream(
                 "final",
                 {
                     "parsed": {
-                        "answer": answer, 
+                        "answer": answer,
                         "rationale": [],
                     },
                     "sources": sources,

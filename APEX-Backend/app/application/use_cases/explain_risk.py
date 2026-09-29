@@ -71,7 +71,7 @@ class ExplainRiskUseCase:
         try:
             try:
                 logger.info("[RiskExplanation] Attempting Hugging Face (primary)")
-                raw = await self._llm.chat_json(system_prompt, user_prompt, max_tokens=256)
+                raw = await self._llm.chat_json(system_prompt, user_prompt)
                 explanation = str(raw.get("risk_explanation") or "").strip()
                 if not explanation:
                     explanation = fallback_text
@@ -92,7 +92,6 @@ class ExplainRiskUseCase:
                     system_prompt=system_prompt,
                     user_prompt=user_prompt,
                     endpoint="risk_explanation_fallback",
-                    max_tokens=256,
                 ):
                     response_text += chunk
 

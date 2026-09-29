@@ -93,7 +93,7 @@ class AstMigrationRunner:
 
             stdout, stderr = process.communicate(input=plan_json, timeout=settings.migration_timeout_seconds)
 
-            
+
             # Combine stdout and stderr for logging/reporting
             full_output = []
             if stdout and not stdout.strip().startswith("{"):
@@ -112,7 +112,7 @@ class AstMigrationRunner:
                     status="FAILED",
                     error_lines=[f"Java process exited with code {process.returncode}"] + full_output
                 )
-                
+
 
                 logger.warning("Java process exited with code %s. Falling back to in-process rules.", process.returncode)
                 fallback_res = self._run_python_fallback_rules(project_dir, plan)
@@ -125,7 +125,7 @@ class AstMigrationRunner:
                 json_start = stdout.find("{")
                 if json_start == -1:
                     raise json.JSONDecodeError("No JSON object found", stdout, 0)
-                
+
                 json_text = stdout[json_start:]
                 result_data = json.loads(json_text)
             except json.JSONDecodeError:
@@ -191,17 +191,43 @@ class AstMigrationRunner:
                 logs.extend(gradle_res.log_lines)
 
         # 2. Modernize Java source files (Javax to Jakarta, JUnit 4 to 5, Import cleanup)
+        def _parse_java_major(v: str | None) -> int:
+            if not v:
+                return 17
+            t = str(v).strip().lower().replace("java", "").strip()
+            if t.startswith("1."):
+                t = t.split(".", 1)[1]
+            t = t.split(".", 1)[0]
+            return int(t) if t.isdigit() else 17
+
+        target_major = _parse_java_major(target_java)
+        has_jakarta_dep = any("jakarta" in (u.get("groupId", "") + u.get("artifactId", "") + u.get("artifact_id", "") + u.get("group_id", "")).lower() for u in dep_upgrades)
+        should_convert_jakarta = (
+            "javax-to-jakarta" in active_packs
+            or "JAVAX-TO-JAKARTA" in active_visitors
+            or "jakarta" in str(active_packs).lower()
+            or has_jakarta_dep
+            or (target_major >= 17 and any(
+                re.search(r"\bjavax\.(servlet|persistence|annotation|validation|ws\.rs|xml\.bind|transaction|ejb|jms|mail)\b", file_utils.read_text(p))
+                for p in project_dir.rglob("*.java") if p.is_file()
+            ))
+        )
+
         for java_path in project_dir.rglob("*.java"):
             source = file_utils.read_text(java_path)
             original_source = source
 
-            if "javax-to-jakarta" in active_packs or "JAVAX-TO-JAKARTA" in active_visitors or "jakarta" in str(active_packs):
+            if should_convert_jakarta:
                 source = re.sub(r"\bjavax\.persistence\b", "jakarta.persistence", source)
                 source = re.sub(r"\bjavax\.servlet\b", "jakarta.servlet", source)
                 source = re.sub(r"\bjavax\.annotation\b", "jakarta.annotation", source)
                 source = re.sub(r"\bjavax\.validation\b", "jakarta.validation", source)
                 source = re.sub(r"\bjavax\.ws\.rs\b", "jakarta.ws.rs", source)
                 source = re.sub(r"\bjavax\.xml\.bind\b", "jakarta.xml.bind", source)
+                source = re.sub(r"\bjavax\.transaction\b", "jakarta.transaction", source)
+                source = re.sub(r"\bjavax\.ejb\b", "jakarta.ejb", source)
+                source = re.sub(r"\bjavax\.jms\b", "jakarta.jms", source)
+                source = re.sub(r"\bjavax\.mail\b", "jakarta.mail", source)
 
             if "junit" in str(active_packs) or "junit" in source:
                 source = source.replace("import org.junit.Test;", "import org.junit.jupiter.api.Test;")
@@ -211,6 +237,23 @@ class AstMigrationRunner:
                 source = source.replace("@Before\n", "@BeforeEach\n")
                 source = source.replace("@After\n", "@AfterEach\n")
                 source = source.replace("@Ignore\n", "@Disabled\n")
+
+            # Java 8 -> 11 -> 17 modernization rules
+            if target_major >= 8:
+                # 1. Diamond operator modernization: new ArrayList<Type>() -> new ArrayList<>()
+                source = re.sub(
+                    r'\bnew\s+(ArrayList|LinkedList|HashMap|HashSet|TreeMap|TreeSet|ConcurrentHashMap|PriorityQueue|ArrayDeque|Vector|Hashtable)\s*<[^>]+>\s*\(',
+                    r'new \1<>(',
+                    source
+                )
+                # 2. Redundant super() constructor removal
+                source = re.sub(r'^\s*super\(\);\s*\r?\n', '', source, flags=re.MULTILINE)
+                # 3. Null-safe literal string comparison
+                source = re.sub(
+                    r'\b([a-zA-Z_]\w*)\.equals\((["\'][^"\']+["\'])\)',
+                    r'\2.equals(\1)',
+                    source
+                )
 
             if source != original_source:
                 java_path.write_text(source, encoding="utf-8")

@@ -357,6 +357,7 @@ export interface MigrationResult {
   errors_fixed: number;
   warnings_fixed: number;
   dependency_count?: number;
+  uiTransformations?: any[];
   // --- migration engine report fields (recipe selection, dependency/import changes) ---
   recipes_executed?: string[];
   recipe_selection_reasons?: string[];
@@ -388,8 +389,7 @@ export interface MigrationResult {
   migration_summary?: string;
   modified_files?: string[];
   import_changes?: Array<{ file: string; added: string[]; removed: string[] }>;
-  source_changes?: Array<{ file: string; linesChanged?: number; lines_changed?: number }>;
-  rule_executions?: Array<Record<string, any>>;
+  source_changes?: Array<{ file: string; linesChanged: number }>;
   retry_attempts?: Array<{ attempt: number; rootCause: string; recipesAdded: string[]; buildStatus: string }>;
   spring_source_framework?: string;
   spring_target_framework?: string;
@@ -398,6 +398,11 @@ export interface MigrationResult {
   spring_conversion_requested?: boolean;
   spring_conversion_supported?: boolean | null;
   spring_conversion_note?: string | null;
+  framework_migrations?: Array<{
+    source_framework: string;
+    target_framework?: string;
+    files_migrated: number;
+  }>;
 }
 
 export interface MigrationJobSummary {
@@ -484,6 +489,13 @@ export interface MigrationJobSummary {
   spring_conversion_requested?: boolean;
   spring_conversion_supported?: boolean | null;
   spring_conversion_note?: string | null;
+  framework_migrations?: Array<{
+    source_framework: string;
+    target_framework?: string;
+    files_migrated: number;
+  }>;
+  modified_files?: string[];
+  uiTransformations?: any[];
   run_functional_tests?: boolean;
 }
 
@@ -816,3 +828,27 @@ export async function downloadProposedTestReport(jobId: string): Promise<Blob> {
     "Failed to download proposed tests report."
   );
 }
+
+export interface ReportDetailItem {
+  [key: string]: any;
+}
+
+export interface ReportDetailsResponse {
+  migration_id: string;
+  type: "files" | "issues" | "dependencies" | "vulnerabilities" | "transformations";
+  total: number;
+  items: ReportDetailItem[];
+}
+
+// Fetch underlying records for a summary card category (files, issues, dependencies, vulnerabilities, transformations)
+export async function getMigrationReportDetails(
+  jobId: string,
+  type: string
+): Promise<ReportDetailsResponse> {
+  return requestJson<ReportDetailsResponse>(
+    `/v1/migration/${jobId}/report/details`,
+    "Failed to get migration report details",
+    { query: { type } }
+  );
+}
+

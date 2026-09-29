@@ -167,6 +167,9 @@ export interface MigrationConfigPayload {
     runSonar: boolean;
     runFossa: boolean;
     fixBusinessLogic: boolean;
+    uiFrameworkTarget?: "React" | "Angular";
+    uiFrameworkVersion?: string;
+    uiModMode?: string;
   };
 }
 

@@ -66,7 +66,7 @@ Java APEX Team
 </head>
 <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 32px 16px; color: #1e293b;">
   <div style="max-width: 560px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
-    
+
     <!-- Header -->
     <div style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); padding: 32px 28px; text-align: center;">
       <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;">
@@ -155,7 +155,7 @@ Java APEX Team
 </head>
 <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 32px 16px; color: #1e293b;">
   <div style="max-width: 560px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
-    
+
     <!-- Header -->
     <div style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); padding: 32px 28px; text-align: center;">
       <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700;">
@@ -287,7 +287,7 @@ async def send_verification_email(
     verification_link: str = "",
 ) -> None:
     """Send an email verification code using the configured SMTP server.
-    
+
     Raises EmailDeliveryError or EmailNotConfiguredError if delivery fails.
     """
     code_to_send = verification_code or verify_code or code or verify_link or verification_link
@@ -304,7 +304,7 @@ async def send_password_reset_email(
     reset_link: str,
 ) -> None:
     """Send a password reset email using the configured SMTP server.
-    
+
     Raises EmailDeliveryError or EmailNotConfiguredError if delivery fails.
     """
     if not reset_link:

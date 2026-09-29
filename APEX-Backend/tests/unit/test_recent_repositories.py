@@ -121,7 +121,7 @@ async def test_recent_repositories_owner_and_components_all_states(client, mock_
     try:
         with patch("app.infrastructure.persistence.job_repository.JobRepository.read_discovery_report", side_effect=mock_read_discovery), \
              patch("app.infrastructure.persistence.job_repository.JobRepository.read_connect_report", return_value={"repoVisibility": "PUBLIC"}):
-            
+
             response = client.get("/api/v1/connect/recent-repositories")
             assert response.status_code == 200
             repos = response.json()["repositories"]
@@ -208,4 +208,3 @@ async def test_connect_repository_success_persists_owner_in_mongodb(client, mock
         assert update_payload["$set"]["repository_name"] == "abhishekravi-7/EMS"
         assert update_payload["$setOnInsert"]["owner_name"] == "Test User"
         assert update_payload["$setOnInsert"]["owner_email"] == "test@example.com"
-

@@ -459,7 +459,7 @@ class ProposedTestService:
         def _run_bg():
             paths = WorkspacePaths(job_id)
             source_dir = paths.original_repo_dir if paths.original_repo_dir.exists() else paths.migrated_repo_dir
-            evidence_dir = paths.job_dir / "evidence"
+            evidence_dir = self._get_job_dir(job_id) / "evidence"
 
             self._log(job_id, "[BASELINE] User requested proposed test execution.")
             self._log(job_id, "[BASELINE] Execution target: SOURCE APPLICATION")
@@ -1214,4 +1214,3 @@ class ProposedTestService:
 
 
 proposed_test_service = ProposedTestService()
-

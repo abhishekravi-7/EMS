@@ -28,7 +28,7 @@ export async function testUserLlmConnection(payload: { provider: string; api_key
   return requestJson<{ status: string; message: string }>(
     "/v1/user/settings/llm/test",
     "Failed to test User LLM connection",
-    { 
+    {
       method: "POST",
       body: payload
     }
@@ -37,7 +37,6 @@ export async function testUserLlmConnection(payload: { provider: string; api_key
 
 export function LlmUserSettings({ settings, onChange, isAdminEnabled, allowedGroqModelsStr, allowedHuggingFaceModelsStr }: LlmUserSettingsProps) {
   const llmValues = settings.llm_values || {};
-  
   // State for Groq
   const [testingGroq, setTestingGroq] = useState(false);
   const [testResultGroq, setTestResultGroq] = useState<{ status: "success" | "error"; message: string } | null>(null);
@@ -176,8 +175,8 @@ export function LlmUserSettings({ settings, onChange, isAdminEnabled, allowedGro
                   {testResultGroq.message}
                 </div>
               )}
-              <button 
-                onClick={() => handleTestConnection("groq")} 
+              <button
+                onClick={() => handleTestConnection("groq")}
                 disabled={testingGroq || !llmValues.groq_api_key}
                 className="settings-action-btn" 
                 style={{ width: "auto" }}
@@ -234,8 +233,8 @@ export function LlmUserSettings({ settings, onChange, isAdminEnabled, allowedGro
                   {testResultHF.message}
                 </div>
               )}
-              <button 
-                onClick={() => handleTestConnection("huggingface")} 
+              <button
+                onClick={() => handleTestConnection("huggingface")}
                 disabled={testingHF || !llmValues.huggingface_api_key}
                 className="settings-action-btn" 
                 style={{ width: "auto" }}
