@@ -68,6 +68,15 @@ const INITIAL_USER_SETTINGS: FullUserSettings = {
   llm_values: {}
 };
 
+const DEFAULT_BRD_SYSTEM_PROMPT = `Generate a repository-specific, evidence-based Business Requirements Document (BRD).
+First classify the repository from its actual files and build configuration: application, Android app, web app, library, test automation project, tutorial, or collection of projects. Identify modules and distinguish example code, tests, and external applications under test. Do not infer a framework or feature from the repository name alone.
+
+Prioritize workflow coverage. For each significant capability supported by evidence, trace the initiating user, scheduled job, or test -> entry point -> processing and decisions -> data or external interaction -> observable result. Follow relevant calls across files. Describe successful and failure paths when both are evidenced. Cite exact file paths and line ranges; distinguish implemented behavior from README claims and uploaded business requirements.
+
+Generate up to five distinct, prioritized acceptance criteria from the strongest verified workflows. Each criterion must state the actor or system, business or test outcome, starting condition, action, expected observable result, evidence citation, and status: "Confirmed by business input," "Observed in code -- needs business confirmation," or "Needs clarification." For test automation repositories, cover test setup, page interaction, assertions, and reporting only where implemented. Do not use generic criteria such as "the endpoint exists" or invent behavior to fill five slots.
+
+Before finalizing, check whether important detected entry points, UI actions, jobs, tests, and integrations appear in the workflow section. Explain omissions and scan limitations. Omit irrelevant sections, never claim runtime success from code alone, and never invent routes, database tables, browser support, assertions, or business policies.`;
+
 type UserTab = "general" | "business" | "testing" | "quality_gate" | "llm";
 
 export default function AdminConsolePage() {
@@ -625,72 +634,245 @@ const handleTestSonarConnection = async () => {
     }
 
     if (activeUserTab === "business") {
+      const qValues = currentUserStg.quality_checks_values || {};
+      const brdInstructions = qValues.brd_instructions || qValues.brd_focus_prompt || "";
+      const brdGenEnabled = qValues.brd_generation_enabled ?? true;
+      const msEnabled = qValues.brd_microservices_enabled ?? (qValues.microservice_assessment_enabled ?? true);
+      const migrationTarget = qValues.brd_migration_target || "Java 17 / Spring Boot 3.2";
+      const sysPrompt = qValues.brd_system_prompt || DEFAULT_BRD_SYSTEM_PROMPT;
+
+      const categoryWorkflows = qValues.brd_category_business_workflows ?? true;
+      const categoryDatabase = qValues.brd_category_database_data ?? true;
+      const categoryArch = qValues.brd_category_architecture ?? true;
+      const categoryApis = qValues.brd_category_apis_integrations ?? true;
+      const categorySecurity = qValues.brd_category_security_access ?? true;
+      const categoryReliability = qValues.brd_category_reliability_performance ?? true;
+
+      const updateBrdField = (key: string, val: any) => {
+        handleUserQualityCheckChange(key, val);
+        if (key === "brd_instructions") {
+          handleUserQualityCheckChange("brd_focus_prompt", val);
+        }
+        if (key === "brd_microservices_enabled") {
+          handleUserQualityCheckChange("microservice_assessment_enabled", val);
+        }
+      };
+
+      const presetPrompts = [
+        {
+          label: "🎯 Core Workflows",
+          prompt: "Focus on core business workflows, transaction boundaries, state transitions, and entry point methods across all controllers and services."
+        },
+        {
+          label: "🗄️ Database & Entities",
+          prompt: "Focus on database tables, primary/foreign keys, JPA entity mappings, repository queries, and data transfer objects (DTOs)."
+        },
+        {
+          label: "🔌 APIs & Web Contracts",
+          prompt: "Focus on cataloging all REST endpoints, WebServlets, HTTP request/response DTOs, path parameters, and status codes."
+        },
+        {
+          label: "🧪 Test Scenarios & Locators",
+          prompt: "Focus on test automation workflows, page object locators, test assertions, browser actions, and test runner configurations."
+        }
+      ];
+
       return (
-        <div>
-          <div className="settings-card-header" style={{ marginBottom: "20px" }}>
-            <div className="settings-card-icon"><FaBriefcase /></div>
-            <div>
-              <h3 className="settings-card-title">Business Analysis Configuration</h3>
-              <p className="settings-card-subtitle">Enable or disable BRD generation and Microservice assessment modes.</p>
+        <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+          {/* Card 1: Business Analysis Modes */}
+          <div className="settings-card">
+            <div className="settings-card-header">
+              <div className="settings-card-icon"><FaBriefcase /></div>
+              <div>
+                <h3 className="settings-card-title">Business Analysis Modes</h3>
+                <p className="settings-card-subtitle">Enable or disable automated BRD analysis and Microservice assessment modes.</p>
+              </div>
+            </div>
+            <div className="grid-2">
+              <div className="settings-toggle-card">
+                <div className="settings-toggle-header">
+                  <div className="settings-toggle-title"><FaBriefcase /> BRD Generation</div>
+                  <div className="switch-wrap">
+                    <label className="switch-ios">
+                      <input
+                        type="checkbox"
+                        checked={brdGenEnabled}
+                        onChange={e => updateBrdField("brd_generation_enabled", e.target.checked)}
+                      />
+                      <span className="slider-ios"></span>
+                    </label>
+                    <span className="switch-label">{brdGenEnabled ? "Enabled" : "Disabled"}</span>
+                  </div>
+                </div>
+                <p className="settings-toggle-desc">Enable or disable automated Business Requirements Document (BRD) analysis and document export during modernization discovery.</p>
+              </div>
+              <div className="settings-toggle-card">
+                <div className="settings-toggle-header">
+                  <div className="settings-toggle-title"><FaFlask /> Microservice Assessment</div>
+                  <div className="switch-wrap">
+                    <label className="switch-ios">
+                      <input
+                        type="checkbox"
+                        checked={msEnabled}
+                        onChange={e => updateBrdField("brd_microservices_enabled", e.target.checked)}
+                      />
+                      <span className="slider-ios"></span>
+                    </label>
+                    <span className="switch-label">{msEnabled ? "Enabled" : "Disabled"}</span>
+                  </div>
+                </div>
+                <p className="settings-toggle-desc">Enable or disable microservice eligibility scoring, architectural evaluation, and recommended service splitting analysis.</p>
+              </div>
             </div>
           </div>
 
-          <div className="grid-2">
-            {/* BRD Generation Card */}
-            <div className="settings-toggle-card">
-              <div className="settings-toggle-header">
-                <div className="settings-toggle-title">
-                  <FaBriefcase /> BRD Generation
-                </div>
-                <div className="switch-wrap">
-                  <label className="switch-ios">
-                    <input
-                      type="checkbox"
-                      checked={currentUserStg.quality_checks_values?.brd_generation_enabled ?? true}
-                      onChange={e => handleUserQualityCheckChange("brd_generation_enabled", e.target.checked)}
-                    />
-                    <span className="slider-ios"></span>
-                  </label>
-                  <span className="switch-label">Enabled</span>
-                </div>
-              </div>
-              <p className="settings-toggle-desc" style={{ marginBottom: "16px" }}>
-                Enable or disable automated Business Requirements Document (BRD) analysis and document export during modernization discovery.
-              </p>
+          {/* Card 2: BRD Focus Prompt & Preset Instructions */}
+          <div className="settings-card">
+            <div className="settings-card-header">
+              <div className="settings-card-icon"><FaBriefcase /></div>
               <div>
-                <label className="settings-label">BRD FOCUS PROMPT / INSTRUCTIONS</label>
-                <textarea
-                  className="settings-textarea"
-                  rows={4}
-                  value={currentUserStg.quality_checks_values?.brd_focus_prompt || ""}
-                  onChange={e => handleUserQualityCheckChange("brd_focus_prompt", e.target.value)}
-                  placeholder="Focus on employee leave approval and explain the manager workflow..."
-                />
+                <h3 className="settings-card-title">BRD Focus Prompt & Instructions</h3>
+                <p className="settings-card-subtitle">Define focus instructions passed to the LLM during BRD document generation.</p>
               </div>
             </div>
 
-            {/* Microservice Assessment Card */}
-            <div className="settings-toggle-card">
-              <div className="settings-toggle-header">
-                <div className="settings-toggle-title">
-                  <FaRocket /> Microservice Assessment
-                </div>
-                <div className="switch-wrap">
-                  <label className="switch-ios">
+            <div style={{ marginBottom: "16px" }}>
+              <label className="settings-label">CUSTOM FOCUS PROMPT / INSTRUCTIONS</label>
+              <textarea
+                className="settings-textarea"
+                rows={4}
+                placeholder="Enter custom focus instructions (e.g., Focus on attendance calculation rules, scheduled cron jobs, and database entity relationships)..."
+                value={brdInstructions}
+                onChange={e => updateBrdField("brd_instructions", e.target.value)}
+              />
+            </div>
+
+            <div>
+              <label className="settings-label" style={{ marginBottom: "8px" }}>QUICK FOCUS PRESETS (CLICK TO APPLY)</label>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
+                {presetPrompts.map((preset, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    style={{
+                      background: "#f1f5f9",
+                      border: "1px solid #cbd5e1",
+                      borderRadius: "6px",
+                      padding: "6px 12px",
+                      fontSize: "12px",
+                      fontWeight: 600,
+                      color: "#334155",
+                      cursor: "pointer",
+                      transition: "all 0.2s"
+                    }}
+                    onClick={() => updateBrdField("brd_instructions", preset.prompt)}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Card 3: BRD Scope & Modernization Target */}
+          <div className="settings-card">
+            <div className="settings-card-header">
+              <div className="settings-card-icon"><FaBriefcase /></div>
+              <div>
+                <h3 className="settings-card-title">BRD Analysis Scope & Target Baseline</h3>
+                <p className="settings-card-subtitle">Configure specific analysis categories and target modernization baseline.</p>
+              </div>
+            </div>
+
+            <div style={{ marginBottom: "20px" }}>
+              <label className="settings-label">MODERNIZATION MIGRATION TARGET BASELINE</label>
+              <select
+                className="settings-select"
+                value={migrationTarget}
+                onChange={e => updateBrdField("brd_migration_target", e.target.value)}
+              >
+                <option value="Java 17 / Spring Boot 3.2">Java 17 / Spring Boot 3.2 (Recommended LTS)</option>
+                <option value="Java 21 / Spring Boot 3.3">Java 21 / Spring Boot 3.3 (Latest LTS)</option>
+                <option value="Jakarta EE 10 / Open Liberty">Jakarta EE 10 / Open Liberty</option>
+                <option value="Micronaut 4 / GraalVM">Micronaut 4 / GraalVM Native</option>
+                <option value="Quarkus 3.x">Quarkus 3.x Native</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="settings-label" style={{ marginBottom: "12px" }}>ANALYSIS CATEGORY SCOPE</label>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "12px" }}>
+                {[
+                  { key: "brd_category_business_workflows", label: "💼 Business Workflows", val: categoryWorkflows },
+                  { key: "brd_category_database_data", label: "🗄️ Database & Entities", val: categoryDatabase },
+                  { key: "brd_category_architecture", label: "🏛️ System Architecture", val: categoryArch },
+                  { key: "brd_category_apis_integrations", label: "🔌 APIs & Web Routes", val: categoryApis },
+                  { key: "brd_category_security_access", label: "🔐 Security & Access Control", val: categorySecurity },
+                  { key: "brd_category_reliability_performance", label: "⚡ Reliability & SLAs", val: categoryReliability }
+                ].map(item => (
+                  <label
+                    key={item.key}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "10px",
+                      padding: "10px 14px",
+                      background: item.val ? "#eff6ff" : "#f8fafc",
+                      border: item.val ? "1px solid #bfdbfe" : "1px solid #e2e8f0",
+                      borderRadius: "8px",
+                      cursor: "pointer",
+                      fontSize: "13px",
+                      fontWeight: 600,
+                      color: item.val ? "#1e40af" : "#64748b"
+                    }}
+                  >
                     <input
                       type="checkbox"
-                      checked={currentUserStg.quality_checks_values?.microservice_assessment_enabled ?? true}
-                      onChange={e => handleUserQualityCheckChange("microservice_assessment_enabled", e.target.checked)}
+                      checked={item.val}
+                      onChange={e => updateBrdField(item.key, e.target.checked)}
                     />
-                    <span className="slider-ios"></span>
+                    {item.label}
                   </label>
-                  <span className="switch-label">Enabled</span>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Card 4: 8-Phase System Prompt Customization */}
+          <div className="settings-card">
+            <div className="settings-card-header" style={{ justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ display: "flex", gap: "16px", alignItems: "center" }}>
+                <div className="settings-card-icon"><FaBriefcase /></div>
+                <div>
+                  <h3 className="settings-card-title">8-Phase BRD System Prompt Customization</h3>
+                  <p className="settings-card-subtitle">System prompt template executed by LLM providers during document generation.</p>
                 </div>
               </div>
-              <p className="settings-toggle-desc">
-                Enable or disable microservice eligibility scoring, architectural evaluation, and recommended service splitting analysis.
-              </p>
+              <button
+                type="button"
+                style={{
+                  background: "#f1f5f9",
+                  border: "1px solid #cbd5e1",
+                  borderRadius: "6px",
+                  padding: "6px 12px",
+                  fontSize: "12px",
+                  fontWeight: 600,
+                  color: "#334155",
+                  cursor: "pointer"
+                }}
+                onClick={() => updateBrdField("brd_system_prompt", DEFAULT_BRD_SYSTEM_PROMPT)}
+              >
+                Reset to Default
+              </button>
             </div>
+
+            <textarea
+              className="settings-textarea"
+              rows={8}
+              style={{ fontFamily: "monospace", fontSize: "12px", lineHeight: "1.5" }}
+              value={sysPrompt}
+              onChange={e => updateBrdField("brd_system_prompt", e.target.value)}
+            />
           </div>
         </div>
       );

@@ -186,7 +186,16 @@ def test_migration_pipeline_full_execution_order(tmp_path: Path):
                         "line_coverage_pct": 80.0,
                         "branch_coverage_pct": 100.0,
                         "report_path": str(jac_dir / "jacoco.xml"),
-                    }
+                    },
+                    raw_logs=[
+                        "[JUnit] JUnit test generation started",
+                        "[JUnit] JUnit compilation started",
+                        "[JUnit] JUnit execution started",
+                        "[JUnit] Surefire results collected",
+                        "[JACOCO] JaCoCo generation started",
+                        "[REPORT] Unit Test Report generated",
+                        "[REPORT] Results persisted",
+                    ],
                 )
                 return suite_res
 

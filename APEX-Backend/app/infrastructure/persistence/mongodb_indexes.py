@@ -31,23 +31,5 @@ async def setup_mongodb_indexes(db: AsyncIOMotorDatabase):
 
         await asyncio.gather(*tasks, return_exceptions=True)
         logger.info("MongoDB indexes verified/created successfully.")
-
-        # Ensure default dev user exists with _id: 1 if missing
-        from app.core.config import settings
-        dev_email = (getattr(settings, "dev_static_user_email", "dev@example.com") or "dev@example.com").strip().lower()
-        existing_dev = await db.users.find_one({"$or": [{"_id": 1}, {"email": dev_email}]})
-        if not existing_dev:
-            await db.users.insert_one({
-                "_id": 1,
-                "email": dev_email,
-                "full_name": "Java APEX User",
-                "role": "USER",
-                "is_active": True,
-                "is_email_verified": True,
-                "github_config": {},
-                "quality_checks_values": {},
-                "test_cases_values": {},
-                "llm_values": {},
-            })
     except Exception as e:
         logger.error("Failed to setup MongoDB indexes: %s", e)

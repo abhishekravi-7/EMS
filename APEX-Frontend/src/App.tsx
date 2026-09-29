@@ -10,6 +10,7 @@ const MigrationWizardPage = lazy(() => import("@/features/wizard/pages/Migration
 // const LandingPage = lazy(() => import("@/features/auth/pages/LandingPage"));
 const SignUpPage = lazy(() => import("@/features/auth/pages/SignUpPage"));
 const SignInPage = lazy(() => import("@/features/auth/pages/SignInPage"));
+const ResetPasswordPage = lazy(() => import("@/features/auth/pages/ResetPasswordPage"));
 const VerifyEmailPage = lazy(() => import("@/features/auth/pages/VerifyEmailPage"));
 import AdminConsolePage from "@/features/admin/pages/AdminConsolePage";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
@@ -35,22 +36,26 @@ export default function App() {
                       fontWeight: 600,
                     }}
                   >
-                    <Routes>
-                      {/* <Route path="/" element={<LandingPage />} /> */}
-                      <Route path="/signup" element={<SignUpPage />} />
-                      <Route path="/signin" element={<SignInPage />} />
-                      <Route path="/verify-email" element={<VerifyEmailPage />} />
-                      <Route path="/reset-password" element={<ResetPasswordPage />} />
-                      <Route path="/admin" element={<ErrorBoundary><AdminConsolePage /></ErrorBoundary>} />
-                      <Route path="/settings" element={<ErrorBoundary><AdminConsolePage /></ErrorBoundary>} />
-                      <Route path="/usage" element={<UsageDashboardPage />} />
-                      <Route path="/*" element={<MigrationWizardPage />} />
-                    </Routes>
-                  </Suspense>
-                   </AppShell>
-                 </BrowserRouter>
-                          </ChatbotProvider>
-                        </SidebarProvider>
-                      </AuthProvider>
-                    );
-                  }
+                    Loading migration workspace...
+                  </div>
+                }
+              >
+                <Routes>
+                  {/* <Route path="/" element={<LandingPage />} /> */}
+                  <Route path="/signup" element={<SignUpPage />} />
+                  <Route path="/signin" element={<SignInPage />} />
+                  <Route path="/verify-email" element={<VerifyEmailPage />} />
+                  <Route path="/reset-password" element={<ResetPasswordPage />} />
+                  <Route path="/admin" element={<ErrorBoundary><AdminConsolePage /></ErrorBoundary>} />
+                  <Route path="/settings" element={<ErrorBoundary><AdminConsolePage /></ErrorBoundary>} />
+                  <Route path="/usage" element={<UsageDashboardPage />} />
+                  <Route path="/*" element={<MigrationWizardPage />} />
+                </Routes>
+              </Suspense>
+            </AppShell>
+          </BrowserRouter>
+        </ChatbotProvider>
+      </SidebarProvider>
+    </AuthProvider>
+  );
+}

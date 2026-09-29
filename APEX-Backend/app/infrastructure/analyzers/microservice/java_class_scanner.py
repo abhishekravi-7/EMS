@@ -62,6 +62,9 @@ class JavaClassInfo:
     implements: list[str] = field(default_factory=list)
     dependencies: set[str] = field(default_factory=set)
     endpoints: list[JavaEndpoint] = field(default_factory=list)
+    declaration_type: str = "class"
+    line_start: int = 1
+    line_end: int = 1
 
 
 class JavaClassScanner:
@@ -156,6 +159,16 @@ class JavaClassScanner:
         # argument on the `extends` clause, so surface it as a dependency too.
         dependencies.update(arg for arg in extends_generic_args if arg != class_name)
 
+        decl_type = "class"
+        if re.search(rf"\binterface\s+{re.escape(class_name)}\b", text):
+            decl_type = "interface"
+        elif re.search(rf"\benum\s+{re.escape(class_name)}\b", text):
+            decl_type = "enum"
+        elif re.search(rf"\brecord\s+{re.escape(class_name)}\b", text):
+            decl_type = "record"
+
+        line_count = max(1, len(text.splitlines()))
+
         return JavaClassInfo(
             relative_path=relative_path,
             package=package,
@@ -165,4 +178,7 @@ class JavaClassScanner:
             implements=implements,
             dependencies=dependencies,
             endpoints=endpoints,
+            declaration_type=decl_type,
+            line_start=1,
+            line_end=line_count,
         )

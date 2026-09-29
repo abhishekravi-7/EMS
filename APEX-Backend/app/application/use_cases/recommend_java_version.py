@@ -19,7 +19,7 @@ import logging
 import re
 
 from app.api.deps import User
-from app.core.context import user_id_ctx
+from app.core.context import user_id_ctx, llm_values_ctx
 from app.core.exceptions import (
     InvalidJavaVersionError,
     LLMResponseInvalidError,
@@ -89,8 +89,11 @@ class RecommendJavaVersionUseCase:
         )
 
         user_token = None
+        llm_token = None
         if current_user:
             user_token = user_id_ctx.set(current_user.id)
+            if getattr(current_user, "llm_values", None):
+                llm_token = llm_values_ctx.set(current_user.llm_values)
 
         try:
             try:
@@ -122,6 +125,8 @@ class RecommendJavaVersionUseCase:
         finally:
             if user_token:
                 user_id_ctx.reset(user_token)
+            if llm_token:
+                llm_values_ctx.reset(llm_token)
 
     @staticmethod
     def _extract_json(content: str) -> dict:

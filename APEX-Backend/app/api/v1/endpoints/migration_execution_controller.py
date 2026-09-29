@@ -244,9 +244,7 @@ async def rerun_migration_tests(
                     "error_message": d.error_message,
                 })
 
-        from app.infrastructure.quality_gates.jacoco_service import JaCoCoService
-        jacoco_xml = JaCoCoService.find_jacoco_report(mig_repo)
-        cov_info = JaCoCoService.parse_jacoco_xml(jacoco_xml) if jacoco_xml else {"available": False, "line_coverage_pct": None}
+        cov_info = {"available": False, "line_coverage_pct": None}
 
         test_pipeline_data = {
             "execution_status": result.execution_status,

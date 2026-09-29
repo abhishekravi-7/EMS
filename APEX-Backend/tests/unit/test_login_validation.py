@@ -133,41 +133,42 @@ async def test_login_registered_email_correct_password_succeeds(mongodb_db, monk
 async def test_login_email_case_insensitivity_and_trimming(mongodb_db, monkeypatch):
     """Emails in lowercase, uppercase, mixed-case, and with whitespace must all log in to the same account."""
     monkeypatch.setattr("app.api.v1.endpoints.auth_controller.get_mongodb", AsyncMock(return_value=mongodb_db))
+    monkeypatch.setattr("app.infrastructure.persistence.mongodb.get_mongodb", AsyncMock(return_value=mongodb_db))
     from app.infrastructure.persistence import mongodb_user_repository
     signup_user = await mongodb_user_repository.create_user(
         mongodb_db,
-        full_name="Javaapex User",
-        email="javaapex@gmail.com",
+        full_name="Case User",
+        email="case_unique@example.com",
         password="Test@1234",
         is_email_verified=True,
     )
     auth_service = MongoDBAuthService(mongodb_db)
 
     variations = [
-        "javaapex@gmail.com",
-        "JAVAAPEX@GMAIL.COM",
-        "Javaapex@gmail.com",
-        "Javaapex@Gmail.Com",
-        "  JAVAAPEX@GMAIL.COM  ",
-        "  javaapex@gmail.com  ",
+        "case_unique@example.com",
+        "CASE_UNIQUE@EXAMPLE.COM",
+        "Case_Unique@example.com",
+        "Case_Unique@Example.Com",
+        "  CASE_UNIQUE@EXAMPLE.COM  ",
+        "  case_unique@example.com  ",
     ]
 
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        for variation in variations:
-            # 1. Direct service login
-            user, access, refresh = await auth_service.login(variation, "Test@1234")
-            assert user["email"] == "javaapex@gmail.com"
-            assert user["_id"] == signup_user["_id"]
+    for variation in variations:
+        # 1. Direct service login
+        user, access, refresh = await auth_service.login(variation, "Test@1234")
+        assert user["email"] == "case_unique@example.com"
+        assert user["_id"] == signup_user["_id"]
 
-            # 2. HTTP endpoint login
+        # 2. HTTP endpoint login
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.post(
                 "/api/auth/login",
                 json={"email": variation, "password": "Test@1234"},
             )
             assert response.status_code == 200, f"Login failed for variation: '{variation}'"
             body = response.json()
-            assert body["user"]["email"] == "javaapex@gmail.com"
+            assert body["user"]["email"] == "case_unique@example.com"
             assert body["user"]["id"] == signup_user["_id"]
 
 
@@ -224,3 +225,56 @@ async def test_login_inactive_user_rejected(mongodb_db):
     auth_service = MongoDBAuthService(mongodb_db)
     with pytest.raises(AccountDisabledError):
         await auth_service.login("inactive@example.com", "Test@1234")
+
+
+@pytest.mark.asyncio
+async def test_unauthenticated_me_endpoint_returns_401(mongodb_db, monkeypatch):
+    """Unauthenticated requests to /api/v1/auth/me must return 401 and never return dev@example.com."""
+    monkeypatch.setattr("app.infrastructure.persistence.mongodb.get_mongodb", AsyncMock(return_value=mongodb_db))
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/api/v1/auth/me")
+        assert response.status_code == 401
+        data = response.json()
+        assert "Authentication required" in str(data.get("detail", ""))
+
+
+@pytest.mark.asyncio
+async def test_invalid_token_me_endpoint_returns_401(mongodb_db, monkeypatch):
+    """Requests with invalid token to /api/v1/auth/me must return 401."""
+    monkeypatch.setattr("app.infrastructure.persistence.mongodb.get_mongodb", AsyncMock(return_value=mongodb_db))
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            "/api/v1/auth/me",
+            headers={"Authorization": "Bearer invalid.fake.token"},
+        )
+        assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_authenticated_me_endpoint_returns_actual_user(mongodb_db, monkeypatch):
+    """Authenticated request returns the real MongoDB user, not dev@example.com."""
+    from app.infrastructure.persistence import mongodb_user_repository
+    user = await mongodb_user_repository.create_user(
+        mongodb_db,
+        full_name="Real User",
+        email="realuser@company.com",
+        password="Test@1234",
+        is_email_verified=True,
+    )
+    auth_service = MongoDBAuthService(mongodb_db)
+    _, access_token, _ = await auth_service.login("realuser@company.com", "Test@1234")
+
+    monkeypatch.setattr("app.infrastructure.persistence.mongodb.get_mongodb", AsyncMock(return_value=mongodb_db))
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            "/api/v1/auth/me",
+            cookies={"access_token": access_token},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["email"] == "realuser@company.com"
+        assert data["fullName"] == "Real User"
+

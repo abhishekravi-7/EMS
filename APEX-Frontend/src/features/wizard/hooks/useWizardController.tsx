@@ -5035,8 +5035,7 @@ export function useWizardController() {
             console.debug("Transient log fetch notice:", logErr);
           });
 
-        const isTerminal = isTerminalMigrationStatus(summary.status);
-        if (summary.status === "completed") {
+        if (isCompleted) {
           clearScheduledPoll();
           setIsMigrationFinishedState(true);
           setMigrationDetailLoadedJobId(null);
@@ -5156,7 +5155,7 @@ export function useWizardController() {
       github_token: currentToken,
       build_tool: repoAnalysis?.build_tool || null,
       migration_approach: migrationApproach,
-      conversion_types: effectiveConversions,
+      conversion_types: selectedConversions,
       ui_mod_mode: strategyState.uiModMode || undefined,
       ui_framework_target: strategyState.uiFrameworkTarget || undefined,
       ui_framework_version: strategyState.uiFrameworkVersion || undefined,

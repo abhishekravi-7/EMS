@@ -10,7 +10,9 @@ original-repo is never modified.
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime, timezone
+from pathlib import Path
 from app.core.context import user_id_ctx, job_id_ctx, repository_url_ctx
 from typing import Any
 
@@ -36,6 +38,7 @@ from app.infrastructure.migration_engine.automated_migration_runner import (
     MigrationRunResult,
 )
 from app.infrastructure.migration_engine.change_analyzer import ChangeAnalysis, ChangeAnalyzer
+from app.infrastructure.analyzers.junit_analyzer import JavaASTAnalyzer
 from app.infrastructure.migration_engine.ast_rule_mapper import (
     _parse_major,
 )
@@ -43,6 +46,9 @@ from app.infrastructure.persistence.job_repository import JobRepository
 from app.infrastructure.quality_gates.quality_gate_runner import QualityGateRunner
 from app.infrastructure.workspace.workspace_manager import WorkspaceManager
 from app.infrastructure.workspace.workspace_paths import WorkspacePaths
+from app.application.pipelines.frontend_migration.ui_migration_handler import (
+    UIMigrationHandler,
+)
 from app.shared import file_utils
 
 logger = logging.getLogger(__name__)
@@ -150,6 +156,7 @@ class StartMigrationUseCase:
         build_validator: BuildValidator | None = None,
         quality_gate_runner: QualityGateRunner | None = None,
         change_analyzer: ChangeAnalyzer | None = None,
+        ui_migration_handler_factory: Any | None = None,
     ) -> None:
         self._job_repository = job_repository or JobRepository()
         self._runner = runner or AutomatedMigrationRunner()
@@ -159,6 +166,7 @@ class StartMigrationUseCase:
         self._build_validator = build_validator or BuildValidator()
         self._quality_gate_runner = quality_gate_runner or QualityGateRunner()
         self._change_analyzer = change_analyzer or ChangeAnalyzer()
+        self._ui_migration_handler_factory = ui_migration_handler_factory or UIMigrationHandler
 
     # ------------------------------------------------------------------ #
     # Phase 1: validate + write the initial queued report (synchronous)
@@ -447,6 +455,125 @@ class StartMigrationUseCase:
                 )
             logger.info("Migration changed %d file(s) for job %s", files_modified, job_id)
 
+            # --- UI Modernization (JSP/JSF -> React/Angular) ---
+            options = report.get("options") or {}
+            is_ui_mod = (
+                "ui_modernization" in conversion_types
+                or bool(options.get("uiModMode"))
+                or bool(options.get("uiFrameworkTarget"))
+            )
+
+            if is_ui_mod:
+                logger.info("UI modernization requested for job %s", job_id)
+                jsp_extensions = (".jsp", ".jspf", ".jspx")
+                jsf_extensions = (".jsf", ".xhtml")
+                jsp_files: list[Path] = []
+                jsf_files: list[Path] = []
+
+                for root, _, files in os.walk(paths.migrated_repo_dir):
+                    if any(skip in root for skip in ("frontend", "target", "build", "node_modules", ".git")):
+                        continue
+                    for f in files:
+                        f_lower = f.lower()
+                        if f_lower.endswith(jsp_extensions):
+                            jsp_files.append(Path(root) / f)
+                        elif f_lower.endswith(jsf_extensions):
+                            jsf_files.append(Path(root) / f)
+
+                if not jsp_files and not jsf_files:
+                    logger.warning(
+                        "UI modernization requested for job %s, but no JSP/JSF files found in %s",
+                        job_id,
+                        paths.migrated_repo_dir,
+                    )
+                    store.append_logs([
+                        "[UI MIGRATION] UI modernization requested, but no JSP/JSF files found in migrated repository."
+                    ])
+                    self._fail(
+                        store,
+                        job_id,
+                        "UI modernization requested, but no JSP/JSF files were found in the migrated repository.",
+                    )
+                    return
+
+                ui_target = options.get("uiFrameworkTarget") or "React"
+                ui_mode = options.get("uiModMode") or ("JSP -> React" if "react" in str(ui_target).lower() else "JSP -> Angular")
+
+                store.append_logs([
+                    "[UI MIGRATION] Starting UI migration",
+                    f"[UI MIGRATION] Target framework: {ui_target}",
+                    f"[UI MIGRATION] Mode: {ui_mode}",
+                    f"[UI MIGRATION] Found {len(jsp_files)} JSP file(s)",
+                    f"[UI MIGRATION] Found {len(jsf_files)} JSF file(s)",
+                    "[UI MIGRATION] Converting JSP/JSF files...",
+                ])
+
+                try:
+                    ui_handler = self._ui_migration_handler_factory(
+                        migrated_repo_dir=paths.migrated_repo_dir,
+                        target_framework=ui_target,
+                        mode=ui_mode,
+                        ui_mode="preserve",
+                        backend_mode="unchanged",
+                    )
+                    ui_transformations = ui_handler.run()
+
+                    jsp_migrated = sum(
+                        1
+                        for t in ui_transformations
+                        if t.get("category", "").startswith("JSP")
+                        or (t.get("sourceFile") or t.get("file") or "").lower().endswith(jsp_extensions)
+                    )
+                    jsf_migrated = sum(
+                        1
+                        for t in ui_transformations
+                        if t.get("category", "").startswith("JSF")
+                        or (t.get("sourceFile") or t.get("file") or "").lower().endswith(jsf_extensions)
+                    )
+
+                    store.update(
+                        uiTransformations=ui_transformations,
+                        jspFilesMigrated=jsp_migrated if jsp_migrated > 0 else len(jsp_files),
+                        jsfFilesMigrated=jsf_migrated if jsf_migrated > 0 else len(jsf_files),
+                        jspFrontendFramework=ui_target if len(jsp_files) > 0 else None,
+                        jsfFrontendFramework=ui_target if len(jsf_files) > 0 else None,
+                        uiMigrationRequested=True,
+                        uiFrameworkTarget=ui_target,
+                        uiFrameworkVersion=options.get("uiFrameworkVersion"),
+                    )
+
+                    # Re-run change analysis to update modifiedFiles and issuesFixed with UI changes
+                    change_analysis = self._change_analyzer.analyze(
+                        paths.original_repo_dir, paths.migrated_repo_dir
+                    )
+                    files_modified = change_analysis.files_modified_count
+                    issues_fixed_count = (
+                        len(change_analysis.import_changes)
+                        + len(change_analysis.source_changes)
+                        + len(result.dependency_upgrades)
+                        + len(result.rule_executions)
+                        + len(ui_transformations)
+                    )
+                    store.update(
+                        filesModified=files_modified,
+                        modifiedFiles=change_analysis.all_changed_files[:200],
+                        issuesFixed=issues_fixed_count,
+                    )
+
+                    store.append_logs([
+                        f"[UI MIGRATION] UI migration completed ({len(ui_transformations)} file(s) converted to {ui_target})"
+                    ])
+                    logger.info(
+                        "UI modernization completed for job %s: %d transformations",
+                        job_id,
+                        len(ui_transformations),
+                    )
+                except Exception as exc:
+                    logger.exception("UI modernization failed for job %s: %s", job_id, exc)
+                    store.append_logs([f"[UI MIGRATION] [ERROR] UI migration failed: {exc}"])
+                    self._fail(store, job_id, f"UI migration failed: {exc}")
+                    return
+
             # --- Stage 4: Quality Check (Build, SonarQube, FOSSA, Unit Tests) ---
             progress_service.set_stage(
                 store,
@@ -478,7 +605,6 @@ class StartMigrationUseCase:
                     from app.schemas.unit_test import TestExecutionDetail, UnitTestGenerateAndRunRequest, UnitTestSuiteResult
                     from app.infrastructure.analyzers.junit_prompt_compliance_analyzer import JUnitPromptComplianceAnalyzer
                     from app.infrastructure.quality_gates.unit_test_runner import UnitTestRunner
-                    from app.infrastructure.quality_gates.jacoco_service import JaCoCoService
 
                     UNIT_TEST_SUITE_TIMEOUT_SECONDS = 600
                     
@@ -551,6 +677,7 @@ class StartMigrationUseCase:
                         project_dir=str(paths.migrated_repo_dir),
                         relative_source_path="",
                         build_tool="maven" if (paths.migrated_repo_dir / "pom.xml").exists() else "gradle",
+                        java_version=str(target_java or "17"),
                         enable_validation_agent=True,
                         test_command=quality_checks_values.get("test_command"),
                         testing_prompt=testing_prompt_val,
@@ -588,25 +715,8 @@ class StartMigrationUseCase:
                         runner_inst = getattr(unit_test_use_case, "_runner", None) or UnitTestRunner()
                         parsed_sf = runner_inst.parse_junit_reports(surefire_dir, exit_code=1 if test_timed_out else 0) if surefire_dir.exists() else None
                         
-                        exec_data_p = mig_repo / "target" / "jacoco.exec" if req.build_tool == "maven" else mig_repo / "build" / "jacoco" / "test.exec"
-                        jacoco_rep = JaCoCoService.find_jacoco_report(mig_repo)
-                        if not jacoco_rep and exec_data_p.exists() and exec_data_p.is_file() and exec_data_p.stat().st_size > 0:
-                            store.append_logs([
-                                "[JACOCO] Checking execution data",
-                                f"[JACOCO] Execution data found: {exec_data_p}",
-                                "[JACOCO] Generating XML report",
-                            ])
-                            try:
-                                import subprocess
-                                from app.infrastructure.quality_gates.unit_test_runner import build_tool_env
-                                is_win = sys.platform == "win32"
-                                exec_cmd_name = "mvn.cmd" if is_win else "mvn"
-                                subprocess.run([exec_cmd_name, "org.jacoco:jacoco-maven-plugin:0.8.13:report", "-Dgit.commit.id.skip=true"], cwd=mig_repo, timeout=120, env=build_tool_env(None), capture_output=True)
-                            except Exception as j_err:
-                                store.append_logs([f"[JACOCO] Report generation failed: {j_err}"])
-
-                        cov_sum = JaCoCoService.get_coverage_summary(mig_repo)
-                        is_cov_av = bool(cov_sum.get("available") and cov_sum.get("line_coverage_pct") is not None)
+                        cov_sum = {"available": False, "line_coverage_pct": None}
+                        is_cov_av = False
                         
                         test_result = UnitTestSuiteResult(
                             project_dir=str(mig_repo),
@@ -747,27 +857,10 @@ class StartMigrationUseCase:
                                 f"[JUnit] Generation failed for target class: {g_file.get('source_class')} ({g_file.get('error', 'Unknown error')})"
                             )
 
-                    if orig_cov.get("available") and orig_cov.get("line_coverage_pct") is not None:
-                        log_entries.append(f"[JaCoCo] Original line coverage: {orig_cov.get('line_coverage_pct')}%")
-                    
-                    if final_cov.get("exec_path"):
-                        log_entries.append(f"[JACOCO] Execution data found: {final_cov.get('exec_path')}")
 
-                    if final_available:
-                        if final_cov.get("report_path"):
-                            log_entries.append(f"[JACOCO] XML report generated: {final_cov.get('report_path')}")
-                        log_entries.append("[JACOCO] Coverage parsed")
-                        log_entries.append(f"[JACOCO] Line coverage: {final_line_cov}%")
-                        log_entries.append(f"[JACOCO] Branch coverage: {final_branch_cov}%")
-                        log_entries.append(f"[JACOCO] Instruction coverage: {final_inst_cov}%")
-                        log_entries.append(f"[JACOCO] Method coverage: {final_method_cov}%")
-                        log_entries.append(f"[JACOCO] Class coverage: {final_class_cov}%")
-                    else:
-                        rep_err = final_cov.get("error") or "JaCoCo XML report was not generated."
-                        log_entries.append(f"[JACOCO] Report generation failed: {rep_err}")
 
-                    if cov_improv.get("text"):
-                        log_entries.append(f"[JACOCO] Coverage improvement: {cov_improv.get('text')}")
+                    if getattr(test_result, "raw_logs", None):
+                        log_entries.extend(test_result.raw_logs)
 
                     store.append_logs(log_entries)
 

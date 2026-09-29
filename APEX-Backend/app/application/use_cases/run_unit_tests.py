@@ -14,7 +14,6 @@ from app.core.junit_prompts import combine_junit_prompts
 from app.infrastructure.analyzers.junit4_to_5_converter import JUnit4To5Modernizer
 from app.infrastructure.analyzers.junit_analyzer import JavaASTAnalyzer
 from app.infrastructure.llm.junit_generator import JUnitLLMGenerator
-from app.infrastructure.quality_gates.jacoco_service import JaCoCoService
 from app.infrastructure.quality_gates.unit_test_runner import UnitTestRunner
 from app.infrastructure.workspace.workspace_paths import WorkspacePaths
 from app.schemas.unit_test import (
@@ -390,31 +389,17 @@ class RunUnitTestSuiteUseCase:
                     skipped_tests=0,
                 )
 
-            try:
-                original_coverage = JaCoCoService.get_coverage_summary(
-                    project_dir,
-                    auto_execute_if_missing=False,
-                    target_major=target_major,
-                )
-            except Exception as cov_err:
-                logger.warning(f"[JACOCO] Baseline coverage reading notice: {cov_err}")
-                original_coverage = {"available": False, "line_coverage_pct": None, "error": str(cov_err)}
-
-            if original_coverage.get("available") and original_coverage.get("line_coverage_pct") is not None:
-                logger.info(f"[JACOCO] Baseline original line coverage: {original_coverage['line_coverage_pct']}%")
-            else:
-                logger.info("[JACOCO] Baseline original coverage: Unavailable (No JaCoCo XML report found)")
+            original_coverage = {"available": False, "line_coverage_pct": None}
 
             if not target_files:
                 baseline_res.original_coverage = original_coverage
                 baseline_res.final_coverage = original_coverage
-                baseline_res.coverage_improvement = JaCoCoService.calculate_improvement(original_coverage, original_coverage)
-                is_orig_avail = bool(original_coverage.get("available") and original_coverage.get("line_coverage_pct") is not None)
-                baseline_res.line_coverage_pct = float(original_coverage["line_coverage_pct"]) if is_orig_avail else None
-                baseline_res.branch_coverage_pct = float(original_coverage.get("branch_coverage_pct") or 0.0) if is_orig_avail else None
-                baseline_res.instruction_coverage_pct = float(original_coverage.get("instruction_coverage_pct") or 0.0) if is_orig_avail else None
-                baseline_res.method_coverage_pct = float(original_coverage.get("method_coverage_pct") or 0.0) if is_orig_avail else None
-                baseline_res.class_coverage_pct = float(original_coverage.get("class_coverage_pct") or 0.0) if is_orig_avail else None
+                baseline_res.coverage_improvement = {"improvement_pct": 0.0, "text": None, "available": False}
+                baseline_res.line_coverage_pct = None
+                baseline_res.branch_coverage_pct = None
+                baseline_res.instruction_coverage_pct = None
+                baseline_res.method_coverage_pct = None
+                baseline_res.class_coverage_pct = None
                 if prompt_analysis:
                     baseline_res.prompt_analysis = prompt_analysis
                 return baseline_res
@@ -536,18 +521,9 @@ class RunUnitTestSuiteUseCase:
                 f"[JUnit] Generated test execution completed: total={final_res.total_run}, passed={final_res.passed}, failed={final_res.failed}"
             )
 
-            # STEP 9 & 10: Final JaCoCo coverage and improvement calculation
-            logger.info("[JACOCO] JaCoCo generation started")
-            final_coverage = JaCoCoService.get_coverage_summary(project_dir)
-            if final_coverage.get("available") and final_coverage.get("line_coverage_pct") is not None:
-                logger.info(f"[JACOCO] JaCoCo XML generated: {final_coverage.get('report_path')}")
-                logger.info(f"[JACOCO] Final line coverage: {final_coverage['line_coverage_pct']}%")
-            else:
-                logger.info("[JACOCO] Final coverage: Unavailable (JaCoCo XML report not generated)")
-
-            coverage_improvement = JaCoCoService.calculate_improvement(original_coverage, final_coverage)
-            if coverage_improvement.get("text"):
-                logger.info(f"[JACOCO] Coverage improvement: {coverage_improvement['text']}")
+            # Final coverage and improvement (JaCoCo removed)
+            final_coverage = {"available": False, "line_coverage_pct": None}
+            coverage_improvement = {"improvement_pct": 0.0, "text": None, "available": False}
 
             # Real generated test execution metrics
             total_gen_methods = sum(

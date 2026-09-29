@@ -23,7 +23,6 @@ class UnitTestReportGenerator:
     def collect_metrics(self, job_id: str) -> dict[str, Any]:
         from app.infrastructure.workspace.workspace_paths import WorkspacePaths
         from app.infrastructure.quality_gates.unit_test_runner import UnitTestRunner
-        from app.infrastructure.quality_gates.jacoco_service import JaCoCoService
         paths = WorkspacePaths(job_id)
         original_dir = paths.original_repo_dir if paths.original_repo_dir.exists() else None
         migrated_dir = paths.migrated_repo_dir if paths.migrated_repo_dir.exists() else original_dir
@@ -121,20 +120,9 @@ class UnitTestReportGenerator:
         test_pipe = rep_data.get("test_pipeline", {}) if isinstance(rep_data, dict) else {}
         exec_details = test_pipe.get("executed_test_details", []) if isinstance(test_pipe, dict) else []
 
-        # Step 2: Fallback to direct Surefire XML & JaCoCo XML parsing if test_pipeline execution details are missing
+        # Step 2: Fallback to direct Surefire XML parsing if test_pipeline execution details are missing
         surefire_dir = migrated_dir / "target" / "surefire-reports" if migrated_dir else None
-        cov_summary = None
-
-        if migrated_dir and migrated_dir.exists():
-            artifacts = JaCoCoService.check_artifacts_exist(migrated_dir)
-            if not test_pipe.get("coverage") and not test_pipe.get("coverage_result"):
-                if not artifacts.get("jacoco_xml") or not artifacts.get("classes_dir"):
-                    cov_summary = JaCoCoService.get_coverage_summary(migrated_dir, auto_execute_if_missing=True)
-                else:
-                    cov_summary = JaCoCoService.get_coverage_summary(migrated_dir)
-
-        if not cov_summary:
-            cov_summary = JaCoCoService.get_coverage_summary(migrated_dir) if migrated_dir else {"available": False}
+        cov_summary = {"available": False, "line_coverage_pct": None}
 
         if not exec_details and surefire_dir and surefire_dir.exists() and list(surefire_dir.glob("TEST-*.xml")):
             runner = UnitTestRunner()
