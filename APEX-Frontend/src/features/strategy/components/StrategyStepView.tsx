@@ -58,7 +58,7 @@ interface StrategyStepViewProps {
   riskLevel: string;
   riskExplanation?: string | null;
   riskExplanationLoading?: boolean;
-  stepSummary: string;
+  stepSummary?: string;
   buildToolDisplayLabel: string;
   renderCategorizedDependencies: (dependencies: DependencyInfo[]) => React.ReactNode;
   dependencyAnalysis?: import("../services/strategyService").DependencyAnalysisResponse | null;
@@ -91,7 +91,7 @@ export function StrategyStepView({
   riskExplanationLoading: propRiskExplanationLoading,
   dependencyAnalysis: propDependencyAnalysis,
   dependencyAnalysisLoading: propDependencyAnalysisLoading,
-  stepSummary,
+  stepSummary = "",
   buildToolDisplayLabel,
   renderCategorizedDependencies,
   effectiveTargetVersion,

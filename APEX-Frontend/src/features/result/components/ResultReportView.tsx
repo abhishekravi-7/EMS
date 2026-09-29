@@ -232,13 +232,20 @@ export function ResultReportView({
   const totalTestCases = testSummaryMetrics?.total_test_cases ?? (existingTestCases + generatedTestCases);
   const migrationJavaVersion = testSummaryMetrics?.java_migration_version ?? "";
   const coverageResult = migrationJob?.test_pipeline?.coverage_result as
-    | { available?: boolean; line_coverage_pct?: number; line_coverage?: number }
+    | {
+        available?: boolean;
+        line_coverage_pct?: number;
+        line_coverage?: number;
+        original?: { line_coverage_pct?: number };
+        final?: { line_coverage_pct?: number };
+        improvement?: { text?: string };
+      }
     | undefined;
   const jacocoCoverageAvailable = coverageResult?.available;
   const jacocoCoveragePct =
     jacocoCoverageAvailable === false
       ? null
-      : coverageResult?.line_coverage_pct ?? coverageResult?.line_coverage ?? null;
+      : coverageResult?.final?.line_coverage_pct ?? coverageResult?.line_coverage_pct ?? coverageResult?.line_coverage ?? null;
   const testSummaryReportDate = migrationJob?.completed_at
     ? new Date(migrationJob.completed_at).toLocaleDateString()
     : new Date().toLocaleDateString();
@@ -259,7 +266,7 @@ export function ResultReportView({
     { label: "Total Test Cases", value: totalTestCases },
     {
       label: "JaCoCo Coverage",
-      value: typeof jacocoCoveragePct === "number" ? `${jacocoCoveragePct.toFixed(1)}%` : "0.0%",
+      value: typeof jacocoCoveragePct === "number" ? `${jacocoCoveragePct.toFixed(1)}%` : "N/A",
     },
   ];
 
@@ -569,7 +576,7 @@ export function ResultReportView({
       group_id: source.group_id || source.groupId || source.coordinate?.split(":")[0] || "dependency",
       artifact_id: source.artifact_id || source.artifactId || source.coordinate?.split(":")[1] || "artifact",
       current_version: source.current_version || source.old_version || source.oldVersion || source.sourceVersion || "managed version",
-      new_version: source.new_version || source.newVersion || source.resolvedTargetVersion || "updated version",
+      new_version: (source.new_version || source.newVersion || (source as any).resolvedTargetVersion || "updated version") as string,
       status: source.status || "UPGRADED",
       reason: source.reason,
       scope: source.scope,

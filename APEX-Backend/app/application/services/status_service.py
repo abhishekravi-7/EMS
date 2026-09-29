@@ -119,11 +119,12 @@ class MigrationReportStore:
                 logger.debug("Non-fatal: failed saving report to db for %s: %s", self._job_id, db_err)
 
     def update(self, **fields: Any) -> dict[str, Any]:
-        report = self.read() or {}
-        report.update(fields)
-        report["updatedAt"] = datetime.now(timezone.utc).isoformat()
-        self.write(report, force_db=("status" in fields or "currentStep" in fields))
-        return report
+        with _CACHE_LOCK:
+            report = self.read() or {}
+            report.update(fields)
+            report["updatedAt"] = datetime.now(timezone.utc).isoformat()
+            self.write(report, force_db=("status" in fields or "currentStep" in fields))
+            return report
 
     def append_logs(self, lines: list[str]) -> None:
         """Persist ``lines`` for this job's log stream."""
@@ -141,8 +142,9 @@ class MigrationReportStore:
         sanitized = migration_log_sanitizer.sanitize_lines(lines)
         if not sanitized:
             return
-        report = self.read() or {}
-        existing = report.get("logLines") or []
-        report["logLines"] = existing + [line for line in sanitized if line not in existing]
-        self.write(report, force_db=False)
+        with _CACHE_LOCK:
+            report = self.read() or {}
+            existing = report.get("logLines") or []
+            report["logLines"] = existing + [line for line in sanitized if line not in existing]
+            self.write(report, force_db=False)
 

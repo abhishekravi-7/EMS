@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import defusedxml.ElementTree as ET
@@ -9,6 +10,8 @@ import defusedxml.ElementTree as ET
 from app.infrastructure.java_runtime import build_tool_env
 from app.schemas.unit_test import TestExecutionDetail, UnitTestSuiteResult
 from app.shared.command_runner import resolve_executable, run_command
+
+logger = logging.getLogger(__name__)
 
 
 class UnitTestRunner:
@@ -21,6 +24,7 @@ class UnitTestRunner:
         target_class_names: list[str] | None = None,
         test_command: str | None = None,
         target_major: int | None = None,
+        known_generated_classes: set[str] | list[str] | None = None,
     ) -> UnitTestSuiteResult:
         build_tool_clean = (build_tool or "maven").lower()
 
@@ -35,6 +39,13 @@ class UnitTestRunner:
 
         import os
         is_windows = os.name == "nt"
+
+        # Auto-configure JaCoCo on the project before running tests if not configured
+        try:
+            from app.infrastructure.quality_gates.jacoco_service import JaCoCoService
+            JaCoCoService.ensure_jacoco_configured(project_dir)
+        except Exception as e:
+            logger.debug("Non-fatal: could not auto-configure JaCoCo: %s", e)
 
         if test_command:
             import shlex
@@ -51,7 +62,7 @@ class UnitTestRunner:
                 executable = resolve_executable("gradle")
                 if not executable:
                     executable = "gradle.bat" if is_windows else "gradle"
-            cmd = [executable, "test"]
+            cmd = [executable, "clean", "test", "jacocoTestReport"]
             if targets:
                 for name in targets:
                     cmd.extend(["--tests", f"*{name}*"])
@@ -67,10 +78,20 @@ class UnitTestRunner:
                 executable = resolve_executable("mvn")
                 if not executable:
                     executable = "mvn.cmd" if is_windows else "mvn"
-            cmd = [executable, "test", "-DfailIfNoTests=false", "-Dgit.commit.id.skip=true", "-Dmaven.gitcommitid.skip=true"]
+            cmd = [
+                executable,
+                "clean",
+                "org.jacoco:jacoco-maven-plugin:0.8.13:prepare-agent",
+                "test",
+                "org.jacoco:jacoco-maven-plugin:0.8.13:report",
+                "-DfailIfNoTests=false",
+                "-DtestFailureIgnore=true",
+                "-Dmaven.test.failure.ignore=true",
+                "-Dgit.commit.id.skip=true",
+                "-Dmaven.gitcommitid.skip=true",
+            ]
             if targets:
                 cmd.append(f"-Dtest={','.join([f'*{n}*' for n in targets])}")
-            # Prova also adds surefire-report:report for Maven
             cmd.append("surefire-report:report")
 
         # Locate XML report directory and clean stale XML reports from previous runs to prevent leaking results
@@ -86,14 +107,70 @@ class UnitTestRunner:
             except OSError:
                 pass
 
+        logger.info("[JACOCO] Test execution started on %s", project_dir)
         res = run_command(cmd, cwd=project_dir, timeout=600, env=build_tool_env(target_major))
 
-        return self.parse_junit_reports(
+        parsed_res = self.parse_junit_reports(
             reports_dir=reports_dir,
             raw_stdout=res.stdout,
             raw_stderr=res.stderr,
             exit_code=res.exit_code,
+            known_generated_classes=set(known_generated_classes) if known_generated_classes else None,
         )
+
+        # Parse actual JaCoCo coverage from the project directory
+        try:
+            from app.infrastructure.quality_gates.jacoco_service import JaCoCoService
+            jacoco_report = JaCoCoService.find_jacoco_report(project_dir)
+            exec_data_path = project_dir / "target" / "jacoco.exec" if build_tool_clean == "maven" else project_dir / "build" / "jacoco" / "test.exec"
+
+            # If exec data exists but XML report was not generated during main command, invoke report goal explicitly
+            if not jacoco_report and exec_data_path.exists() and exec_data_path.is_file() and exec_data_path.stat().st_size > 0:
+                logger.info("[JACOCO] Execution data: %s", exec_data_path)
+                logger.info("[JACOCO] Report generation started...")
+                if build_tool_clean == "maven":
+                    rep_cmd = [executable, "org.jacoco:jacoco-maven-plugin:0.8.13:report", "-Dgit.commit.id.skip=true"]
+                else:
+                    rep_cmd = [executable, "jacocoTestReport"]
+                run_command(rep_cmd, cwd=project_dir, timeout=120, env=build_tool_env(target_major))
+                jacoco_report = JaCoCoService.find_jacoco_report(project_dir)
+
+            cov_summary = JaCoCoService.get_coverage_summary(project_dir)
+            parsed_res.final_coverage = cov_summary
+
+            if cov_summary.get("available") and cov_summary.get("line_coverage_pct") is not None:
+                parsed_res.line_coverage_pct = float(cov_summary["line_coverage_pct"])
+                parsed_res.branch_coverage_pct = float(cov_summary.get("branch_coverage_pct") or 0.0)
+                parsed_res.instruction_coverage_pct = float(cov_summary.get("instruction_coverage_pct") or 0.0)
+                parsed_res.method_coverage_pct = float(cov_summary.get("method_coverage_pct") or 0.0)
+                parsed_res.class_coverage_pct = float(cov_summary.get("class_coverage_pct") or 0.0)
+                
+                xml_loc = cov_summary.get("report_path") or str(jacoco_report)
+                html_loc = str(Path(xml_loc).parent / "index.html")
+                logger.info("[JACOCO] XML report: %s", xml_loc)
+                logger.info("[JACOCO] HTML report: %s", html_loc)
+                logger.info("[JACOCO] XML parsed successfully")
+                logger.info("[JACOCO] Line coverage: %s%%", parsed_res.line_coverage_pct)
+                logger.info("[JACOCO] Branch coverage: %s%%", parsed_res.branch_coverage_pct)
+                logger.info("[JACOCO] Instruction coverage: %s%%", parsed_res.instruction_coverage_pct)
+                logger.info("[JACOCO] Method coverage: %s%%", parsed_res.method_coverage_pct)
+                logger.info("[JACOCO] Class coverage: %s%%", parsed_res.class_coverage_pct)
+            else:
+                parsed_res.line_coverage_pct = None
+                parsed_res.branch_coverage_pct = None
+                parsed_res.instruction_coverage_pct = None
+                parsed_res.method_coverage_pct = None
+                parsed_res.class_coverage_pct = None
+                logger.warning("[JACOCO] Report generation failed: JaCoCo XML report was not generated at target/site/jacoco/jacoco.xml")
+        except Exception as cov_err:
+            logger.warning("[JACOCO] Report generation failed: %s", cov_err)
+            parsed_res.line_coverage_pct = None
+            parsed_res.branch_coverage_pct = None
+            parsed_res.instruction_coverage_pct = None
+            parsed_res.method_coverage_pct = None
+            parsed_res.class_coverage_pct = None
+
+        return parsed_res
 
     def parse_junit_reports(
         self,
@@ -101,6 +178,7 @@ class UnitTestRunner:
         raw_stdout: str = "",
         raw_stderr: str = "",
         exit_code: int = 0,
+        known_generated_classes: set[str] | None = None,
     ) -> UnitTestSuiteResult:
         import re
         existing_details: list[TestExecutionDetail] = []
@@ -110,69 +188,88 @@ class UnitTestRunner:
         passed_count = 0
         failed_count = 0
         skipped_count = 0
+        gen_classes = known_generated_classes or set()
 
-        if reports_dir.exists():
-            xml_files = list(reports_dir.glob("TEST-*.xml"))
-            for xml_file in xml_files:
-                try:
-                    tree = ET.parse(xml_file)
-                    root = tree.getroot()
-                except (ET.ParseError, OSError, ValueError, KeyError):
-                    continue
+        xml_files: list[Path] = []
+        if reports_dir.exists() and reports_dir.is_dir():
+            xml_files.extend(reports_dir.glob("TEST-*.xml"))
+        # Also inspect submodules / build outputs for Surefire or Gradle XML files
+        try:
+            search_root = reports_dir.parent.parent if reports_dir.parent.exists() and reports_dir.parent.parent.exists() else reports_dir
+            for f in search_root.rglob("TEST-*.xml"):
+                if f not in xml_files and ".git" not in str(f) and "storage" not in str(f) and "node_modules" not in str(f):
+                    xml_files.append(f)
+        except Exception:
+            pass
 
-                # Support both <testsuite> and <testsuites> roots (Prova approach)
-                testsuites = []
-                if root.tag == "testsuites":
-                    testsuites = root.findall("testsuite")
-                elif root.tag == "testsuite":
-                    testsuites = [root]
-                else:
-                    # Fallback to direct search if tags don't match
-                    testsuites = [root]
+        for xml_file in xml_files:
+            try:
+                tree = ET.parse(xml_file)
+                root = tree.getroot()
+            except (ET.ParseError, OSError, ValueError, KeyError):
+                continue
 
-                for suite in testsuites:
-                    for tc in suite.findall("testcase"):
-                        total_count += 1
-                        method_name = tc.get("name", "unknown")
-                        class_name = tc.get("classname", "unknown")
-                        time_sec = float(tc.get("time", "0.0"))
+            # Support both <testsuite> and <testsuites> roots (Prova approach)
+            testsuites = []
+            if root.tag == "testsuites":
+                testsuites = root.findall("testsuite")
+            elif root.tag == "testsuite":
+                testsuites = [root]
+            else:
+                # Fallback to direct search if tags don't match
+                testsuites = [root]
 
-                        failure = tc.find("failure")
-                        error = tc.find("error")
-                        skipped = tc.find("skipped")
+            for suite in testsuites:
+                for tc in suite.findall("testcase"):
+                    total_count += 1
+                    method_name = tc.get("name", "unknown")
+                    class_name = tc.get("classname", "unknown")
+                    time_sec = float(tc.get("time", "0.0"))
 
-                        if failure is not None or error is not None:
-                            failed_count += 1
-                            node = failure if failure is not None else error
-                            detail = TestExecutionDetail(
-                                test_class=class_name,
-                                test_method=method_name,
-                                status="FAILED",
-                                execution_time_seconds=time_sec,
-                                error_message=node.get("message") if node is not None else "Test failed",
-                                stack_trace=node.text if node is not None else None,
-                            )
-                        elif skipped is not None:
-                            skipped_count += 1
-                            detail = TestExecutionDetail(
-                                test_class=class_name,
-                                test_method=method_name,
-                                status="SKIPPED",
-                                execution_time_seconds=time_sec,
-                            )
-                        else:
-                            passed_count += 1
-                            detail = TestExecutionDetail(
-                                test_class=class_name,
-                                test_method=method_name,
-                                status="PASSED",
-                                execution_time_seconds=time_sec,
-                            )
+                    failure = tc.find("failure")
+                    error = tc.find("error")
+                    skipped = tc.find("skipped")
 
-                        if "LLMTest" in class_name or "LLM" in method_name:
-                            generated_details.append(detail)
-                        else:
-                            existing_details.append(detail)
+                    if failure is not None or error is not None:
+                        failed_count += 1
+                        node = failure if failure is not None else error
+                        detail = TestExecutionDetail(
+                            test_class=class_name,
+                            test_method=method_name,
+                            status="FAILED",
+                            execution_time_seconds=time_sec,
+                            error_message=node.get("message") if node is not None else "Test failed",
+                            stack_trace=node.text if node is not None else None,
+                        )
+                    elif skipped is not None:
+                        skipped_count += 1
+                        detail = TestExecutionDetail(
+                            test_class=class_name,
+                            test_method=method_name,
+                            status="SKIPPED",
+                            execution_time_seconds=time_sec,
+                        )
+                    else:
+                        passed_count += 1
+                        detail = TestExecutionDetail(
+                            test_class=class_name,
+                            test_method=method_name,
+                            status="PASSED",
+                            execution_time_seconds=time_sec,
+                        )
+
+                    short_class = class_name.split(".")[-1]
+                    is_gen = False
+                    if gen_classes:
+                        if class_name in gen_classes or short_class in gen_classes or f"{short_class}Test" in gen_classes or short_class.replace("Test", "") in gen_classes:
+                            is_gen = True
+                    if not is_gen and ("LLMTest" in class_name or "LLM" in method_name):
+                        is_gen = True
+
+                    if is_gen:
+                        generated_details.append(detail)
+                    else:
+                        existing_details.append(detail)
 
         # Prova approach: Fallback to regex on console output if no XML results
         if total_count == 0 and (raw_stdout or raw_stderr):
@@ -186,6 +283,22 @@ class UnitTestRunner:
 
         raw_logs = [line for line in (raw_stdout + "\n" + raw_stderr).splitlines() if line.strip()]
 
+        if total_count > 0:
+            if failed_count == 0:
+                exec_status = "EXECUTED"
+            elif passed_count > 0:
+                exec_status = "PARTIAL"
+            else:
+                exec_status = "FAILED"
+        elif exit_code != 0:
+            combined = (raw_stdout + "\n" + raw_stderr).lower()
+            if "compilation error" in combined or "compilation failure" in combined or "compile error" in combined:
+                exec_status = "COMPILE FAILED"
+            else:
+                exec_status = "FAILED"
+        else:
+            exec_status = "NOT_EXECUTED"
+
         return UnitTestSuiteResult(
             total_run=total_count,
             passed=passed_count,
@@ -193,5 +306,6 @@ class UnitTestRunner:
             skipped=skipped_count,
             existing_test_results=existing_details,
             generated_test_results=generated_details,
+            execution_status=exec_status,
             raw_logs=raw_logs[:500],
         )

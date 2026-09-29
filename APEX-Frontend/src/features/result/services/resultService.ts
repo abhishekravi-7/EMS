@@ -72,6 +72,36 @@ export interface SonarReport {
   [key: string]: unknown;
 }
 
+export interface PromptComplianceItem {
+  prompt_id: string;
+  prompt_name: string;
+  expected_scenarios: string[];
+  covered_scenarios: string[];
+  uncovered_scenarios: string[];
+  generated_test_methods: string[];
+  passed_count: number;
+  failed_count: number;
+  execution_status: "PASSED" | "PARTIAL" | "FAILED" | "NOT_RUN" | string;
+  jacoco_gaps_addressed: string[];
+  compliance_percentage: number;
+  recommendations: string[];
+  inspected_features?: Record<string, unknown>;
+}
+
+export interface PromptComplianceReport {
+  overall_compliance_percentage: number;
+  total_prompts_evaluated: number;
+  passed_prompts_count: number;
+  failed_prompts_count: number;
+  compliance_items: PromptComplianceItem[];
+  evaluation_summary: string;
+  total_test_methods_inspected: number;
+  total_assertions_inspected: number;
+  total_exceptions_verified: number;
+  total_boundary_inputs_tested: number;
+  total_mocks_verified: number;
+}
+
 export interface FossaVulnerabilityDetail {
   id: string;
   title: string;
@@ -207,6 +237,15 @@ export interface MigrationResult {
   sonar_vulnerabilities: number;
   sonar_code_smells: number;
   sonar_coverage: number;
+  run_tests?: boolean;
+  runTests?: boolean;
+  run_sonar?: boolean;
+  runSonar?: boolean;
+  run_fossa?: boolean;
+  runFossa?: boolean;
+  run_functional_tests?: boolean;
+  runFunctionalTests?: boolean;
+  progress?: number;
   sonar_duplications?: number;
   sonar_security_hotspots?: number;
   sonar_scan_mode?: string | null;
@@ -229,7 +268,6 @@ export interface MigrationResult {
     existing_tests_detected?: number;
     existing_test_files?: string[];
     migrated_test_files?: string[];
-    generated_test_files: string[];
     test_summary_metrics?: Record<string, unknown> | null;
     runner: Record<string, unknown>;
     functional_testing?: FunctionalTesting | null;
@@ -237,12 +275,57 @@ export interface MigrationResult {
     migration_patch_path?: string | null;
     deepeval_result?: Record<string, unknown> | null;
     garak_result?: Record<string, unknown> | null;
-    coverage_result?: Record<string, unknown> | null;
+    coverage_result?: {
+      available?: boolean;
+      line_coverage_pct?: number;
+      line_coverage?: number;
+      branch_coverage_pct?: number;
+      instruction_coverage_pct?: number;
+      original?: {
+        available?: boolean;
+        line_coverage_pct?: number;
+        branch_coverage_pct?: number;
+        instruction_coverage_pct?: number;
+        report_path?: string | null;
+      } | null;
+      final?: {
+        available?: boolean;
+        line_coverage_pct?: number;
+        branch_coverage_pct?: number;
+        instruction_coverage_pct?: number;
+        report_path?: string | null;
+      } | null;
+      improvement?: {
+        line_coverage_pp?: number;
+        branch_coverage_pp?: number;
+        text?: string;
+        branch_text?: string;
+      } | null;
+    } | null;
+    generated_test_files?: Array<{
+      source_class: string;
+      test_class: string;
+      path: string;
+      generator: string;
+      status: string;
+      test_method_count: number;
+      test_methods?: string[];
+    }> | string[];
+    generated_test_execution?: {
+      generated_test_methods?: number;
+      executed_generated_test_methods?: number;
+      passed_generated_test_methods?: number;
+      failed_generated_test_methods?: number;
+      skipped_generated_test_methods?: number;
+    } | null;
+    prompt_compliance?: PromptComplianceReport | null;
     executed_test_details?: Array<{
       test_class?: string;
       test_method?: string;
       status?: string;
       duration?: string | null;
+      execution_time_seconds?: number;
+      error_message?: string | null;
     }>;
   } | null;
   functional_pipeline?: FunctionalTesting | null;

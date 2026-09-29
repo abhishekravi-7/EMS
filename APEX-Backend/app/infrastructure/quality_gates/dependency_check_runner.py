@@ -299,7 +299,7 @@ class DependencyCheckRunner:
             extracted["total_dependencies"],
         )
 
-       # Fetch detailed metrics from FOSSA API using exact locator / revision / project
+        # Fetch detailed metrics from FOSSA API using exact locator / revision / project
  
         api_metrics = self._fetch_fossa_detailed_metrics(
             host_url=host_url,
@@ -311,7 +311,7 @@ class DependencyCheckRunner:
             project=project,
             analysis_url=analysis_url,
         )
-       resolved_locator = api_metrics.get("locator") or fossa_locator
+        resolved_locator = api_metrics.get("locator") or fossa_locator
  
         resolved_revision = api_metrics.get("revision") or fossa_revision
  
@@ -707,65 +707,35 @@ class DependencyCheckRunner:
         import urllib.parse
         encoded_project = urllib.parse.quote(f"custom+{project}", safe="")
         return f"{endpoint}/projects/{encoded_project}"
-        @classmethod
-        def _extract_locator_and_revision(cls, analyze_stdout: str) -> tuple[str | None, str | None, str | None]:
- 
+    @classmethod
+    def _extract_locator_and_revision(cls, analyze_stdout: str) -> tuple[str | None, str | None, str | None]:
         """Extract the project locator, revision, and project ID from fossa analyze stdout."""
- 
         if not analyze_stdout:
- 
             return None, None, None
- 
         clean = cls._strip_ansi(analyze_stdout)
- 
         for line in clean.splitlines():
- 
             line = line.strip()
- 
             if not line.startswith("{"):
- 
                 continue
- 
             try:
- 
                 obj = json.loads(line)
- 
                 if isinstance(obj, dict):
- 
                     loc = obj.get("locator") or obj.get("id")
- 
                     rev = obj.get("revision")
- 
                     proj_id = obj.get("projectId")
- 
- 
- 
                     if loc and "$" in str(loc):
- 
                         parts = str(loc).split("$", 1)
- 
                         resolved_proj_id = proj_id or parts[0]
- 
                         resolved_rev = rev or parts[1]
- 
                         return str(loc), str(resolved_rev), str(resolved_proj_id)
- 
                     if loc and rev:
- 
                         return f"{loc}${rev}", str(rev), str(proj_id or loc)
- 
                     if proj_id and rev:
- 
                         return f"{proj_id}${rev}", str(rev), str(proj_id)
- 
                     if loc:
- 
                         return str(loc), str(rev) if rev else None, str(proj_id) if proj_id else None
- 
             except json.JSONDecodeError:
- 
                 pass
- 
         return None, None, None
 
     @staticmethod
@@ -854,32 +824,20 @@ class DependencyCheckRunner:
         except Exception as exc:  # noqa: BLE001
             logger.info("[FOSSA] Failed to fetch revisions from API: %s", exc)
             return None
-            def _fetch_fossa_detailed_metrics(
- 
+
+    def _fetch_fossa_detailed_metrics(
         self,
- 
         *,
- 
         host_url: str,
- 
         api_key: str,
- 
         locator: str | None,
- 
         project_id: str | None = None,
- 
         revision: str | None = None,
- 
         project: str,
- 
         analysis_url: str | None = None,
- 
         max_retries: int = 3,
- 
         retry_delay_seconds: float = 2.0,
- 
     ) -> dict[str, Any]:
- 
         """Fetch revision metrics (dependencies, licenses, unresolved issues) via FOSSA REST API."""
  
         import urllib.error

@@ -8,11 +8,9 @@ import {
   testAdminGithubConnection,
   testUserGithubConnection,
   testUserSonarConnection,
- 
-  testUserFossaConnection,
-  testUserPlaywrightConnection,
   testUserSonarqubeConnection,
   testUserFossaConnection,
+  testUserPlaywrightConnection,
   fetchUserGithubRepos,
   fetchUserGithubBranches,
   type SystemSettings,

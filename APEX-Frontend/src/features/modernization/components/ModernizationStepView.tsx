@@ -29,7 +29,6 @@ import type { FunctionalTestScopePreview } from "../services/modernizationServic
 import { getLocalProjectFileContent } from "@/features/connect/services/connectService";
 import { getFileContent } from "@/features/discovery/services/discoveryService";
 import type { useModernizationState } from "../hooks/useModernizationState";
-import UserQualityChecksSettings from "@/features/admin/components/UserQualityChecksSettings";
 import { getUserSettings, saveUserSettings, getQualityChecksAdminConfig, type FullUserSettings } from "@/features/admin/services/adminService";
 
 const _LLM_PROVIDERS = [
@@ -729,8 +728,7 @@ setIsLlmConfiguredMod(
  
       } catch (err: any) {
         if (!isMounted) return;
-        console.error("Failed to fetch user settings:", err);
-        setUserSettingsError("Failed to fetch user settings");
+        console.warn("Failed to fetch user settings (fallback to defaults):", err);
       } finally {
         if (isMounted) setIsUserSettingsLoading(false);
       }
@@ -776,8 +774,7 @@ setIsLlmConfiguredMod(
         }
       } catch (err: any) {
         if (!isMounted) return;
-        console.error("Failed to fetch quality checks admin config:", err);
-        setAdminConfigError("Failed to fetch quality checks admin configuration");
+        console.warn("Failed to fetch quality checks admin config (fallback to defaults):", err);
       } finally {
         if (isMounted) setIsAdminConfigLoading(false);
       }
@@ -1091,17 +1088,6 @@ setIsLlmConfiguredMod(
           </div>
         </div>
       </div>
-
-      {/* ── Quality Checks Prompt Configurations (JUnit Focus & Functional Custom Prompts) ── */}
-      {(runTests || runFunctionalTests) && fullUserSettings && (
-        <div style={{ marginBottom: 28 }}>
-          <UserQualityChecksSettings
-            settings={fullUserSettings}
-            onChange={handleUserSettingsChange as any}
-            mode="testing_only"
-          />
-        </div>
-      )}
 
       {/* Existing Test Cases Section (Discovered Only - No Execution) */}
       <ExistingTestCasesPanel

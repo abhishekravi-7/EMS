@@ -87,6 +87,27 @@ async def get_user_github_settings(
         "test_cases_selenium_enabled": get_system_setting("test_cases_selenium_enabled", "false"),
     }
 
+    raw_tc_values = user_doc.get("test_cases_values", {}) or {}
+    raw_qc_values = user_doc.get("quality_checks_values", {}) or {}
+
+    effective_tc_values = dict(raw_tc_values)
+    # Safe backward-compatibility fallback: read test_cases_values first, fall back to quality_checks_values
+    if "selected_predefined_prompts" not in effective_tc_values:
+        if "selected_predefined_prompts" in raw_qc_values:
+            effective_tc_values["selected_predefined_prompts"] = raw_qc_values["selected_predefined_prompts"]
+        elif "selectedPredefinedPrompts" in raw_qc_values:
+            effective_tc_values["selected_predefined_prompts"] = raw_qc_values["selectedPredefinedPrompts"]
+
+    if "testing_prompt" not in effective_tc_values:
+        if "testing_prompt" in raw_qc_values:
+            effective_tc_values["testing_prompt"] = raw_qc_values["testing_prompt"]
+        elif "testingPrompt" in raw_qc_values:
+            effective_tc_values["testing_prompt"] = raw_qc_values["testingPrompt"]
+        elif "junit_prompt" in raw_qc_values:
+            effective_tc_values["testing_prompt"] = raw_qc_values["junit_prompt"]
+        elif "junitPrompt" in raw_qc_values:
+            effective_tc_values["testing_prompt"] = raw_qc_values["junitPrompt"]
+
     return UserSettingsResponse(
         github_config=UserGitHubConfig(
             github_account=github_account,
@@ -97,7 +118,7 @@ async def get_user_github_settings(
             user_access=github_config.get("user_access", "")
         ),
         quality_checks_values=masked_qc_values,
-        test_cases_values=user_doc.get("test_cases_values", {}),
+        test_cases_values=effective_tc_values,
         llm_values=masked_llm_values,
         system_llm_config=system_llm_config,
         system_test_cases_config=system_test_cases_config
@@ -131,6 +152,14 @@ async def update_user_github_settings(
             merged_qc_values[field_id] = existing_qc_values.get(field_id, value)
         else:
             merged_qc_values[field_id] = value
+
+    # Canonical storage: remove JUnit testing settings from quality_checks_values on new saves
+    merged_qc_values.pop("selected_predefined_prompts", None)
+    merged_qc_values.pop("selectedPredefinedPrompts", None)
+    merged_qc_values.pop("testing_prompt", None)
+    merged_qc_values.pop("testingPrompt", None)
+    merged_qc_values.pop("junit_prompt", None)
+    merged_qc_values.pop("junitPrompt", None)
         
     incoming_tc_values = payload.test_cases_values or {}
     merged_tc_values = {**existing_tc_values, **incoming_tc_values}
@@ -450,7 +479,9 @@ async def test_user_llm_connection(
     except Exception as e:
         logger.error("LLM Test Connection encountered an error: %s", str(e))
         raise HTTPException(status_code=400, detail="LLM connection failed. Unable to reach the provider.")
- class SonarTestPayload(BaseModel):
+
+
+class SonarTestPayload(BaseModel):
     sonarqube_url: str | None = None
     auth_token: str | None = None
     project_key: str | None = None

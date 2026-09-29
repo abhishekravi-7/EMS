@@ -145,17 +145,17 @@ function parseBackendLogs(
 
     // 1. Determine Step (1 to 6) based on markers & content
     let step = 1;
-    if (trimmed.includes("[CODE VERSION]") || lower.includes("source java") || lower.includes("target java") || lower.includes("preparing workspace") || lower.includes("preparing migrated-repo")) {
+    if (trimmed.includes("[CODE VERSION]") || lower.includes("source java") || lower.includes("target java") || lower.includes("preparing workspace") || lower.includes("preparing migrated-repo") || lower.includes("stage=code-version-update")) {
       step = 1;
-    } else if (trimmed.includes("[DEPENDENCIES]") || lower.includes("dependency") || lower.includes("dependencies") || lower.includes("spring boot") || lower.includes("plugin")) {
+    } else if (trimmed.includes("[DEPENDENCIES]") || lower.includes("dependency") || lower.includes("dependencies") || lower.includes("spring boot") || lower.includes("plugin") || lower.includes("stage=dependency-updates")) {
       step = 2;
-    } else if (trimmed.includes("[TRANSFORMATION]") || lower.includes("openrewrite") || lower.includes("transformation") || lower.includes("ast") || lower.includes("javax") || lower.includes("jakarta")) {
+    } else if (trimmed.includes("[TRANSFORMATION]") || lower.includes("openrewrite") || lower.includes("transformation") || lower.includes("ast") || lower.includes("javax") || lower.includes("jakarta") || lower.includes("stage=code-transformation")) {
       step = 3;
-    } else if (trimmed.includes("[QUALITY CHECK]") || lower.includes("sonar") || lower.includes("fossa") || lower.includes("junit") || lower.includes("unit test") || lower.includes("build validation")) {
+    } else if (trimmed.includes("[QUALITY CHECK]") || lower.includes("sonar") || lower.includes("fossa") || lower.includes("junit") || lower.includes("unit test") || lower.includes("jacoco") || lower.includes("surefire") || lower.includes("build validation") || lower.includes("stage=quality-check")) {
       step = 4;
-    } else if (trimmed.includes("[DEPRECATION]") || lower.includes("deprecat") || lower.includes("published to") || lower.includes("publishing")) {
+    } else if (trimmed.includes("[DEPRECATION]") || lower.includes("deprecat") || lower.includes("published to") || lower.includes("publishing") || lower.includes("stage=code-depreciation")) {
       step = 5;
-    } else if (trimmed.includes("[REPORT]") || lower.includes("migration report") || lower.includes("proposed tests") || lower.includes("knowledge base") || lower.includes("migration completed")) {
+    } else if (trimmed.includes("[REPORT]") || lower.includes("migration report") || lower.includes("proposed tests") || lower.includes("knowledge base") || lower.includes("migration completed") || lower.includes("stage=migration-report")) {
       step = 6;
     } else {
       step = Math.min(6, Math.max(1, currentActiveStep));
@@ -167,7 +167,7 @@ function parseBackendLogs(
     let type: MigrationLogEvent["type"] = "INFO";
     if (lower.includes("error") || lower.includes("failed") || lower.includes("failure") || lower.includes("exception")) {
       type = "ERROR";
-    } else if (lower.includes("warn") || lower.includes("deprecated")) {
+    } else if (lower.includes("warn") || lower.includes("deprecated") || lower.includes("notice:")) {
       type = "WARN";
     } else if (lower.includes("success") || lower.includes("completed") || lower.includes("passed")) {
       type = "SUCCESS";
@@ -179,7 +179,7 @@ function parseBackendLogs(
     let action: string | undefined;
     let target: string | undefined;
 
-    if (step === 4) {
+    if (step === 4 || lower.includes("sonar") || lower.includes("fossa") || lower.includes("junit") || lower.includes("jacoco")) {
       if (lower.includes("sonar")) {
         category = "sonarqube";
         clickable = true;
@@ -190,18 +190,18 @@ function parseBackendLogs(
         clickable = true;
         action = "OPEN_FOSSA_RESULTS";
         target = "fossa";
-      } else if (lower.includes("junit") || lower.includes("test")) {
+      } else if (lower.includes("junit") || lower.includes("test") || lower.includes("jacoco") || lower.includes("surefire")) {
         category = "junit";
         clickable = true;
         action = "OPEN_JUNIT_RESULTS";
         target = "junit";
       }
-    } else if (step === 5 && lower.includes("deprecat")) {
+    } else if ((step === 5 || lower.includes("deprecat")) && lower.includes("deprecat")) {
       category = "deprecation";
       clickable = true;
       action = "OPEN_DEPRECATION_RESULTS";
       target = "deprecation";
-    } else if (step === 6 && (lower.includes("report") || lower.includes("completed"))) {
+    } else if ((step === 6 || lower.includes("report") || lower.includes("completed")) && (lower.includes("report") || lower.includes("completed"))) {
       category = "migration-report";
       clickable = true;
       action = "OPEN_MIGRATION_REPORT";
@@ -457,7 +457,7 @@ export function MigrationAnimationView({
   // Backend Status Detection & Genuine Migration Status
   const backendStatus = (migrationJob?.status || "").toLowerCase();
   const isBackendFailed = backendStatus === "failed" || Boolean(migrationJob?.error_message);
-  const isBackendCompleted = backendStatus === "completed" || backendStatus === "success" || progressPercent >= 100;
+  const isBackendCompleted = backendStatus === "completed" || backendStatus === "success";
 
   // Overall Genuine Completion Condition
   const isAllComplete = isBackendCompleted && !isBackendFailed;
@@ -545,32 +545,36 @@ export function MigrationAnimationView({
 
   // Raw log strings from backend migration_log, props, or report
   const rawLogStrings = useMemo(() => {
-    if (Array.isArray(migrationJob?.migration_log) && migrationJob.migration_log.length > 0) {
-      return migrationJob.migration_log;
+    const jobLogs = Array.isArray(migrationJob?.migration_log) ? migrationJob.migration_log : [];
+    const bLogs = Array.isArray(backendLogs) ? backendLogs : [];
+    if (jobLogs.length >= bLogs.length && jobLogs.length > 0) {
+      return jobLogs;
     }
-    if (Array.isArray(backendLogs) && backendLogs.length > 0) {
-      return backendLogs;
+    if (bLogs.length > 0) {
+      return bLogs;
     }
     return [];
   }, [migrationJob?.migration_log, backendLogs]);
 
   // Parsed structured logs
   const logs = useMemo(() => {
-    return parseBackendLogs(rawLogStrings, migrationState, activeStep);
+    if (rawLogStrings.length > 0) {
+      return parseBackendLogs(rawLogStrings, migrationState, activeStep);
+    }
+    return generateStepLogs(activeStep, migrationState);
   }, [rawLogStrings, migrationState, activeStep]);
 
   // Visible logs filtered by selected step
   const visibleLogs = useMemo(() => {
+    if (!hasUserSelectedStepManually) {
+      return logs;
+    }
     const stepFiltered = logs.filter((log) => log.stepId === selectedStepId);
     if (stepFiltered.length > 0) {
       return stepFiltered;
     }
-    // If no logs yet for this specific step, but logs exist overall, show all if step 1
-    if (logs.length > 0 && selectedStepId === "code-version-update") {
-      return logs;
-    }
-    return stepFiltered;
-  }, [logs, selectedStepId]);
+    return logs;
+  }, [logs, selectedStepId, hasUserSelectedStepManually]);
 
   // Smart Scroll Position Detection & Auto-Scroll
   const handleLogsScroll = () => {

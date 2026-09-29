@@ -8,11 +8,31 @@ with safe zero/null defaults so the UI renders without crashing.
 
 from __future__ import annotations
 
+import threading
 from typing import Any
 from app.application.services.file_diff_service import FileDiffService
 from app.infrastructure.github.repo_creator import RepoCreator
+from app.infrastructure.workspace.workspace_paths import WorkspacePaths
 
 _diff_service = FileDiffService()
+_RESULT_CACHE: dict[str, tuple[str, dict[str, Any]]] = {}
+_RESULT_CACHE_LOCK = threading.Lock()
+
+
+
+def _extract_logs(report: dict[str, Any]) -> list[str]:
+    log_lines = report.get("logLines") or []
+    if not log_lines:
+        job_id = report.get("jobId") or report.get("job_id") or ""
+        if job_id:
+            try:
+                paths = WorkspacePaths(job_id)
+                if paths.migration_log_path.exists():
+                    with paths.migration_log_path.open("r", encoding="utf-8", errors="replace") as f:
+                        log_lines = [line.rstrip("\r\n") for line in f if line.strip()]
+            except Exception:
+                pass
+    return log_lines
 
 
 def _resolve_target_repo(report: dict[str, Any]) -> str | None:
@@ -385,55 +405,182 @@ _ZERO_ANALYSIS = {
 def _get_enriched_test_pipeline(report: dict[str, Any]) -> dict[str, Any]:
     existing = report.get("test_pipeline")
     if existing and isinstance(existing, dict) and existing.get("test_summary_metrics"):
+        if "prompt_compliance" not in existing or not existing.get("prompt_compliance"):
+            try:
+                from app.infrastructure.analyzers.junit_prompt_compliance_analyzer import (
+                    JUnitPromptComplianceAnalyzer,
+                )
+                from app.schemas.unit_test import TestExecutionDetail
+                analyzer = JUnitPromptComplianceAnalyzer()
+                raw_details = existing.get("executed_test_details", [])
+                exec_details = [
+                    TestExecutionDetail(
+                        test_class=d.get("test_class", "TestClass"),
+                        test_method=d.get("test_method", "testMethod"),
+                        status=d.get("status", "PASSED"),
+                        execution_time_seconds=float(d.get("execution_time_seconds") or 0.03),
+                    )
+                    for d in raw_details
+                    if isinstance(d, dict)
+                ]
+                pa = existing.get("prompt_analysis")
+                u_prompt = pa.get("user_prompt") if isinstance(pa, dict) else None
+                cov = existing.get("coverage_result", {}).get("line_coverage_pct")
+                if cov is None:
+                    cov = existing.get("coverage_result", {}).get("final", {}).get("line_coverage_pct", 0.0)
+                comp_rep = analyzer.evaluate_compliance(
+                    executed_test_details=exec_details,
+                    manual_prompt=u_prompt,
+                    line_coverage_pct=float(cov or 0.0),
+                )
+                existing["prompt_compliance"] = comp_rep.model_dump()
+            except Exception:  # noqa: BLE001
+                pass
+
+        # Ensure structured test_execution, test_cases, and coverage sub-objects exist
+        t_metrics = existing.get("test_summary_metrics", {})
+        gen_exec = existing.get("generated_test_execution", {}) or {}
+        cov_res = existing.get("coverage_result", {}) or {}
+        cov_final = cov_res.get("final", {}) or {}
+        raw_execs = existing.get("executed_test_details", [])
+
+        tests_run_cnt = int(report.get("tests_run") if report.get("tests_run") is not None else t_metrics.get("executed_total_test_methods", len(raw_execs)))
+        tests_passed_cnt = int(report.get("tests_passed") if report.get("tests_passed") is not None else sum(1 for d in raw_execs if d.get("status") == "PASSED"))
+        tests_failed_cnt = int(report.get("tests_failed") if report.get("tests_failed") is not None else sum(1 for d in raw_execs if d.get("status") == "FAILED"))
+        tests_skipped_cnt = int(report.get("tests_skipped") if report.get("tests_skipped") is not None else sum(1 for d in raw_execs if d.get("status") == "SKIPPED"))
+
+        if "test_execution" not in existing or not existing["test_execution"]:
+            existing["test_execution"] = {
+                "total": tests_run_cnt,
+                "passed": tests_passed_cnt,
+                "failed": tests_failed_cnt,
+                "errors": 0,
+                "skipped": tests_skipped_cnt,
+            }
+
+        if "test_cases" not in existing or not existing["test_cases"]:
+            existing["test_cases"] = {
+                "existing": int(t_metrics.get("existing_test_cases", 0)),
+                "generated": int(t_metrics.get("generated_test_cases", 0)),
+                "total": int(t_metrics.get("total_test_cases", 0)),
+                "executed": tests_run_cnt,
+            }
+
+        if "coverage" not in existing or not existing["coverage"]:
+            is_avail = bool(cov_final.get("available") if "available" in cov_final else cov_res.get("available", False))
+            
+            line_val = cov_final.get("line_coverage_pct") if cov_final.get("line_coverage_pct") is not None else cov_res.get("line_coverage_pct")
+            branch_val = cov_final.get("branch_coverage_pct") if cov_final.get("branch_coverage_pct") is not None else cov_res.get("branch_coverage_pct")
+            inst_val = cov_final.get("instruction_coverage_pct") if cov_final.get("instruction_coverage_pct") is not None else cov_res.get("instruction_coverage_pct")
+            method_val = cov_final.get("method_coverage_pct") if cov_final.get("method_coverage_pct") is not None else cov_res.get("method_coverage_pct")
+            class_val = cov_final.get("class_coverage_pct") if cov_final.get("class_coverage_pct") is not None else cov_res.get("class_coverage_pct")
+
+            existing["coverage"] = {
+                "available": is_avail,
+                "coverage_available": is_avail,
+                "line": float(line_val) if (is_avail and line_val is not None) else None,
+                "branch": float(branch_val) if (is_avail and branch_val is not None) else None,
+                "instruction": float(inst_val) if (is_avail and inst_val is not None) else None,
+                "method": float(method_val) if (is_avail and method_val is not None) else None,
+                "class": float(class_val) if (is_avail and class_val is not None) else None,
+                "line_coverage_pct": float(line_val) if (is_avail and line_val is not None) else None,
+                "branch_coverage_pct": float(branch_val) if (is_avail and branch_val is not None) else None,
+                "instruction_coverage_pct": float(inst_val) if (is_avail and inst_val is not None) else None,
+                "method_coverage_pct": float(method_val) if (is_avail and method_val is not None) else None,
+                "class_coverage_pct": float(class_val) if (is_avail and class_val is not None) else None,
+                "report_path": cov_final.get("report_path") or cov_res.get("report_path"),
+                "jacoco_xml_path": cov_final.get("report_path") or cov_res.get("jacoco_xml_path"),
+                "jacoco_exec_path": cov_final.get("exec_path") or cov_res.get("jacoco_exec_path"),
+            }
+
         return existing
 
+    job_id = report.get("jobId") or report.get("job_id") or ""
     target_java = str(report.get("targetJavaVersion") or report.get("effectiveTargetJavaVersion") or "17")
+
+    total_files = 0
+    existing_test_files = 0
+    existing_test_cases = 0
+    new_test_files = 0
+    generated_test_cases = 0
+    gen_test_files_list = []
+
+    if job_id:
+        try:
+            from app.application.services.unit_test_report_generator import UnitTestReportGenerator
+            gen = UnitTestReportGenerator()
+            metrics = gen.collect_metrics(job_id)
+            total_files = metrics.get("total_files", 0)
+            existing_test_files = metrics.get("existing_test_files", 0)
+            new_test_files = metrics.get("generated_test_files", 0)
+            existing_test_cases = metrics.get("existing_test_cases", 0)
+            generated_test_cases = metrics.get("generated_test_cases", 0)
+            gen_test_files_list = metrics.get("generated_tests", [])
+        except Exception as scan_err:
+            logger.warning(f"Dynamic test scan failed for report {job_id}: {scan_err}")
+
+    total_test_cases = existing_test_cases + generated_test_cases
+
     return {
+        "status": "COMPLETED" if total_test_cases > 0 else "UNAVAILABLE",
+        "execution_status": "NOT_EXECUTED",
+        "test_execution": {
+            "total": 0,
+            "passed": 0,
+            "failed": 0,
+            "errors": 0,
+            "skipped": 0,
+        },
+        "test_cases": {
+            "existing": existing_test_cases,
+            "generated": generated_test_cases,
+            "total": total_test_cases,
+            "executed": 0,
+        },
+        "coverage": {
+            "available": False,
+            "line": None,
+            "branch": None,
+            "instruction": None,
+            "method": None,
+            "class": None,
+            "report_path": None,
+        },
         "test_summary_metrics": {
-            "repo_total_files": 12,
-            "existing_test_files": 4,
-            "new_test_files": 4,
-            "existing_test_cases": 48,
-            "generated_test_cases": 16,
-            "total_test_cases": 64,
+            "repo_total_files": total_files,
+            "existing_test_files": existing_test_files,
+            "generated_test_files": new_test_files,
+            "new_test_files": new_test_files,
+            "existing_test_cases": existing_test_cases,
+            "existing_test_methods": existing_test_cases,
+            "generated_test_cases": generated_test_cases,
+            "generated_test_methods": generated_test_cases,
+            "total_test_cases": total_test_cases,
+            "executed_total_test_methods": 0,
             "java_migration_version": target_java,
         },
-        "executed_test_details": [
-            {"test_class": "ApplicationTests", "test_method": "contextLoads", "status": "PASSED", "execution_time_seconds": 0.045},
-            {"test_class": "UserServiceTest", "test_method": "testUserCreationAndValidation", "status": "PASSED", "execution_time_seconds": 0.038},
-            {"test_class": "UserServiceTest", "test_method": "testUserAuthenticationFlow", "status": "PASSED", "execution_time_seconds": 0.029},
-            {"test_class": "OrderServiceTest", "test_method": "testOrderPlacementAndStockReservation", "status": "PASSED", "execution_time_seconds": 0.052},
-            {"test_class": "OrderServiceTest", "test_method": "testOrderCancellationAndRefund", "status": "PASSED", "execution_time_seconds": 0.031},
-            {"test_class": "PaymentControllerTest", "test_method": "testProcessPaymentTransaction", "status": "PASSED", "execution_time_seconds": 0.041},
-            {"test_class": "SecurityConfigTest", "test_method": "testSecurityFilterChainsAndEndpoints", "status": "PASSED", "execution_time_seconds": 0.027},
-            {"test_class": "MigrationIntegrationTest", "test_method": "testFullJakartaNamespaceMigration", "status": "PASSED", "execution_time_seconds": 0.063},
-        ],
+        "generated_test_files": gen_test_files_list,
+        "generated_test_execution": {
+            "generated_test_methods": generated_test_cases,
+            "executed": 0,
+            "executed_generated_test_methods": 0,
+            "passed": 0,
+            "passed_generated_test_methods": 0,
+            "failed": 0,
+            "failed_generated_test_methods": 0,
+            "skipped": 0,
+            "skipped_generated_test_methods": 0,
+        },
+        "executed_test_details": [],
         "coverage_result": {
-            "available": True,
-            "line_coverage_pct": 87.5,
-            "line_coverage": 87.5,
+            "available": False,
+            "line_coverage_pct": None,
+            "branch_coverage_pct": None,
+            "instruction_coverage_pct": None,
+            "method_coverage_pct": None,
+            "class_coverage_pct": None,
         },
-        "prompt_analysis": {
-            "user_prompt": "Unit & Integration Test Suite Execution",
-            "testing_focus": "Automated Unit & Integration Test Validation",
-            "target_areas": ["Services", "Controllers", "Repositories"],
-            "target_classes": ["UserService", "OrderService", "PaymentController"],
-            "target_methods": ["createUser", "placeOrder", "processPayment"],
-            "priority": ["Services", "Controllers"],
-            "scenarios": [
-                "Validate target Java runtime compatibility",
-                "Verify Jakarta EE namespace transition & Spring Boot 3 filters",
-            ],
-            "edge_cases": ["Null pointer payloads", "Boundary values & unexpected input format"],
-        },
-        "prompt_coverage_evaluation": {
-            "user_prompt": "Unit & Integration Test Suite Execution",
-            "focus_matched": True,
-            "coverage_assessment": "Executed unit test suite in full alignment with modernization requirements.",
-            "covered_scenarios": ["Jakarta EE namespace transition", "Spring Boot 3 compatibility"],
-            "uncovered_scenarios": [],
-            "recommendations": ["Maintain continuous test suite execution"],
-        },
+        "prompt_compliance": None,
     }
 
 
@@ -545,11 +692,28 @@ def _analysis(report: dict[str, Any]) -> dict[str, Any]:
         if key in report and report.get(key) is not None:
             values[key] = report.get(key)
 
-    # Provide clean defaults for tests, sonar, fossa metrics if 0 or None
-    if not values.get("tests_run"):
-        values["tests_run"] = 64
-        values["tests_passed"] = 64
-        values["tests_failed"] = 0
+    # Provide measured values for test execution metrics strictly from actual execution records
+    test_pipe = report.get("test_pipeline") or _get_enriched_test_pipeline(report)
+    if isinstance(test_pipe, dict):
+        exec_details = test_pipe.get("executed_test_details") or []
+        gen_exec = test_pipe.get("generated_test_execution") or {}
+
+        if report.get("tests_run") is not None:
+            values["tests_run"] = int(report.get("tests_run", 0))
+            values["tests_passed"] = int(report.get("tests_passed", 0))
+            values["tests_failed"] = int(report.get("tests_failed", 0))
+        elif exec_details:
+            values["tests_run"] = len(exec_details)
+            values["tests_passed"] = sum(1 for d in exec_details if d.get("status") == "PASSED")
+            values["tests_failed"] = sum(1 for d in exec_details if d.get("status") == "FAILED")
+        elif gen_exec.get("executed") is not None or gen_exec.get("executed_generated_test_methods") is not None:
+            values["tests_run"] = int(gen_exec.get("executed_generated_test_methods") or gen_exec.get("executed") or 0)
+            values["tests_passed"] = int(gen_exec.get("passed_generated_test_methods") or gen_exec.get("passed") or 0)
+            values["tests_failed"] = int(gen_exec.get("failed_generated_test_methods") or gen_exec.get("failed") or 0)
+        else:
+            values["tests_run"] = 0
+            values["tests_passed"] = 0
+            values["tests_failed"] = 0
 
     if not values.get("sonar_quality_gate") or values.get("sonar_quality_gate") in ("UNAVAILABLE", "FAILED") or not report.get("sonar_report"):
         values["sonar_quality_gate"] = "PASSED"
@@ -579,9 +743,9 @@ def _analysis(report: dict[str, Any]) -> dict[str, Any]:
 def build_summary(report: dict[str, Any]) -> dict[str, Any]:
     """Shape a `MigrationJobSummary`."""
     core = _core(report)
-    log_lines = report.get("logLines") or []
+    log_lines = _extract_logs(report)
     issues = _build_issues(report)
-    test_pipeline = _get_enriched_test_pipeline(report)
+    test_pipe = _get_enriched_test_pipeline(report)
     sonar_report = _get_enriched_sonar_report(report)
     fossa_report = _get_enriched_fossa_report(report)
     return {
@@ -597,7 +761,10 @@ def build_summary(report: dict[str, Any]) -> dict[str, Any]:
         "has_fossa_report": True,
         "sonar_report": sonar_report,
         "fossa_report": fossa_report,
-        "test_pipeline": test_pipeline,
+        "test_pipeline": test_pipe,
+        "test_execution": test_pipe.get("test_execution"),
+        "test_cases": test_pipe.get("test_cases"),
+        "coverage": test_pipe.get("coverage"),
         "has_testcase_doc": False,
         "has_clone_path": True,
     }
@@ -606,9 +773,12 @@ def build_summary(report: dict[str, Any]) -> dict[str, Any]:
 def build_result(report: dict[str, Any]) -> dict[str, Any]:
     """Shape a `MigrationResult` (superset of the summary)."""
     core = _core(report)
-    log_lines = report.get("logLines") or []
+    log_lines = _extract_logs(report)
     job_id = report.get("jobId", "")
     issues = _build_issues(report)
+    run_tests = report.get("runTests") if report.get("runTests") is not None else report.get("run_tests", True)
+    run_sonar = report.get("runSonar") if report.get("runSonar") is not None else report.get("run_sonar", True)
+    run_fossa = report.get("runFossa") if report.get("runFossa") is not None else report.get("run_fossa", True)
     file_diffs = _diff_service.get_changed_files_summary(job_id, report) if job_id else []
 
     # Update files_modified if diffs discovered additional files
@@ -666,10 +836,14 @@ def build_result(report: dict[str, Any]) -> dict[str, Any]:
     sonar_report = _get_enriched_sonar_report(report)
     fossa_report = _get_enriched_fossa_report(report)
     default_insights = [
-        "Executed JUnit 5 unit test suite with 100% pass rate (64/64 test cases passed).",
-        "JaCoCo line coverage achieved 87.5% across core service and controller packages.",
-        "Validated all Jakarta EE 10 API endpoints and Spring Framework 6 compatibility.",
+        "Unit test suite execution completed.",
+        "Validated target Java runtime and dependency compatibility.",
     ]
+
+    test_pipe = _get_enriched_test_pipeline(report) if run_tests else None
+    test_exec = test_pipe.get("test_execution") if test_pipe else None
+    test_cases = test_pipe.get("test_cases") if test_pipe else None
+    coverage = test_pipe.get("coverage") if test_pipe else None
 
     return {
         **core,
@@ -687,8 +861,10 @@ def build_result(report: dict[str, Any]) -> dict[str, Any]:
         "fossa": fossa_normalized if run_fossa else None,
  
         "fossa_report": merged_fossa_report if run_fossa else None,
- 
-        "test_pipeline": report.get("test_pipeline") if run_tests else None,
+        "test_pipeline": test_pipe,
+        "test_execution": test_exec,
+        "test_cases": test_cases,
+        "coverage": coverage,
         # --- full migration report detail ---
         "modified_files": report.get("modifiedFiles") or [f["relativePath"] for f in file_diffs],
         "file_diffs": file_diffs,
@@ -702,7 +878,7 @@ def build_logs(report: dict[str, Any]) -> dict[str, Any]:
     """Shape the `/logs` response."""
     return {
         "job_id": report.get("jobId", ""),
-        "logs": report.get("logLines") or [],
+        "logs": _extract_logs(report),
     }
 
 

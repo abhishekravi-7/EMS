@@ -62,6 +62,9 @@ class LLMTokenTracingService:
 
         self.last_provider: str | None = None
 
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._chat_llm, name)
+
 
 class MongoDBTraceSink:
     """Implements token_tracing.TraceSink to store records in MongoDB."""

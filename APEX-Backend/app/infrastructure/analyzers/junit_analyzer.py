@@ -125,8 +125,13 @@ class JavaASTAnalyzer:
     def _extract_test_methods(self, test_code: str) -> list[str]:
         if not test_code:
             return []
-        # Matches @Test annotated methods
-        pattern = re.compile(r"@Test\s+(?:public\s+)?void\s+(\w+)\s*\(\s*\)")
+        # Matches @Test, @ParameterizedTest, @RepeatedTest annotated methods,
+        # allowing for intervening annotations like @DisplayName, @Order, @Timeout, etc.
+        pattern = re.compile(
+            r"@(?:Test|ParameterizedTest|RepeatedTest)(?:\([^)]*\))?"
+            r"(?:\s*@\w+(?:\([^)]*\))?)*"
+            r"\s*(?:public\s+|protected\s+)?void\s+(\w+)\s*\([^)]*\)"
+        )
         return [match.group(1) for match in pattern.finditer(test_code)]
 
     def _generate_suggested_scenarios(

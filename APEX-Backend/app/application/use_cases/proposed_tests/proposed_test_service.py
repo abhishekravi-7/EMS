@@ -127,6 +127,7 @@ class ProposedTestService:
                 except Exception:
                     pass
 
+            tc_vals = rep_data.get("test_cases_values") or rep_data.get("testCasesValues") or {}
             qc_vals = rep_data.get("quality_checks_values") or rep_data.get("qualityChecksValues") or {}
 
             # Static analyzer
@@ -135,8 +136,17 @@ class ProposedTestService:
             analysis_data["functional_testing_prompt"] = rep_data.get("functional_testing_prompt") or qc_vals.get("functional_testing_prompt")
             analysis_data["functional_custom_prompt"] = rep_data.get("functional_custom_prompt") or qc_vals.get("functional_custom_prompt")
             analysis_data["functional_testing_suggestions"] = rep_data.get("functional_testing_suggestions") or qc_vals.get("functional_testing_suggestions") or []
-            analysis_data["testing_prompt"] = rep_data.get("testing_prompt") or qc_vals.get("testing_prompt")
-            analysis_data["selected_predefined_prompts"] = rep_data.get("selected_predefined_prompts") or qc_vals.get("selected_predefined_prompts") or []
+            analysis_data["testing_prompt"] = (
+                rep_data.get("testing_prompt")
+                or tc_vals.get("testing_prompt")
+                or qc_vals.get("testing_prompt")
+            )
+            analysis_data["selected_predefined_prompts"] = (
+                rep_data.get("selected_predefined_prompts")
+                or tc_vals.get("selected_predefined_prompts")
+                or qc_vals.get("selected_predefined_prompts")
+                or []
+            )
 
             ep_count = len(analysis_data.get("endpoints", []))
             svc_count = len(analysis_data.get("services", []))
