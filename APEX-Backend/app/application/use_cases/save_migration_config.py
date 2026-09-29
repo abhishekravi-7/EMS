@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.core.exceptions import InvalidMigrationConfigError, MigrationJobNotFoundError
+from app.core.config import settings
 from app.infrastructure.persistence.job_repository import JobRepository
 
 logger = logging.getLogger(__name__)
