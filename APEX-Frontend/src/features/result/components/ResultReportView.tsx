@@ -103,6 +103,7 @@ interface ResultReportViewProps {
 
 export function ResultReportView({
   resultExec,
+  repoAnalysis,
   runSonar,
   runFossa,
   runTests,
@@ -113,6 +114,13 @@ export function ResultReportView({
   onBack,
   onError,
 }: ResultReportViewProps) {
+  // Derive file counts from repoAnalysis using same logic as DiscoveryStepView
+  const discoveryJavaFiles: number = repoAnalysis?.java_file_count ?? repoAnalysis?.java_files?.length ?? 0;
+  const discoveryJspFiles: number = repoAnalysis?.jsp_file_count ?? repoAnalysis?.jsp_count ?? repoAnalysis?.structure?.jsp_count ?? repoAnalysis?.jsp_files?.length ?? 0;
+  const discoveryJsfFiles: number = repoAnalysis?.jsf_file_count ?? repoAnalysis?.jsf_count ?? repoAnalysis?.structure?.jsf_count ?? repoAnalysis?.jsf_files?.length ?? 0;
+  const discoveryXmlFiles: number = repoAnalysis?.config_file_count ?? repoAnalysis?.config_files?.length ?? 0;
+  const discoveryOtherFiles: number = repoAnalysis?.other_file_count ?? repoAnalysis?.other_files?.length ?? 0;
+  const discoveryTotalFiles: number = (repoAnalysis?.total_file_count ?? (discoveryJavaFiles + discoveryXmlFiles + discoveryJspFiles + discoveryJsfFiles + discoveryOtherFiles)) || 0;
   const {
     migrationJob,
     setMigrationJob,
@@ -860,7 +868,9 @@ export function ResultReportView({
       label: "Files Modified",
       value: String(migrationJob?.files_modified ?? 0),
       accent: "#2563eb",
-      meta: `Java ${migrationJob?.source_java_version ?? "?"} -> Java ${migrationJob?.target_java_version ?? "?"}`,
+      meta: discoveryTotalFiles > 0
+        ? `${migrationJob?.files_modified ?? 0} of ${discoveryTotalFiles} repo files updated`
+        : `Java ${migrationJob?.source_java_version ?? "?"} -> Java ${migrationJob?.target_java_version ?? "?"}`,
       surface: "linear-gradient(180deg, #eef6ff 0%, #e1efff 100%)",
       borderColor: "#c7dcff",
       shadow: "0 16px 30px rgba(37, 99, 235, 0.12)",
@@ -1308,13 +1318,19 @@ export function ResultReportView({
                 </div>
 
                 {(() => {
+                  // transformations count: prefer diffData length (actual changed files) then fall back to issues_fixed
+                  const transformationsCount = diffData.length > 0 ? diffData.length : (migrationJob.issues_fixed ?? 0);
                   const overviewCards = [
                     {
                       icon: <FaFileAlt />,
                       title: "Files Modified",
-                      desc: "Code files updated during migration",
+                      desc: discoveryTotalFiles > 0
+                        ? `${migrationJob.files_modified ?? 0} of ${discoveryTotalFiles} total files`
+                        : "Code files updated during migration",
                       value: migrationJob.files_modified ?? 0,
-                      footer: migrationJob.files_modified === 0 ? "No files modified" : `${migrationJob.files_modified} files updated`,
+                      footer: discoveryTotalFiles > 0
+                        ? `${discoveryJavaFiles} Java · ${discoveryJspFiles + discoveryJsfFiles} JSP/JSF · ${discoveryXmlFiles} XML`
+                        : migrationJob.files_modified === 0 ? "No files modified" : `${migrationJob.files_modified} files updated`,
                       color: "#2563eb", bg: "#eff6ff", border: "#dbeafe", glow: "rgba(37,99,235,0.05)",
                       category: "files" as const,
                     },
@@ -1322,8 +1338,8 @@ export function ResultReportView({
                       icon: <FaCode />,
                       title: "Code Transmission",
                       desc: "Code transformation and migration logic applied",
-                      value: migrationJob.issues_fixed ?? 0,
-                      footer: `${migrationJob.issues_fixed ?? 0} transformations completed`,
+                      value: transformationsCount,
+                      footer: `${transformationsCount} transformations completed`,
                       color: "#7c3aed", bg: "#f5f3ff", border: "#ede9fe", glow: "rgba(124,58,237,0.05)",
                       category: "transformations" as const,
                     },
