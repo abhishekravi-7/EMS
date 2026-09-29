@@ -39,11 +39,14 @@ export interface JavaVersionRecommendationResponse {
 export interface RiskExplanationRequest {
   risk_level: string;
   source_java_version?: string | null;
+  detected_java_version?: string | null;
   build_tool?: string | null;
   has_tests: boolean;
   dependencies?: DependencyInfo[];
   frameworks?: unknown[];
+  test_frameworks?: unknown[];
   api_endpoint_count?: number;
+  llm_provider?: string | null;
 }
 
 export interface RiskExplanationResponse {
@@ -288,3 +291,14 @@ export async function queryStrategy(
   );
 }
 
+export async function getFrameworkRecommendations(
+  jobId: string
+): Promise<import("@/shared/types/domain").FrameworkRecommendations> {
+  return requestJson<import("@/shared/types/domain").FrameworkRecommendations>(
+    `/v1/discovery/${encodeURIComponent(jobId)}/framework-recommendation`,
+    "Failed to fetch framework recommendations",
+    {
+      method: "GET",
+    }
+  );
+}

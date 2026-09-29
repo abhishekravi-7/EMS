@@ -34,10 +34,10 @@ new_logic = """        def _find_project_root_for_test(test_file: str, project_d
             for tc in test_cases:
                 if test_selection and tc.get("name") not in selected_names:
                     continue
-                    
+
                 framework = tc.get("framework", tc.get("type", "")).lower()
                 test_file = tc.get("file", "")
-                
+
                 if any(f in framework for f in ["junit", "testng", "selenium", "restassured", "java"]):
                     proj_root = _find_project_root_for_test(test_file, project_dir, ["pom.xml", "build.gradle", "build.gradle.kts"])
                     if proj_root:
@@ -56,16 +56,16 @@ new_logic = """        def _find_project_root_for_test(test_file: str, project_d
 
             if not projects_to_run:
                 self._log(job_id, f"No supported runner found for detected frameworks; execution skipped.", "WARN")
-            
+
             for (proj_root_str, runner_type), grouped_tests in projects_to_run.items():
                 proj_root = Path(proj_root_str)
                 executed_any = True
-                
+
                 selected_classes_for_proj = {t.get("suite") for t in grouped_tests} if test_selection else None
                 selected_names_for_proj = {t.get("name") for t in grouped_tests} if test_selection else None
-                
+
                 detected_frameworks = {t.get("framework", "").lower() for t in grouped_tests}
-                
+
                 if runner_type == "Maven":
                     self._log(job_id, f"Executing JUnit/Maven project: {proj_root_str}")
                     mvn_cmd = "mvn.cmd" if os.name == "nt" else "mvn"

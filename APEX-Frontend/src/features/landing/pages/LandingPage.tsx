@@ -180,10 +180,10 @@ export default function LandingPage({ onStart }: { onStart: () => void }) {
       <div style={styles.hero}>
         <h1 style={styles.headline}>Modernize Your</h1>
         <div style={styles.highlightedText}>Java Applications</div>
-        
+
         <p style={styles.description}>
-          Accelerate your Java application migration with automated tools and intelligent refactoring. 
-          Upgrade to newer Java versions with minimal effort and maximum reliability. 
+          Accelerate your Java application migration with automated tools and intelligent refactoring.
+          Upgrade to newer Java versions with minimal effort and maximum reliability.
           Reduce technical debt and improve performance across your entire codebase.
         </p>
 

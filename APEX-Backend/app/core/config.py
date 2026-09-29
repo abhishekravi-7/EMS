@@ -58,6 +58,8 @@ class Settings(BaseSettings):
     # LLM_1-authorized chat model can be swapped in without a code change.
     huggingface_api_base_url: str = "https://router.huggingface.co/v1"
     huggingface_model: str = "meta-llama/Llama-3.1-8B-Instruct:novita"
+    huggingface_temperature: float = Field(default=0.1, ge=0.0, le=2.0)
+    huggingface_max_tokens: int = Field(default=512, ge=1)
     # Read from the provider-neutral LLM_1 env var. Leave empty to disable AI
     # recommendations (the endpoint then reports itself as unavailable rather
     # than fabricating a recommendation).
@@ -69,7 +71,7 @@ class Settings(BaseSettings):
     # from the provider-neutral LLM_2 env var; leave empty to disable GROQ and
     # fall straight through to Ollama.
     groq_api_key: str = Field(default="", alias="LLM_2")
-    groq_model: str = "llama-3.3-70b-versatile"
+    groq_model: str = Field(default="openai/gpt-oss-20b", alias="GROQ_MODEL")
     groq_base_url: str = "https://api.groq.com/openai/v1"
     # Fallback LLM: a local Ollama server. Used only when GROQ is unavailable.
     ollama_base_url: str = "http://localhost:11434"
@@ -90,9 +92,10 @@ class Settings(BaseSettings):
     rag_enabled: bool = Field(default=False, alias="ENABLE_RAG")
     # Master switch for database usage. Supports both ENABLE_DATABASE and DATABASE_ENABLED.
     database_enabled: bool = Field(
-        default=True,
+        default=False,
         validation_alias=AliasChoices("ENABLE_DATABASE", "DATABASE_ENABLED", "database_enabled"),
     )
+    database_url: str = Field(default="", alias="DATABASE_URL")
     # Master switch for MongoDB usage.
     mongodb_enabled: bool = Field(default=True, alias="ENABLE_MONGODB")
     mongodb_uri: str = Field(default="", alias="MONGODB_URI")
@@ -103,7 +106,9 @@ class Settings(BaseSettings):
     # Timeout (seconds) for a single chat-LLM request (GROQ or Ollama).
     chat_llm_request_timeout_seconds: float = 60.0
     # Timeout (seconds) to wait for the first token before falling back to next provider.
-    chat_llm_fallback_timeout_seconds: float = 3.0
+    chat_llm_fallback_timeout_seconds: float = 45.0
+    chat_llm_temperature: float = Field(default=0.3, ge=0.0, le=2.0)
+    chat_llm_max_tokens: int = Field(default=800, ge=1)
 
     # --- Git / clone ---------------------------------------------------------
     # Timeout (seconds) for a `git clone` during Discovery.
@@ -111,14 +116,8 @@ class Settings(BaseSettings):
     # Clone only the latest commit to keep the workspace small and fast.
     git_clone_depth: int = 1
 
-    java_migration_engine_jar: Path = Field(
-        default_factory=lambda: WORKSPACE_ROOT / "migration-engine" / "target" / "migration-engine-1.0.0-SNAPSHOT.jar",
-        validation_alias=AliasChoices(
-            "MIGRATION_ENGINE_JAR_PATH",
-            "JAVA_MIGRATION_ENGINE_JAR",
-            "java_migration_engine_jar",
-        ),
-    )
+    # --- Migration engine ---------------------------------------------------
+    java_migration_engine_jar: Path = WORKSPACE_ROOT / "migration-engine" / "target" / "migration-engine-1.0.0-SNAPSHOT.jar"
     migration_recipe_catalog_path: Path = BACKEND_ROOT / "app" / "config" / "migration_pack_catalog.json"
     # Timeout (seconds) for a single migration-engine run.
     migration_timeout_seconds: float = 1800.0
@@ -127,12 +126,6 @@ class Settings(BaseSettings):
     migration_commit_author_email: str = "migration-bot@javaapex.local"
     # Bounded retry loop when the post-migration build fails. 0 disables retries.
     migration_max_retry_attempts: int = 2
-    # Maximum build→fix→rebuild iterations for LLM self-healing.
-    max_heal_cycles: int = 3
-    # Max files to attempt LLM repair per heal cycle. 0 = unlimited.
-    max_files_per_heal_cycle: int = 0
-    # If True, block publishing to GitHub when the build completely fails.
-    block_publish_on_build_failure: bool = False
 
     # --- Build validation (post-migration "does it build?" check) -----------
     # Whether to compile/package the migrated code and log BUILD SUCCESS/FAILED.
@@ -147,7 +140,7 @@ class Settings(BaseSettings):
     # Some legacy projects keep Groovy/Spock/JUnit test toolchains that are not
     # Java-target compatible after migration; those should not block the basic
     # "does the migrated application package?" validation.
-    build_maven_args: str = "-B,-Dmaven.test.skip=true,package"
+    build_maven_args: str = "-B,-Dmaven.test.skip=true,-Dgit.commit.id.skip=true,-Dmaven.gitcommitid.skip=true,package"
     # Gradle tasks: build but skip tests.
     build_gradle_args: str = "build,-x,test,--no-daemon"
     # Timeout (seconds) for the build.
@@ -163,24 +156,15 @@ class Settings(BaseSettings):
 
     # --- Quality Gates -------------------------------------------------------
     # Dynamic settings are now fetched from MongoDB (User Settings) during migration.
-    
+
     # Internal prefixes and CLI command names used by runners:
     sonarqube_project_key_prefix: str = "java-apex"
     sonarqube_scanner_command: str = "sonar-scanner"
     # FOSSA API key. Required only when the FOSSA quality gate card is active.
-    fossa_api_key: str = Field(
-        default="",
-        validation_alias=AliasChoices("FOSSA_API_KEY", "fossa_api_key"),
-    )
+    fossa_api_key: str = Field(default="", alias="FOSSA_API_KEY")
     # Optional custom FOSSA endpoint for self-hosted/enterprise setups.
-    fossa_endpoint: str = Field(
-        default="",
-        validation_alias=AliasChoices("FOSSA_ENDPOINT", "fossa_endpoint"),
-    )
-    fossa_cli_command: str = Field(
-        default="fossa",
-        validation_alias=AliasChoices("FOSSA_CLI_PATH", "FOSSA_CLI_COMMAND", "fossa_cli_command"),
-    )
+    fossa_endpoint: str = Field(default="", alias="FOSSA_ENDPOINT")
+    fossa_cli_command: str = "fossa"
 
     # --- Test Cases ----------------------------------------------------------
     test_cases_playwright_enabled: bool = False

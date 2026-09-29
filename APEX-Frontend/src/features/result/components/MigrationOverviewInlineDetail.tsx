@@ -165,8 +165,8 @@ export const MigrationOverviewInlineDetail: React.FC<MigrationOverviewInlineDeta
     if (!migrationJob) return [];
 
     if (migrationJob.file_diffs && migrationJob.file_diffs.length > 0) {
-      return migrationJob.file_diffs.map((diff: PreviewFileDiff) => {
-        const relPath = diff.relativePath || diff.fileName || "";
+      return migrationJob.file_diffs.map((diff: any) => {
+        const relPath = diff.relativePath || diff.fileName || diff.file_path || diff.path || "";
         const parts = relPath.split(/[/\\]/);
         const fileName = diff.fileName || parts[parts.length - 1] || relPath;
         const ext = fileName.includes(".") ? fileName.split(".").pop()?.toUpperCase() || "" : "";

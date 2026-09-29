@@ -59,4 +59,3 @@ def set_stage(
         log_message=log_message,
         **extra,
     )
-

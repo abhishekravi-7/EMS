@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import json
 import logging
-import threading
 from collections.abc import AsyncIterator
 
 import httpx
@@ -109,26 +108,26 @@ class OllamaClient:
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
                 response = await client.get(f"{self._base_url}/api/tags")
-                if response.status_code == 200:
-                    data = response.json()
-                    models = [m.get("name", "") for m in data.get("models", [])]
-                    model_available = any(
-                        self._model in name or name.startswith(self._model.split(":")[0])
-                        for name in models
-                    )
-                    return {
-                        "available": True,
-                        "model": self._model,
-                        "model_installed": model_available,
-                        "installed_models": models,
-                        "url": self._base_url,
-                    }
+            if response.status_code == 200:
+                data = response.json()
+                models = [m.get("name", "") for m in data.get("models", [])]
+                model_available = any(
+                    self._model in name or name.startswith(self._model.split(":")[0])
+                    for name in models
+                )
                 return {
-                    "available": False,
+                    "available": True,
                     "model": self._model,
-                    "message": f"Ollama server returned HTTP {response.status_code}",
+                    "model_installed": model_available,
+                    "installed_models": models,
                     "url": self._base_url,
                 }
+            return {
+                "available": False,
+                "model": self._model,
+                "message": f"Ollama server returned HTTP {response.status_code}",
+                "url": self._base_url,
+            }
         except httpx.TimeoutException:
             return {
                 "available": False,
@@ -153,10 +152,10 @@ class OllamaClient:
 
     async def stream_chat(self, system_prompt: str, user_prompt: str, max_tokens: int | None = None) -> AsyncIterator[str]:
         """Stream from local Ollama server."""
-        async for delta in self._stream_ollama_internal(system_prompt, user_prompt):
+        async for delta in self._stream_ollama_internal(system_prompt, user_prompt, max_tokens):
             yield delta
 
-    async def _stream_ollama_internal(self, system_prompt: str, user_prompt: str) -> AsyncIterator[str]:
+    async def _stream_ollama_internal(self, system_prompt: str, user_prompt: str, max_tokens: int | None = None) -> AsyncIterator[str]:
         """Original Ollama streaming logic."""
         self.last_usage = None
         payload = {
@@ -166,7 +165,10 @@ class OllamaClient:
                 {"role": "user", "content": user_prompt},
             ],
             "stream": True,
-            "options": {"temperature": 0.0, "seed": 42},
+            "options": {
+                "temperature": settings.chat_llm_temperature,
+                "num_predict": max_tokens if max_tokens is not None else settings.chat_llm_max_tokens,
+            },
         }
 
         try:

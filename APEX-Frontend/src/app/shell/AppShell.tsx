@@ -153,10 +153,18 @@ const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           <div
             className={`app-shell-brand-logo-wrap${isWizardPage ? " is-sidebar-toggle" : ""}`}
             style={{
-              width: isWizardPage ? (isSidebarExpanded ? 256 : 256) : "auto",
-              transition: "width 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-              overflow: "visible"
+              overflow: "visible",
+              flexShrink: 0,
+              cursor: "pointer",
             }}
+            onClick={() => {
+              if (isWizardPage) {
+                toggleSidebar();
+              } else {
+                navigate("/");
+              }
+            }}
+            title={isWizardPage ? (isSidebarExpanded ? "Collapse sidebar" : "Expand sidebar") : "Home"}
           >
             <img
               src={apexLogo}
@@ -165,12 +173,16 @@ const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
               style={{
                 height: 44,
                 width: "auto",
+                maxWidth: "none",
+                flexShrink: 0,
                 objectFit: "contain",
                 borderRadius: 8,
                 cursor: "pointer",
-                transition: "transform 0.2s ease, opacity 0.2s ease",
+                userSelect: "none",
+                transition: "none",
               }}
-              onClick={() => {
+              onClick={(e) => {
+                e.stopPropagation();
                 if (isWizardPage) {
                   toggleSidebar();
                 } else {
@@ -192,6 +204,7 @@ const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             </span>
           </div>
         </div>
+
 
         <nav className="app-shell-nav" style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <button

@@ -5,16 +5,10 @@
 /* ── Enhanced Assessment Cards Grid ───────────────────────────── */
 .strat-assessment-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 14px;
   margin-bottom: 22px;
   perspective: 900px;
-}
-
-@media (max-width: 900px) {
-  .strat-assessment-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
 }
 
 /* Card – HORIZONTAL layout: icon LEFT, info RIGHT */
@@ -267,6 +261,48 @@
 .strat-card-dependencies:hover {
   border-color: #7dd3fc;
   box-shadow: 0 16px 36px rgba(2, 132, 199, 0.12),
+              0 4px 12px rgba(15, 23, 42, 0.04);
+}
+
+/* ── 5. JSP Card (Soft Rose/Pink) ───────────────────────────────── */
+.strat-card-jsp {
+  background: #fdf2f8;
+  border-color: #fbcfe8;
+}
+.strat-card-jsp::after {
+  background: linear-gradient(90deg, transparent, rgba(219, 39, 119, 0.4), transparent);
+}
+.strat-card-jsp .strat-assessment-icon-wrap {
+  background: #fce7f3;
+  color: #db2777;
+}
+.strat-card-jsp .strat-assessment-value {
+  color: #be185d;
+}
+.strat-card-jsp:hover {
+  border-color: #f472b6;
+  box-shadow: 0 16px 36px rgba(219, 39, 119, 0.12),
+              0 4px 12px rgba(15, 23, 42, 0.04);
+}
+
+/* ── 6. JSF Card (Soft Violet/Purple) ───────────────────────────── */
+.strat-card-jsf {
+  background: #f5f3ff;
+  border-color: #ddd6fe;
+}
+.strat-card-jsf::after {
+  background: linear-gradient(90deg, transparent, rgba(124, 58, 237, 0.4), transparent);
+}
+.strat-card-jsf .strat-assessment-icon-wrap {
+  background: #ede9fe;
+  color: #7c3aed;
+}
+.strat-card-jsf .strat-assessment-value {
+  color: #6d28d9;
+}
+.strat-card-jsf:hover {
+  border-color: #c4b5fd;
+  box-shadow: 0 16px 36px rgba(124, 58, 237, 0.12),
               0 4px 12px rgba(15, 23, 42, 0.04);
 }
 
@@ -554,3 +590,396 @@
 .page-strategy ::-webkit-scrollbar { width: 5px; height: 5px; }
 .page-strategy ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 99px; }
 .page-strategy ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+/* ================================================================
+   JSP/JSF Conversion Card – Enhanced UI
+   ================================================================ */
+
+/* ── Conversion mode grid & buttons ─────────────────────────── */
+.uimod-conv-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+@media (min-width: 640px) {
+  .uimod-conv-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.uimod-conv-btn {
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  text-align: center;
+  line-height: 1.3;
+}
+.uimod-conv-btn:hover:not(.is-disabled) {
+  border-color: #93c5fd;
+  background: #f8fafc;
+  color: #2563eb;
+}
+.uimod-conv-btn.is-selected {
+  border-color: #3b82f6;
+  background: #eff6ff;
+  color: #1d4ed8;
+  box-shadow: 0 0 0 2px rgba(59,130,246,0.12);
+}
+.uimod-conv-btn.is-disabled {
+  background: #f8fafc;
+  color: #cbd5e1;
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+/* ── Detection info row ──────────────────────────────────────── */
+.uimod-detect-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #475569;
+  margin-bottom: 0;
+}
+
+/* ── View Files button ───────────────────────────────────────── */
+.uimod-viewfiles-btn {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid #2563eb;
+  background: #eff6ff;
+  color: #2563eb;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+.uimod-viewfiles-btn:hover {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+/* ── Recommendation panels ───────────────────────────────────── */
+.uimod-rec-panel {
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.uimod-rec-panel.is-primary {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+}
+.uimod-rec-panel.is-alt {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.uimod-rec-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.uimod-rec-eyebrow {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #166534;
+}
+.uimod-rec-eyebrow.is-alt {
+  color: #475569;
+}
+
+.uimod-rec-version {
+  font-size: 13px;
+  font-weight: 800;
+  color: #15803d;
+}
+.uimod-rec-version.is-alt {
+  color: #334155;
+}
+
+/* ── Select Dropdown ─────────────────────────────────────────── */
+.uimod-version-select {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: inherit;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  padding: 0 16px 0 2px;
+  cursor: pointer;
+  outline: none;
+  border-radius: 4px;
+}
+.uimod-version-select:hover {
+  background: rgba(21, 128, 61, 0.1);
+}
+.uimod-version-select:focus-visible {
+  box-shadow: 0 0 0 2px rgba(21, 128, 61, 0.4);
+}
+.uimod-version-select.is-alt:hover {
+  background: rgba(51, 65, 85, 0.1);
+}
+.uimod-version-select.is-alt:focus-visible {
+  box-shadow: 0 0 0 2px rgba(51, 65, 85, 0.4);
+}
+
+.uimod-rec-compat {
+  font-size: 11px;
+  color: #166534;
+  line-height: 1.4;
+  margin-bottom: 6px;
+}
+.uimod-rec-compat.is-alt {
+  color: #64748b;
+}
+
+.uimod-rec-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.uimod-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 999px;
+}
+.uimod-badge.is-green {
+  background: #dcfce7;
+  color: #15803d;
+}
+.uimod-badge.is-blue {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.uimod-alt-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #e2e8f0;
+  color: #475569;
+  font-size: 9px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.uimod-rec-current {
+  font-size: 10px;
+  color: #15803d;
+  margin-top: 3px;
+  font-weight: 500;
+}
+.uimod-rec-current.is-alt {
+  color: #64748b;
+}
+
+/* ── Migration Preview toggle ────────────────────────────────── */
+.uimod-preview-toggle {
+  width: 100%;
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #fefce8;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+  padding: 9px 12px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  text-align: left;
+}
+.uimod-preview-toggle:hover {
+  background: #fef9c3;
+  border-color: #fbbf24;
+}
+
+/* ── Migration Preview body ──────────────────────────────────── */
+.uimod-preview-body {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-top: 4px;
+  animation: uimodSlideDown 0.2s ease;
+}
+
+@keyframes uimodSlideDown {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.uimod-preview-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 0;
+  border-bottom: 1px solid #f1f5f9;
+}
+.uimod-preview-row:last-of-type {
+  border-bottom: none;
+}
+.uimod-preview-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #94a3b8;
+  white-space: nowrap;
+}
+.uimod-preview-value {
+  font-size: 11px;
+  font-weight: 600;
+  color: #1e293b;
+  text-align: right;
+}
+
+/* ── Construct badges ────────────────────────────────────────── */
+.uimod-construct-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: #eff6ff;
+  color: #2563eb;
+  border: 1px solid #bfdbfe;
+}
+
+/* ── Consideration rows ──────────────────────────────────────── */
+.uimod-consideration {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 11px;
+  color: #475569;
+  line-height: 1.4;
+  margin-bottom: 4px;
+}
+
+/* ── View Files modal overlay ────────────────────────────────── */
+.uimod-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.5);
+  backdrop-filter: blur(3px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.uimod-modal {
+  background: #ffffff;
+  border-radius: 14px;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.22);
+  width: 100%;
+  max-width: 480px;
+  max-height: 75vh;
+  display: flex;
+  flex-direction: column;
+  animation: uimodModalIn 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes uimodModalIn {
+  from { opacity: 0; transform: scale(0.9) translateY(12px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.uimod-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 16px 18px 12px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.uimod-modal-close {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+.uimod-modal-close:hover {
+  background: #fee2e2;
+  border-color: #fca5a5;
+  color: #dc2626;
+}
+
+.uimod-modal-body {
+  overflow-y: auto;
+  padding: 14px 18px 18px;
+  flex: 1;
+}
+
+/* ── File groups inside modal ────────────────────────────────── */
+.uimod-files-group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.uimod-files-badge {
+  font-size: 10px;
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: 4px;
+  letter-spacing: 0.04em;
+}
+.uimod-files-badge.is-jsp {
+  background: #fce7f3;
+  color: #db2777;
+}
+.uimod-files-badge.is-jsf {
+  background: #f3e8ff;
+  color: #7c3aed;
+}
+
+/* ── Individual file row ─────────────────────────────────────── */
+.uimod-file-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  transition: background 0.12s ease;
+}
+.uimod-file-row:hover {
+  background: #f1f5f9;
+}

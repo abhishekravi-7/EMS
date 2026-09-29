@@ -1,0 +1,20 @@
+.idea/
+
+# Generated E2E/test setup artifacts
+**/E2E/**
+**/e2e/**
+**/E2E/**/*.yml
+**/E2E/**/*.yaml
+**/e2e/**/*.yml
+**/e2e/**/*.yaml
+**/E2E/**/__init__.py
+**/e2e/**/__init__.py
+
+# Temporary LLM validation/debug files
+**/scratch/check_*.py
+**/scratch/test_llm.py
+**/scratch/test_motor.py
+**/scratch/test_recommendation.py
+**/scratch/test_settings_conn.py
+**/tests/unit/test_llm_clients.py
+**/tests/unit/test_dependency_analysis_groq_fallback.py

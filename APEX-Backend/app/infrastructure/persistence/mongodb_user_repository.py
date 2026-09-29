@@ -5,6 +5,7 @@ from typing import Any, Optional
 import pymongo
 from pymongo import ReturnDocument
 from motor.motor_asyncio import AsyncIOMotorDatabase
+from pymongo.errors import DuplicateKeyError
 from app.core.security import hash_password
 
 logger = logging.getLogger(__name__)
@@ -12,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 async def get_next_sequence_value(db: AsyncIOMotorDatabase, sequence_name: str = "users") -> int:
     """Atomically increment and return the next sequential integer ID.
-    
+
     If counter document doesn't exist yet, it is created and the first sequence value is 1.
     """
     result = await db.counters.find_one_and_update(
@@ -26,7 +27,7 @@ async def get_next_sequence_value(db: AsyncIOMotorDatabase, sequence_name: str =
 
 async def migrate_to_numeric_id(db: AsyncIOMotorDatabase) -> None:
     """Safely migrate MongoDB users collection so that _id itself is a sequential integer.
-    
+
     1. Reads legacy users where _id is a string/UUID.
     2. Determines target integer _id (using existing numeric user_id if valid, or generating next sequence).
     3. Replaces document with numeric _id and removes separate user_id field.
@@ -40,7 +41,7 @@ async def migrate_to_numeric_id(db: AsyncIOMotorDatabase) -> None:
 
         if legacy_users:
             logger.info("Migrating %d legacy users with string _id to sequential integer _id...", len(legacy_users))
-            
+
             # Identify already claimed numeric user IDs
             existing_numeric_docs = await db.users.find({"_id": {"$type": "number"}}, {"_id": 1}).to_list(length=10000)
             assigned_ids = {int(d["_id"]) for d in existing_numeric_docs if isinstance(d.get("_id"), (int, float))}
@@ -160,7 +161,7 @@ async def sync_oauth_accounts_user_ids(db: AsyncIOMotorDatabase) -> None:
 
 async def get_next_sequence_value(db: AsyncIOMotorDatabase, sequence_name: str = "users") -> int:
     """Atomically increment and return the next sequential integer ID.
-    
+
     If counter document doesn't exist yet, it is created and the first sequence value is 1.
     """
     result = await db.counters.find_one_and_update(
@@ -174,7 +175,7 @@ async def get_next_sequence_value(db: AsyncIOMotorDatabase, sequence_name: str =
 
 async def migrate_to_numeric_id(db: AsyncIOMotorDatabase) -> None:
     """Safely migrate MongoDB users collection so that _id itself is a sequential integer.
-    
+
     1. Reads legacy users where _id is a string/UUID.
     2. Determines target integer _id (using existing numeric user_id if valid, or generating next sequence).
     3. Replaces document with numeric _id and removes separate user_id field.
@@ -188,7 +189,7 @@ async def migrate_to_numeric_id(db: AsyncIOMotorDatabase) -> None:
 
         if legacy_users:
             logger.info("Migrating %d legacy users with string _id to sequential integer _id...", len(legacy_users))
-            
+
             # Identify already claimed numeric user IDs
             existing_numeric_docs = await db.users.find({"_id": {"$type": "number"}}, {"_id": 1}).to_list(length=10000)
             assigned_ids = {int(d["_id"]) for d in existing_numeric_docs if isinstance(d.get("_id"), (int, float))}
@@ -309,6 +310,9 @@ def _get_query_id(user_id: str):
     query_ids = [user_id]
     if isinstance(user_id, str) and user_id.isdigit():
         query_ids.append(int(user_id))
+    from bson import ObjectId
+    if isinstance(user_id, str) and ObjectId.is_valid(user_id):
+        query_ids.append(ObjectId(user_id))
     return {"$in": query_ids}
 
 async def get_user_by_email(db: AsyncIOMotorDatabase, email: str) -> Optional[dict]:
@@ -325,9 +329,28 @@ async def get_user_by_id(db: AsyncIOMotorDatabase, user_id: Any) -> Optional[dic
             doc = await db.users.find_one({"_id": int(user_id)})
             if doc:
                 return doc
+        from bson import ObjectId
+        if ObjectId.is_valid(user_id):
+            doc = await db.users.find_one({"_id": ObjectId(user_id)})
+            if doc:
+                return doc
         return await db.users.find_one({"_id": user_id})
     return await db.users.find_one({"_id": _get_query_id(user_id)})
 
+
+
+async def ensure_fallback_user(db: AsyncIOMotorDatabase, user: dict) -> None:
+    """Persist a user reconstructed from a valid legacy access token."""
+    try:
+        await db.users.update_one(
+            {"_id": str(user["_id"])},
+            {"$setOnInsert": user},
+            upsert=True,
+        )
+    except DuplicateKeyError:
+        # A legacy fallback may already exist under the unique synthetic email.
+        # Authentication can continue with the in-memory token identity.
+        logger.info("Fallback user already exists for token user %s.", user["_id"])
 
 async def create_user(
     db: AsyncIOMotorDatabase,
@@ -412,7 +435,31 @@ async def update_user_password(db: AsyncIOMotorDatabase, user_id: Any, password_
 # --- OAuth ---
 
 async def get_oauth_account(db: AsyncIOMotorDatabase, provider: str, provider_user_id: str) -> Optional[dict]:
-    return await db.oauth_accounts.find_one({"provider": provider, "provider_user_id": provider_user_id})
+    pid = str(provider_user_id)
+    account = await db.oauth_accounts.find_one({"provider": provider, "provider_user_id": pid})
+    if not account:
+        account = await db.oauth_accounts.find_one({"provider": provider, "provider_user_id": provider_user_id})
+    return account
+
+async def create_oauth_account(db: AsyncIOMotorDatabase, user_id: str, provider: str, provider_user_id: str, provider_email: Optional[str] = None):
+    pid = str(provider_user_id)
+    now = datetime.now(timezone.utc)
+    await db.oauth_accounts.update_one(
+        {"provider": provider, "provider_user_id": pid},
+        {
+            "$set": {
+                "user_id": user_id,
+                "provider": provider,
+                "provider_user_id": pid,
+                "provider_email": provider_email,
+                "updated_at": now,
+            },
+            "$setOnInsert": {
+                "created_at": now
+            }
+        },
+        upsert=True
+    )
 
 
 async def create_oauth_account(db: AsyncIOMotorDatabase, user_id: Any, provider: str, provider_user_id: str, provider_email: Optional[str] = None):
@@ -627,5 +674,3 @@ async def delete_pending_signup(db: AsyncIOMotorDatabase, email: str) -> None:
     if not email or not isinstance(email, str):
         return
     await db.pending_signups.delete_many({"email": email.strip().lower()})
-
-

@@ -1,5 +1,5 @@
 import { requestJson } from "@/services/http/client";
- 
+
 export interface SystemSettings {
   github_token: string;
   github_api_base_url: string;
@@ -7,6 +7,7 @@ export interface SystemSettings {
   github_target_token: string;
   github_client_id?: string;
   github_client_secret?: string;
+  github_redirect_uri?: string;
   github_callback_url?: string;
   github_organization?: string;
   github_default_branch?: string;
@@ -28,11 +29,11 @@ export interface SystemSettings {
   groq_models?: string; // JSON array of groq models
   huggingface_models?: string; // JSON array of hugging face models
 }
- 
+
 export interface SystemSettingsResponse {
   settings: SystemSettings;
 }
- 
+
 /**
  * Fetch all system settings from the backend.
  */
@@ -43,7 +44,7 @@ export async function getAdminSettings(): Promise<SystemSettings> {
   );
   return response.settings;
 }
- 
+
 /**
  * Update system settings. Only the provided keys will be updated.
  */
@@ -54,7 +55,7 @@ export async function updateAdminSettings(settings: Partial<SystemSettings>): Pr
       stringifiedSettings[key] = String(value);
     }
   }
- 
+
   const response = await requestJson<SystemSettingsResponse>(
     "/v1/admin/settings",
     "Failed to update admin settings",
@@ -65,11 +66,19 @@ export async function updateAdminSettings(settings: Partial<SystemSettings>): Pr
   );
   return response.settings;
 }
- 
+
 export async function testAdminPlaywrightConnection(): Promise<{ status: string; message: string }> {
   return requestJson<{ status: string; message: string }>(
     "/v1/admin/settings/test-cases/playwright/test",
     "Failed to test Playwright configuration",
+    { method: "POST" }
+  );
+}
+
+export async function testAdminGithubConnection(): Promise<{ status: string; message: string }> {
+  return requestJson<{ status: string; message: string }>(
+    "/v1/admin/settings/github/test",
+    "Failed to test Platform GitHub configuration",
     { method: "POST" }
   );
 }
@@ -81,8 +90,10 @@ export interface UserGitHubConfig {
   repository?: string;
   branch?: string;
   user_access?: string;
+  repo_url?: string;
+  target_token?: string;
 }
- 
+
 export interface UserSettingsResponse {
   github_config: UserGitHubConfig;
   quality_checks_values?: Record<string, any>;
@@ -99,7 +110,7 @@ export interface UserSettingsResponse {
     test_cases_selenium_enabled?: boolean | string;
   };
 }
- 
+
 export interface FullUserSettings {
   github_config: UserGitHubConfig;
   quality_checks_values: Record<string, any>;
@@ -116,7 +127,7 @@ export interface FullUserSettings {
     test_cases_selenium_enabled?: boolean | string;
   };
 }
- 
+
 export async function getUserSettings(): Promise<FullUserSettings> {
   const response = await requestJson<UserSettingsResponse>(
     "/v1/user/settings/github",
@@ -131,7 +142,7 @@ export async function getUserSettings(): Promise<FullUserSettings> {
     system_test_cases_config: response.system_test_cases_config || {},
   };
 }
- 
+
 export async function updateUserSettings(
   github_config: UserGitHubConfig,
   quality_checks_values?: Record<string, any>,
@@ -148,7 +159,7 @@ export async function updateUserSettings(
   if (llm_values) {
     body.llm_values = llm_values;
   }
- 
+
   const response = await requestJson<UserSettingsResponse>(
     "/v1/user/settings/github",
     "Failed to update user settings",
@@ -166,6 +177,15 @@ export async function updateUserSettings(
     system_test_cases_config: response.system_test_cases_config || {},
   };
 }
+
+export async function saveUserSettings(fullSettings: FullUserSettings): Promise<FullUserSettings> {
+  return updateUserSettings(
+    fullSettings.github_config || {},
+    fullSettings.quality_checks_values || {},
+    fullSettings.test_cases_values || {},
+    fullSettings.llm_values || {}
+  );
+}
  
 export async function testUserPlaywrightConnection(baseUrl: string): Promise<{ status: string; message: string }> {
   return requestJson<{ status: string; message: string }>(
@@ -177,7 +197,7 @@ export async function testUserPlaywrightConnection(baseUrl: string): Promise<{ s
     }
   );
 }
- 
+
 export async function getQualityChecksAdminConfig(): Promise<{quality_checks_config: string}> {
   return requestJson<{quality_checks_config: string}>(
     "/v1/user/settings/quality-checks-config",
@@ -185,13 +205,6 @@ export async function getQualityChecksAdminConfig(): Promise<{quality_checks_con
   );
 }
  
-export async function testAdminGithubConnection(): Promise<{status: string, message: string}> {
-  return requestJson<{status: string, message: string}>(
-    "/v1/admin/settings/github/test",
-    "Admin GitHub Connection Test Failed",
-    { method: "POST" }
-  );
-}
  
 export async function testUserGithubConnection(): Promise<{status: string, message: string}> {
   return requestJson<{status: string, message: string}>(
@@ -200,6 +213,47 @@ export async function testUserGithubConnection(): Promise<{status: string, messa
     { method: "POST" }
   );
 }
+
+export async function testUserSonarqubeConnection(payload: { url: string; token: string; project_key?: string; org?: string }): Promise<{ status: string; message: string }> {
+  return requestJson<{ status: string; message: string }>(
+    "/v1/user/settings/sonarqube/test",
+    "Failed to test SonarQube connection",
+    {
+      method: "POST",
+      body: payload
+    }
+  );
+}
+
+export async function testUserSonarConnection(payload: {
+  sonarqube_url?: string;
+  auth_token?: string;
+  project_key?: string;
+  sonar_organization?: string;
+  url?: string;
+  token?: string;
+  org?: string;
+}): Promise<{ status: string; message: string }> {
+  return testUserSonarqubeConnection({
+    url: payload.sonarqube_url || payload.url || "",
+    token: payload.auth_token || payload.token || "",
+    project_key: payload.project_key,
+    org: payload.sonar_organization || payload.org,
+  });
+}
+
+export async function testUserFossaConnection(payload: { api_key?: string; fossa_api_key?: string }): Promise<{ status: string; message: string }> {
+  const apiKey = payload.api_key || payload.fossa_api_key || "";
+  return requestJson<{ status: string; message: string }>(
+    "/v1/user/settings/fossa/test",
+    "Failed to test FOSSA connection",
+    {
+      method: "POST",
+      body: { api_key: apiKey }
+    }
+  );
+}
+
  
 export interface GithubRepo {
   id: number;
@@ -208,18 +262,18 @@ export interface GithubRepo {
   owner: string;
   private: boolean;
 }
- 
+
 export interface GithubBranch {
   name: string;
 }
- 
+
 export async function fetchUserGithubRepos(): Promise<GithubRepo[]> {
   return requestJson<GithubRepo[]>(
     "/v1/user/settings/github/repos",
     "Failed to fetch GitHub repositories"
   );
 }
- 
+
 export async function fetchUserGithubBranches(owner: string, repo: string): Promise<GithubBranch[]> {
   return requestJson<GithubBranch[]>(
     `/v1/user/settings/github/repos/${owner}/${repo}/branches`,
@@ -282,5 +336,3 @@ export async function analyzeTestingPrompt(
     }
   );
 }
-
- 

@@ -119,17 +119,23 @@ export const QualityCheckDetailsModal: React.FC<QualityCheckDetailsModalProps> =
   const fossaScanMode = effectiveFossa?.scan_mode || migrationJob?.fossa_scan_mode || "real";
 
   // JUnit Data
-  const testsPassed = migrationState.unitTests.passed || migrationJob?.tests_passed || 5;
-  const testsFailed = migrationState.unitTests.failed || migrationJob?.tests_failed || 0;
+  const testsPassed = migrationJob?.tests_passed ?? migrationState.unitTests.passed ?? 0;
+  const testsFailed = migrationJob?.tests_failed ?? migrationState.unitTests.failed ?? 0;
   const totalTests =
-    migrationState.unitTests.testCaseCount ||
-    migrationJob?.tests_run ||
-    testsPassed + testsFailed;
+    migrationJob?.tests_run ??
+    migrationState.unitTests.testCaseCount ??
+    (testsPassed + testsFailed);
+  const covObj = (migrationJob as any)?.coverage_result || (migrationJob as any)?.coverage;
   const testCoveragePct =
-    migrationState.unitTests.coveragePct ??
-    migrationJob?.bl_coverage ??
-    sonarCoverage ??
-    85;
+    typeof covObj?.line_coverage_pct === "number"
+      ? covObj.line_coverage_pct
+      : typeof covObj?.instruction_coverage_pct === "number"
+      ? covObj.instruction_coverage_pct
+      : typeof covObj?.line === "number"
+      ? covObj.line
+      : typeof covObj?.instruction === "number"
+      ? covObj.instruction
+      : migrationState.unitTests.coveragePct ?? null;
 
   // RENDER CONTENT BASED ON CATEGORY
   const renderContent = () => {
@@ -475,7 +481,9 @@ export const QualityCheckDetailsModal: React.FC<QualityCheckDetailsModalProps> =
 
               <div className="qc-metric-card">
                 <div className="qc-card-label">Code Coverage</div>
-                <div className="qc-card-value val-blue">{testCoveragePct}%</div>
+                <div className="qc-card-value val-blue">
+                  {typeof testCoveragePct === "number" ? `${testCoveragePct}%` : "N/A"}
+                </div>
                 <div className="qc-card-sub">JaCoCo Instruction Coverage</div>
               </div>
             </div>

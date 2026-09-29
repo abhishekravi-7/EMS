@@ -65,4 +65,3 @@ class RiskExplanationResponse(BaseModel):
     risk_level: str
     risk_explanation: str
     provider_used: str = "huggingface"
-

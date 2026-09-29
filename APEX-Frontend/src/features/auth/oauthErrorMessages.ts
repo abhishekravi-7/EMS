@@ -24,4 +24,3 @@ export function getOAuthErrorMessage(code: string | null): string | null {
   if (!code) return null;
   return OAUTH_ERROR_MESSAGES[code] ?? OAUTH_ERROR_MESSAGES.server_error;
 }
-

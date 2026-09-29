@@ -39,9 +39,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-ACCESS_TOKEN_COOKIE = "access_token"  
-REFRESH_TOKEN_COOKIE = "refresh_token" 
-GOOGLE_CODE_VERIFIER_COOKIE = "google_code_verifier" 
+ACCESS_TOKEN_COOKIE = "access_token"
+REFRESH_TOKEN_COOKIE = "refresh_token"
+GOOGLE_CODE_VERIFIER_COOKIE = "google_code_verifier"
 
 # Maps an internal AuthError.status to the public, stable code appended as
 # `?oauth_error=<code>` on the sign-in redirect — never the exception's own
@@ -212,7 +212,7 @@ async def forgot_password(payload: ForgotPasswordRequest) -> JSONResponse:
     if mongo_db is not None:
         service = MongoDBAuthService(mongo_db)
         await service.forgot_password(email=payload.email, frontend_url=settings.frontend_url)
-    
+
     return JSONResponse(status_code=200, content={"message": "If that email is in our system, we sent a password reset link."})
 
 
@@ -552,4 +552,3 @@ async def github_callback(request: Request) -> RedirectResponse:
 
     logger.info("User authenticated via GitHub OAuth (user_id=%s, intent=%s).", user_id_for_log, intent)
     return _oauth_success_redirect(access_token, refresh_token)
-

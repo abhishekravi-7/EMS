@@ -230,7 +230,7 @@ class AnswerRepoQuestionUseCase:
             page_context=page_context,
         )
         parts = [delta async for delta in self.stream(prepared)]
-        
+
         sources = []
         seen_files = set()
         for hit in getattr(prepared, "retrieved_chunks", []):
@@ -299,4 +299,3 @@ def _metadata_from(
         "java_version": payload.get("java_version"),
         "framework": payload.get("framework") or repo_ctx.get("language"),
     }
-

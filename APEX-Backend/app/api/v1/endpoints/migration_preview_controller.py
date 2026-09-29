@@ -203,4 +203,3 @@ async def get_tool_recommendations(payload: dict[str, object]) -> JSONResponse:
         }
 
     return JSONResponse(status_code=200, content={"recommendations": recommendations})
-

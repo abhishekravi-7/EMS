@@ -26,5 +26,7 @@ APEX-Backend/storage/vector-store/.lock
 # Runtime vector store
 storage/vector-store/
 
-# Dependency analysis cache
-storage/dependency-analysis-cache/
+# Local databases & logs
+*.db
+storage/*.db
+logs/

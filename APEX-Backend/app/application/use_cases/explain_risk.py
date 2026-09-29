@@ -12,7 +12,7 @@ import logging
 from typing import Any
 
 from app.api.deps import User
-from app.core.context import user_id_ctx
+from app.core.context import user_id_ctx, llm_values_ctx
 from app.core.exceptions import LLMResponseInvalidError
 from app.infrastructure.llm.chat_llm import ChatLLM
 from app.infrastructure.llm.huggingface_client import HuggingFaceClient
@@ -65,13 +65,16 @@ class ExplainRiskUseCase:
         )
 
         user_token = None
+        llm_token = None
         if current_user:
             user_token = user_id_ctx.set(current_user.id)
+            if getattr(current_user, "llm_values", None):
+                llm_token = llm_values_ctx.set(current_user.llm_values)
 
         try:
             try:
                 logger.info("[RiskExplanation] Attempting Hugging Face (primary)")
-                raw = await self._llm.chat_json(system_prompt, user_prompt, max_tokens=256)
+                raw = await self._llm.chat_json(system_prompt, user_prompt)
                 explanation = str(raw.get("risk_explanation") or "").strip()
                 if not explanation:
                     explanation = fallback_text
@@ -92,7 +95,6 @@ class ExplainRiskUseCase:
                     system_prompt=system_prompt,
                     user_prompt=user_prompt,
                     endpoint="risk_explanation_fallback",
-                    max_tokens=256,
                 ):
                     response_text += chunk
 
@@ -116,6 +118,8 @@ class ExplainRiskUseCase:
         finally:
             if user_token:
                 user_id_ctx.reset(user_token)
+            if llm_token:
+                llm_values_ctx.reset(llm_token)
 
     @staticmethod
     def _extract_json(content: str) -> dict:

@@ -149,6 +149,33 @@ async def list_discovery_files(
 
 
 @router.get(
+    "/discovery/{job_id}/framework-recommendation",
+    summary="Get dynamically calculated target version recommendations for React & Angular.",
+)
+async def get_framework_recommendation(
+    job_id: str,
+    refresh: bool = False,
+    current_user: User = Depends(get_current_user),  # noqa: B008
+) -> JSONResponse:
+    await verify_job_ownership(job_id, current_user)
+    paths = WorkspacePaths(job_id)
+    if not paths.original_repo_dir.is_dir():
+        return JSONResponse(
+            status_code=404,
+            content={"jobId": job_id, "message": "Repository workspace not found."},
+        )
+
+    report = JobRepository().read_discovery_report(job_id) or {}
+    recs = report.get("frameworkRecommendations")
+    if not recs or refresh:
+        from app.infrastructure.analyzers.frontend_compatibility_analyzer import (
+            FrontendCompatibilityAnalyzer,
+        )
+        recs = FrontendCompatibilityAnalyzer().analyze(paths.original_repo_dir).to_dict()
+    return JSONResponse(status_code=200, content=recs)
+
+
+@router.get(
     "/discovery/{job_id}/file",
     summary="Read a text file's content from the cloned repository (Discovery workspace).",
 )
@@ -379,7 +406,7 @@ async def delete_brd_document(
                     f.unlink()
                 except Exception:  # noqa: BLE001, S110
                     pass  # nosec B110
-    
+
     if paths.brd_metadata_path.exists():
         try:
             paths.brd_metadata_path.unlink()

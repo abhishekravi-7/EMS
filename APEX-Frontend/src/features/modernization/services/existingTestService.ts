@@ -16,17 +16,17 @@ export interface TestResult {
   testId?: string;
   execution_id?: string;
   executionId?: string;
-  test_name: string;
+  test_name?: string;
   name?: string;
   title?: string;
   methodname?: string;
   classname?: string;
   spec?: string;
   category?: string;
-  suite: string;
-  status: "PASSED" | "FAILED" | "SKIPPED" | "ERROR" | "NOT_EXECUTED" | string;
-  duration: string;
-  file: string;
+  suite?: string;
+  status?: "PASSED" | "FAILED" | "SKIPPED" | "ERROR" | "NOT_EXECUTED" | string;
+  duration?: string;
+  file?: string;
   type?: string;
   test_type?: "JUNIT" | "API" | "UI" | "UNKNOWN" | string;
   testType?: "JUNIT" | "API" | "UI" | "UNKNOWN" | string;
@@ -356,4 +356,3 @@ export function classifyTestType(t: {
 
   return "Unit";
 }
-

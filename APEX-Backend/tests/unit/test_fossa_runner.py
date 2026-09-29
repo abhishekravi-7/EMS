@@ -29,15 +29,14 @@ def test_fossa_missing_token(tmp_path: Path):
 
 
 def test_fossa_missing_cli(tmp_path: Path):
-    """When FOSSA CLI cannot be resolved, runner returns missing_cli result."""
+    """When FOSSA CLI cannot be resolved, runner falls back to built-in dependency scanner."""
     runner = DependencyCheckRunner()
     with patch.object(settings, "fossa_api_key", "test-api-key"), \
          patch.object(DependencyCheckRunner, "_resolve_command", return_value=None):
         result = runner.run(tmp_path, job_id="job_test_123")
-        assert result.scan_mode == "missing_cli"
-        assert result.policy_status == "UNAVAILABLE"
-        assert result.real_scan is False
-        assert "FOSSA CLI (fossa) was not found" in (result.error_message or "")
+        assert result.scan_mode == "built_in_scanner"
+        assert result.policy_status == "PASSED"
+        assert result.real_scan is True
 
 
 def test_fossa_missing_maven_for_maven_project(tmp_path: Path):

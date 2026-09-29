@@ -47,9 +47,9 @@ body {
 /* ═══════════════════════════════════════════════
    PAGE SHELL
 ═══════════════════════════════════════════════ */
-.doc-wrapper { 
+.doc-wrapper {
   width: 100%;
-  margin: 0 auto; 
+  margin: 0 auto;
   padding: 56px 0 80px;
   display: flex;
   flex-direction: column;
@@ -69,8 +69,8 @@ body {
   page-break-after: always;
   border-radius: 12px;
 }
-.page-inner { 
-  padding: 50px 60px; 
+.page-inner {
+  padding: 50px 60px;
   min-height: auto;
   width: 100%;
   box-sizing: border-box;
@@ -163,7 +163,7 @@ body {
 ═══════════════════════════════════════════════ */
 .cover-page .page-inner {
   display: flex; flex-direction: column;
-  justify-content: space-between; padding: 0; min-height: 860px;
+  justify-content: space-between; padding: 0; min-height: auto;
 }
 
 /* dark gradient header band */
@@ -350,23 +350,74 @@ p { color: #333; margin-bottom: 11px; font-size: 12.5px; line-height: 1.74; }
    DATA TABLES  (brd-table)
 ═══════════════════════════════════════════════ */
 .brd-table {
-  width: 100%; border-collapse: collapse;
-  margin: 16px 0 26px; font-size: 11.5px; table-layout: fixed;
+  width: 100%;
+  max-width: 100%;
+  border-collapse: collapse;
+  margin: 16px 0 24px;
+  font-size: 11px;
+  table-layout: auto;
+  box-sizing: border-box;
 }
-.brd-table thead tr { background: var(--ink); color: #fff; }
+.brd-table thead {
+  display: table-header-group;
+}
+.brd-table tbody {
+  display: table-row-group;
+}
+.brd-table thead tr {
+  background: var(--ink);
+  color: #fff;
+}
 .brd-table thead th {
-  padding: 10px 14px; text-align: left;
-  font-family: 'Syne', sans-serif; font-size: 9px;
-  letter-spacing: .15em; text-transform: uppercase; font-weight: 600;
+  padding: 10px 12px;
+  text-align: left;
+  font-family: 'Syne', sans-serif;
+  font-size: 9px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  font-weight: 700;
+  vertical-align: middle;
+  box-sizing: border-box;
 }
-.brd-table tbody tr:nth-child(even) { background: var(--cream); }
-.brd-table tbody tr:hover { background: #eee; }
+.brd-table tbody tr {
+  break-inside: avoid;
+  page-break-inside: avoid;
+  height: auto;
+}
+.brd-table tbody tr:nth-child(even) {
+  background: var(--cream);
+}
+.brd-table tbody tr:hover {
+  background: #eee;
+}
 .brd-table td {
-  padding: 9px 14px; border-bottom: 1px solid var(--border);
-  vertical-align: top; line-height: 1.55;
-  overflow-wrap: break-word; word-break: break-word;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+  line-height: 1.55;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  box-sizing: border-box;
+  height: auto;
 }
-.brd-table td:first-child { font-weight: 500; color: var(--ink); }
+.brd-table td:first-child {
+  font-weight: 600;
+  color: var(--ink);
+}
+.brd-table code {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  background: #f0f0ef;
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid #dcdcdb;
+  display: inline-block;
+  max-width: 100%;
+  word-break: normal;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  line-height: 1.4;
+}
 
 /* ═══════════════════════════════════════════════
    CALLOUTS
@@ -826,6 +877,7 @@ p { color: #333; margin-bottom: 11px; font-size: 12.5px; line-height: 1.74; }
 .nfr-list li {
   padding: 5px 0; border-bottom: 1px solid var(--cream);
   font-size: 11.5px; display: flex; gap: 8px; align-items: baseline;
+  word-break: break-word; overflow-wrap: break-word;
 }
 .nfr-list li:last-child { border-bottom: none; }
 .nfr-list li::before { content: '▸'; color: var(--ink); flex-shrink: 0; font-size: 10px; }
@@ -1010,34 +1062,49 @@ code {
    PRINT
 ═══════════════════════════════════════════════ */
 @media print {
-  html, body { 
-    width: 210mm; 
-    margin: 0 !important; 
+  html, body {
+    width: 210mm;
+    margin: 0 !important;
     padding: 0 !important;
     background: white !important;
   }
-  .doc-wrapper { 
-    padding: 0 !important; 
+  .doc-wrapper {
+    padding: 0 !important;
     margin: 0 !important;
     width: 210mm !important;
   }
-  .page { 
-    break-after: always; 
-    box-shadow: none !important; 
-    margin: 0 !important; 
+  .page {
+    break-after: always;
+    box-shadow: none !important;
+    margin: 0 !important;
     padding: 0 !important;
-    width: 210mm !important; 
+    width: 210mm !important;
     max-width: 210mm !important;
     min-height: 297mm !important;
-    height: 297mm !important;
+    height: auto !important;
     border-radius: 0 !important;
     page-break-after: always;
-    page-break-inside: avoid;
+    overflow: visible !important;
   }
-  .page-inner { 
-    width: 100% !important; 
+  .page-inner {
+    width: 100% !important;
     padding: 15mm 20mm !important;
     min-height: auto !important;
+    box-sizing: border-box !important;
+  }
+  .brd-table {
+    width: 100% !important;
+    max-width: 100% !important;
+    table-layout: fixed !important;
+    box-sizing: border-box !important;
+  }
+  .brd-table tr {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    height: auto !important;
+  }
+  .brd-table thead {
+    display: table-header-group !important;
   }
   .pg-num { bottom: 10mm; right: 15mm; }
   .pg-watermark { bottom: 10mm; left: 15mm; }
@@ -2432,7 +2499,7 @@ code {
     <tbody>
       <tr><td>{{ORPHAN_CAT_1}}</td><td><code>{{ORPHAN_FILES_LIST_1}}</code></td><td>{{ORPHAN_CAT_1_NOTE}}</td></tr>
       <tr><td>{{ORPHAN_CAT_2}}</td><td><code>{{ORPHAN_FILES_LIST_2}}</code></td><td>{{ORPHAN_CAT_2_NOTE}}</td></tr>
-      
+
     </tbody>
   </table>
 

@@ -65,7 +65,7 @@ async def connect_repository(
 
     try:
         t_pipe = time.perf_counter()
-        
+
         from app.api.deps import resolve_github_token
         normalized_token = await resolve_github_token(payload.github_token, current_user)
 
@@ -97,8 +97,8 @@ async def connect_repository(
     mongo_db = await get_mongodb()
     if mongo_db is not None:
         await record_mongo_owner(
-            mongo_db, 
-            job_id=result.job_id, 
+            mongo_db,
+            job_id=result.job_id,
             user_id=str(current_user.id),
             owner_name=current_user.full_name,
             owner_email=current_user.email,

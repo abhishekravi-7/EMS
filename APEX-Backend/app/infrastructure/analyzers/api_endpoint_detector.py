@@ -1,179 +1,128 @@
-"""Pure-Python Spring REST endpoint detector.
-
-Scans the user's cloned Java source tree for Spring MVC / JAX-RS
-endpoint annotations and extracts HTTP method + path information.
-
-No external tools, no JAR, no subprocess — just regex over ``.java`` files.
-This replaces the previous implementation that invoked the migration-engine
-JAR (``EndpointDiscoveryEngine``), which was an accidental coupling:
-the JAR is only needed during the Migration phase, not Discovery.
-"""
-
-from __future__ import annotations
-
+import json
 import logging
-import re
-import uuid
+import subprocess
 from pathlib import Path
 from typing import Any, List
 
+from app.core.config import settings
 from app.shared import file_utils
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Annotation patterns
-# ---------------------------------------------------------------------------
-# Matches @RestController or @Controller (class-level)
-_CONTROLLER_RE = re.compile(
-    r"@(?:RestController|Controller)\b"
-)
-
-# Matches @RequestMapping(... value/path = "..." ...) at class level for base path
-_CLASS_MAPPING_RE = re.compile(
-    r"@RequestMapping\s*\(\s*(?:[^)]*?)"
-    r'(?:value|path)\s*=\s*(?:"([^"]*)"|\{[^}]*"([^"]*)"[^}]*\})'
-    r"|@RequestMapping\s*\(\s*\"([^\"]*)\"\s*\)",
-)
-
-# Method-level HTTP mappings  →  (annotation_name, optional_path_group)
-_METHOD_MAPPING_RE = re.compile(
-    r"@(Get|Post|Put|Delete|Patch)Mapping\s*"
-    r"(?:\(\s*(?:value\s*=\s*)?\"([^\"]*)\"[^)]*\)|\(\s*\))?",
-)
-
-# Grabs the Java method name immediately after the annotation block
-_METHOD_NAME_RE = re.compile(
-    r"(?:public|protected|private|static|\s)+\s+\w[\w<>\[\],\s]*\s+(\w+)\s*\("
-)
-
-_HTTP_METHOD_MAP = {
-    "Get": "GET",
-    "Post": "POST",
-    "Put": "PUT",
-    "Delete": "DELETE",
-    "Patch": "PATCH",
-}
-
-_MAX_JAVA_FILES = 500  # cap to keep discovery fast on large repos
-
-
-def _extract_class_base_path(source: str) -> str:
-    """Return the class-level @RequestMapping path, or empty string."""
-    m = _CLASS_MAPPING_RE.search(source)
-    if not m:
-        return ""
-    # groups: (value="..", path="..", bare "..")
-    for grp in m.groups():
-        if grp is not None:
-            return grp.strip("/")
-    return ""
-
-
-def _extract_class_name(source: str) -> str:
-    """Return the Java class name (best effort)."""
-    # Require a Java declaration context before 'class': access modifier, annotation,
-    # or start of line — to avoid matching identifiers that contain 'class' as a word.
-    m = re.search(
-        r"(?:(?:public|protected|private|abstract|final|static)\s+)+class\s+(\w+)"
-        r"|^\s*class\s+(\w+)",
-        source,
-        re.MULTILINE,
-    )
-    if not m:
-        return "UnknownController"
-    return m.group(1) or m.group(2)
-
-
-def _normalize_path(*parts: str) -> str:
-    """Join path segments cleanly."""
-    joined = "/".join(p.strip("/") for p in parts if p)
-    return "/" + joined if not joined.startswith("/") else joined
-
-
-def _detect_in_file(java_path: Path) -> list[dict[str, Any]]:
-    """Scan a single .java file for endpoint declarations."""
-    try:
-        source = file_utils.read_text(java_path)
-    except Exception:
-        return []
-
-    if not source or not _CONTROLLER_RE.search(source):
-        return []
-
-    class_name = _extract_class_name(source)
-    base_path = _extract_class_base_path(source)
-    endpoints: list[dict[str, Any]] = []
-
-    for m in _METHOD_MAPPING_RE.finditer(source):
-        annotation_prefix = m.group(1)   # Get / Post / Put / Delete / Patch / Request
-        path_suffix = m.group(2) or ""
-
-        http_method = _HTTP_METHOD_MAP.get(annotation_prefix, "GET")
-
-        # Look for the Java method name that follows this annotation
-        rest = source[m.end():]
-        name_match = _METHOD_NAME_RE.search(rest[:300])
-        method_name = name_match.group(1) if name_match else "unknown"
-
-        full_path = _normalize_path(base_path, path_suffix)
-
-        endpoints.append(
-            {
-                "id": str(uuid.uuid4())[:8],
-                "httpMethod": http_method,
-                "path": full_path,
-                "controller": class_name,
-                "methodName": method_name,
-            }
-        )
-
-    return endpoints
-
-
 class ApiEndpointDetector:
-    """Detects Spring REST API endpoints by scanning the Java source tree.
-
-    Uses a pure-Python Spring annotation scanner to extract endpoint counts
-    directly from source code without requiring a JVM or external tool.
-    (Legacy support remains if a custom migration-engine JAR is provided).
+    """Detects API endpoints in a Java project by invoking the Java-based
+    EndpointDiscoveryEngine.
     """
 
+    def __init__(self, jar_path: Path | None = None) -> None:
+        # Use the same JAR as the migration engine
+        self._jar_path = jar_path or settings.java_migration_engine_jar
+
     def detect(self, project_root: Path) -> List[dict[str, Any]]:
-        """Walk the project source tree and collect endpoint declarations.
+        """Invoke the Java discovery engine to find endpoints, with Python fallback."""
+        if not self._jar_path.exists():
+            logger.warning("Migration engine JAR not found at %s. Using Python regex endpoint discovery fallback.", self._jar_path)
+            return self._fallback_python_detect(project_root)
 
-        Parameters
-        ----------
-        project_root:
-            Root of the cloned user repository (or the resolved project
-            sub-directory when the build file is not at the repo root).
+        try:
+            logger.info("Invoking Java Endpoint Discovery for project: %s", file_utils.to_plain_path_str(project_root))
+            # Use -cp to specify the main class since the JAR's manifest points to AstMigrationEngine
+            process = subprocess.run(
+                [
+                    "java",
+                    "-cp",
+                    file_utils.to_plain_path_str(self._jar_path),
+                    "com.javaapex.migration.engine.EndpointDiscoveryEngine",
+                    file_utils.to_plain_path_str(project_root)
+                ],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=120 # Discovery should be relatively fast
+            )
 
-        Returns
-        -------
-        list[dict]
-            Each dict has keys: ``id``, ``httpMethod``, ``path``,
-            ``controller``, ``methodName``.
-        """
-        java_files = list(project_root.rglob("*.java"))
+            if process.returncode != 0:
+                logger.error("Java Endpoint Discovery failed (exit code %s): %s. Falling back to Python scanner.", process.returncode, process.stderr)
+                return self._fallback_python_detect(project_root)
 
-        # Filter out generated sources and test-only sources for brevity,
-        # but still scan them — endpoint annotations can appear in tests.
-        java_files = java_files[:_MAX_JAVA_FILES]
+            try:
+                report = json.loads(process.stdout)
+                endpoints = report.get("apiEndpoints", [])
+                logger.info("Detected %d API endpoints.", len(endpoints))
+                return endpoints if endpoints else self._fallback_python_detect(project_root)
+            except json.JSONDecodeError:
+                logger.error("Failed to parse JSON response from Java discovery engine: %s. Falling back to Python scanner.", process.stdout)
+                return self._fallback_python_detect(project_root)
 
-        if not java_files:
-            logger.debug("No Java files found under %s; skipping endpoint detection.", project_root)
-            return []
+        except subprocess.TimeoutExpired:
+            logger.error("Java Endpoint Discovery timed out. Falling back to Python scanner.")
+            return self._fallback_python_detect(project_root)
+        except Exception:
+            logger.exception("Unexpected error during API endpoint detection. Falling back to Python scanner.")
+            return self._fallback_python_detect(project_root)
 
-        logger.info(
-            "Using native Python Spring annotation scanner for API endpoint detection."
-            "Scanning %d Java files for REST endpoint annotations under %s",
-            len(java_files),
-            file_utils.to_plain_path_str(project_root),
-        )
+    def _fallback_python_detect(self, project_root: Path) -> List[dict[str, Any]]:
+        """Fallback Python regex scanner for Spring Boot & JAX-RS API endpoints."""
+        import os
+        import re
 
-        results: list[dict[str, Any]] = []
-        for jf in java_files:
-            results.extend(_detect_in_file(jf))
+        endpoints = []
+        if not project_root.exists():
+            return endpoints
 
-        logger.info("Detected %d API endpoints via Python scanner.", len(results))
-        return results
+        for root, _, files in os.walk(project_root):
+            for file in files:
+                if not file.endswith(".java"):
+                    continue
+                file_path = Path(root) / file
+                try:
+                    content = file_path.read_text(encoding="utf-8", errors="ignore")
+                except Exception:
+                    continue
+
+                if "@Controller" not in content and "@RestController" not in content and "@Path" not in content:
+                    continue
+
+                # Class-level base path
+                class_path = ""
+                class_match = re.search(r'@(?:RequestMap|Path|ControllerMap)\s*\((?:value\s*=\s*)?["\']([^"\']+)["\']', content)
+                if class_match:
+                    class_path = class_match.group(1).rstrip("/")
+
+                # Method-level endpoints
+                method_patterns = [
+                    (r'@GetMapping\s*\((?:value\s*=\s*|path\s*=\s*)?["\']([^"\']+)["\']', "GET"),
+                    (r'@PostMapping\s*\((?:value\s*=\s*|path\s*=\s*)?["\']([^"\']+)["\']', "POST"),
+                    (r'@PutMapping\s*\((?:value\s*=\s*|path\s*=\s*)?["\']([^"\']+)["\']', "PUT"),
+                    (r'@DeleteMapping\s*\((?:value\s*=\s*|path\s*=\s*)?["\']([^"\']+)["\']', "DELETE"),
+                    (r'@PatchMapping\s*\((?:value\s*=\s*|path\s*=\s*)?["\']([^"\']+)["\']', "PATCH"),
+                    (r'@RequestMapping\s*\((?:value\s*=\s*|path\s*=\s*)?["\']([^"\']+)["\'](?:\s*,\s*method\s*=\s*RequestMethod\.([A-Z]+))?', "ALL"),
+                    (r'@GetMapping(?:\(\s*\))?', "GET"),
+                    (r'@PostMapping(?:\(\s*\))?', "POST"),
+                ]
+
+                for pattern, http_method in method_patterns:
+                    for match in re.finditer(pattern, content):
+                        sub_path = ""
+                        method = http_method
+                        if match.groups() and match.group(1):
+                            sub_path = match.group(1)
+                            if len(match.groups()) > 1 and match.group(2):
+                                method = match.group(2)
+                        if method == "ALL":
+                            method = "GET"
+
+                        full_endpoint = f"{class_path}/{sub_path.lstrip('/')}".rstrip("/")
+                        if not full_endpoint.startswith("/"):
+                            full_endpoint = "/" + full_endpoint
+
+                        rel_file = str(file_path.relative_to(project_root)).replace("\\", "/")
+                        endpoints.append({
+                            "urlPath": full_endpoint,
+                            "httpMethod": method,
+                            "file": rel_file,
+                            "className": file.replace(".java", ""),
+                        })
+
+        logger.info("Detected %d API endpoints using Python fallback scanner.", len(endpoints))
+        return endpoints

@@ -29,6 +29,50 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Initial auth check on mount
     void checkAuth();
   }, [checkAuth]);
+  useEffect(() => {
+ 
+    const handleSessionExpired = () => {
+ 
+      console.warn("[AUTH] Session expired event received. Clearing session state.");
+ 
+      setCurrentUser(null);
+ 
+      window.sessionStorage.clear();
+ 
+      const currentPath = window.location.pathname.replace(/\/+$/, "");
+ 
+      const isStandalone =
+ 
+        currentPath === "/signin" ||
+ 
+        currentPath === "/signup" ||
+ 
+        currentPath === "/verify-email" ||
+ 
+        currentPath === "/reset-password";
+ 
+ 
+ 
+      if (!isStandalone) {
+ 
+        window.location.href = "/signin?session_expired=true";
+ 
+      }
+ 
+    };
+ 
+ 
+ 
+    window.addEventListener("javaapex:session-expired", handleSessionExpired);
+ 
+    return () => {
+ 
+      window.removeEventListener("javaapex:session-expired", handleSessionExpired);
+ 
+    };
+ 
+  }, []);
+ 
 
   const user = useMemo<AuthUser | null>(() => {
     if (!currentUser) return null;

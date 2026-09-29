@@ -327,8 +327,7 @@ export function buildMigrationState(params: BuildMigrationStateParams): Migratio
       });
     });
   } else {
-    // If backend did not provide explicit list, adopt the canonical upgraded dependencies
-    CANONICAL_UPGRADED_DEPENDENCIES.forEach((d) => depItems.push(d));
+    // No dependency upgrade data available from backend — leave depItems empty
   }
 
   const depError = migrationJob?.error_message?.toLowerCase().includes("dependency")
@@ -385,14 +384,14 @@ export function buildMigrationState(params: BuildMigrationStateParams): Migratio
   const hasUnitTestData = Boolean(
     (migrationJob?.tests_run && migrationJob.tests_run > 0) ||
       (testPipeline?.executed_test_details && testPipeline.executed_test_details.length > 0) ||
-      summaryMetrics ||
-      coverageResult ||
+      (testPipeline?.generated_test_execution && (testPipeline.generated_test_execution.executed > 0 || testPipeline.generated_test_execution.executed_generated_test_methods > 0)) ||
+      (coverageResult && coverageResult.available) ||
       (migrationJob?.tests_passed && migrationJob.tests_passed > 0)
   );
 
   let testFileCount = 0;
-  if (summaryMetrics?.existing_test_files != null || summaryMetrics?.new_test_files != null) {
-    testFileCount = (Number(summaryMetrics?.existing_test_files) || 0) + (Number(summaryMetrics?.new_test_files) || 0);
+  if (summaryMetrics?.existing_test_files != null || summaryMetrics?.new_test_files != null || summaryMetrics?.generated_test_files != null) {
+    testFileCount = (Number(summaryMetrics?.existing_test_files) || 0) + (Number(summaryMetrics?.new_test_files ?? summaryMetrics?.generated_test_files) || 0);
   } else if (testPipeline?.existing_test_files?.length) {
     testFileCount = testPipeline.existing_test_files.length;
   }
@@ -404,43 +403,39 @@ export function buildMigrationState(params: BuildMigrationStateParams): Migratio
     testCaseCount = (Number(summaryMetrics?.existing_test_cases) || 0) + (Number(summaryMetrics?.generated_test_cases) || 0);
   } else if (migrationJob?.tests_run) {
     testCaseCount = migrationJob.tests_run;
-  } else if (hasUnitTestData) {
-    testCaseCount = 41;
   }
 
   const executedDetails: UnitTestDetail[] = [];
   if (testPipeline?.executed_test_details && Array.isArray(testPipeline.executed_test_details)) {
     testPipeline.executed_test_details.forEach((d: any) => {
       executedDetails.push({
-        testClass: d.test_class || "SystemApplicationTests",
-        testMethod: d.test_method || "contextLoads",
+        testClass: d.test_class || "TestClass",
+        testMethod: d.test_method || "testMethod",
         status: d.status || "PASSED",
         duration: d.duration || (d.execution_time_seconds ? `${d.execution_time_seconds}s` : "0.012s"),
       });
     });
   }
 
-  const methodCount = executedDetails.length > 0 ? executedDetails.length : (migrationJob?.tests_run || (hasUnitTestData ? 41 : 0));
+  const methodCount = executedDetails.length > 0 ? executedDetails.length : (migrationJob?.tests_run || 0);
   const testsPassed =
-    migrationJob?.tests_passed ??
-    (executedDetails.length > 0
+    executedDetails.length > 0
       ? executedDetails.filter((d) => d.status.toUpperCase() === "PASSED").length
-      : (hasUnitTestData ? methodCount : 0));
+      : (migrationJob?.tests_passed ?? 0);
   const testsFailed =
-    migrationJob?.tests_failed ??
-    (executedDetails.length > 0
+    executedDetails.length > 0
       ? executedDetails.filter((d) => d.status.toUpperCase() === "FAILED").length
-      : 0);
+      : (migrationJob?.tests_failed ?? 0);
 
   let coveragePct: number | null = null;
-  if (typeof coverageResult?.line_coverage_pct === "number") {
-    coveragePct = Number(coverageResult.line_coverage_pct.toFixed(1));
-  } else if (typeof coverageResult?.line_coverage === "number") {
-    coveragePct = Number(coverageResult.line_coverage.toFixed(1));
-  } else if (typeof migrationJob?.sonar_coverage === "number") {
-    coveragePct = Number(migrationJob.sonar_coverage.toFixed(1));
-  } else if (hasUnitTestData) {
-    coveragePct = 87.5;
+  if (coverageResult?.available) {
+    if (typeof coverageResult?.final?.line_coverage_pct === "number") {
+      coveragePct = Number(coverageResult.final.line_coverage_pct.toFixed(1));
+    } else if (typeof coverageResult?.line_coverage_pct === "number") {
+      coveragePct = Number(coverageResult.line_coverage_pct.toFixed(1));
+    } else if (typeof coverageResult?.line_coverage === "number") {
+      coveragePct = Number(coverageResult.line_coverage.toFixed(1));
+    }
   }
 
   // 8. Code Depreciation
