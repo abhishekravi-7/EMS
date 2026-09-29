@@ -60,6 +60,7 @@ import {
 import { scanExistingTests, clearCachedExistingTests } from "@/features/modernization/services/existingTestService";
 import type {
   RepoAnalysis,
+  RepoInfo,
   DependencyInfo,
   MicroserviceEligibilityResult,
   MicroserviceServiceCandidate,
@@ -74,6 +75,7 @@ import {
 import {
   clearWizardStorage,
   readSessionJson,
+  writeSessionJson,
   readPersistedValue,
   writeSessionValue,
   removeSessionValue,
@@ -190,11 +192,11 @@ const mergeMigrationSummaryIntoJob = (
       status: effectiveStatus,
       progress_percent: effectiveProgress,
       current_step: summary.current_step,
-      current_stage: (summary as any).current_stage ?? previous?.current_stage,
-      current_stage_name: (summary as any).current_stage_name ?? previous?.current_stage_name,
+      current_stage: (summary as any).current_stage ?? (previous as any)?.current_stage,
+      current_stage_name: (summary as any).current_stage_name ?? (previous as any)?.current_stage_name,
       stages: effectiveStages,
-      files_modified: summary.files_modified ?? previous?.files_modified ?? 0,
-      issues_fixed: summary.issues_fixed ?? previous?.issues_fixed ?? 0,
+      files_modified: summary.files_modified ?? (previous as any)?.files_modified ?? 0,
+      issues_fixed: summary.issues_fixed ?? (previous as any)?.issues_fixed ?? 0,
       api_endpoints_validated: summary.api_endpoints_validated,
       api_endpoints_working: summary.api_endpoints_working,
       sonar_bugs: summary.sonar_bugs,
@@ -564,21 +566,21 @@ const buildCodeChangesFromPreviewDiffs = (fileDiffs: PreviewFileDiff[]): CodeCha
           ? (fileDiff as any).patch
           : "";
 
-    const diffLinesRaw = rawDiff ? rawDiff.split(/\r?\n/) : [];
+    const diffLinesRaw: string[] = rawDiff ? rawDiff.split(/\r?\n/) : [];
     const parsedDiffLines: CodeChangeEntry["diffLines"] = [];
     let oldLineNumber = 0;
     let newLineNumber = 0;
-    const fromLine = diffLinesRaw.find((line) => line.startsWith("--- "));
-    const toLine = diffLinesRaw.find((line) => line.startsWith("+++ "));
+    const fromLine = diffLinesRaw.find((line: string) => line.startsWith("--- "));
+    const toLine = diffLinesRaw.find((line: string) => line.startsWith("+++ "));
 
     const changeType: CodeChangeEntry["changeType"] =
-      diffLinesRaw.some((line) => line.startsWith("new file mode")) || fromLine?.includes("/dev/null")
+      diffLinesRaw.some((line: string) => line.startsWith("new file mode")) || fromLine?.includes("/dev/null")
         ? "added"
-        : diffLinesRaw.some((line) => line.startsWith("deleted file mode")) || toLine?.includes("/dev/null")
+        : diffLinesRaw.some((line: string) => line.startsWith("deleted file mode")) || toLine?.includes("/dev/null")
           ? "deleted"
           : "modified";
 
-    diffLinesRaw.forEach((line) => {
+    diffLinesRaw.forEach((line: string) => {
       if (
         !line ||
         line.startsWith("diff --git") ||
@@ -642,8 +644,8 @@ const buildCodeChangesFromPreviewDiffs = (fileDiffs: PreviewFileDiff[]): CodeCha
       newLineNumber += 1;
     });
 
-    const additions = diffLinesRaw.filter((line) => line.startsWith("+") && !line.startsWith("+++")).length;
-    const deletions = diffLinesRaw.filter((line) => line.startsWith("-") && !line.startsWith("---")).length;
+    const additions = diffLinesRaw.filter((line: string) => line.startsWith("+") && !line.startsWith("+++")).length;
+    const deletions = diffLinesRaw.filter((line: string) => line.startsWith("-") && !line.startsWith("---")).length;
     const normalizedPath =
       fileDiff.file_path ||
       (toLine && !toLine.includes("/dev/null")
@@ -1196,7 +1198,7 @@ export function useWizardController() {
   // BRD Upload State
   const [brdFile, setBrdFile] = useState<File | null>(null);
   const [brdUploadStatus, setBrdUploadStatus] = useState<"IDLE" | "FILE_SELECTED" | "UPLOADING" | "UPLOAD_SUCCESS" | "UPLOAD_FAILED" | "EXISTING_ATTACHMENT">("IDLE");
-  const [brdMetadata, setBrdMetadata] = useState<{ filename: string; size: number; uploadedAt: string } | null>(null);
+  const [brdMetadata, setBrdMetadata] = useState<{ filename: string; size?: number; uploadedAt?: string } | null>(null);
   const [brdUploadError, setBrdUploadError] = useState<string | null>(null);
 
   const handleBrdFileSelect = (file: File | null) => {
@@ -1686,8 +1688,8 @@ export function useWizardController() {
 
   const localApiTestCases = useMemo(() => {
     const eps = repoAnalysis?.api_endpoints || [];
-    return eps.slice(0, 50).map((ep, idx: number) => {
-      const method = (ep.method || "GET").toUpperCase();
+    return eps.slice(0, 50).map((ep: any, idx: number) => {
+      const method = (ep.method || ep.httpMethod || "GET").toUpperCase();
       const path = ep.path || "/";
       const parts = path.split("/").filter((p: string) => p && !p.startsWith("{") && !p.startsWith(":"));
       const resource = parts[parts.length - 1] || "resource";
@@ -1712,7 +1714,7 @@ export function useWizardController() {
       }
       return {
         id: idx + 1, method, path,
-        controller: ep.controller || (ep.source_file ? ep.source_file.replace(".java", "").split("/").pop() || "-" : "-"),
+        controller: ep.controller || ((ep.source_file || ep.sourceFile) ? (ep.source_file || ep.sourceFile).replace(".java", "").split("/").pop() || "-" : "-"),
         scenario,
         expectedStatus: status,
       };
@@ -3478,6 +3480,9 @@ export function useWizardController() {
     if (isMigrationCompleted || isResultsCompleted || isJobTerminalSuccess || persistedMigrationCompletedFlag || isMigrationFinishedState) {
       return 7;
     }
+    if (activeJobId || jobId || Boolean(selectedRepo) || Boolean(repoUrl)) {
+      return 6;
+    }
     if (highestCompleted <= 0) return 1;
     if (highestCompleted === 1) return 2;
     if (highestCompleted === 2) return 3;
@@ -4356,12 +4361,12 @@ export function useWizardController() {
       try {
         const analyzePromise = isLocalProject
           ? analyzeLocalProject(extractLocalRepoPath(selectedRepo.url))
-            .then(async (result) => enrichAnalysisWithPomVersion(result.analysis, selectedRepo.url, ""))
+            .then(async (result) => enrichAnalysisWithPomVersion(result.analysis as RepoAnalysis, selectedRepo.url, ""))
           : effectiveJobId
             ? runDiscovery(effectiveJobId, currentToken, isRerun)
-              .then(async (result) => enrichAnalysisWithPomVersion(result.analysis, selectedRepo.url, currentToken))
+              .then(async (result) => enrichAnalysisWithPomVersion(result.analysis as RepoAnalysis, selectedRepo.url, currentToken))
             : analyzeRepoUrl(selectedRepo.url, currentToken, true)
-              .then(async (result) => enrichAnalysisWithPomVersion(result.analysis, selectedRepo.url, currentToken));
+              .then(async (result) => enrichAnalysisWithPomVersion(result.analysis as RepoAnalysis, selectedRepo.url, currentToken));
 
         const analysis = await analyzePromise;
         window.clearTimeout(stageTimer1);
@@ -4609,7 +4614,7 @@ export function useWizardController() {
       build_tool: repoAnalysis.build_tool,
       dependencies: repoAnalysis.dependencies || [],
       has_tests: repoAnalysis.has_tests,
-      test_frameworks: repoAnalysis.testing_frameworks || [],
+      test_frameworks: (Array.isArray(repoAnalysis.testing_frameworks) ? repoAnalysis.testing_frameworks : Object.keys(repoAnalysis.testing_frameworks || {})) as any,
       frameworks: repoAnalysis.frameworks || [],
       api_endpoint_count: repoAnalysis.api_endpoints?.length ?? 0,
       llm_provider: "huggingface",
@@ -4660,7 +4665,7 @@ export function useWizardController() {
       target_java_version: effectiveTargetVersion,
       build_tool: repoAnalysis.build_tool,
       frameworks: repoAnalysis.frameworks || [],
-      testing_frameworks: repoAnalysis.testing_frameworks || [],
+      testing_frameworks: (repoAnalysis.testing_frameworks as unknown[]) || [],
       api_endpoint_count: repoAnalysis.api_endpoints?.length ?? 0,
       job_id: jobId || undefined,
     })
@@ -5227,7 +5232,7 @@ export function useWizardController() {
     userSelectedVersion,
   ]);
 
-  const handleStartMigration = () => {
+  const handleStartMigration = async () => {
     if (migrationStartInFlightRef.current || loading) {
       return;
     }
@@ -5242,7 +5247,8 @@ export function useWizardController() {
       return;
     }
 
-    if (!jobId) {
+    const currentJobId = jobId || activeJobId;
+    if (!currentJobId) {
       setError("We couldn't find your session. Please reconnect the repository.");
       return;
     }
@@ -5256,44 +5262,80 @@ export function useWizardController() {
 
     const migrationRequest = buildMigrationRequest();
 
-    startMigration(jobId, migrationRequest)
-      .then((job) => {
-        setMigrationJob(job);
-        setMigrationDetailLoadedJobId(null);
-        setError("");
-        setStep(5); // Go to /migrating immediately
+    try {
+      const job = await startMigration(currentJobId, migrationRequest);
+      const normalizedJob: MigrationResult = {
+        ...(job || {}),
+        job_id: (job as any)?.job_id || (job as any)?.jobId || currentJobId,
+        status: (job as any)?.status || "running",
+      } as MigrationResult;
 
-        if (isCompletedStatus(job.status)) {
-          getMigrationLogs(job.job_id).then((logs) => setMigrationLogs(logs.logs || [])).catch(() => { });
-        }
-      })
-      .catch(async (err: any) => {
-        if (err?.name === "AbortError" || err?.message?.includes("aborted")) {
+      setMigrationJob(normalizedJob);
+      writeSessionJson(WIZARD_MIGRATION_JOB_KEY, normalizedJob);
+      writeSessionValue(WIZARD_JOB_ID_KEY, currentJobId);
+      writeSessionValue(getScopedStepUnlockKey(WIZARD_STRATEGY_COMPLETED_KEY, currentJobId), "true");
+      writeSessionValue(getScopedStepUnlockKey(WIZARD_DISCOVERY_COMPLETED_KEY, currentJobId), "true");
+      setStrategyCompleted(true);
+      setDiscoveryCompleted(true);
+      setError("");
+      setStep(5);
+
+      if (isCompletedStatus(normalizedJob.status)) {
+        getMigrationLogs(currentJobId).then((logs) => setMigrationLogs(logs.logs || [])).catch(() => { });
+      }
+    } catch (err: any) {
+      if (err?.name === "AbortError" || err?.message?.includes("aborted")) {
+        return;
+      }
+      console.error("Migration start notice:", err);
+
+      const isAlreadyActive =
+        err?.status === 409 ||
+        err?.status === 400 ||
+        String(err?.message || "").toLowerCase().includes("already") ||
+        String(err?.message || "").toLowerCase().includes("active") ||
+        String(err?.message || "").toLowerCase().includes("in progress");
+
+      if (isAlreadyActive) {
+        const fallbackJob: MigrationResult = {
+          job_id: currentJobId,
+          status: "running",
+        } as any;
+        setMigrationJob(fallbackJob);
+        writeSessionJson(WIZARD_MIGRATION_JOB_KEY, fallbackJob);
+        writeSessionValue(WIZARD_JOB_ID_KEY, currentJobId);
+        writeSessionValue(getScopedStepUnlockKey(WIZARD_STRATEGY_COMPLETED_KEY, currentJobId), "true");
+        setStrategyCompleted(true);
+        setError("");
+        setStep(5);
+        return;
+      }
+
+      // Check if backend actually accepted and started the job despite proxy/network interruption
+      try {
+        const checkSummary = await getMigrationStatusSummary(currentJobId);
+        if (checkSummary && checkSummary.status && !isFailedStatus(checkSummary.status)) {
+          const mergedJob = mergeMigrationSummaryIntoJob(null, checkSummary);
+          setMigrationJob(mergedJob);
+          writeSessionJson(WIZARD_MIGRATION_JOB_KEY, mergedJob);
+          writeSessionValue(WIZARD_JOB_ID_KEY, currentJobId);
+          writeSessionValue(getScopedStepUnlockKey(WIZARD_STRATEGY_COMPLETED_KEY, currentJobId), "true");
+          setStrategyCompleted(true);
+          setError("");
+          setStep(5);
           return;
         }
-        console.error("Migration start notice:", err);
+      } catch (summaryErr) {
+        console.debug("Summary check after start notice:", summaryErr);
+      }
 
-        // Check if backend actually accepted and started the job despite proxy/network interruption
-        try {
-          const checkSummary = await getMigrationStatusSummary(jobId);
-          if (checkSummary && checkSummary.status && !isFailedStatus(checkSummary.status)) {
-            setMigrationJob((prev) => mergeMigrationSummaryIntoJob(prev, checkSummary));
-            setError("");
-            setStep(5);
-            return;
-          }
-        } catch (summaryErr) {
-          console.debug("Summary check after start notice:", summaryErr);
-        }
-
-        setMigrationJob(null);
-        setStep(4);
-        setError(formatLlmAwareError(err, "Failed to start migration."));
-      })
-      .finally(() => {
-        setLoading(false);
-        migrationStartInFlightRef.current = false;
-      });
+      setMigrationJob(null);
+      setStep(4);
+      setError(formatLlmAwareError(err, "Failed to start migration."));
+    } finally {
+      setLoading(false);
+      migrationStartInFlightRef.current = false;
+    }
   };
 
   const resetWizard = () => {

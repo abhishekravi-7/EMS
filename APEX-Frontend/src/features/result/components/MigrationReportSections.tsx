@@ -120,7 +120,7 @@ export function MigrationUnitTestSection({
     : null;
 
   const testPipeline = migrationJob?.test_pipeline ?? {};
-  const executedDetails = testPipeline?.executed_test_details ?? [];
+  const executedDetails = (testPipeline as any)?.executed_test_details ?? [];
   const generatedFiles = (testPipeline as any)?.generated_test_files ?? [];
   const genExec = (testPipeline as any)?.generated_test_execution ?? {};
   const covResult = (testPipeline as any)?.coverage_result || (migrationJob as any)?.coverage_result || (migrationJob as any)?.coverage;

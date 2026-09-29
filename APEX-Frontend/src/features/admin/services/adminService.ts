@@ -7,6 +7,7 @@ export interface SystemSettings {
   github_target_token: string;
   github_client_id?: string;
   github_client_secret?: string;
+  github_redirect_uri?: string;
   github_callback_url?: string;
   github_organization?: string;
   github_default_branch?: string;
@@ -89,6 +90,8 @@ export interface UserGitHubConfig {
   repository?: string;
   branch?: string;
   user_access?: string;
+  repo_url?: string;
+  target_token?: string;
 }
  
 export interface UserSettingsResponse {
@@ -239,13 +242,14 @@ export async function testUserSonarConnection(payload: {
   });
 }
 
-export async function testUserFossaConnection(payload: { api_key: string }): Promise<{ status: string; message: string }> {
+export async function testUserFossaConnection(payload: { api_key?: string; fossa_api_key?: string }): Promise<{ status: string; message: string }> {
+  const apiKey = payload.api_key || payload.fossa_api_key || "";
   return requestJson<{ status: string; message: string }>(
     "/v1/user/settings/fossa/test",
     "Failed to test FOSSA connection",
     {
       method: "POST",
-      body: payload
+      body: { api_key: apiKey }
     }
   );
 }

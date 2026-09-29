@@ -644,7 +644,7 @@ export function ModernizationStepView({
         llm_values: {},
         created_at: "",
         updated_at: "",
-      } as FullUserSettings);
+      } as unknown as FullUserSettings);
       const next = typeof action === "function" ? action(base) : action;
       if (next) {
         saveUserSettings(next).catch((err) => console.warn("Auto-saving prompt settings notice:", err));
