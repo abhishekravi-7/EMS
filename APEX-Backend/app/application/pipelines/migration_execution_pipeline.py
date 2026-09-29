@@ -41,10 +41,10 @@ class MigrationExecutionPipeline:
         github_token: str | None = None,
     ) -> dict[str, Any]:
         """Validate + queue, launch the background run idempotently, return the initial result."""
-        logger.info("[MIGRATION START] Request received for job %s", job_id)
+        logger.info("[START API] Request received for job %s", job_id)
         with self._active_jobs_lock:
             if job_id in self._active_jobs:
-                logger.info("[MIGRATION START] Job %s is already active; returning current state", job_id)
+                logger.info("[START API] Job %s is already active; returning current state", job_id)
                 existing_report = MigrationReportStore(WorkspacePaths(job_id)).read()
                 return report_service.build_result(existing_report or {"jobId": job_id, "status": "QUEUED"})
 
@@ -52,7 +52,7 @@ class MigrationExecutionPipeline:
 
         try:
             report = self._use_case.prepare(job_id, request)
-            logger.info("[MIGRATION START] Job %s accepted and prepared", job_id)
+            logger.info("[START API] Job %s accepted and prepared", job_id)
         except Exception:
             with self._active_jobs_lock:
                 self._active_jobs.discard(job_id)
@@ -87,9 +87,10 @@ class MigrationExecutionPipeline:
             name=f"migration-{job_id}",
             daemon=True,
         )
-        logger.info("[MIGRATION START] Background worker created for job %s", job_id)
+        logger.info("[START API] Worker created for job %s", job_id)
         thread.start()
-        logger.info("[MIGRATION START] Background worker started for job %s", job_id)
+        logger.info("[START API] Worker started for job %s", job_id)
+        logger.info("[START API] Returning HTTP response for job %s", job_id)
 
         return report_service.build_result(report)
 

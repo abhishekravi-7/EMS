@@ -5311,22 +5311,27 @@ export function useWizardController() {
         return;
       }
 
-      // Check if backend actually accepted and started the job despite proxy/network interruption
-      try {
-        const checkSummary = await getMigrationStatusSummary(currentJobId);
-        if (checkSummary && checkSummary.status && !isFailedStatus(checkSummary.status)) {
-          const mergedJob = mergeMigrationSummaryIntoJob(null, checkSummary);
-          setMigrationJob(mergedJob);
-          writeSessionJson(WIZARD_MIGRATION_JOB_KEY, mergedJob);
-          writeSessionValue(WIZARD_JOB_ID_KEY, currentJobId);
-          writeSessionValue(getScopedStepUnlockKey(WIZARD_STRATEGY_COMPLETED_KEY, currentJobId), "true");
-          setStrategyCompleted(true);
-          setError("");
-          setStep(5);
-          return;
+      // Check if backend actually accepted and started the job despite proxy/network interruption or server reload
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          if (attempt > 0) {
+            await new Promise((resolve) => setTimeout(resolve, 800));
+          }
+          const checkSummary = await getMigrationStatusSummary(currentJobId);
+          if (checkSummary && checkSummary.status && !isFailedStatus(checkSummary.status)) {
+            const mergedJob = mergeMigrationSummaryIntoJob(null, checkSummary);
+            setMigrationJob(mergedJob);
+            writeSessionJson(WIZARD_MIGRATION_JOB_KEY, mergedJob);
+            writeSessionValue(WIZARD_JOB_ID_KEY, currentJobId);
+            writeSessionValue(getScopedStepUnlockKey(WIZARD_STRATEGY_COMPLETED_KEY, currentJobId), "true");
+            setStrategyCompleted(true);
+            setError("");
+            setStep(5);
+            return;
+          }
+        } catch (summaryErr) {
+          console.debug(`Summary check after start notice (attempt ${attempt + 1}):`, summaryErr);
         }
-      } catch (summaryErr) {
-        console.debug("Summary check after start notice:", summaryErr);
       }
 
       setMigrationJob(null);

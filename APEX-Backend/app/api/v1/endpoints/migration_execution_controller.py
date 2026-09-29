@@ -61,7 +61,7 @@ async def start_migration(
         result = await asyncio.to_thread(
             _pipeline.start, job_id, request, current_user_id=current_user.id, github_token=github_token
         )
-        logger.info("[MIGRATION START] Migration started for job %s by user %s", job_id, current_user.id)
+        logger.info("[START API] Returning HTTP 200 for job %s to client (user %s)", job_id, current_user.id)
         return JSONResponse(status_code=200, content=result)
     except (MigrationConfigError, MigrationExecutionError) as exc:
         logger.warning("[MIGRATION START FAILED] job_id=%s status=%s message=%s", job_id, exc.status, exc.message)
