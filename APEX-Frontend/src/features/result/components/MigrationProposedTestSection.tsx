@@ -336,7 +336,7 @@ export function MigrationProposedTestSection({
   };
 
   return (
-    <div style={{ ...styles.reportSection, background: "#f8fafc", border: "none", borderRadius: 0, padding: "0", boxShadow: "none" }}>
+    <div style={{ ...styles.reportSection, background: "#ffffff", border: "1px solid #eef2f6", borderRadius: 16, padding: "24px", boxShadow: "0 4px 20px rgba(0,0,0,0.03)" }}>
 
       {/* ── SECTION 1: HEADER CARD ─────────────────────────────────────── */}
       <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 14, padding: "20px 24px", marginBottom: 16, boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
