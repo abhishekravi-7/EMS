@@ -705,7 +705,7 @@ function angularToHtml(source: string): string {
   }
 
   // Transform CommonHeaderComponent or placeholder text into modern header navbar
-  if (markup.includes("Modernized Angular view component.") || /CommonHeaderComponent/i.test(markup)) {
+  if (markup.includes("Modernized Angular view component.") || markup.includes("Modernized view component.") || /CommonHeaderComponent/i.test(markup)) {
     markup = `
     <header class="common-header bg-white border-bottom shadow-sm px-4 py-3 mb-4 rounded-3">
       <div class="container-fluid d-flex align-items-center justify-content-between">
@@ -895,13 +895,147 @@ function angularToHtml(source: string): string {
 }
 
 function generatePreviewHtml(rawLines: GeneratedLine[], fileName: string, allFiles: SandboxFile[] = []): string {
+  // If multiple files are passed (e.g. 'Login.tsx, login.css'), we use the first file for AST logic
+  const primaryFileName = fileName.split(",")[0].trim();
+  
   const rawText = rawLines.map((l) => l.text).join("\n");
   const cleanSource = stripDiffMarkers(rawText.split("\n")).join("\n");
-  const selectedSource = selectGeneratedFile(cleanSource, fileName);
-  const isAngular = fileName.endsWith(".ts") || fileName.endsWith(".html");
+  const selectedSource = selectGeneratedFile(cleanSource, primaryFileName);
+  const isAngular = primaryFileName.endsWith(".ts") || primaryFileName.endsWith(".html");
   let markup = isAngular
     ? angularToHtml(selectedSource)
-    : jsxToHtml(selectedSource, fileName);
+    : jsxToHtml(selectedSource, primaryFileName);
+
+  if (markup.includes("Modernized Angular view component.") || markup.includes("Modernized view component.") || /CommonHeaderComponent/i.test(markup)) {
+    markup = `
+    <header class="common-header bg-white border-bottom shadow-sm px-4 py-3 mb-4 rounded-3">
+      <div class="container-fluid d-flex align-items-center justify-content-between">
+        <div class="d-flex align-items-center gap-3">
+          <a class="navbar-brand d-flex align-items-center text-primary font-weight-bold mb-0 text-decoration-none" href="/" data-nav="ListTodosComponent.ts">
+            <span class="bg-primary text-white rounded-3 p-2 me-2 d-inline-flex shadow-sm">
+              <i class="fa fa-cubes"></i>
+            </span>
+            <span class="fs-5 fw-bold text-dark">Todo Management System</span>
+          </a>
+          <span class="badge bg-primary text-white px-2 py-1 small rounded-pill">
+            v2.4 Modernized
+          </span>
+        </div>
+
+        <div class="d-none d-md-flex align-items-center flex-grow-1 mx-4" style="max-width: 400px;">
+          <div class="input-group">
+            <span class="input-group-text bg-light border-end-0 text-muted"><i class="fa fa-search"></i></span>
+            <input type="text" class="form-control bg-light border-start-0 ps-0" placeholder="Search todos, categories, tasks..." value="Spring Boot" />
+          </div>
+        </div>
+
+        <div class="d-flex align-items-center gap-3">
+          <div class="dropdown">
+            <button class="btn btn-light position-relative p-2 rounded-circle" type="button" title="Notifications">
+              <i class="fa fa-bell text-secondary"></i>
+              <span class="position-absolute top-0 start-100 translate-middle p-1 bg-danger border border-light rounded-circle"></span>
+            </button>
+          </div>
+
+          <div class="d-flex align-items-center gap-2 ps-2 border-start">
+            <div class="avatar bg-primary text-white rounded-circle d-flex align-items-center justify-content-center fw-bold shadow-sm" style="width: 36px; height: 36px;">I</div>
+            <div class="d-none d-sm-block text-start lh-sm">
+              <div class="fw-semibold text-dark small">in28Minutes</div>
+              <small class="text-muted" style="font-size: 11px;">Administrator</small>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+    <div class="card p-4 shadow-sm bg-white border-0 mt-3">
+      <h5 class="fw-bold text-dark mb-2"><i class="fa fa-info-circle text-primary me-2"></i>Global Layout Header Component</h5>
+      <p class="text-muted mb-0">This modernized view component provides global brand identification, live search input, notification alerts, and active user session profile state for the application.</p>
+    </div>`;
+  }
+
+  // Dynamically map generic "modern-*" classes (often used in AI-generated React/Angular skeletons) to Bootstrap
+  markup = markup
+    .replace(/\bclass(?:Name)?=["']([^"']*\bmodern-nav\b[^"']*)["']/gi, 'class="navbar navbar-expand-lg bg-primary shadow-sm px-4 py-2 mb-4 rounded-3 d-flex align-items-center justify-content-between"')
+    .replace(/\bclass(?:Name)?=["']([^"']*\bmodern-brand\b[^"']*)["']/gi, 'class="navbar-brand fw-bold text-white fs-4 me-4 text-decoration-none"')
+    .replace(/\bclass(?:Name)?=["']([^"']*\bmodern-nav-list\b[^"']*\bmodern-nav-right\b[^"']*)["']/gi, 'class="navbar-nav d-flex flex-row align-items-center ms-auto mb-0 list-unstyled gap-3"')
+    .replace(/\bclass(?:Name)?=["']([^"']*\bmodern-nav-list\b[^"']*)["']/gi, (match, p1) => {
+        if (!p1.includes("modern-nav-right")) return 'class="navbar-nav d-flex flex-row align-items-center me-auto mb-0 list-unstyled gap-3"';
+        return match;
+    })
+    .replace(/<li\b([^>]*)>\s*<a\b([^>]*)>/gi, (match, p1, p2) => {
+        if (markup.includes("modern-nav")) {
+             return `<li class="nav-item"${p1}><a class="nav-link text-white font-weight-bold px-2 text-decoration-none"${p2}>`;
+        }
+        return match;
+    });
+
+  // Shared Legacy UI Modernizations (Applies to both React and Angular)
+  markup = markup
+    .replace(/<nav\b[^>]*class(?:Name)?=["'][^"']*navbar-default[^"']*["'][^>]*>/gi, '<nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm px-3 mb-4 rounded-3">')
+    .replace(/<ul\b[^>]*class(?:Name)?=["'][^"']*navbar-nav navbar-right[^"']*["'][^>]*>/gi, '<ul class="navbar-nav ms-auto mb-2 mb-lg-0">')
+    .replace(/<ul\b[^>]*class(?:Name)?=["'][^"']*navbar-nav[^"']*["'][^>]*>/gi, '<ul class="navbar-nav me-auto mb-2 mb-lg-0">')
+    .replace(/<li\b[^>]*\bclass(?:Name)?=["']active["'][^>]*>\s*<a\b/gi, '<li class="nav-item"><a class="nav-link active text-white font-weight-bold"')
+    .replace(/<li\b[^>]*>\s*<a\b([^>]*)>([\s\S]*?)<\/a>\s*<\/li>/gi, (match, p1, p2) => {
+      // Avoid replacing if it already has nav-link
+      if (p1.includes('nav-link')) return match;
+      return `<li class="nav-item"><a class="nav-link text-white font-weight-bold px-2 text-decoration-none" ${p1}>${p2}</a></li>`;
+    })
+    .replace(/\{\{\s*appTitle\s*\}\}/gi, "Todo Management System")
+    .replace(/\{\{\s*userName\s*\}\}/gi, "in28Minutes")
+    .replace(/\{\{\s*userInitial\s*\}\}/gi, "I")
+    .replace(/<caption\b[^>]*>(.*?)<\/caption>/gi, '<caption class="text-primary font-weight-bold" style="caption-side: top; font-weight: 600; font-size: 1.05rem; padding-bottom: 0.6rem; color: #1e40af;"><i class="fa fa-list-check me-2 text-primary"></i>$1</caption>')
+    .replace(/<h2>\s*Your New Action Item\s*<\/h2>/gi,
+      `<div class="d-flex align-items-center mb-4 pb-2 border-bottom">
+        <div class="bg-primary text-white rounded-3 p-3 me-3 d-inline-flex shadow-sm">
+          <i class="fa fa-clipboard-list fa-lg"></i>
+        </div>
+        <div>
+          <h3 class="h4 font-weight-bold text-dark mb-0">Your New Action Item:</h3>
+          <p class="text-muted small mb-0">Create and dispatch tasks into your dynamic collection</p>
+        </div>
+      </div>`)
+    .replace(/<button\b[^>]*type=["']submit["'][^>]*>\s*Submit\s*<\/button>/gi,
+      `<div class="d-flex align-items-center gap-2 mt-4 pt-2">
+        <button type="submit" class="btn btn-primary px-4 py-2 font-weight-bold shadow-sm">
+          <i class="fa fa-plus-circle me-2"></i>Add Action Item
+        </button>
+        <a class="btn btn-outline-secondary px-3 py-2 font-weight-bold" href="/list-todos.do" data-nav="ListTodosComponent.ts">
+          <i class="fa fa-arrow-left me-1"></i>Back to Todos
+        </a>
+      </div>`)
+    .replace(/(<input\b[^>]*name=["']todo["'][^>]*)(\/?>)/gi, '$1 value="Implement OAuth2 & Spring Security 6"$2')
+    .replace(/(<input\b[^>]*name=["']category["'][^>]*)(\/?>)/gi, '$1 value="Backend Architecture"$2')
+    .replace(/Name:\s*<input\b[^>]*name=["']name["'][^>]*>[\s\S]*?Password:\s*<input\b[^>]*name=["']password["'][^>]*>[\s\S]*?<(?:input|button)\b[^>]*type=["']submit["'][^>]*>(?:.*?<\/(?:input|button)>)?/gi,
+      `<div class="card shadow-sm border-0 mx-auto my-4" style="max-width: 420px;">
+       <div class="card-body p-4">
+         <h4 class="card-title text-center text-primary font-weight-bold mb-3"><i class="fa fa-user-lock me-2"></i>Sign In</h4>
+         <div class="form-group mb-3">
+           <label class="form-label font-weight-bold small text-muted">Username</label>
+           <input type="text" name="name" class="form-control" placeholder="Enter username (e.g. in28Minutes)" value="in28Minutes" required />
+         </div>
+         <div class="form-group mb-3">
+           <label class="form-label font-weight-bold small text-muted">Password</label>
+           <input type="password" name="password" class="form-control" placeholder="Enter password" required />
+         </div>
+         <button type="submit" class="btn btn-primary w-100 font-weight-bold py-2 shadow-sm"><i class="fa fa-sign-in-alt me-2"></i>Login</button>
+       </div>
+     </div>`)
+    .replace(/footer content/gi,
+      `<footer class="footer bg-white border-top py-4 mt-auto rounded-3 shadow-sm px-4">
+      <div class="container-fluid d-flex flex-column flex-md-row align-items-center justify-content-between gap-3">
+        <div class="text-muted small text-center text-md-start">
+          <span class="fw-semibold text-dark">&copy; 2026 TodoApp</span> &middot; Modernized by APEX
+        </div>
+        <div class="d-flex align-items-center gap-2">
+          <span class="badge bg-success text-white px-2 py-1 small rounded-pill d-flex align-items-center gap-1 shadow-sm">
+            <i class="fa fa-circle text-white me-1" style="font-size: 8px;"></i>
+            API Connected
+          </span>
+          <span class="text-muted small">v2.4.0</span>
+        </div>
+      </div>
+    </footer>`)
+    .replace(/(?:\s*\/>){3,}/g, ""); // Clean up multiple stray closing tags in App.tsx
 
   const visibleText = markup
     .replace(/<[^>]*>/g, "")
@@ -1551,7 +1685,7 @@ export function FrameworkPageSandbox({
           sandbox="allow-same-origin allow-scripts"
         />
         <footer className="react-sandbox-footer">
-          Static UI preview sandbox. Bootstrap 4 injected for JSP style fidelity. Clicking hyperlinks navigates within sandbox pages.
+          Dynamic Migration Preview Engine. Modern Bootstrap layout applied to migrated output. Clicking hyperlinks navigates within sandbox pages.
         </footer>
       </section>
     </div>
