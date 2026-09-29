@@ -163,7 +163,7 @@ body {
 ═══════════════════════════════════════════════ */
 .cover-page .page-inner {
   display: flex; flex-direction: column;
-  justify-content: space-between; padding: 0; min-height: 860px;
+  justify-content: space-between; padding: 0; min-height: auto;
 }
 
 /* dark gradient header band */
@@ -355,7 +355,7 @@ p { color: #333; margin-bottom: 11px; font-size: 12.5px; line-height: 1.74; }
   border-collapse: collapse;
   margin: 16px 0 24px;
   font-size: 11px;
-  table-layout: fixed;
+  table-layout: auto;
   box-sizing: border-box;
 }
 .brd-table thead {
@@ -395,7 +395,7 @@ p { color: #333; margin-bottom: 11px; font-size: 12.5px; line-height: 1.74; }
   border-bottom: 1px solid var(--border);
   vertical-align: top;
   line-height: 1.55;
-  word-break: normal;
+  word-break: break-word;
   overflow-wrap: break-word;
   box-sizing: border-box;
   height: auto;
@@ -877,6 +877,7 @@ p { color: #333; margin-bottom: 11px; font-size: 12.5px; line-height: 1.74; }
 .nfr-list li {
   padding: 5px 0; border-bottom: 1px solid var(--cream);
   font-size: 11.5px; display: flex; gap: 8px; align-items: baseline;
+  word-break: break-word; overflow-wrap: break-word;
 }
 .nfr-list li:last-child { border-bottom: none; }
 .nfr-list li::before { content: '▸'; color: var(--ink); flex-shrink: 0; font-size: 10px; }

@@ -418,7 +418,7 @@ interface DiscoveryStepViewProps {
   documentGenerationLoading: "brd" | null;
   brdFile: File | null;
   brdUploadStatus: "IDLE" | "FILE_SELECTED" | "UPLOADING" | "UPLOAD_SUCCESS" | "UPLOAD_FAILED" | "EXISTING_ATTACHMENT";
-  brdMetadata: { filename: string; size: number; uploadedAt: string } | null;
+  brdMetadata: { filename: string; size?: number; uploadedAt?: string } | null;
   brdUploadError: string | null;
   handleBrdFileSelect: (file: File | null) => void;
   handleBrdUpload: () => Promise<void>;

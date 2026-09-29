@@ -376,7 +376,7 @@ export function FunctionalTestingDocumentCard({
           >
             <div style={{ display: "flex", alignItems: "center", gap: 14, minWidth: 200, flex: 1 }}>
               <div style={{ fontSize: 26, display: "flex", alignItems: "center", flexShrink: 0 }}>
-                {getFileFormatIcon(metadata.file_type)}
+                {getFileFormatIcon(metadata.file_type || "")}
               </div>
               <div style={{ minWidth: 0 }}>
                 <div
@@ -403,13 +403,13 @@ export function FunctionalTestingDocumentCard({
                     flexWrap: "wrap",
                   }}
                 >
-                  <span>{formatFileSize(metadata.size_bytes)}</span>
+                  <span>{formatFileSize(metadata.size_bytes ?? 0)}</span>
                   <span>•</span>
-                  <span>{metadata.file_type} Document</span>
+                  <span>{metadata.file_type || "Document"} Document</span>
                   <span>•</span>
                   <span>
                     Uploaded{" "}
-                    {new Date(metadata.uploaded_at).toLocaleTimeString([], {
+                    {new Date(metadata.uploaded_at || Date.now()).toLocaleTimeString([], {
                       hour: "2-digit",
                       minute: "2-digit",
                     })}

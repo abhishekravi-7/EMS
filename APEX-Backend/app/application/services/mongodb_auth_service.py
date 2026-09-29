@@ -190,34 +190,6 @@ class MongoDBAuthService:
             if not user:
                 # Fallback check by email in case user_id in JWT is an email address
                 user = await mongodb_user_repository.get_user_by_email(self._db, str(user_id))
-            dev_email = getattr(settings, "dev_static_user_email", "dev@example.com")
-            if not user and (
-                str(user_id) in ("1", "static_user")
-                or (dev_email and str(user_id).lower() == dev_email.lower())
-            ):
-                user = {
-                    "_id": "1",
-                    "full_name": "Java APEX User",
-                    "email": dev_email or "dev@example.com",
-                    "role": "USER",
-                    "is_active": True,
-                    "is_email_verified": True
-                }
-            if not user:
-                # If token is signed validly with our secret key but user record was purged/re-created in DB, auto-provision fallback user profile
-                logger.warning("Token user_id %s not found in MongoDB. Auto-provisioning session user.", user_id)
-                fallback_email = f"user_{str(user_id)[:8]}@javaapex.local"
-                user = await mongodb_user_repository.get_user_by_email(self._db, fallback_email)
-                if not user:
-                    user = {
-                        "_id": str(user_id),
-                        "full_name": "Java APEX User",
-                        "email": fallback_email,
-                        "role": "USER",
-                        "is_active": True,
-                        "is_email_verified": True
-                    }
-                    await mongodb_user_repository.ensure_fallback_user(self._db, user)
             if not user or not self._is_user_active(user):
                 raise NotAuthenticatedError("User not found or inactive.")
             return user

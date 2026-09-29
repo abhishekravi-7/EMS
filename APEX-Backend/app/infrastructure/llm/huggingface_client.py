@@ -37,12 +37,12 @@ class HuggingFaceClient:
         self._timeout = timeout or settings.huggingface_request_timeout_seconds
         self.last_usage: tuple[int, int, int, int] | None = None
 
-    async def _call_groq_direct(self, system_prompt: str, user_prompt: str, api_key: str) -> dict[str, Any]:
+    async def _call_groq_direct(self, system_prompt: str, user_prompt: str, api_key: str, model: str | None = None) -> dict[str, Any]:
         """Direct fallback call to Groq's OpenAI-compatible JSON endpoint."""
         url = "https://api.groq.com/openai/v1/chat/completions"
-        model = settings.groq_model or "openai/gpt-oss-20b"
+        target_model = model or settings.groq_model or "openai/gpt-oss-20b"
         payload = {
-            "model": model,
+            "model": target_model,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
@@ -66,28 +66,24 @@ class HuggingFaceClient:
         :class:`LLMServiceError` on any transport/HTTP failure or a response
         that isn't parseable JSON.
         """
-        token = (settings.huggingface_token or "").strip()
-        groq_key = (settings.groq_api_key or "").strip()
+        from app.core.context import llm_values_ctx
+        ctx_vals = llm_values_ctx.get() or {}
 
-        if token.startswith("gsk_"):
-            return await self._call_groq_direct(system_prompt, user_prompt, token)
+        hf_token = (ctx_vals.get("huggingface_api_key") or settings.huggingface_token or "").strip()
+        hf_model = (ctx_vals.get("huggingface_model") or self._model or settings.huggingface_model).strip()
+        groq_key = (ctx_vals.get("groq_api_key") or settings.groq_api_key or "").strip()
+        groq_model = (ctx_vals.get("groq_model") or settings.groq_model or "openai/gpt-oss-20b").strip()
 
-        if not token or HuggingFaceClient._disabled:
+        if hf_token.startswith("gsk_"):
+            return await self._call_groq_direct(system_prompt, user_prompt, hf_token, groq_model)
+
+        if not hf_token or HuggingFaceClient._disabled:
             if groq_key:
-                return await self._call_groq_direct(system_prompt, user_prompt, groq_key)
+                return await self._call_groq_direct(system_prompt, user_prompt, groq_key, groq_model)
             raise LLMNotConfiguredError(HuggingFaceClient._disabled_reason or "Hugging Face is not configured.")
 
-        from app.core.context import llm_values_ctx
-
-        if not settings.llm_enabled:
-            raise LLMNotConfiguredError()
-
-        ctx_vals = llm_values_ctx.get()
-        token = ctx_vals.get("huggingface_api_key")
-        model_to_use = ctx_vals.get("huggingface_model")
-
-        if not token or not model_to_use:
-            raise LLMNotConfiguredError("LLM is not configured. Please setup your API key and model in User Settings.")
+        token = hf_token
+        model_to_use = hf_model
 
         payload = {
             "model": model_to_use,

@@ -28,25 +28,25 @@ const HUGGINGFACE_MODELS = [
 ];
 
 export function LlmAdminSettings({ settings, onChange }: LlmAdminSettingsProps) {
-  const llmEnabled = settings.llm_enabled === true || settings.llm_enabled === "true";
-
+  const llmEnabled = settings?.llm_enabled === true || settings?.llm_enabled === "true";
+  
   let llmFeatures: string[] = [];
   try {
-    llmFeatures = settings.llm_features ? JSON.parse(settings.llm_features) : [];
+    llmFeatures = settings?.llm_features ? JSON.parse(settings.llm_features) : [];
   } catch (e) {
     llmFeatures = [];
   }
 
   let groqModels: string[] = [];
   try {
-    groqModels = settings.groq_models ? JSON.parse(settings.groq_models) : [];
+    groqModels = settings?.groq_models ? JSON.parse(settings.groq_models) : [];
   } catch (e) {
     groqModels = [];
   }
 
   let huggingfaceModels: string[] = [];
   try {
-    huggingfaceModels = settings.huggingface_models ? JSON.parse(settings.huggingface_models) : [];
+    huggingfaceModels = settings?.huggingface_models ? JSON.parse(settings.huggingface_models) : [];
   } catch (e) {
     huggingfaceModels = [];
   }

@@ -71,55 +71,78 @@ const JUNIT_PREDEFINED_PROMPTS = [
   ];
 
 export default function UserQualityChecksSettings({
-  settings,
+  settings: rawSettings,
   onChange,
   mode = "all"
 }: UserQualityChecksSettingsProps) {
+  const settings = rawSettings || ({
+    github_config: {},
+    quality_checks_values: {},
+    test_cases_values: {},
+    llm_values: {},
+  } as any);
+
   const [adminConfig, setAdminConfig] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showSecrets, setShowSecrets] = useState<{ [key: string]: boolean }>({});
 
-  const currentPrompt = settings?.quality_checks_values?.testing_prompt || settings?.test_cases_values?.testing_prompt || "";
+  const currentPrompt = settings?.test_cases_values?.testing_prompt ?? settings?.quality_checks_values?.testing_prompt ?? "";
 
   const [analyzingPrompt, setAnalyzingPrompt] = useState(false);
   const [promptAnalysis, setPromptAnalysis] = useState<TestingPromptAnalysisResult | null>(null);
   const [promptAnalysisErr, setPromptAnalysisErr] = useState<string | null>(null);
 
-  const selectedPredefinedPrompts: string[] = settings?.quality_checks_values?.selected_predefined_prompts ?? JUNIT_PREDEFINED_PROMPTS.map(p => p.id);
-
-  
+  const selectedPredefinedPrompts: string[] =
+    settings?.test_cases_values?.selected_predefined_prompts ??
+    settings?.quality_checks_values?.selected_predefined_prompts ??
+    JUNIT_PREDEFINED_PROMPTS.map(p => p.id);
 
   const [activeModalPrompt, setActiveModalPrompt] = useState<any | null>(null);
 
   const handleTogglePredefinedPrompt = (promptId: string) => {
-    const currentSelected: string[] = settings?.quality_checks_values?.selected_predefined_prompts ?? JUNIT_PREDEFINED_PROMPTS.map(p => p.id);
+    const currentSelected: string[] =
+      settings?.test_cases_values?.selected_predefined_prompts ??
+      settings?.quality_checks_values?.selected_predefined_prompts ??
+      JUNIT_PREDEFINED_PROMPTS.map(p => p.id);
     const nextSelected = currentSelected.includes(promptId)
       ? currentSelected.filter((id) => id !== promptId)
       : [...currentSelected, promptId];
 
-    onChange((prev) => ({
-      ...prev,
-      quality_checks_values: {
-        ...(prev?.quality_checks_values || {}),
-        selected_predefined_prompts: nextSelected,
-      },
-    }));
+    onChange((prev) => {
+      const updatedQc = { ...(prev?.quality_checks_values || {}) };
+      delete updatedQc.selected_predefined_prompts;
+      delete updatedQc.selectedPredefinedPrompts;
+
+      return {
+        ...prev,
+        quality_checks_values: updatedQc,
+        test_cases_values: {
+          ...(prev?.test_cases_values || {}),
+          selected_predefined_prompts: nextSelected,
+        },
+      };
+    });
     setPromptAnalysis(null);
   };
 
   const handlePromptChange = (val: string) => {
-    onChange((prev) => ({
-      ...prev,
-      quality_checks_values: {
-        ...(prev?.quality_checks_values || {}),
-        testing_prompt: val,
-      },
-      test_cases_values: {
-        ...(prev?.test_cases_values || {}),
-        testing_prompt: val,
-      },
-    }));
+    onChange((prev) => {
+      const updatedQc = { ...(prev?.quality_checks_values || {}) };
+      delete updatedQc.testing_prompt;
+      delete updatedQc.testingPrompt;
+      delete updatedQc.junit_prompt;
+      delete updatedQc.junitPrompt;
+
+      return {
+        ...prev,
+        quality_checks_values: updatedQc,
+        test_cases_values: {
+          ...(prev?.test_cases_values || {}),
+          testing_prompt: val,
+        },
+      };
+    });
     setPromptAnalysis(null);
   };
 
@@ -145,8 +168,8 @@ export default function UserQualityChecksSettings({
     }
   };
 
-  const currentFunctionalCustomPrompt = settings.quality_checks_values?.functional_custom_prompt || "";
-  const selectedFunctionalSuggestions = settings.quality_checks_values?.functional_testing_suggestions ?? TEST_SCENARIO_SUGGESTIONS.map(s => s.id);
+  const currentFunctionalCustomPrompt = settings?.quality_checks_values?.functional_custom_prompt || "";
+  const selectedFunctionalSuggestions = settings?.quality_checks_values?.functional_testing_suggestions ?? TEST_SCENARIO_SUGGESTIONS.map(s => s.id);
 
   const [analyzingFunctionalPrompt, setAnalyzingFunctionalPrompt] = useState(false);
   const [functionalPromptAnalysis, setFunctionalPromptAnalysis] = useState<TestingPromptAnalysisResult | null>(null);
@@ -302,6 +325,19 @@ export default function UserQualityChecksSettings({
 
   const toggleSecret = (id: string) => {
     setShowSecrets((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const handleToggleFeature = (featureKey: string) => {
+    onChange((prev) => {
+      const currentVal = prev.quality_checks_values?.[featureKey] ?? true;
+      return {
+        ...prev,
+        quality_checks_values: {
+          ...(prev.quality_checks_values || {}),
+          [featureKey]: !currentVal
+        }
+      };
+    });
   };
 
   if (isLoading) {
@@ -573,6 +609,8 @@ export default function UserQualityChecksSettings({
       )}
     </div>
   );
+
+  let renderedPromptInCheck = false;
   let renderedFunctionalPromptInCheck = false;
 
   if (mode === "testing_only") {
@@ -771,17 +809,5 @@ export default function UserQualityChecksSettings({
     </div>
   );
 }
-  const handleToggleFeature = (featureKey: string) => {
-    onChange((prev) => {
-      const currentVal = prev.quality_checks_values?.[featureKey] ?? true;
-      return {
-        ...prev,
-        quality_checks_values: {
-          ...(prev.quality_checks_values || {}),
-          [featureKey]: !currentVal
-        }
-      };
-    });
-  };
 
   

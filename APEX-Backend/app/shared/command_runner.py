@@ -8,6 +8,7 @@ rather than raising on non-zero exit.
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess  # nosec B404
 from dataclasses import dataclass
@@ -21,7 +22,39 @@ def resolve_executable(name: str) -> str | None:
     Needed on Windows where tools like ``mvn``/``gradle`` are ``.cmd`` scripts
     that ``subprocess`` (via CreateProcess) will not resolve from a bare name.
     """
-    return shutil.which(name)
+    found = shutil.which(name)
+    if found:
+        return found
+
+    # Fallback search for Maven if not directly on PATH
+    if name.lower() in ("mvn", "mvn.cmd", "maven"):
+        target_name = "mvn.cmd" if os.name == "nt" else "mvn"
+        m2_dists = Path.home() / ".m2" / "wrapper" / "dists"
+        if m2_dists.is_dir():
+            try:
+                candidates = sorted(m2_dists.rglob(target_name), key=lambda p: p.stat().st_mtime, reverse=True)
+                if candidates:
+                    return str(candidates[0])
+            except Exception:
+                pass
+
+        search_roots = [
+            Path("C:/Program Files"),
+            Path("C:/ProgramData"),
+            Path("C:/apache-maven"),
+            Path("C:/maven"),
+            Path("C:/tools"),
+        ]
+        for root in search_roots:
+            if root.is_dir():
+                try:
+                    candidates = sorted(root.rglob(target_name), key=lambda p: p.stat().st_mtime, reverse=True)
+                    if candidates:
+                        return str(candidates[0])
+                except Exception:
+                    pass
+
+    return None
 
 
 @dataclass(frozen=True)

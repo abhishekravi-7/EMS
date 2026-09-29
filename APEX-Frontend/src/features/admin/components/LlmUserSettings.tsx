@@ -120,23 +120,28 @@ export function LlmUserSettings({ settings, onChange, isAdminEnabled, allowedGro
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "24px", marginTop: "16px" }}>
-      <div>
-        <h3 className="card-heading-modern">
-          <FaBrain style={{ color: "#2563eb", marginRight: "8px" }} />
-          LLM Configuration
-        </h3>
+    <div>
+      <div className="settings-card-header" style={{ marginBottom: "20px" }}>
+        <div className="settings-card-icon"><FaBrain /></div>
+        <div>
+          <h3 className="settings-card-title">LLM Configuration</h3>
+          <p className="settings-card-subtitle">Manage intelligence providers, models, and features.</p>
+        </div>
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+        
         {/* Groq Configuration */}
         <div>
-          <h4 style={{ margin: "0 0 16px 0", fontSize: "1rem", color: "#0f172a", fontWeight: 800 }}>Groq Configuration (Chatbot)</h4>
+          <h4 style={{ margin: "0 0 16px 0", fontSize: "16px", fontWeight: 700, color: "#0f172a" }}>
+            Groq Configuration (Chatbot)
+          </h4>
           <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-            <div className="field-modern">
-              <label className="label-modern">Model</label>
+            
+            <div>
+              <label className="settings-label">MODEL</label>
               <select
-                className="input-modern"
+                className="settings-select"
                 value={llmValues.groq_model || ""}
                 onChange={(e) => updateLlmValue("groq_model", e.target.value)}
               >
@@ -147,23 +152,23 @@ export function LlmUserSettings({ settings, onChange, isAdminEnabled, allowedGro
               </select>
             </div>
 
-            <div className="field-modern">
-              <label className="label-modern">API Key</label>
-              <div className="input-wrap-modern">
+            <div>
+              <label className="settings-label">API KEY</label>
+              <div className="settings-input-group">
                 <input
                   type={showGroqSecret ? "text" : "password"}
-                  className="input-modern"
+                  className="settings-input"
                   value={llmValues.groq_api_key || ""}
                   onChange={(e) => updateLlmValue("groq_api_key", e.target.value)}
                   placeholder="Enter your Groq API Key"
                 />
-                <div className="toggle-modern" onClick={() => setShowGroqSecret(!showGroqSecret)}>
+                <div className="settings-input-group-icon" onClick={() => setShowGroqSecret(!showGroqSecret)}>
                   {showGroqSecret ? <FaEyeSlash /> : <FaEye />}
                 </div>
               </div>
             </div>
 
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "12px", marginTop: "12px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "12px", marginTop: "8px" }}>
               {testResultGroq && (
                 <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.9rem", color: testResultGroq.status === "success" ? "#16a34a" : "#dc2626", fontWeight: 500 }}>
                   {testResultGroq.status === "success" ? <FaCheckCircle /> : <FaTimesCircle />}
@@ -173,11 +178,11 @@ export function LlmUserSettings({ settings, onChange, isAdminEnabled, allowedGro
               <button
                 onClick={() => handleTestConnection("groq")}
                 disabled={testingGroq || !llmValues.groq_api_key}
-                className="deploy-btn-modern"
+                className="settings-action-btn" 
                 style={{ width: "auto" }}
               >
-                {testingGroq ? <FaSpinner className="fa-spin" /> : <FaPlay />}
-                <span style={{ marginLeft: "8px" }}>{testingGroq ? "Testing..." : "Test Connection"}</span>
+                {testingGroq ? <FaSpinner className="animate-spin" /> : <FaPlay size={12} />}
+                <span style={{ marginLeft: "6px" }}>{testingGroq ? "Testing..." : "Test Connection"}</span>
               </button>
             </div>
 
@@ -185,13 +190,16 @@ export function LlmUserSettings({ settings, onChange, isAdminEnabled, allowedGro
         </div>
 
         {/* HuggingFace Configuration */}
-        <div>
-          <h4 style={{ margin: "0 0 16px 0", fontSize: "1rem", color: "#0f172a", fontWeight: 800 }}>HuggingFace Configuration (Code Analysis)</h4>
+        <div style={{ borderTop: "1px solid #e2e8f0", paddingTop: "20px" }}>
+          <h4 style={{ margin: "0 0 16px 0", fontSize: "16px", fontWeight: 700, color: "#0f172a" }}>
+            HuggingFace Configuration (Code Analysis)
+          </h4>
           <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-            <div className="field-modern">
-              <label className="label-modern">Model</label>
+            
+            <div>
+              <label className="settings-label">MODEL</label>
               <select
-                className="input-modern"
+                className="settings-select"
                 value={llmValues.huggingface_model || ""}
                 onChange={(e) => updateLlmValue("huggingface_model", e.target.value)}
               >
@@ -202,23 +210,23 @@ export function LlmUserSettings({ settings, onChange, isAdminEnabled, allowedGro
               </select>
             </div>
 
-            <div className="field-modern">
-              <label className="label-modern">API Key</label>
-              <div className="input-wrap-modern">
+            <div>
+              <label className="settings-label">API KEY</label>
+              <div className="settings-input-group">
                 <input
                   type={showHFSecret ? "text" : "password"}
-                  className="input-modern"
+                  className="settings-input"
                   value={llmValues.huggingface_api_key || ""}
                   onChange={(e) => updateLlmValue("huggingface_api_key", e.target.value)}
                   placeholder="Enter your HuggingFace API Key"
                 />
-                <div className="toggle-modern" onClick={() => setShowHFSecret(!showHFSecret)}>
+                <div className="settings-input-group-icon" onClick={() => setShowHFSecret(!showHFSecret)}>
                   {showHFSecret ? <FaEyeSlash /> : <FaEye />}
                 </div>
               </div>
             </div>
 
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "12px", marginTop: "12px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "12px", marginTop: "8px" }}>
               {testResultHF && (
                 <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.9rem", color: testResultHF.status === "success" ? "#16a34a" : "#dc2626", fontWeight: 500 }}>
                   {testResultHF.status === "success" ? <FaCheckCircle /> : <FaTimesCircle />}
@@ -228,11 +236,11 @@ export function LlmUserSettings({ settings, onChange, isAdminEnabled, allowedGro
               <button
                 onClick={() => handleTestConnection("huggingface")}
                 disabled={testingHF || !llmValues.huggingface_api_key}
-                className="deploy-btn-modern"
+                className="settings-action-btn" 
                 style={{ width: "auto" }}
               >
-                {testingHF ? <FaSpinner className="fa-spin" /> : <FaPlay />}
-                <span style={{ marginLeft: "8px" }}>{testingHF ? "Testing..." : "Test Connection"}</span>
+                {testingHF ? <FaSpinner className="animate-spin" /> : <FaPlay size={12} />}
+                <span style={{ marginLeft: "6px" }}>{testingHF ? "Testing..." : "Test Connection"}</span>
               </button>
             </div>
 
