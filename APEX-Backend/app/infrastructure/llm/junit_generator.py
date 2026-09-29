@@ -194,7 +194,7 @@ class JUnitLLMGenerator:
     ) -> PromptCoverageEvaluation:
         eff_prompt = (prompt or user_prompt or "").strip()
         eff_cov_pct = coverage_pct or line_coverage_pct or 0.0
-        
+
         focus_dict = {}
         if testing_focus_data and isinstance(testing_focus_data, dict):
             focus_dict = testing_focus_data

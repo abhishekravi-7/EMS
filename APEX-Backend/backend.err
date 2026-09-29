@@ -7,7 +7,7 @@ INFO:     Waiting for application startup.
 10:47:16 | INFO    | app.main | [CONNECT] Database-independent mode: disabled
 10:47:16 | INFO    | app.main | Database tables verified/created.
 10:47:16 | INFO    | app.main | Applied 0 dynamic setting overrides from database
-10:47:16 | INFO    | app.main | Firebase Auth disabled by configuration — skipping Firebase initialization.
+10:47:16 | INFO    | app.main | Firebase Auth disabled by configuration ï¿½ skipping Firebase initialization.
 10:47:16 | INFO    | app.main | LLM Token Tracing initialized (sinks: JSONL + Database)
 INFO:     Application startup complete.
 INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)

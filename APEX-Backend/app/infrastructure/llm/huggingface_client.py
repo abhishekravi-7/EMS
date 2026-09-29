@@ -23,6 +23,9 @@ logger = logging.getLogger(__name__)
 
 
 class HuggingFaceClient:
+    _disabled: bool = False
+    _disabled_reason: str = ""
+
     def __init__(
         self,
         base_url: str | None = None,
@@ -34,15 +37,48 @@ class HuggingFaceClient:
         self._timeout = timeout or settings.huggingface_request_timeout_seconds
         self.last_usage: tuple[int, int, int, int] | None = None
 
-    async def chat_json(self, system_prompt: str, user_prompt: str, max_tokens: int | None = None) -> dict[str, Any]:
+    async def _call_groq_direct(self, system_prompt: str, user_prompt: str, api_key: str) -> dict[str, Any]:
+        """Direct fallback call to Groq's OpenAI-compatible JSON endpoint."""
+        url = "https://api.groq.com/openai/v1/chat/completions"
+        model = settings.groq_model or "openai/gpt-oss-20b"
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": 0.2,
+            "response_format": {"type": "json_object"},
+        }
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(url, headers=headers, json=payload)
+            if response.status_code == 200:
+                body = response.json()
+                content = body["choices"][0]["message"]["content"]
+                return self._extract_json(content)
+            raise LLMServiceError(f"Groq direct call returned HTTP {response.status_code}")
+
+    async def chat_json(self, system_prompt: str, user_prompt: str) -> dict[str, Any]:
         """Send a chat completion request and return the parsed JSON content.
 
         Raises :class:`LLMNotConfiguredError` when no token is configured, and
         :class:`LLMServiceError` on any transport/HTTP failure or a response
         that isn't parseable JSON.
         """
+        token = (settings.huggingface_token or "").strip()
+        groq_key = (settings.groq_api_key or "").strip()
+
+        if token.startswith("gsk_"):
+            return await self._call_groq_direct(system_prompt, user_prompt, token)
+
+        if not token or HuggingFaceClient._disabled:
+            if groq_key:
+                return await self._call_groq_direct(system_prompt, user_prompt, groq_key)
+            raise LLMNotConfiguredError(HuggingFaceClient._disabled_reason or "Hugging Face is not configured.")
+
         from app.core.context import llm_values_ctx
-        
+
         if not settings.llm_enabled:
             raise LLMNotConfiguredError()
 
@@ -59,11 +95,9 @@ class HuggingFaceClient:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            "temperature": 0.0,
-            "seed": 42,
+            "temperature": settings.huggingface_temperature,
+            "max_tokens": settings.huggingface_max_tokens,
         }
-        if max_tokens:
-            payload["max_tokens"] = max_tokens
         headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
         import asyncio
@@ -99,10 +133,16 @@ class HuggingFaceClient:
                         await asyncio.sleep(retry_after)
                         continue
 
-                    if response.status_code == 402:
-                        error = "HTTP 402 Payment Required"
-                        logger.error("[HuggingFace] API requires payment (HTTP 402)")
-                        raise LLMServiceError("Hugging Face API requires payment (HTTP 402).")
+                    if response.status_code in (401, 402, 403):
+                        HuggingFaceClient._disabled = True
+                        HuggingFaceClient._disabled_reason = f"Hugging Face API returned HTTP {response.status_code} (Payment/Auth required)."
+                        logger.warning(
+                            "[HuggingFace] API returned HTTP %s. Disabling HuggingFace for session and routing via Groq.",
+                            response.status_code,
+                        )
+                        if groq_key:
+                            return await self._call_groq_direct(system_prompt, user_prompt, groq_key)
+                        raise LLMServiceError(f"Hugging Face API returned HTTP {response.status_code}.")
 
                     if response.status_code != 200:
                         error = f"HTTP {response.status_code}"
@@ -151,7 +191,7 @@ class HuggingFaceClient:
                     error = f"Unexpected error: {type(exc).__name__}"
                     logger.error("[HuggingFace] Unexpected error during call: %s", str(exc), exc_info=True)
                     raise LLMServiceError(f"An unexpected error occurred during LLM call: {type(exc).__name__}") from exc
-            
+
             raise LLMServiceError("Hugging Face API request failed after all retry attempts.")
         finally:
             duration_ms = (time.time() - start_time) * 1000

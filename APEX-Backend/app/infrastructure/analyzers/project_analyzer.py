@@ -29,6 +29,7 @@ from app.infrastructure.analyzers.project_type_detector import ProjectTypeDetect
 from app.infrastructure.analyzers.spring_boot_detector import SpringBootDetector
 from app.infrastructure.analyzers.spring_entrypoint_scanner import SpringEntrypointScanner
 from app.infrastructure.analyzers.spring_framework_detector import SpringFrameworkDetector
+from app.infrastructure.analyzers.view_technology_analyzer import ViewTechnologyAnalyzer
 from app.shared import file_utils
 
 
@@ -62,7 +63,12 @@ class ProjectAnalysis:
     java_files: list[str] = field(default_factory=list)
     config_files: list[str] = field(default_factory=list)
     other_files: list[str] = field(default_factory=list)
+    jsp_files: list[str] = field(default_factory=list)
+    jsf_files: list[str] = field(default_factory=list)
     total_file_count: int = 0
+    jsp_file_count: int = 0
+    jsf_file_count: int = 0
+    view_technologies: dict[str, Any] = field(default_factory=dict)
 
     @property
     def dependency_count(self) -> int:
@@ -88,6 +94,7 @@ class ProjectAnalyzer:
         self._project_type = ProjectTypeDetector()
         self._frontend = FrontendDetector()
         self._api_endpoints = ApiEndpointDetector()
+        self._view_technology = ViewTechnologyAnalyzer()
 
     def analyze(self, root: Path) -> ProjectAnalysis:
         # The Java project may live in a subfolder (e.g. backend/pom.xml) rather
@@ -112,8 +119,10 @@ class ProjectAnalyzer:
         spring_boot_version = self._spring_boot.detect(pom_root, build_gradle_text)
         spring_boot_signal = self._spring_boot.has_signal(pom_root, build_gradle_text)
         spring_framework_version = self._spring_framework.detect(pom_root, build_gradle_text)
-        all_files = file_utils.find_files(root, "")
+        all_files = file_utils.find_files(root, "", limit=None)
         java_files = [f for f in all_files if f.lower().endswith(".java")]
+        jsp_files = [f for f in all_files if f.lower().endswith((".jsp", ".jspf", ".jspx"))]
+        jsf_files = [f for f in all_files if f.lower().endswith((".xhtml", ".jsf"))]
         config_exts = (
             ".xml",
             ".yml",
@@ -132,9 +141,21 @@ class ProjectAnalyzer:
             ".policy",
         )
         config_files = [
-            f for f in all_files if f not in java_files and any(f.lower().endswith(ext) for ext in config_exts)
+            f
+            for f in all_files
+            if f not in java_files
+            and f not in jsp_files
+            and f not in jsf_files
+            and any(f.lower().endswith(ext) for ext in config_exts)
         ]
-        other_files = [f for f in all_files if f not in java_files and f not in config_files]
+        other_files = [
+            f
+            for f in all_files
+            if f not in java_files
+            and f not in config_files
+            and f not in jsp_files
+            and f not in jsf_files
+        ]
         total_file_count = len(all_files)
 
         spring_entry_class: str | None = None
@@ -173,6 +194,14 @@ class ProjectAnalyzer:
         has_src_main = file_utils.exists(project_root, "src", "main")
         has_src_test = file_utils.exists(project_root, "src", "test")
 
+        view_technologies = self._view_technology.analyze(
+            root=root,
+            jsp_files=jsp_files,
+            jsf_files=jsf_files,
+            java_files=java_files,
+            dependencies=dependencies,
+        ).to_dict()
+
         return ProjectAnalysis(
             build_tool=build_tool.build_tool,
             primary_build_tool=build_tool.primary_build_tool,
@@ -202,7 +231,12 @@ class ProjectAnalyzer:
             java_files=java_files,
             config_files=config_files,
             other_files=other_files,
+            jsp_files=jsp_files,
+            jsf_files=jsf_files,
             total_file_count=total_file_count,
+            jsp_file_count=len(jsp_files),
+            jsf_file_count=len(jsf_files),
+            view_technologies=view_technologies,
         )
 
     @staticmethod

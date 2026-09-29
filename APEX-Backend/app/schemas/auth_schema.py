@@ -117,7 +117,7 @@ class UserResponse(BaseModel):
     role: str
     is_active: bool = Field(..., alias="isActive")
     is_email_verified: bool = Field(..., alias="isEmailVerified")
-    created_at: datetime = Field(..., alias="createdAt")
+    created_at: Optional[datetime] = Field(default=None, alias="createdAt")
     last_login_at: Optional[datetime] = Field(default=None, alias="lastLoginAt")
 
     @computed_field
@@ -221,4 +221,3 @@ class GoogleAuthRequest(BaseModel):
     credential: str = Field(..., min_length=1, alias="credential")
 
     model_config = {"populate_by_name": True}
-

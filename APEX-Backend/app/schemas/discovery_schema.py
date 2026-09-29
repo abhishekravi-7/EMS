@@ -56,6 +56,31 @@ class DiscoveryFrontend(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class FrameworkRecommendationItem(BaseModel):
+    framework: str
+    target_version: str = Field(..., alias="targetVersion")
+    available_versions: list[str] = Field(default_factory=list, alias="availableVersions")
+    compatibility: str
+    is_recommended: bool = Field(..., alias="isRecommended")
+    reasons: list[str] = Field(default_factory=list)
+    constraints: list[str] = Field(default_factory=list)
+    current_version: Optional[str] = Field(None, alias="currentVersion")
+
+    model_config = {"populate_by_name": True}
+
+
+class FrameworkRecommendations(BaseModel):
+    react: Optional[FrameworkRecommendationItem] = None
+    angular: Optional[FrameworkRecommendationItem] = None
+    recommended_target: Optional[str] = Field(None, alias="recommendedTarget")
+    recommended_target_label: Optional[str] = Field(None, alias="recommendedTargetLabel")
+    confidence: Optional[str] = None
+    recommendation_summary: Optional[str] = Field(None, alias="recommendationSummary")
+    recommendation_status: Optional[str] = Field("available", alias="recommendationStatus")
+
+    model_config = {"populate_by_name": True}
+
+
 class DiscoverySpringBootConversion(BaseModel):
     """Spring -> Spring Boot conversion eligibility, computed from the real
     cloned-and-analyzed repository (never from the URL, repo name, or mock
@@ -86,6 +111,10 @@ class DiscoveryProject(BaseModel):
     modules: list[str] = Field(default_factory=list)
     dependencies_count: int = Field(..., alias="dependenciesCount")
     java_file_count: int = Field(0, alias="javaFileCount")
+    jsp_file_count: Optional[int] = Field(None, alias="jspFileCount")
+    jsf_file_count: Optional[int] = Field(None, alias="jsfFileCount")
+    jsp_files: list[str] = Field(default_factory=list, alias="jspFiles")
+    jsf_files: list[str] = Field(default_factory=list, alias="jsfFiles")
     total_file_count: int = Field(0, alias="totalFileCount")
     frontend_detected: bool = Field(..., alias="frontendDetected")
     frontend_type: Optional[str] = Field(None, alias="frontendType")
@@ -101,6 +130,9 @@ class DiscoveryProject(BaseModel):
     api_endpoints: list[dict[str, Any]] = Field(default_factory=list, alias="apiEndpoints")
     spring_boot_conversion: Optional[DiscoverySpringBootConversion] = Field(
         None, alias="springBootConversion"
+    )
+    framework_recommendations: Optional[FrameworkRecommendations] = Field(
+        None, alias="frameworkRecommendations"
     )
 
     model_config = {"populate_by_name": True}

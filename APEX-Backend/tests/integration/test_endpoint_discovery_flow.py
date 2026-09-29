@@ -28,12 +28,12 @@ def test_discovery_includes_endpoints(mock_detect, mock_repo, mock_cloner, tmp_p
     mock_detect.return_value = [
         {"id": "1", "httpMethod": "GET", "path": "/api/users", "controller": "UserController"}
     ]
-    
+
     # Mock analyzer to return a valid ProjectAnalysis
     analyzer = ProjectAnalyzer()
-    
+
     use_case = RunDiscoveryUseCase(job_repository=mock_repo, cloner=mock_cloner, analyzer=analyzer)
-    
+
     # We need to mock the filesystem for the analyzer
     with patch.object(Path, "is_dir", return_value=True), \
          patch.object(Path, "iterdir", return_value=[Path("pom.xml")]), \
@@ -41,15 +41,15 @@ def test_discovery_includes_endpoints(mock_detect, mock_repo, mock_cloner, tmp_p
          patch("app.shared.file_utils.find_files", return_value=["pom.xml", "src/main/java/Controller.java"]), \
          patch("app.shared.file_utils.read_text", return_value="<project></project>"), \
          patch("app.infrastructure.analyzers.build_tool_detector.BuildToolDetector.detect") as mock_bt:
-        
+
         mock_bt.return_value = MagicMock(build_tool="MAVEN", is_supported=True, has_pom_xml=True)
-        
+
         outcome = use_case.execute(job_id="test-job")
-        
+
         assert "apiEndpoints" in outcome.response["project"]
         assert len(outcome.response["project"]["apiEndpoints"]) == 1
         assert outcome.response["project"]["apiEndpoints"][0]["path"] == "/api/users"
-        
+
         # Verify it was saved to the report
         assert "apiEndpoints" in outcome.report
         assert len(outcome.report["apiEndpoints"]) == 1

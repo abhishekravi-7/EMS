@@ -9,13 +9,13 @@ interface TestCasesAdminSettingsProps {
 }
 
 export function TestCasesAdminSettings({ settings, onChange }: TestCasesAdminSettingsProps) {
-  const playwrightEnabled = settings.test_cases_playwright_enabled === true || settings.test_cases_playwright_enabled === "true";
+  const playwrightEnabled = settings.test_cases_playwright_enabled === undefined || settings.test_cases_playwright_enabled === true || settings.test_cases_playwright_enabled === "true";
   const playwrightCommand = settings.test_cases_playwright_command || "npx playwright test";
-  
-  const cypressEnabled = settings.test_cases_cypress_enabled === true || settings.test_cases_cypress_enabled === "true";
+
+  const cypressEnabled = settings.test_cases_cypress_enabled === undefined || settings.test_cases_cypress_enabled === true || settings.test_cases_cypress_enabled === "true";
   const cypressCommand = settings.test_cases_cypress_command || "npx cypress run";
-  
-  const seleniumEnabled = settings.test_cases_selenium_enabled === true || settings.test_cases_selenium_enabled === "true";
+
+  const seleniumEnabled = settings.test_cases_selenium_enabled === undefined || settings.test_cases_selenium_enabled === true || settings.test_cases_selenium_enabled === "true";
   const seleniumCommand = settings.test_cases_selenium_command || "pytest";
 
   const [testing, setTesting] = useState(false);

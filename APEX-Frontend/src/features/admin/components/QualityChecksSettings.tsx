@@ -112,11 +112,11 @@ export default function QualityChecksSettings({ configString, onChange }: Qualit
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "24px", marginTop: "16px" }}>
       {Object.entries(configs).map(([key, check]) => (
-        <div 
-          key={key} 
-          style={{ 
-            border: "1px solid #e2e8f0", 
-            borderRadius: "8px", 
+        <div
+          key={key}
+          style={{
+            border: "1px solid #e2e8f0",
+            borderRadius: "8px",
             padding: "20px",
             background: "#ffffff",
             opacity: check.enabled ? 1 : 0.6,
@@ -143,13 +143,11 @@ export default function QualityChecksSettings({ configString, onChange }: Qualit
             </div>
           </div>
 
-
-
           <div style={{ pointerEvents: check.enabled ? "auto" : "none" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", borderBottom: "1px solid #e2e8f0", paddingBottom: "8px" }}>
               <h5 style={{ margin: 0, fontSize: "0.95rem", color: "#334155" }}>User Configuration Fields</h5>
-              <button 
-                className="back-btn-modern" 
+              <button
+                className="back-btn-modern"
                 onClick={() => addField(key)}
                 style={{ padding: "4px 8px", fontSize: "0.8rem", height: "auto" }}
                 disabled={!check.enabled}
@@ -175,10 +173,10 @@ export default function QualityChecksSettings({ configString, onChange }: Qualit
                       style={{ padding: "6px 10px" }}
                       disabled={!check.enabled}
                     />
-                    
+
                     <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "0.85rem", color: "#475569", cursor: check.enabled ? "pointer" : "default" }}>
-                      <input 
-                        type="checkbox" 
+                      <input
+                        type="checkbox"
                         checked={field.visible}
                         onChange={(e) => updateField(key, index, { visible: e.target.checked })}
                         disabled={!check.enabled}
@@ -187,8 +185,8 @@ export default function QualityChecksSettings({ configString, onChange }: Qualit
                     </label>
 
                     <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "0.85rem", color: "#475569", cursor: check.enabled ? "pointer" : "default" }}>
-                      <input 
-                        type="checkbox" 
+                      <input
+                        type="checkbox"
                         checked={field.required}
                         onChange={(e) => updateField(key, index, { required: e.target.checked })}
                         disabled={!check.enabled}
@@ -196,13 +194,13 @@ export default function QualityChecksSettings({ configString, onChange }: Qualit
                       Required
                     </label>
 
-                    <button 
+                    <button
                       onClick={() => removeField(key, index)}
                       disabled={!check.enabled}
-                      style={{ 
-                        background: "none", 
-                        border: "none", 
-                        color: "#ef4444", 
+                      style={{
+                        background: "none",
+                        border: "none",
+                        color: "#ef4444",
                         cursor: check.enabled ? "pointer" : "default",
                         padding: "4px",
                         opacity: check.enabled ? 1 : 0.5

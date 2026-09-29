@@ -28,7 +28,7 @@ export async function testUserLlmConnection(payload: { provider: string; api_key
   return requestJson<{ status: string; message: string }>(
     "/v1/user/settings/llm/test",
     "Failed to test User LLM connection",
-    { 
+    {
       method: "POST",
       body: payload
     }
@@ -37,7 +37,6 @@ export async function testUserLlmConnection(payload: { provider: string; api_key
 
 export function LlmUserSettings({ settings, onChange, isAdminEnabled, allowedGroqModelsStr, allowedHuggingFaceModelsStr }: LlmUserSettingsProps) {
   const llmValues = settings.llm_values || {};
-  
   // State for Groq
   const [testingGroq, setTestingGroq] = useState(false);
   const [testResultGroq, setTestResultGroq] = useState<{ status: "success" | "error"; message: string } | null>(null);
@@ -130,12 +129,10 @@ export function LlmUserSettings({ settings, onChange, isAdminEnabled, allowedGro
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-        
         {/* Groq Configuration */}
         <div>
           <h4 style={{ margin: "0 0 16px 0", fontSize: "1rem", color: "#0f172a", fontWeight: 800 }}>Groq Configuration (Chatbot)</h4>
           <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-            
             <div className="field-modern">
               <label className="label-modern">Model</label>
               <select
@@ -173,10 +170,10 @@ export function LlmUserSettings({ settings, onChange, isAdminEnabled, allowedGro
                   {testResultGroq.message}
                 </div>
               )}
-              <button 
-                onClick={() => handleTestConnection("groq")} 
+              <button
+                onClick={() => handleTestConnection("groq")}
                 disabled={testingGroq || !llmValues.groq_api_key}
-                className="deploy-btn-modern" 
+                className="deploy-btn-modern"
                 style={{ width: "auto" }}
               >
                 {testingGroq ? <FaSpinner className="fa-spin" /> : <FaPlay />}
@@ -191,7 +188,6 @@ export function LlmUserSettings({ settings, onChange, isAdminEnabled, allowedGro
         <div>
           <h4 style={{ margin: "0 0 16px 0", fontSize: "1rem", color: "#0f172a", fontWeight: 800 }}>HuggingFace Configuration (Code Analysis)</h4>
           <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-            
             <div className="field-modern">
               <label className="label-modern">Model</label>
               <select
@@ -229,10 +225,10 @@ export function LlmUserSettings({ settings, onChange, isAdminEnabled, allowedGro
                   {testResultHF.message}
                 </div>
               )}
-              <button 
-                onClick={() => handleTestConnection("huggingface")} 
+              <button
+                onClick={() => handleTestConnection("huggingface")}
                 disabled={testingHF || !llmValues.huggingface_api_key}
-                className="deploy-btn-modern" 
+                className="deploy-btn-modern"
                 style={{ width: "auto" }}
               >
                 {testingHF ? <FaSpinner className="fa-spin" /> : <FaPlay />}

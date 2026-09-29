@@ -19,10 +19,10 @@ async def mongodb_health(db = Depends(get_mongodb)):
     try:
         # Perform a ping to verify connection
         await db.command("ping")
-        
+
         # List collections
         collections = await db.list_collection_names()
-        
+
         return {
             "status": "ok",
             "database": db.name,

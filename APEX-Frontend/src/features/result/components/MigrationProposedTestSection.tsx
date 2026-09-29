@@ -299,7 +299,6 @@ export function MigrationProposedTestSection({
   const apiCount = proposals.filter(p => p.type === "API").length;
   const uiCount = proposals.filter(p => p.type === "UI").length;
 
-
   return (
     <div style={{ ...styles.reportSection, background: "#ffffff", border: "1px solid #eef2f6", borderRadius: 16, padding: "24px 32px", boxShadow: "0 4px 20px rgba(0,0,0,0.03)" }}>
       {/* ── TOP HEADER AREA ────────────────────────────────────────────────── */}
@@ -603,32 +602,34 @@ export function MigrationProposedTestSection({
           </div>
         )}
 
-        {/* Source Breakdown Cards Grid */}
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 12, fontWeight: 800, color: "#475569", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 }}>
-            Source Breakdown
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: existingCount > 0 ? "repeat(4, 1fr)" : "repeat(3, 1fr)", gap: 14 }}>
-            {[
-              { value: llmCount, label: "LLM Generated", color: "#0284c7", bg: "#f0f9ff", borderColor: "#bae6fd", tag: "LLM" },
-              { value: functionalDocCount, label: "BRD / Functional Doc", color: "#7c3aed", bg: "#f5f3ff", borderColor: "#c4b5fd", tag: "DOC" },
-              ...(existingCount > 0 ? [{ value: existingCount, label: "Existing Tests", color: "#059669", bg: "#f0fdf4", borderColor: "#86efac", tag: "EXISTING" }] : []),
-              { value: totalProposed, label: "Total Executable", color: "#0f172a", bg: "#f8fafc", borderColor: "#e2e8f0", tag: "TOTAL" },
-            ].map((card, idx) => (
-              <div key={idx} style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 10, padding: "14px 16px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: 20, fontWeight: 800, color: card.color }}>{card.value}</span>
-                  <span style={{ fontSize: 10, fontWeight: 800, color: card.color, background: card.bg, border: `1px solid ${card.borderColor}`, padding: "2px 6px", borderRadius: 4 }}>{card.tag}</span>
-                </div>
-                <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", lineHeight: 1.2, marginTop: 6 }}>{card.label}</div>
-              </div>
-            ))}
-          </div>
-        </div>
+
       </div>
 
       {/* ── BREAKDOWNS AREA (GRID 2-COL) ─────────────────────────────────── */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 32, marginBottom: 48 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 32, marginBottom: 48 }}>
+        {/* Source Breakdown Section */}
+        <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+            <h4 style={{ margin: 0, fontSize: 15, fontWeight: 800, color: "#0f172a" }}>Source Breakdown</h4>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+            {[
+                { label: "LLM Generated", value: llmCount, tag: "LLM", color: "#7c3aed", bg: "#f5f3ff" },
+                { label: "Functional Doc", value: functionalDocCount, tag: "DOC", color: "#2563eb", bg: "#eff6ff" },
+                { label: "Total Executable", value: totalProposed, tag: "TOTAL", color: "#10b981", bg: "#f0fdf4" },
+            ].map((item, i) => (
+                <div key={i} style={{ background: item.bg, border: "1px solid #eef2f6", borderRadius: 12, padding: "12px", display: "flex", flexDirection: "column", gap: 8, boxShadow: "0 2px 8px rgba(0,0,0,0.02)" }}>
+                    <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "flex-start" }}>
+                        <span style={{ fontSize: 7, fontWeight: 800, color: item.color, background: `${item.color}10`, padding: "2px 6px", borderRadius: 4 }}>{item.tag}</span>
+                    </div>
+                    <div>
+                        <div style={{ fontSize: 24, fontWeight: 800, color: "#0f172a" }}>{item.value}</div>
+                        <div style={{ fontSize: 12, color: "#64748b", fontWeight: 600 }}>{item.label}</div>
+                    </div>
+                </div>
+            ))}
+            </div>
+        </div>
 
         {/* Type Breakdown Section */}
         <div>

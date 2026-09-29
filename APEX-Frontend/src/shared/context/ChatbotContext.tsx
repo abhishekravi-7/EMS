@@ -8,6 +8,7 @@ export interface ChatbotState {
   strategyContext: StrategyPageContext | null;
   projectContext: ProjectContext | null;
   appContext: CentralizedProjectContext | null;
+  hideChatbot?: boolean;
 }
 
 export interface ChatbotContextType extends ChatbotState {

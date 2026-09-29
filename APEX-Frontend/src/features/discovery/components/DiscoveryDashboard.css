@@ -113,15 +113,15 @@
 }
 
 
-/* 5 KPI Cards Grid */
+/* 6 KPI Cards Grid */
 .discovery-kpi-grid {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 14px;
-  margin-bottom: 20px;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 10px;
+  margin-bottom: 18px;
 }
 
-@media (max-width: 1200px) {
+@media (max-width: 1400px) {
   .discovery-kpi-grid {
     grid-template-columns: repeat(3, 1fr);
   }
@@ -146,11 +146,11 @@
   background: #ffffff;
   border: 1px solid #e2e8f0;
   border-radius: 12px;
-  padding: 14px 16px;
+  padding: 12px 14px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  min-height: 96px;
+  min-height: 90px;
   box-sizing: border-box;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
   transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
@@ -171,7 +171,7 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .discovery-kpi-icon {
@@ -519,25 +519,21 @@
   padding: 16px 18px;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  justify-content: flex-start;
+  gap: 12px;
   box-sizing: border-box;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
 }
 
 .discovery-structure-card {
-  justify-content: flex-start !important;
-  gap: 12px;
-}
-
-.discovery-structure-card .discovery-panel-header {
-  margin-bottom: 0 !important;
+  justify-content: flex-start;
 }
 
 .discovery-panel-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 14px;
+  margin-bottom: 0;
 }
 
 .discovery-panel-title-wrap {
@@ -631,7 +627,7 @@
   gap: 10px;
   max-height: 220px;
   overflow-y: auto;
-  margin-bottom: 14px;
+  margin: 0;
   padding-right: 4px;
 }
 
@@ -895,6 +891,7 @@
   flex-direction: column;
   gap: 8px;
   width: 100%;
+  margin: 0;
 }
 
 .discovery-structure-item {
@@ -1016,15 +1013,15 @@
   background-color: #f8fafc;
 }
 
-/* Bottom Row (3 Cards: Frameworks, Structure Summary, Technical Spec) */
+/* Bottom Row (4 Cards: Frameworks, Detected View Tech, Structure Summary, Technical Spec) */
 .discovery-bottom-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 16px;
   margin-bottom: 22px;
 }
 
-@media (max-width: 1100px) {
+@media (max-width: 1300px) {
   .discovery-bottom-grid {
     grid-template-columns: repeat(2, 1fr);
   }
@@ -1558,4 +1555,125 @@
   background: #1d4ed8;
   border-color: #1d4ed8;
   box-shadow: 0 6px 14px rgba(37, 99, 235, 0.28);
+}
+
+
+/* Repository File Filter Tabs */
+.discovery-filter-tabs {
+  display: flex;
+  align-items: center;
+  background: #f1f5f9;
+  border-radius: 8px;
+  padding: 3px;
+  gap: 2px;
+}
+
+.discovery-filter-tab {
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border: none;
+  background: transparent;
+  color: #64748b;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.discovery-filter-tab:hover {
+  color: #0f172a;
+}
+
+.discovery-filter-tab.is-active {
+  background: #ffffff;
+  color: #2563eb;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+/* Detected View Technology Card */
+.discovery-viewtech-cards-row {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin: 0;
+}
+
+.discovery-viewtech-card {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+}
+
+.discovery-viewtech-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.discovery-viewtech-card-title-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.discovery-viewtech-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.discovery-viewtech-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.discovery-viewtech-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 999px;
+}
+
+.discovery-viewtech-badge.is-detected {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.discovery-viewtech-badge.is-muted {
+  background: #e2e8f0;
+  color: #64748b;
+}
+
+.discovery-viewtech-files-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 4px;
+}
+
+.discovery-viewtech-desc {
+  font-size: 11px;
+  color: #64748b;
+  line-height: 1.35;
+}
+
+.discovery-viewtech-callout {
+  margin-top: 0;
+  min-height: unset;
+  box-sizing: border-box;
+}
+
+.discovery-viewtech-callout-text {
+  font-size: 11.5px;
+  color: #1e40af;
+  line-height: 1.35;
+  font-weight: 500;
 }

@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 class LLMTokenTracingService:
     """Wraps ChatLLM to automatically track token usage and metrics.
-    
+
     This service:
     - Intercepts all LLM chat requests
     - Records provider and model information
@@ -35,7 +35,7 @@ class LLMTokenTracingService:
     - Tracks fallback events (Ollama -> Groq)
     - Stores all metrics in the database
     - Estimates cost using the token_tracing module pricing
-    
+
     It's designed to be transparent to existing code — just use it as a
     drop-in replacement for ChatLLM.stream_chat().
     """
@@ -48,7 +48,7 @@ class LLMTokenTracingService:
         repository_url: str | None = None,
     ):
         """Initialize the tracing service.
-        
+
         Args:
             chat_llm: The underlying ChatLLM instance to wrap
             user_id: ID of the user making the request (optional)

@@ -36,6 +36,9 @@ class MigrationConfigOptions(BaseModel):
     run_sonar: bool = Field(False, alias="runSonar")
     run_fossa: bool = Field(False, alias="runFossa")
     fix_business_logic: bool = Field(False, alias="fixBusinessLogic")
+    ui_framework_target: Optional[str] = Field(None, alias="uiFrameworkTarget")
+    ui_framework_version: Optional[str] = Field(None, alias="uiFrameworkVersion")
+    ui_mod_mode: Optional[str] = Field(None, alias="uiModMode")
 
     model_config = {"populate_by_name": True}
 

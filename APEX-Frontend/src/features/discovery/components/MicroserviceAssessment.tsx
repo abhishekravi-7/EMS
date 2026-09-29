@@ -291,7 +291,7 @@ export default function MicroserviceAssessment({
 
                   {/* Additional Rule Note */}
                   <div style={{ marginTop: 16, padding: "10px 16px", background: "#eff6ff", borderRadius: 8, border: "1px solid #bfdbfe", fontSize: 11, color: "#1e40af" }}>
-                    <strong>Additional Rule:</strong> If at least one critical business CHUNK is eligible, phased microservice migration can begin. 
+                    <strong>Additional Rule:</strong> If at least one critical business CHUNK is eligible, phased microservice migration can begin.
                     Current: <strong>{microserviceResult.chunk_summary?.eligible_chunks || 0}</strong> eligible chunk(s) out of <strong>{microserviceResult.chunk_summary?.total_chunks || 0}</strong>.
                   </div>
                 </div>

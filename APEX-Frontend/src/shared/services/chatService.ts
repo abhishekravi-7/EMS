@@ -1028,10 +1028,10 @@ export async function sendMessage({
       const errText = await response.text();
       let errObj: any = {};
       try { errObj = JSON.parse(errText); } catch (e) {}
-      
+
       if (
-        errObj.error === "LLM_NOT_CONFIGURED" || 
-        errObj.detail === "LLM_NOT_CONFIGURED" || 
+        errObj.error === "LLM_NOT_CONFIGURED" ||
+        errObj.detail === "LLM_NOT_CONFIGURED" ||
         (typeof errObj.detail === "string" && errObj.detail.toLowerCase().includes("llm is not configured")) ||
         errText.toLowerCase().includes("llm is not configured") ||
         errText.toLowerCase().includes("llm not configured")

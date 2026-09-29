@@ -24,6 +24,7 @@ import {
   FaShieldAlt,
   FaWrench,
   FaVial,
+  FaEye,
 } from "react-icons/fa";
 import {
   renderWizardIconBadge,
@@ -509,6 +510,7 @@ export function DiscoveryStepView({
 
   // Search & folder collapse state for the Repository Files tree
   const [searchQuery, setSearchQuery] = useState("");
+  const [fileCategoryFilter, setFileCategoryFilter] = useState<"ALL" | "JSP" | "JSF" | "OTHERS">("ALL");
   const [collapsedFolders, setCollapsedFolders] = useState<Record<string, boolean>>({});
 
   // Hover & pinned state for KPI metric cards
@@ -523,6 +525,17 @@ export function DiscoveryStepView({
     return () => window.removeEventListener("click", handleGlobalClick);
   }, []);
 
+  const isJspOrJsf = (filepath: string) => {
+    const lower = filepath.toLowerCase();
+    return (
+      lower.endsWith(".jsp") ||
+      lower.endsWith(".jspf") ||
+      lower.endsWith(".jspx") ||
+      lower.endsWith(".xhtml") ||
+      lower.endsWith(".jsf")
+    );
+  };
+
   // File lists categorized for popovers
   const javaFileList = (repoAnalysis?.java_files && repoAnalysis.java_files.length > 0)
     ? repoAnalysis.java_files
@@ -532,15 +545,12 @@ export function DiscoveryStepView({
     ? repoAnalysis.config_files
     : [];
 
-  const otherFileList = (repoAnalysis?.other_files && repoAnalysis.other_files.length > 0)
-    ? repoAnalysis.other_files
-    : [];
-
-  // Dynamic calculations from repoAnalysis
-  const javaFiles = repoAnalysis?.java_file_count ?? repoAnalysis?.java_files?.length ?? javaFileList.length;
-  const xmlFiles = repoAnalysis?.config_file_count ?? repoAnalysis?.config_files?.length ?? configFileList.length;
-  const othersFiles = repoAnalysis?.other_file_count ?? repoAnalysis?.other_files?.length ?? otherFileList.length;
-  const totalFiles = repoAnalysis?.total_file_count ?? (javaFiles + xmlFiles + othersFiles);
+  const otherFileList = useMemo(() => {
+    const raw = (repoAnalysis?.other_files && repoAnalysis.other_files.length > 0)
+      ? repoAnalysis.other_files
+      : [];
+    return raw.filter((f) => !isJspOrJsf(f));
+  }, [repoAnalysis?.other_files]);
 
   const extractFileName = (filepath: string) => {
     const parts = filepath.replace(/\\/g, "/").split("/");
@@ -550,6 +560,8 @@ export function DiscoveryStepView({
   const getFileBadge = (filename: string) => {
     const lower = filename.toLowerCase();
     if (lower.endsWith(".java")) return { label: "JAVA", color: "#9333ea", bg: "#f3e8ff" };
+    if (lower.endsWith(".jsp") || lower.endsWith(".jspf") || lower.endsWith(".jspx")) return { label: "JSP", color: "#db2777", bg: "#fce7f3" };
+    if (lower.endsWith(".xhtml") || lower.endsWith(".jsf")) return { label: "JSF", color: "#7c3aed", bg: "#f5f3ff" };
     if (lower.endsWith(".xml")) return { label: "XML", color: "#ea580c", bg: "#fff7ed" };
     if (lower.endsWith(".yml") || lower.endsWith(".yaml")) return { label: "YML", color: "#d97706", bg: "#fef3c7" };
     if (lower.endsWith(".properties")) return { label: "CFG", color: "#0284c7", bg: "#e0f2fe" };
@@ -592,7 +604,9 @@ export function DiscoveryStepView({
     const pathSet = new Set<string>();
     (repoAnalysis?.java_files || []).forEach((f) => pathSet.add(f));
     (repoAnalysis?.config_files || []).forEach((f) => pathSet.add(f));
-    (repoAnalysis?.other_files || []).forEach((f) => pathSet.add(f));
+    (repoAnalysis?.jsp_files || []).forEach((f) => pathSet.add(f));
+    (repoAnalysis?.jsf_files || []).forEach((f) => pathSet.add(f));
+    (otherFileList || []).forEach((f) => pathSet.add(f));
     (repoAnalysis?.all_files || []).forEach((f) => {
       if (typeof f === "string") pathSet.add(f);
       else if (f?.path) pathSet.add(f.path);
@@ -601,13 +615,42 @@ export function DiscoveryStepView({
       if (f.path) pathSet.add(f.path);
     });
     if (pathSet.size === 0) {
-      [...javaFileList, ...configFileList, ...otherFileList].forEach((f) => pathSet.add(f));
+      [...javaFileList, ...configFileList, ...otherFileList, ...(repoAnalysis?.jsp_files || []), ...(repoAnalysis?.jsf_files || [])].forEach((f) => pathSet.add(f));
     }
      const normalizedPaths = Array.from(pathSet)
       .map((p) => p.replace(/\\/g, "/").replace(/^\/+/, ""))
       .filter(Boolean);
        return Array.from(new Set(normalizedPaths));
   }, [repoAnalysis, repoFiles, javaFileList, configFileList, otherFileList]);
+
+  const jspFileList = useMemo(() => {
+    if (repoAnalysis?.jsp_files && repoAnalysis.jsp_files.length > 0) return repoAnalysis.jsp_files;
+    return allDiscoveredPaths.filter((f) => {
+      const lower = f.toLowerCase();
+      return lower.endsWith(".jsp") || lower.endsWith(".jspf") || lower.endsWith(".jspx");
+    });
+  }, [repoAnalysis?.jsp_files, allDiscoveredPaths]);
+
+  const jsfFileList = useMemo(() => {
+    if (repoAnalysis?.jsf_files && repoAnalysis.jsf_files.length > 0) return repoAnalysis.jsf_files;
+    return allDiscoveredPaths.filter((f) => {
+      const lower = f.toLowerCase();
+      return lower.endsWith(".jsf") || lower.endsWith(".xhtml");
+    });
+  }, [repoAnalysis?.jsf_files, allDiscoveredPaths]);
+
+  const jspFiles = repoAnalysis?.jsp_file_count ?? repoAnalysis?.jsp_count ?? (repoAnalysis?.structure?.jsp_count ?? jspFileList.length);
+  const jsfFiles = repoAnalysis?.jsf_file_count ?? repoAnalysis?.jsf_count ?? (repoAnalysis?.structure?.jsf_count ?? jsfFileList.length);
+
+  // Dynamic calculations from repoAnalysis
+  const javaFiles = repoAnalysis?.java_file_count ?? repoAnalysis?.java_files?.length ?? javaFileList.length;
+  const xmlFiles = repoAnalysis?.config_file_count ?? repoAnalysis?.config_files?.length ?? configFileList.length;
+  const othersFiles = otherFileList.length > 0
+    ? otherFileList.length
+    : Math.max(0, (repoAnalysis?.other_file_count ?? 0) - (jspFiles + jsfFiles));
+  const totalFiles = repoAnalysis?.total_file_count ?? (javaFiles + xmlFiles + jspFiles + jsfFiles + othersFiles);
+
+
 
   interface DynamicTreeNode {
     id: string;
@@ -705,35 +748,51 @@ export function DiscoveryStepView({
   // Filtered files according to search term
   const query = searchQuery.toLowerCase().trim();
 
-  const { visibleTree } = useMemo(() => {
-    if (!query) {
-      return { visibleTree: fileTree };
-    }
+  const { visibleTree, filteredFileCount } = useMemo(() => {
+    const isCategoryMatch = (filepath: string) => {
+      const lower = filepath.toLowerCase();
+      const isJsp = lower.endsWith(".jsp") || lower.endsWith(".jspf") || lower.endsWith(".jspx");
+      const isJsf = lower.endsWith(".xhtml") || lower.endsWith(".jsf");
+      if (fileCategoryFilter === "JSP") return isJsp;
+      if (fileCategoryFilter === "JSF") return isJsf;
+      if (fileCategoryFilter === "OTHERS") return !isJsp && !isJsf;
+      return true;
+    };
+
+    let count = 0;
 
     function filterList(list: DynamicTreeNode[]): DynamicTreeNode[] {
       const result: DynamicTreeNode[] = [];
       for (const node of list) {
-        const nameMatches = node.name.toLowerCase().includes(query) || node.path.toLowerCase().includes(query);
         if (node.isDir) {
           const matchingChildren = filterList(node.children);
-          if (nameMatches || matchingChildren.length > 0) {
+          if (matchingChildren.length > 0) {
             result.push({
               ...node,
               children: matchingChildren,
             });
           }
-        } else if (nameMatches) {
-          result.push(node);
+        } else {
+          const catOk = isCategoryMatch(node.path);
+          const nameMatches = !query || node.name.toLowerCase().includes(query) || node.path.toLowerCase().includes(query);
+          if (catOk && nameMatches) {
+            count++;
+            result.push(node);
+          }
         }
       }
       return result;
     }
 
-    return { visibleTree: filterList(fileTree) };
-  }, [fileTree, query]);
+    if (!query && fileCategoryFilter === "ALL") {
+      return { visibleTree: fileTree, filteredFileCount: allDiscoveredPaths.length };
+    }
+
+    return { visibleTree: filterList(fileTree), filteredFileCount: count };
+  }, [fileTree, query, fileCategoryFilter, allDiscoveredPaths.length]);
 
   const isFolderOpen = (folderId: string): boolean => {
-    if (query) return true;
+    if (query || fileCategoryFilter !== "ALL") return true;
     if (collapsedFolders[folderId] !== undefined) {
       return !collapsedFolders[folderId];
     }
@@ -863,8 +922,12 @@ export function DiscoveryStepView({
       >
         <div className="discovery-tree-left">
           <span className="discovery-tree-toggle" />
-          {node.name.endsWith(".java") ? (
-            <FaFileCode color="#3b82f6" size={14} />
+          {node.name.toLowerCase().endsWith(".jsp") || node.name.toLowerCase().endsWith(".jspf") || node.name.toLowerCase().endsWith(".jspx") ? (
+            <FaCode color="#db2777" size={14} />
+          ) : node.name.toLowerCase().endsWith(".xhtml") || node.name.toLowerCase().endsWith(".jsf") ? (
+            <FaCode color="#7c3aed" size={14} />
+          ) : node.name.endsWith(".java") ? (
+            <FaFileCode color="#9333ea" size={14} />
           ) : node.name.endsWith(".xml") ? (
             <FaFileCode color="#ea580c" size={14} />
           ) : node.name.endsWith(".md") || node.name.endsWith(".adoc") || node.name.endsWith(".txt") ? (
@@ -1054,6 +1117,24 @@ export function DiscoveryStepView({
                         background: "#d97706",
                       }}
                     />
+                    {jspFiles > 0 && (
+                      <div
+                        className="discovery-kpi-dist-seg"
+                        style={{
+                          width: `${Math.round((jspFiles / totalFiles) * 100)}%`,
+                          background: "#db2777",
+                        }}
+                      />
+                    )}
+                    {jsfFiles > 0 && (
+                      <div
+                        className="discovery-kpi-dist-seg"
+                        style={{
+                          width: `${Math.round((jsfFiles / totalFiles) * 100)}%`,
+                          background: "#7c3aed",
+                        }}
+                      />
+                    )}
                     <div
                       className="discovery-kpi-dist-seg"
                       style={{
@@ -1082,6 +1163,28 @@ export function DiscoveryStepView({
                         {xmlFiles}
                       </strong>
                     </div>
+                    {jspFiles > 0 && (
+                      <div className="discovery-kpi-dist-row">
+                        <span>
+                          <span className="discovery-kpi-dist-dot" style={{ background: "#db2777" }} />
+                          JSP Files
+                        </span>
+                        <strong style={{ color: "#0f172a" }}>
+                          {jspFiles}
+                        </strong>
+                      </div>
+                    )}
+                    {jsfFiles > 0 && (
+                      <div className="discovery-kpi-dist-row">
+                        <span>
+                          <span className="discovery-kpi-dist-dot" style={{ background: "#7c3aed" }} />
+                          JSF Files
+                        </span>
+                        <strong style={{ color: "#0f172a" }}>
+                          {jsfFiles}
+                        </strong>
+                      </div>
+                    )}
                     <div className="discovery-kpi-dist-row">
                       <span>
                         <span className="discovery-kpi-dist-dot" style={{ background: "#64748b" }} />
@@ -1326,7 +1429,194 @@ export function DiscoveryStepView({
               )}
             </div>
 
-            {/* Card 4: Others */}
+            {/* Card 4: JSP Files */}
+            <div
+              className={`discovery-kpi-card ${activeKpi === "jsp" ? "has-popover-open" : ""}`}
+              onMouseEnter={() => setHoveredKpi("jsp")}
+              onMouseLeave={() => setHoveredKpi(null)}
+              onClick={(e) => {
+                e.stopPropagation();
+                setPinnedKpi((prev) => (prev === "jsp" ? null : "jsp"));
+                setSearchQuery(".jsp");
+              }}
+              style={{ cursor: "pointer" }}
+            >
+              <div className="discovery-kpi-top">
+                <div className="discovery-kpi-icon" style={{ background: "#fce7f3", color: "#db2777" }}>
+                  <FaCode />
+                </div>
+                <div className="discovery-kpi-number-wrap">
+                  <span className="discovery-kpi-number">{jspFiles}</span>
+                </div>
+              </div>
+              <div className="discovery-kpi-bottom">
+                <span className="discovery-kpi-label">JSP Files</span>
+                <span className="discovery-kpi-sub">.jsp/.jspf files (Detected)</span>
+              </div>
+
+              {/* Popover */}
+              {activeKpi === "jsp" && (
+                <div
+                  className="discovery-kpi-popover align-left"
+                  onClick={(e) => e.stopPropagation()}
+                  onMouseEnter={() => setHoveredKpi("jsp")}
+                  onMouseLeave={() => setHoveredKpi(null)}
+                >
+                  <div className="discovery-kpi-popover-header">
+                    <div className="discovery-kpi-popover-title-wrap">
+                      <FaCode color="#db2777" size={14} />
+                      <span className="discovery-kpi-popover-title">JSP Files</span>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span className="discovery-kpi-popover-badge" style={{ background: "#fce7f3", color: "#db2777" }}>
+                        {jspFiles} files
+                      </span>
+                      {pinnedKpi === "jsp" && (
+                        <button
+                          className="discovery-kpi-popover-close"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPinnedKpi(null);
+                            setHoveredKpi(null);
+                          }}
+                          title="Close"
+                        >
+                          <FaTimes size={10} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="discovery-kpi-file-list">
+                    {jspFileList.map((file) => {
+                      const name = extractFileName(file);
+                      return (
+                        <div
+                          key={file}
+                          className="discovery-kpi-file-item"
+                          onClick={(e) => handleSelectPopoverFile(file, e)}
+                          title={`Click to preview ${name}`}
+                        >
+                          <div className="discovery-kpi-file-left">
+                            <span className="discovery-kpi-file-icon">
+                              <FaCode color="#db2777" />
+                            </span>
+                            <div className="discovery-kpi-file-info">
+                              <span className="discovery-kpi-file-name">{name}</span>
+                              <span className="discovery-kpi-file-path">{file}</span>
+                            </div>
+                          </div>
+                          <span className="discovery-kpi-file-tag" style={{ color: "#db2777", background: "#fce7f3" }}>
+                            JSP
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="discovery-kpi-popover-footer">
+                    <span>Showing {jspFileList.length} JSP files</span>
+                    <span style={{ color: "#94a3b8" }}>{pinnedKpi === "jsp" ? "Pinned" : "Click to pin"}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Card 5: JSF Files */}
+            <div
+              className={`discovery-kpi-card ${activeKpi === "jsf" ? "has-popover-open" : ""}`}
+              onMouseEnter={() => setHoveredKpi("jsf")}
+              onMouseLeave={() => setHoveredKpi(null)}
+              onClick={(e) => {
+                e.stopPropagation();
+                setPinnedKpi((prev) => (prev === "jsf" ? null : "jsf"));
+                const hasXhtml = allDiscoveredPaths.some(p => p.toLowerCase().endsWith('.xhtml'));
+                setSearchQuery(hasXhtml ? ".xhtml" : ".jsf");
+              }}
+              style={{ cursor: "pointer" }}
+            >
+              <div className="discovery-kpi-top">
+                <div className="discovery-kpi-icon" style={{ background: "#f5f3ff", color: "#7c3aed" }}>
+                  <FaCode />
+                </div>
+                <div className="discovery-kpi-number-wrap">
+                  <span className="discovery-kpi-number">{jsfFiles}</span>
+                </div>
+              </div>
+              <div className="discovery-kpi-bottom">
+                <span className="discovery-kpi-label">JSF Files</span>
+                <span className="discovery-kpi-sub">.xhtml/.jsf files (Detected)</span>
+              </div>
+
+              {/* Popover */}
+              {activeKpi === "jsf" && (
+                <div
+                  className="discovery-kpi-popover align-right"
+                  onClick={(e) => e.stopPropagation()}
+                  onMouseEnter={() => setHoveredKpi("jsf")}
+                  onMouseLeave={() => setHoveredKpi(null)}
+                >
+                  <div className="discovery-kpi-popover-header">
+                    <div className="discovery-kpi-popover-title-wrap">
+                      <FaCode color="#7c3aed" size={14} />
+                      <span className="discovery-kpi-popover-title">JSF Files</span>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span className="discovery-kpi-popover-badge" style={{ background: "#f5f3ff", color: "#7c3aed" }}>
+                        {jsfFiles} files
+                      </span>
+                      {pinnedKpi === "jsf" && (
+                        <button
+                          className="discovery-kpi-popover-close"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPinnedKpi(null);
+                            setHoveredKpi(null);
+                          }}
+                          title="Close"
+                        >
+                          <FaTimes size={10} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="discovery-kpi-file-list">
+                    {jsfFileList.map((file) => {
+                      const name = extractFileName(file);
+                      return (
+                        <div
+                          key={file}
+                          className="discovery-kpi-file-item"
+                          onClick={(e) => handleSelectPopoverFile(file, e)}
+                          title={`Click to preview ${name}`}
+                        >
+                          <div className="discovery-kpi-file-left">
+                            <span className="discovery-kpi-file-icon">
+                              <FaCode color="#7c3aed" />
+                            </span>
+                            <div className="discovery-kpi-file-info">
+                              <span className="discovery-kpi-file-name">{name}</span>
+                              <span className="discovery-kpi-file-path">{file}</span>
+                            </div>
+                          </div>
+                          <span className="discovery-kpi-file-tag" style={{ color: "#7c3aed", background: "#f5f3ff" }}>
+                            JSF
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="discovery-kpi-popover-footer">
+                    <span>Showing {jsfFileList.length} JSF files</span>
+                    <span style={{ color: "#94a3b8" }}>{pinnedKpi === "jsf" ? "Pinned" : "Click to pin"}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Card 6: Others */}
             <div
               className={`discovery-kpi-card ${activeKpi === "others" ? "has-popover-open" : ""}`}
               onMouseEnter={() => setHoveredKpi("others")}
@@ -1436,9 +1726,40 @@ export function DiscoveryStepView({
                   </div>
                 </div>
 
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <div className="discovery-filter-tabs">
+                    <button
+                      type="button"
+                      className={`discovery-filter-tab ${fileCategoryFilter === "ALL" ? "is-active" : ""}`}
+                      onClick={() => setFileCategoryFilter("ALL")}
+                    >
+                      All Files
+                    </button>
+                    <button
+                      type="button"
+                      className={`discovery-filter-tab ${fileCategoryFilter === "JSP" ? "is-active" : ""}`}
+                      onClick={() => setFileCategoryFilter("JSP")}
+                    >
+                      JSP ({jspFiles})
+                    </button>
+                    <button
+                      type="button"
+                      className={`discovery-filter-tab ${fileCategoryFilter === "JSF" ? "is-active" : ""}`}
+                      onClick={() => setFileCategoryFilter("JSF")}
+                    >
+                      JSF ({jsfFiles})
+                    </button>
+                    <button
+                      type="button"
+                      className={`discovery-filter-tab ${fileCategoryFilter === "OTHERS" ? "is-active" : ""}`}
+                      onClick={() => setFileCategoryFilter("OTHERS")}
+                    >
+                      Others
+                    </button>
+                  </div>
+
                   <span className="discovery-tree-badge-items">
-                    {allDiscoveredPaths.length} {allDiscoveredPaths.length === 1 ? "file" : "files"}
+                    {filteredFileCount} {filteredFileCount === 1 ? "file" : "files"}
                   </span>
                   <button
                     onClick={handleToggleAll}
@@ -1572,6 +1893,7 @@ export function DiscoveryStepView({
                   </div>
                   <div className="discovery-panel-titles">
                     <h3>Detected Frameworks &amp; Libraries</h3>
+                    <p>Major frameworks and build tools</p>
                   </div>
                 </div>
                 <span
@@ -1623,7 +1945,85 @@ export function DiscoveryStepView({
               </div>
             </div>
 
-            {/* Card 2: Project Structure Summary */}
+            {/* Card 2: Detected View Technology */}
+            <div className="discovery-panel-card">
+              <div className="discovery-panel-header">
+                <div className="discovery-panel-title-wrap">
+                  <div className="discovery-panel-icon" style={{ background: "#e0f2fe", color: "#0284c7" }}>
+                    <FaEye size={14} />
+                  </div>
+                  <div className="discovery-panel-titles">
+                    <h3>Detected View Technology</h3>
+                    <p>Analysis of JSP/JSF view layer technologies</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="discovery-viewtech-cards-row">
+                {/* Subcard 1: JSP */}
+                <div className="discovery-viewtech-card">
+                  <div className="discovery-viewtech-card-header">
+                    <div className="discovery-viewtech-card-title-group">
+                      <div className="discovery-viewtech-icon" style={{ background: "#fce7f3", color: "#db2777" }}>
+                        <FaCode size={12} />
+                      </div>
+                      <span className="discovery-viewtech-name">JSP</span>
+                    </div>
+                    <span className={`discovery-viewtech-badge ${jspFiles > 0 ? "is-detected" : "is-muted"}`}>
+                      {jspFiles > 0 ? "Detected" : "Not Detected"}
+                    </span>
+                  </div>
+                  <div className="discovery-viewtech-files-count">
+                    {jspFiles} {jspFiles === 1 ? "file" : "files"} found
+                  </div>
+                  <div className="discovery-viewtech-desc">
+                    {jspFiles > 0
+                      ? "JSP view technology is present in this repository."
+                      : "JSP view technology not found in this repository."}
+                  </div>
+                </div>
+
+                {/* Subcard 2: JSF */}
+                <div className="discovery-viewtech-card">
+                  <div className="discovery-viewtech-card-header">
+                    <div className="discovery-viewtech-card-title-group">
+                      <div className="discovery-viewtech-icon" style={{ background: "#f5f3ff", color: "#7c3aed" }}>
+                        <FaCode size={12} />
+                      </div>
+                      <span className="discovery-viewtech-name">JSF</span>
+                    </div>
+                    <span className={`discovery-viewtech-badge ${jsfFiles > 0 ? "is-detected" : "is-muted"}`}>
+                      {jsfFiles > 0 ? "Detected" : "Not Detected"}
+                    </span>
+                  </div>
+                  <div className="discovery-viewtech-files-count">
+                    {jsfFiles} {jsfFiles === 1 ? "file" : "files"} found
+                  </div>
+                  <div className="discovery-viewtech-desc">
+                    {jsfFiles > 0
+                      ? "JSF (XHTML) view technology is present in this repository."
+                      : "JSF (XHTML) view technology not found in this repository."}
+                  </div>
+                </div>
+              </div>
+
+              <div className="discovery-callout-blue discovery-viewtech-callout">
+                <FaInfoCircle color="#2563eb" size={16} style={{ flexShrink: 0 }} />
+                <div className="discovery-viewtech-callout-text">
+                  {repoAnalysis?.view_technologies?.summaryMessage || (
+                    jspFiles > 0 && jsfFiles === 0
+                      ? "JSP files detected. The application uses JSP for its view layer. No JSF files were found in this repository."
+                      : jsfFiles > 0 && jspFiles === 0
+                      ? "JSF files detected. The application uses JSF for its view layer. No JSP files were found in this repository."
+                      : jspFiles > 0 && jsfFiles > 0
+                      ? `JSP (${jspFiles} files) and JSF (${jsfFiles} files) detected. Both view technologies are present in this repository.`
+                      : "No JSP or JSF view layer technology files were detected in this repository."
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Card 3: Project Structure Summary */}
             <div className="discovery-panel-card discovery-structure-card">
               <div className="discovery-panel-header">
                 <div className="discovery-panel-title-wrap">
@@ -1720,7 +2120,7 @@ export function DiscoveryStepView({
 
                 <h4 className="discovery-spec-h4">Generate Technical Specification Document</h4>
                 <p className="discovery-spec-desc">
-                  The document will include project structure, detected frameworks, dependencies, and key technical details.
+                  {/* The document will include project structure, detected frameworks, dependencies, and key technical details. */}
                 </p>
 
                 <button
@@ -1735,7 +2135,7 @@ export function DiscoveryStepView({
                 </button>
 
                 <div className="discovery-spec-footnote">
-                  {technicalSpecificationHelperText || "The Technical Specification Document is ready to download."}
+                  {/* {technicalSpecificationHelperText || "The Technical Specification Document is ready to download."} */}
                 </div>
               </div>
             </div>

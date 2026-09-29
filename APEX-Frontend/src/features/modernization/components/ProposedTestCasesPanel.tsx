@@ -271,8 +271,12 @@ export function ProposedTestCasesPanel({
           if (!seen.has(identity)) {
             seen.add(identity);
             selectedItems.push({
+              test_name: testName,
               name: testName,
               suite: suiteName,
+              status: "NOT_EXECUTED",
+              duration: "—",
+              file: "",
             });
           }
         }
@@ -289,8 +293,12 @@ export function ProposedTestCasesPanel({
           if (!seen.has(identity)) {
             seen.add(identity);
             selectedItems.push({
+              test_name: testName,
               name: testName,
               suite: suiteName,
+              status: "NOT_EXECUTED",
+              duration: "—",
+              file: "",
             });
           }
         }
@@ -306,8 +314,12 @@ export function ProposedTestCasesPanel({
         if (!seen.has(identity)) {
           seen.add(identity);
           selectedItems.push({
+            test_name: testName,
             name: testName,
             suite: suiteName,
+            status: "NOT_EXECUTED",
+            duration: "—",
+            file: "",
           });
         }
       });
@@ -678,9 +690,9 @@ export function ProposedTestCasesPanel({
               <h3 style={{ fontSize: 18, fontWeight: 900, color: "#0f172a", margin: 0, letterSpacing: "-0.01em" }}>
                 Proposed Test Case Summary
               </h3>
-              
-              
-              
+
+
+
             </div>
             <p style={{ fontSize: 13, color: "#64748b", margin: "4px 0 0 0" }}>
               Recommended functional test scopes for newly migrated APIs, services, and unverified workflows.

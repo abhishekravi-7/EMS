@@ -163,17 +163,10 @@ class RunUnitTestSuiteUseCase:
             last_result: UnitTestSuiteResult | None = None
 
             for attempt in range(max_retries):
-                target_major = None
-                if req.java_version:
-                    try:
-                        target_major = int(str(req.java_version).strip())
-                    except ValueError:
-                        pass
                 run_result = self._runner.run(
                     project_dir=project_dir,
                     build_tool=req.build_tool,
                     target_class_name=analysis.target_class,
-                    target_major=target_major,
                 )
                 run_result.generated_code = generated_code
                 run_result.generated_test_file_path = str(generated_file_path.relative_to(project_dir))
@@ -279,6 +272,10 @@ class RunUnitTestSuiteUseCase:
 
             target_files = self.discover_target_classes(project_dir)
 
+
+            if not target_files:
+                return self._runner.run(project_dir=project_dir, build_tool=req.build_tool)
+
             # Analyze dynamic testing prompt if provided
             effective_prompt = combine_junit_prompts(
                 selected_prompt_ids=req.selected_predefined_prompts,
@@ -336,14 +333,15 @@ class RunUnitTestSuiteUseCase:
 
             if not target_files:
                 run_res = self._runner.run(
-                    project_dir=project_dir, 
-                    build_tool=req.build_tool, 
-                    test_command=req.test_command, 
+                    project_dir=project_dir,
+                    build_tool=req.build_tool,
+                    test_command=req.test_command,
                     target_major=target_major
                 )
                 if prompt_analysis:
                     run_res.prompt_analysis = prompt_analysis
                 return run_res
+
 
             for target_file in target_files:
                 try:
@@ -373,10 +371,12 @@ class RunUnitTestSuiteUseCase:
                 except Exception:  # noqa: BLE001, S112
                     continue  # nosec B112
 
+            return self._runner.run(project_dir=project_dir, build_tool=req.build_tool)
+
             final_res = self._runner.run(
-                project_dir=project_dir, 
-                build_tool=req.build_tool, 
-                test_command=req.test_command, 
+                project_dir=project_dir,
+                build_tool=req.build_tool,
+                test_command=req.test_command,
                 target_major=target_major
             )
 
@@ -478,6 +478,7 @@ public class {c_test_name} {{
                         logger.warning(f"Error evaluating prompt coverage: {eval_err}")
 
             return final_res
+
         finally:
             if db:
                 self._generator._chat_llm = original_chat

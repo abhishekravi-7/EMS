@@ -203,6 +203,23 @@ class StartMigrationUseCase:
             discovery,
         )
 
+        has_jsp = int(discovery.get("jspFileCount") or 0) > 0
+        has_jsf = int(discovery.get("jsfFileCount") or 0) > 0
+        if "ui_modernization" in conversion_types:
+            if not has_jsp and not has_jsf:
+                raise MigrationExecutionError(
+                    "UI modernization selected, but neither JSP nor JSF files were detected in this repository."
+                )
+            ui_mode = str(options.get("uiModMode") or request.get("ui_mod_mode") or "").strip()
+            if ui_mode.startswith("JSP") and not has_jsp:
+                raise MigrationExecutionError(
+                    "Selected JSP conversion, but no JSP files were detected in this repository."
+                )
+            if ui_mode.startswith("JSF") and not has_jsf:
+                raise MigrationExecutionError(
+                    "Selected JSF conversion, but no JSF files were detected in this repository."
+                )
+
         destination = self._resolve_destination(config, connect, request)
 
         proposed_test_sources = (
@@ -266,6 +283,7 @@ class StartMigrationUseCase:
         )
 
         store = MigrationReportStore(WorkspacePaths(job_id))
+        is_ui_mod = "ui_modernization" in conversion_types or bool(options.get("uiModMode")) or bool(options.get("uiFrameworkTarget"))
         report = {
             "jobId": job_id,
             "status": MigrationStatus.QUEUED.value,
@@ -288,6 +306,19 @@ class StartMigrationUseCase:
             "proposedTestSources": proposed_test_sources,
             "destination": destination,
             "targetRepo": initial_target_repo,
+            "jspFilesMigrated": 0 if is_ui_mod else None,
+            "jsfFilesMigrated": 0 if is_ui_mod else None,
+            "jspFrontendFramework": (
+                f"{options.get('uiFrameworkTarget')} {options.get('uiFrameworkVersion')}".strip()
+                if (options.get("uiFrameworkTarget") and options.get("uiFrameworkVersion"))
+                else (options.get("uiFrameworkTarget") or "React")
+            ) if is_ui_mod else None,
+            "jsfFrontendFramework": (
+                f"{options.get('uiFrameworkTarget')} {options.get('uiFrameworkVersion')}".strip()
+                if (options.get("uiFrameworkTarget") and options.get("uiFrameworkVersion"))
+                else (options.get("uiFrameworkTarget") or "React")
+            ) if is_ui_mod else None,
+            "migrationPhases": [],
             "startedAt": _now(),
             "completedAt": None,
             "errorMessage": None,
@@ -387,32 +418,103 @@ class StartMigrationUseCase:
                 status=MigrationStatus.RUNNING.value,
                 log_message="[TRANSFORMATION] Applying automated code fixes and AST refactorings...",
             )
+
+            ui_transformations = []
+            is_ui_mod = "ui_modernization" in conversion_types or bool(report.get("options", {}).get("uiModMode")) or bool(report.get("options", {}).get("uiFrameworkTarget"))
+            if is_ui_mod:
+                ui_target = report.get("options", {}).get("uiFrameworkTarget") or "React"
+                ui_mode = report.get("options", {}).get("uiModMode")
+                try:
+                    from app.application.pipelines.frontend_migration.ui_migration_handler import UIMigrationHandler
+                    # ui_mode: source type (e.g. "JSP→React"), render_ui_mode: UI style (preserve/mui/material)
+                    render_ui_mode = report.get("options", {}).get("renderUiMode") or "preserve"
+                    handler = UIMigrationHandler(
+                        paths.migrated_repo_dir,
+                        ui_target,
+                        mode=ui_mode,
+                        ui_mode=render_ui_mode,
+                        backend_mode="unchanged",
+                    )
+                    ui_transformations = handler.run()
+                except Exception as e:
+                    logger.error(f"UI Migration failed: {e}")
+                    self._fail(store, job_id, f"UI migration failed: {e}")
+                    return
             change_analysis = self._change_analyzer.analyze(
                 paths.original_repo_dir, paths.migrated_repo_dir
             )
-            files_modified = change_analysis.files_modified_count
+            # Gather UI transformations and identify logical modernized files
+            ui_source_set = {
+                (t.get("sourceFile") or t.get("file") or "").replace("\\", "/")
+                for t in ui_transformations
+            }
+            ui_target_set = {
+                (t.get("targetSourceFile") or "").replace("\\", "/")
+                for t in ui_transformations
+            }
+            # Distinct logical files affected: non-UI changed files + UI modernized source templates
+            logical_touched_files = {
+                f for f in change_analysis.all_changed_files
+                if f.replace("\\", "/") not in ui_source_set
+                and f.replace("\\", "/") not in ui_target_set
+                and not f.replace("\\", "/").startswith("frontend/src/")
+            }
+            for t in ui_transformations:
+                sf = t.get("sourceFile") or t.get("file")
+                if sf:
+                    logical_touched_files.add(sf)
+
+            all_touched_files = set(change_analysis.all_changed_files)
+            for t in ui_transformations:
+                if t.get("sourceFile"):
+                    all_touched_files.add(t["sourceFile"])
+                elif t.get("file"):
+                    all_touched_files.add(t["file"])
+
+            files_modified = len(logical_touched_files) if logical_touched_files else len(all_touched_files)
+
             issues_fixed_count = (
                 len(change_analysis.import_changes)
                 + len(change_analysis.source_changes)
                 + len(result.dependency_upgrades)
                 + len(result.rule_executions)
+                + len(ui_transformations)
             )
+
+            # Derive accurate UI migration counts from the actual generated transformations
+            jsp_files_migrated = max(
+                sum(1 for f in change_analysis.all_changed_files if f.lower().endswith((".jsp", ".jspf", ".jspx"))),
+                sum(1 for t in ui_transformations if t.get("category", "").startswith("JSP"))
+            )
+            jsf_files_migrated = max(
+                sum(1 for f in change_analysis.all_changed_files if f.lower().endswith((".xhtml", ".jsf"))),
+                sum(1 for t in ui_transformations if t.get("category", "").startswith("JSF"))
+            )
+
+            ui_target = report.get("options", {}).get("uiFrameworkTarget")
+            ui_version = report.get("options", {}).get("uiFrameworkVersion")
+            ui_framework_label = f"{ui_target} {ui_version}".strip() if (ui_target and ui_version) else ui_target
             store.update(
                 filesModified=files_modified,
-                modifiedFiles=change_analysis.all_changed_files[:200],
+                modifiedFiles=sorted(logical_touched_files or all_touched_files)[:200],
                 importChanges=[change.to_dict() for change in change_analysis.import_changes[:200]],
                 sourceChanges=[change.to_dict() for change in change_analysis.source_changes[:200]],
+                uiTransformations=ui_transformations,
                 issuesFixed=issues_fixed_count,
                 progressPercent=60,
+                jspFilesMigrated=jsp_files_migrated,
+                jsfFilesMigrated=jsf_files_migrated,
+                jspFrontendFramework=ui_framework_label if (jsp_files_migrated > 0 or is_ui_mod) else None,
+                jsfFrontendFramework=ui_framework_label if (jsf_files_migrated > 0 or is_ui_mod) else None,
             )
-            if not change_analysis.import_changes and not change_analysis.source_changes:
-                store.append_logs(
-                    ["[TRANSFORMATION] No import or source code changes were required for this migration."]
-                )
-            else:
-                store.append_logs(
-                    [f"[TRANSFORMATION] Modified {files_modified} file(s) with {issues_fixed_count} transformation(s) applied."]
-                )
+            transform_logs = []
+            if ui_transformations:
+                transform_logs.append(f"[TRANSFORMATION] Modernized {len(ui_transformations)} UI template(s) to modern {ui_framework_label or 'SPA'} components.")
+            if change_analysis.import_changes or change_analysis.source_changes:
+                transform_logs.append(f"[TRANSFORMATION] Modified {files_modified} file(s) with {issues_fixed_count} transformation(s) applied.")
+            elif not transform_logs:
+                transform_logs.append("[TRANSFORMATION] No import or source code changes were required for this migration.")
+            store.append_logs(transform_logs)
             logger.info("Migration changed %d file(s) for job %s", files_modified, job_id)
 
             # --- Stage 4: Quality Check (Build, SonarQube, FOSSA, Unit Tests) ---
@@ -433,7 +535,7 @@ class StartMigrationUseCase:
             )
 
             # Optional Quality Gates (SonarQube/FOSSA)
-            self._run_quality_gates(store, job_id, result.project_dir or paths.migrated_repo_dir, report)
+            self._run_quality_gates(store, job_id, result.project_dir, report)
             store.update(progressPercent=75)
 
 
@@ -444,7 +546,7 @@ class StartMigrationUseCase:
                     import asyncio
                     from app.application.use_cases.run_unit_tests import RunUnitTestSuiteUseCase
                     from app.schemas.unit_test import UnitTestGenerateAndRunRequest
-                    
+
                     quality_checks_values = {}
                     active_user_id = user_id_ctx.get()
                     if active_user_id:
@@ -563,14 +665,12 @@ class StartMigrationUseCase:
                     total_cases = exist_count + gen_count
 
                     executed_details = []
-                    
                     # Dynamically discover target Java classes in the repository
                     repo_main_files = [f for f in mig_repo.rglob("*.java") if "test" not in str(f).lower() and f.is_file()]
                     available_class_names = [f.stem for f in repo_main_files] if repo_main_files else []
 
                     target_names = []
                     selected_ids = selected_predefined if isinstance(selected_predefined, list) else []
-
                     if testing_prompt_val and testing_prompt_val.strip():
                         if getattr(test_result, "prompt_analysis", None):
                             pa = test_result.prompt_analysis
@@ -738,21 +838,9 @@ class StartMigrationUseCase:
                 stage_name="5. Code Deprecation",
                 percent=83,
                 status=MigrationStatus.RUNNING.value,
-                log_message="[DEPRECATION] Scanning for deprecated APIs and publishing migrated repository...",
+                log_message="[DEPRECATION] Scanning for deprecated APIs...",
             )
-            file_utils.remove_tree(paths.migrated_repo_dir / ".git")
-            publish_target_java = result.effective_target_java_version or target_java
-            # Build-gate: warn if publishing a repo with build failures
-            build_success_flag = (store.read() or {}).get("buildSuccess", False)
-            build_status_flag = (store.read() or {}).get("buildStatus", "UNKNOWN")
-            if not build_success_flag:
-                store.append_logs([
-                    f"[WARNING] Build validation status: {build_status_flag}. "
-                    "Migrated repository will still be published for inspection, "
-                    "but may contain compilation errors."
-                ])
-            target_repo = self._publish(store, report, paths, publish_target_java)
-            store.append_logs([f"[DEPRECATION] Published migrated repository to: {target_repo}"])
+            store.append_logs(["[DEPRECATION] Code deprecation scan completed."])
             store.update(progressPercent=90)
 
             # --- Stage 6: Generating Migration Report ---
@@ -880,6 +968,10 @@ class StartMigrationUseCase:
                         "[PROPOSED TESTS] Proposed tests ready on Result Page.",
                     ])
                     logger.info("Generated and persisted %d proposed test case(s) for job %s", len(proposals), job_id)
+                    selected_pt_sources = report.get("proposedTestSources")
+                    if selected_pt_sources is not None and len(selected_pt_sources) > 0:
+                        store.append_logs([f"Starting Proposed Test execution for selected sources: {', '.join(selected_pt_sources)}"])
+                        proposed_test_service.run_approved_tests(job_id, sources=selected_pt_sources)
                 except Exception as pt_exc:  # noqa: BLE001
                     logger.warning(f"Post-migration proposed test generation notice for job {job_id}: {pt_exc}")
                     store.append_logs([f"[PROPOSED TESTS] Generation notice: {pt_exc}"])
@@ -896,6 +988,7 @@ class StartMigrationUseCase:
             )
             file_utils.remove_tree(paths.migrated_repo_dir / ".git")
             publish_target_java = result.effective_target_java_version or target_java
+
             # Build-gate: warn if publishing a repo with build failures
             build_success_flag = (store.read() or {}).get("buildSuccess", False)
             build_status_flag = (store.read() or {}).get("buildStatus", "UNKNOWN")
@@ -906,17 +999,6 @@ class StartMigrationUseCase:
                     "but may contain compilation errors."
                 ])
             target_repo = self._publish(store, report, paths, publish_target_java, github_token=github_token)
-
-            # --- Done ---
-            store.update(
-                status=MigrationStatus.COMPLETED.value,
-                currentStep=MigrationStep.COMPLETED.value,
-                progressPercent=100,
-                targetRepo=target_repo,
-                completedAt=_now(),
-            )
-            store.append_logs([f"Migration completed. Published to {target_repo}"])
-            logger.info("Migration completed for job %s -> %s", job_id, target_repo)
 
             # Refresh the chatbot's vector index
             self._reindex_knowledge_base(job_id)
@@ -936,6 +1018,9 @@ class StartMigrationUseCase:
 
         except MigrationExecutionError as exc:
             self._fail(store, job_id, exc.message)
+        except Exception as exc:  # noqa: BLE001 - report any unexpected failure cleanly
+            logger.exception("Unexpected migration failure for job %s", job_id)
+            self._fail(store, job_id, "Migration failed due to an unexpected error.")
         except (LLMNotConfiguredError, ChatLLMNotConfiguredError) as exc:
             logger.exception("LLM not configured for job %s", job_id)
             self._fail(store, job_id, "LLM_NOT_CONFIGURED")
@@ -964,56 +1049,24 @@ class StartMigrationUseCase:
         report: dict[str, Any],
         conversion_types: list[str],
     ) -> tuple[MigrationRunResult, BuildResult | None, list[dict[str, Any]]]:
-        """Run the AST-based migration engine with retry support."""
+        """Run the deterministic AST-based migration engine."""
         include_jakarta = self._should_include_jakarta(report)
-        max_attempts = settings.migration_max_retry_attempts
-        retry_attempts: list[dict[str, Any]] = []
-        last_result: MigrationRunResult | None = None
-        last_build: BuildResult | None = None
 
-        for attempt in range(1, max_attempts + 1):
-            if attempt > 1:
-                store.append_logs([f"Migration retry attempt {attempt}/{max_attempts}..."])
-                logger.info("Migration retry attempt %d/%d for job %s", attempt, max_attempts, job_id)
+        result = self._runner.run(
+            paths.migrated_repo_dir,
+            build_tool,
+            target_java,
+            include_jakarta=include_jakarta,
+            conversion_types=conversion_types,
+        )
+        store.append_logs(result.log_lines + result.error_lines)
 
-            result = self._runner.run(
-                paths.migrated_repo_dir,
-                build_tool,
-                target_java,
-                include_jakarta=include_jakarta,
-                conversion_types=conversion_types,
-            )
-            store.append_logs(result.log_lines + result.error_lines)
-            last_result = result
+        if not result.success:
+            return result, None, []
 
-            if not result.success:
-                retry_attempts.append({
-                    "attempt": attempt,
-                    "status": result.status,
-                    "reason": "Migration engine reported failure",
-                })
-                if attempt < max_attempts:
-                    continue
-                return result, None, retry_attempts
-
-            build_result = self._run_build_validation(job_id, result, build_tool)
-            last_build = build_result
-
-            if build_result and build_result.success:
-                logger.info("Migration succeeded on attempt %d for job %s", attempt, job_id)
-                return result, build_result, retry_attempts
-
-            retry_attempts.append({
-                "attempt": attempt,
-                "status": result.status,
-                "buildStatus": build_result.status_label if build_result else "UNKNOWN",
-                "reason": "Build validation failed after migration",
-            })
-
-            if attempt >= max_attempts:
-                break
-
-        return last_result, last_build, retry_attempts
+        # Deterministic Validation Phase
+        build_result = self._run_build_validation(job_id, result, build_tool)
+        return result, build_result, []
 
     # -- build validation ---------------------------------------------------- #
 
@@ -1092,7 +1145,7 @@ class StartMigrationUseCase:
         parts = [f"Migrated project from Java {source} to Java {target}."]
 
         if retry_attempts:
-            causes = "; ".join(attempt.get("rootCause") or attempt.get("reason", "unknown") for attempt in retry_attempts)
+            causes = "; ".join(attempt["rootCause"] for attempt in retry_attempts)
             parts.append(
                 f"The build failed after the first pass and was automatically "
                 f"retried {len(retry_attempts)} time(s) with additional "
@@ -1304,16 +1357,22 @@ class StartMigrationUseCase:
             for item in (report.get("conversionTypes") or [])
             if str(item).strip()
         }
-        return bool(
-            conversions
-            & {
-                "jakarta",
-                "javax_to_jakarta",
-                "javax-jakarta",
-                "javax_to_jakarta_ee",
-                "jakarta_migration",
-            }
-        )
+        if conversions & {
+            "jakarta",
+            "javax_to_jakarta",
+            "javax-jakarta",
+            "javax_to_jakarta_ee",
+            "jakarta_migration",
+        }:
+            return True
+        target_java_str = str(report.get("targetJavaVersion") or "").strip()
+        t = target_java_str.lower().replace("java", "").strip()
+        if t.startswith("1."):
+            t = t.split(".", 1)[1]
+        t = t.split(".", 1)[0]
+        if t.isdigit() and int(t) >= 17:
+            return True
+        return False
 
     # -- publish per destination mode --------------------------------------- #
 

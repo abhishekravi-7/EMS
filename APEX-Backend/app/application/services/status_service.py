@@ -145,4 +145,3 @@ class MigrationReportStore:
         existing = report.get("logLines") or []
         report["logLines"] = existing + [line for line in sanitized if line not in existing]
         self.write(report, force_db=False)
-

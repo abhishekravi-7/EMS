@@ -344,6 +344,7 @@ export default function MigrationWizardPage() {
       strategyContext: nextStrategyContext,
       projectContext: nextProjectContext,
       appContext: nextAppContext,
+      hideChatbot: step === 1,
     });
   }, [repoUrl, strategyAssistantContext, migrationJob, setContext, step, animationProgress, migrationTimerNow]);
 
@@ -391,6 +392,14 @@ export default function MigrationWizardPage() {
                   className={`wizard-step-item ${isCurrent ? "is-active" : ""} ${isCompleted && !isCurrent ? "is-completed" : ""} ${isAvailable ? "is-available" : ""} ${isLocked ? "is-locked" : ""}`}
                   onClick={() => {
                     if (canClick) {
+                      if (s.id === 5) {
+                        if (migrationJob?.status === "completed" || step === 7) {
+                          setIsMigrationFinishedState(true);
+                          setStep(7);
+                        }
+                      } else {
+                        setStep(s.id);
+                      }
                       setStep(s.id === 5 ? 7 : s.id);
                     }
                   }}
@@ -522,6 +531,7 @@ export default function MigrationWizardPage() {
         {step === 3 && (
           <StrategyPage>
             <StrategyStepView
+              jobId={connectState.jobId}
               strategy={strategyState}
               strategyAssistantContext={strategyAssistantContext}
               repoAnalysis={repoAnalysis}
@@ -614,6 +624,7 @@ export default function MigrationWizardPage() {
           <ResultPage>
             <ResultReportView
               resultExec={resultExecState}
+              repoAnalysis={repoAnalysis}
               runSonar={runSonar}
               runFossa={runFossa}
               runTests={runTests}

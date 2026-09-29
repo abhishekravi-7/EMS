@@ -166,7 +166,7 @@ class BuildMetadataAnalyzer:
                     group = ""
                     artifact = match.group(1)
                     version = match.group(2) if match.lastindex and match.lastindex >= 2 else None
-                
+
                 plugin_id = f"{group}:{artifact}"
                 if plugin_id in seen:
                     continue

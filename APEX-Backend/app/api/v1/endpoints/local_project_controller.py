@@ -64,7 +64,7 @@ async def local_project_capabilities() -> LocalProjectCapabilitiesResponse:
 
 def _safe_extract_zip(zip_bytes: bytes, target_dir: Path) -> str:
     """Extract zip bytes into target_dir safely, resolving single top-level directory wrapper.
-    
+
     Returns the project name derived from root directory or files.
     """
     target_dir.mkdir(parents=True, exist_ok=True)
@@ -125,7 +125,7 @@ async def upload_local_project(
     and extracts/writes files into the job workspace under `original-repo`.
     """
     effective_zip = zip_file or (file if file and file.filename and file.filename.lower().endswith(".zip") else None)
-    
+
     job_id = f"job_{uuid.uuid4().hex[:12]}"
     paths = WorkspacePaths(job_id)
     target_dir = paths.original_repo_dir
@@ -215,8 +215,8 @@ async def upload_local_project(
         mongo_db = await get_mongodb()
         if mongo_db is not None:
             await record_mongo_owner(
-                mongo_db, 
-                job_id=job_id, 
+                mongo_db,
+                job_id=job_id,
                 user_id=str(current_user.id),
                 owner_name=current_user.full_name,
                 owner_email=current_user.email,

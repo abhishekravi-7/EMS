@@ -6,7 +6,6 @@ from pathlib import Path
 
 import defusedxml.ElementTree as ET
 
-from app.infrastructure.java_runtime import build_tool_env
 from app.schemas.unit_test import TestExecutionDetail, UnitTestSuiteResult
 from app.shared.command_runner import resolve_executable, run_command
 
@@ -86,7 +85,7 @@ class UnitTestRunner:
             except OSError:
                 pass
 
-        res = run_command(cmd, cwd=project_dir, timeout=600, env=build_tool_env(target_major))
+        res = run_command(cmd, cwd=project_dir, timeout=600)
 
         return self.parse_junit_reports(
             reports_dir=reports_dir,

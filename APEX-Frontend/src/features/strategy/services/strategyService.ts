@@ -288,3 +288,14 @@ export async function queryStrategy(
   );
 }
 
+export async function getFrameworkRecommendations(
+  jobId: string
+): Promise<import("@/shared/types/domain").FrameworkRecommendations> {
+  return requestJson<import("@/shared/types/domain").FrameworkRecommendations>(
+    `/v1/discovery/${encodeURIComponent(jobId)}/framework-recommendation`,
+    "Failed to fetch framework recommendations",
+    {
+      method: "GET",
+    }
+  );
+}

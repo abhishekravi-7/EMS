@@ -53,7 +53,7 @@ async def get_token_usage_summary(
             "period_days": days,
             "database_disabled": True,
         }
-    
+
     current_user = await get_current_user(request)
     summary = await mongodb_llm_token_repository.get_summary_stats(mongo_db, user_id=str(current_user.id), days=days)
     return {
@@ -238,12 +238,12 @@ async def check_llm_providers() -> dict[str, Any]:
     """Check the health and availability of configured LLM providers."""
     from app.infrastructure.llm.groq_client import GroqClient
     from app.infrastructure.llm.ollama_client import OllamaClient
-    
+
     ollama = OllamaClient()
     groq = GroqClient()
-    
+
     ollama_health = await ollama.health_check()
-    
+
     return {
         "ollama": ollama_health,
         "groq": {

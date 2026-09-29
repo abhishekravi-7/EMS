@@ -12,7 +12,6 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-from app.core.config import settings
 from app.core.exceptions import InvalidMigrationConfigError, MigrationJobNotFoundError
 from app.infrastructure.persistence.job_repository import JobRepository
 
@@ -148,6 +147,7 @@ class SaveMigrationConfigUseCase:
         """
         normalized: list[str] = []
         spring_boot_requested = False
+        ui_mod_requested = False
         for item in requested:
             conversion = str(item).strip()
             if not conversion:
@@ -155,6 +155,9 @@ class SaveMigrationConfigUseCase:
             key = conversion.lower()
             if key in SPRING_BOOT_CONVERSION_ALIASES:
                 spring_boot_requested = True
+                continue
+            if key == "ui_modernization":
+                ui_mod_requested = True
                 continue
             if conversion not in normalized:
                 normalized.append(conversion)
@@ -165,5 +168,10 @@ class SaveMigrationConfigUseCase:
         )
         if spring_boot_requested and is_eligible and SPRING_BOOT_CONVERSION not in normalized:
             normalized.append(SPRING_BOOT_CONVERSION)
+
+        has_jsp = int(discovery.get("jspFileCount") or 0) > 0
+        has_jsf = int(discovery.get("jsfFileCount") or 0) > 0
+        if ui_mod_requested and (has_jsp or has_jsf) and "ui_modernization" not in normalized:
+            normalized.append("ui_modernization")
 
         return normalized

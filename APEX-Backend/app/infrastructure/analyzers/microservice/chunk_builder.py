@@ -36,6 +36,10 @@ def classify_role(cls: JavaClassInfo) -> str:
         return "controller"
     if cls.class_name.endswith("Controller"):
         return "controller"
+    if "WebServlet" in cls.annotations or cls.class_name.endswith("Servlet") or (cls.extends and cls.extends.endswith("Servlet")):
+        return "controller"
+    if "ManagedBean" in cls.annotations or "Named" in cls.annotations:
+        return "controller"
 
     if "Repository" in cls.annotations or (cls.extends and cls.extends in _REPOSITORY_BASES):
         return "repository"

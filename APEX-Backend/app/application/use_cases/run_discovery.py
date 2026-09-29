@@ -149,11 +149,25 @@ class RunDiscoveryUseCase:
             eligibility.spring_boot_upgrade_eligible,
         )
 
+        from app.infrastructure.analyzers.frontend_compatibility_analyzer import (
+            FrontendCompatibilityAnalyzer,
+        )
+        framework_recommendations = FrontendCompatibilityAnalyzer().analyze(
+            paths.original_repo_dir, analysis
+        ).to_dict()
+
         created_at = datetime.now(timezone.utc).isoformat()
 
         # 4. Save discovery-report.json.
         report = self._build_report(
-            job_id, repo_url, owner, repo_name, analysis, eligibility, created_at
+            job_id,
+            repo_url,
+            owner,
+            repo_name,
+            analysis,
+            eligibility,
+            created_at,
+            framework_recommendations=framework_recommendations,
         )
         self._job_repository.save_discovery_report(job_id, report)
 
@@ -164,7 +178,14 @@ class RunDiscoveryUseCase:
 
         # 5. Build the clean summary response.
         response = self._build_response(
-            job_id, repo_url, owner, repo_name, visibility, analysis, eligibility
+            job_id,
+            repo_url,
+            owner,
+            repo_name,
+            visibility,
+            analysis,
+            eligibility,
+            framework_recommendations=framework_recommendations,
         )
         return DiscoveryOutcome(response=response, report=report)
 
@@ -264,6 +285,7 @@ class RunDiscoveryUseCase:
         analysis: ProjectAnalysis,
         eligibility: SpringBootEligibility,
         created_at: str,
+        framework_recommendations: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         return {
             "jobId": job_id,
@@ -291,6 +313,11 @@ class RunDiscoveryUseCase:
             "configFiles": list(analysis.config_files)[:100],
             "otherFileCount": len(analysis.other_files),
             "otherFiles": list(analysis.other_files)[:100],
+            "jspFileCount": analysis.jsp_file_count,
+            "jsfFileCount": analysis.jsf_file_count,
+            "jspFiles": list(analysis.jsp_files),
+            "jsfFiles": list(analysis.jsf_files),
+            "viewTechnologies": analysis.view_technologies,
             "totalFileCount": analysis.total_file_count,
             "defaultBranch": "main",
             "buildWarning": analysis.build_warning,
@@ -315,6 +342,7 @@ class RunDiscoveryUseCase:
                 "packageJson": analysis.has_package_json,
             },
             "springBootConversion": eligibility.to_dict(),
+            "frameworkRecommendations": framework_recommendations,
             "createdAt": created_at,
         }
 
@@ -342,19 +370,58 @@ class RunDiscoveryUseCase:
         java_files = report.get("javaFiles") or []
         config_files = report.get("configFiles")
         other_files = report.get("otherFiles")
+        jsp_files = report.get("jspFiles") or []
+        jsf_files = report.get("jsfFiles") or []
 
-        if (not java_files or config_files is None or other_files is None) and paths.original_repo_dir.is_dir():
-            all_files = file_utils.find_files(paths.original_repo_dir, "")
+        if (
+            not java_files
+            or not jsp_files
+            or not jsf_files
+            or config_files is None
+            or other_files is None
+        ) and paths.original_repo_dir.is_dir():
+            all_files = file_utils.find_files(paths.original_repo_dir, "", limit=None)
             if not java_files:
                 java_files = [f for f in all_files if f.lower().endswith(".java")][:200]
+            if not jsp_files:
+                jsp_files = [f for f in all_files if f.lower().endswith((".jsp", ".jspf", ".jspx"))]
+            if not jsf_files:
+                jsf_files = [f for f in all_files if f.lower().endswith((".xhtml", ".jsf"))]
             if config_files is None:
                 config_exts = (".xml", ".yml", ".yaml", ".properties", ".gradle", ".gradle.kts", ".json", ".conf", ".config", ".toml")
-                config_files = [f for f in all_files if any(f.lower().endswith(ext) for ext in config_exts)][:100]
+                config_files = [f for f in all_files if f not in java_files and f not in jsp_files and f not in jsf_files and any(f.lower().endswith(ext) for ext in config_exts)][:100]
             if other_files is None:
-                other_files = [f for f in all_files if f not in (java_files or []) and f not in (config_files or [])][:100]
+                other_files = [f for f in all_files if f not in (java_files or []) and f not in (config_files or []) and f not in (jsp_files or []) and f not in (jsf_files or [])][:100]
 
-        config_files = config_files or []
-        other_files = other_files or []
+        if other_files:
+            jsp_jsf_exts = (".jsp", ".jspf", ".jspx", ".xhtml", ".jsf")
+            other_files = [f for f in other_files if not f.lower().endswith(jsp_jsf_exts)]
+
+        framework_recommendations = report.get("frameworkRecommendations")
+        if not framework_recommendations and paths.original_repo_dir.is_dir():
+            try:
+                from app.infrastructure.analyzers.frontend_compatibility_analyzer import (
+                    FrontendCompatibilityAnalyzer,
+                )
+                framework_recommendations = FrontendCompatibilityAnalyzer().analyze(
+                    paths.original_repo_dir
+                ).to_dict()
+            except Exception:
+                pass
+
+        view_technologies = report.get("viewTechnologies")
+        if not view_technologies and paths.original_repo_dir.is_dir():
+            try:
+                from app.infrastructure.analyzers.view_technology_analyzer import ViewTechnologyAnalyzer
+                view_technologies = ViewTechnologyAnalyzer().analyze(
+                    root=paths.original_repo_dir,
+                    jsp_files=jsp_files,
+                    jsf_files=jsf_files,
+                    java_files=java_files,
+                    dependencies=report.get("dependencies", []),
+                ).to_dict()
+            except Exception:
+                pass
 
         return {
             "jobId": job_id,
@@ -386,12 +453,16 @@ class RunDiscoveryUseCase:
                 "javaFiles": java_files,
                 "configFileCount": report.get("configFileCount") or len(config_files),
                 "configFiles": config_files,
-                "otherFileCount": report.get("otherFileCount") or len(other_files),
+                "otherFileCount": len(other_files) if other_files is not None else report.get("otherFileCount"),
                 "otherFiles": other_files,
-                "totalFileCount": report.get("totalFileCount") or (len(java_files) + len(config_files) + len(other_files)),
+                "jspFileCount": report.get("jspFileCount") or len(jsp_files),
+                "jsfFileCount": report.get("jsfFileCount") or len(jsf_files),
+                "totalFileCount": report.get("totalFileCount") or (len(java_files) + len(config_files) + len(jsp_files) + len(jsf_files) + len(other_files or [])),
                 "defaultBranch": report.get("defaultBranch", "main"),
                 "buildWarning": report.get("buildWarning"),
                 "frontend": frontend_info,
+                "frameworkRecommendations": framework_recommendations,
+                "viewTechnologies": view_technologies or {},
                 "detectedFiles": {
                     "pomXml": bool(detected_files.get("pomXml", False)),
                     "buildGradle": bool(detected_files.get("buildGradle", False)),
@@ -434,6 +505,7 @@ class RunDiscoveryUseCase:
         visibility: str,
         analysis: ProjectAnalysis,
         eligibility: SpringBootEligibility,
+        framework_recommendations: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         return {
             "jobId": job_id,
@@ -468,10 +540,16 @@ class RunDiscoveryUseCase:
                 "configFiles": list(analysis.config_files)[:100],
                 "otherFileCount": len(analysis.other_files),
                 "otherFiles": list(analysis.other_files)[:100],
+                "jspFileCount": analysis.jsp_file_count,
+                "jsfFileCount": analysis.jsf_file_count,
+                "jspFiles": list(analysis.jsp_files),
+                "jsfFiles": list(analysis.jsf_files),
                 "totalFileCount": analysis.total_file_count,
                 "defaultBranch": "main",
                 "buildWarning": analysis.build_warning,
                 "frontend": analysis.frontend.to_dict(),
+                "frameworkRecommendations": framework_recommendations,
+                "viewTechnologies": analysis.view_technologies,
                 "detectedFiles": {
                     "pomXml": analysis.has_pom_xml,
                     "buildGradle": analysis.has_build_gradle,

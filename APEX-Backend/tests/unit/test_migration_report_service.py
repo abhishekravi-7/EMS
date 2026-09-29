@@ -200,3 +200,98 @@ def test_target_repo_does_not_contain_source_repo_url():
     assert "https-github" not in res["target_repo"]
 
 
+def test_build_report_details_categories():
+    """Test build_report_details retrieves exact underlying records for all 5 summary cards."""
+    mock_report = {
+        "jobId": "job-detail-test-123",
+        "status": "completed",
+        "buildTool": "MAVEN",
+        "filesModified": 2,
+        "modifiedFiles": ["pom.xml", "src/main/webapp/login.jsp"],
+        "fileDiffs": [
+            {
+                "relativePath": "pom.xml",
+                "fileName": "pom.xml",
+                "changeType": "MODIFIED",
+                "addedLineCount": 1,
+                "removedLineCount": 1,
+            },
+            {
+                "relativePath": "src/main/webapp/login.jsp",
+                "fileName": "login.jsp",
+                "changeType": "MODIFIED",
+                "addedLineCount": 50,
+                "removedLineCount": 50,
+            },
+        ],
+        "uiTransformations": [
+            {
+                "file": "LoginComponent.tsx",
+                "sourceFile": "src/main/webapp/login.jsp",
+                "targetFramework": "React",
+                "sourceFramework": "JSP",
+                "status": "Added",
+                "additions": 50,
+                "deletions": 50,
+            }
+        ],
+        "importChanges": [
+            {
+                "file": "src/main/java/App.java",
+                "added": ["jakarta.servlet.http.HttpServlet"],
+                "removed": ["javax.servlet.http.HttpServlet"],
+            }
+        ],
+        "dependencyUpgrades": [
+            {
+                "groupId": "org.springframework.boot",
+                "artifactId": "spring-boot-starter",
+                "sourceVersion": "2.7.0",
+                "resolvedTargetVersion": "3.2.0",
+                "status": "UPGRADED",
+            }
+        ],
+        "fossa_report": {
+            "vulnerabilities": [],
+        },
+    }
+
+    # 1. Files
+    files_detail = report_service.build_report_details(mock_report, "files")
+    assert files_detail["type"] == "files"
+    assert files_detail["total"] == 2
+    assert len(files_detail["items"]) == 2
+    assert files_detail["items"][0]["file_name"] == "pom.xml"
+    assert files_detail["items"][1]["path"] == "src/main/webapp/login.jsp"
+    assert files_detail["items"][1]["file_name"] == "LoginComponent.tsx"
+
+    # 2. Issues
+    issues_detail = report_service.build_report_details(mock_report, "issues")
+    assert issues_detail["type"] == "issues"
+    # 1 import change + 1 dependency upgrade + 1 UI transformation = 3 issues
+    assert issues_detail["total"] == 3
+    assert len(issues_detail["items"]) == 3
+
+    # 3. Dependencies
+    dep_detail = report_service.build_report_details(mock_report, "dependencies")
+    assert dep_detail["type"] == "dependencies"
+    assert dep_detail["total"] == 1
+    assert dep_detail["items"][0]["name"] == "org.springframework.boot:spring-boot-starter"
+    assert dep_detail["items"][0]["old_version"] == "2.7.0"
+    assert dep_detail["items"][0]["new_version"] == "3.2.0"
+
+    # 4. Vulnerabilities (empty)
+    vuln_detail = report_service.build_report_details(mock_report, "vulnerabilities")
+    assert vuln_detail["type"] == "vulnerabilities"
+    assert vuln_detail["total"] == 0
+    assert vuln_detail["items"] == []
+
+    # 5. Transformations (Code Transmission)
+    trans_detail = report_service.build_report_details(mock_report, "transformations")
+    assert trans_detail["type"] == "transformations"
+    # 1 UI transform + 1 Java import refactoring = 2 transformations
+    assert trans_detail["total"] == 2
+    assert trans_detail["items"][0]["source_file"] == "src/main/webapp/login.jsp"
+    assert trans_detail["items"][0]["target_file"] == "LoginComponent.tsx"
+    assert trans_detail["items"][0]["transformation_type"] == "JSP -> React"
+

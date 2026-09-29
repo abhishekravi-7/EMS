@@ -43,7 +43,7 @@ class LlmSelfHealingRepair:
         error_lines: List[str],
         *,
         target_java_version: Optional[str] = None,
-        max_files_to_fix: int = 0,
+        max_files_to_fix: int = 3,
     ) -> RepairResult:
         """Attempt to repair failing compilation files using ChatLLM."""
         if not error_lines:
@@ -56,6 +56,7 @@ class LlmSelfHealingRepair:
                 log_lines=["No specific Java source file paths could be extracted from compiler error logs."],
             )
 
+        error_context = "\n".join(error_lines[:30])
         repaired: List[str] = []
         logs: List[str] = [f"LLM Self-Healing Repair initiated for {len(failing_file_paths)} failing file(s)."]
         provider_used: Optional[str] = None
@@ -66,15 +67,6 @@ class LlmSelfHealingRepair:
 
             rel_path = file_path.relative_to(project_dir).as_posix()
             source_code = file_utils.read_text(file_path)
-
-            # Filter error lines relevant to THIS specific file
-            file_errors = [
-                line for line in error_lines
-                if rel_path in line or file_path.name in line
-            ]
-            if not file_errors:
-                file_errors = error_lines[:20]  # fallback to global context
-            error_context = "\n".join(file_errors[:30])
 
             system_prompt = (
                 "You are an expert Enterprise Java Modernization AI Agent. "
@@ -142,7 +134,7 @@ class LlmSelfHealingRepair:
             return asyncio.run(_collect())
 
     @staticmethod
-    def _extract_failing_files(project_dir: Path, error_lines: List[str], max_files: int = 0) -> List[Path]:
+    def _extract_failing_files(project_dir: Path, error_lines: List[str], max_files: int = 3) -> List[Path]:
         found: List[Path] = []
         pattern = re.compile(r"([A-Za-z0-9_/\\]+\.java)[:(]\d+")
 
@@ -159,7 +151,7 @@ class LlmSelfHealingRepair:
 
                 if candidate.exists() and candidate not in found:
                     found.append(candidate)
-                    if max_files > 0 and len(found) >= max_files:
+                    if len(found) >= max_files:
                         return found
         return found
 

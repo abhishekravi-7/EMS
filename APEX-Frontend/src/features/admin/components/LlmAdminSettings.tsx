@@ -29,7 +29,7 @@ const HUGGINGFACE_MODELS = [
 
 export function LlmAdminSettings({ settings, onChange }: LlmAdminSettingsProps) {
   const llmEnabled = settings.llm_enabled === true || settings.llm_enabled === "true";
-  
+
   let llmFeatures: string[] = [];
   try {
     llmFeatures = settings.llm_features ? JSON.parse(settings.llm_features) : [];
@@ -52,22 +52,22 @@ export function LlmAdminSettings({ settings, onChange }: LlmAdminSettingsProps) 
   }
 
   const toggleFeature = (id: string) => {
-    const newFeatures = llmFeatures.includes(id) 
-      ? llmFeatures.filter(f => f !== id) 
+    const newFeatures = llmFeatures.includes(id)
+      ? llmFeatures.filter(f => f !== id)
       : [...llmFeatures, id];
     onChange("llm_features", JSON.stringify(newFeatures));
   };
 
   const toggleGroqModel = (id: string) => {
-    const newModels = groqModels.includes(id) 
-      ? groqModels.filter(m => m !== id) 
+    const newModels = groqModels.includes(id)
+      ? groqModels.filter(m => m !== id)
       : [...groqModels, id];
     onChange("groq_models", JSON.stringify(newModels));
   };
 
   const toggleHuggingfaceModel = (id: string) => {
-    const newModels = huggingfaceModels.includes(id) 
-      ? huggingfaceModels.filter(m => m !== id) 
+    const newModels = huggingfaceModels.includes(id)
+      ? huggingfaceModels.filter(m => m !== id)
       : [...huggingfaceModels, id];
     onChange("huggingface_models", JSON.stringify(newModels));
   };
@@ -82,7 +82,7 @@ export function LlmAdminSettings({ settings, onChange }: LlmAdminSettingsProps) 
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-        
+
         {/* Enable Intelligence (Master Switch) */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
           <div>
@@ -107,7 +107,7 @@ export function LlmAdminSettings({ settings, onChange }: LlmAdminSettingsProps) 
         </div>
 
         {/* Feature Switches */}
-        <div style={{ 
+        <div style={{
           border: "1px solid #e2e8f0", borderRadius: "8px", padding: "20px", background: "#ffffff",
           opacity: llmEnabled ? 1 : 0.5, pointerEvents: llmEnabled ? "auto" : "none"
         }}>
@@ -128,7 +128,7 @@ export function LlmAdminSettings({ settings, onChange }: LlmAdminSettingsProps) 
         </div>
 
         {/* Groq Models */}
-        <div style={{ 
+        <div style={{
           border: "1px solid #e2e8f0", borderRadius: "8px", padding: "20px", background: "#ffffff",
           opacity: llmEnabled ? 1 : 0.5, pointerEvents: llmEnabled ? "auto" : "none"
         }}>
@@ -149,7 +149,7 @@ export function LlmAdminSettings({ settings, onChange }: LlmAdminSettingsProps) 
         </div>
 
         {/* HuggingFace Models */}
-        <div style={{ 
+        <div style={{
           border: "1px solid #e2e8f0", borderRadius: "8px", padding: "20px", background: "#ffffff",
           opacity: llmEnabled ? 1 : 0.5, pointerEvents: llmEnabled ? "auto" : "none"
         }}>

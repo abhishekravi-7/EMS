@@ -355,4 +355,3 @@ export async function getProposedTestComparison(jobId: string): Promise<Proposed
     "Failed to fetch proposed test comparison"
   );
 }
-
