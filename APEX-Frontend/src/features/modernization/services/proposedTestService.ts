@@ -58,6 +58,10 @@ export interface ExecutionEvidence {
   logs_url?: string | null;
   screenshot_available?: boolean;
   video_available?: boolean;
+  video_duration?: number | null;
+  video_duration_formatted?: string | null;
+  video_size?: number | null;
+  recording_status?: string | null;
   trace_url?: string | null;
 }
 
@@ -145,6 +149,8 @@ export interface ProposedTestStatusResponse {
   };
   allure_report_available?: boolean;
   allure_report_url?: string | null;
+  playwright_report_available?: boolean;
+  playwright_report_url?: string | null;
   selected_sources?: string[];
   metrics?: ProposedTestMetrics;
   logs?: Array<{ ts: string; msg: string; level: string }>;
@@ -156,6 +162,8 @@ export interface ProposedTestResultsResponse {
   status: string;
   allure_report_available?: boolean;
   allure_report_url?: string | null;
+  playwright_report_available?: boolean;
+  playwright_report_url?: string | null;
   selected_sources?: string[];
   metrics?: ProposedTestMetrics;
   test_cases: ProposedTestCase[];
@@ -353,5 +361,36 @@ export async function getProposedTestComparison(jobId: string): Promise<Proposed
   return requestJson<ProposedTestComparisonResponse>(
     `/v1/migration/${encodeURIComponent(jobId)}/proposed-tests/comparison`,
     "Failed to fetch proposed test comparison"
+  );
+}
+
+export interface ProposedTestReportResponse {
+  job_id: string;
+  test_id: string;
+  title: string;
+  type: string;
+  source: string;
+  status: string;
+  description?: string;
+  steps?: string[];
+  preconditions?: string[];
+  expected_result?: string;
+  api_spec?: ApiTestSpec | null;
+  ui_spec?: UiTestSpec | null;
+  execution_result?: ExecutionResult | null;
+  baseline_execution_result?: ExecutionResult | null;
+  api_trace?: any;
+  browser_log?: string | null;
+  has_artifacts: boolean;
+  report_available: boolean;
+}
+
+export async function getProposedTestReport(
+  jobId: string,
+  testId: string
+): Promise<ProposedTestReportResponse> {
+  return requestJson<ProposedTestReportResponse>(
+    `/v1/migration/${encodeURIComponent(jobId)}/proposed-tests/${encodeURIComponent(testId)}/report`,
+    "Failed to fetch proposed test report"
   );
 }

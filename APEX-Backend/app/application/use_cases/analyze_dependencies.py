@@ -12,20 +12,20 @@ import hashlib
 import json
 import logging
 from pathlib import Path
+from typing import Any
 try:
     from cachetools import LRUCache
 except ImportError:
-    from collections import OrderedDict
-
-    class LRUCache(OrderedDict):  # type: ignore[no-redef]
-        def __init__(self, maxsize: int = 100, *args: Any, **kwargs: Any) -> None:
+    class LRUCache(dict):  # type: ignore[no-redef]
+        def __init__(self, maxsize: int = 128) -> None:
+            super().__init__()
             self.maxsize = maxsize
-            super().__init__(*args, **kwargs)
 
         def __setitem__(self, key: Any, value: Any) -> None:
+            if len(self) >= self.maxsize and key not in self:
+                oldest = next(iter(self))
+                del self[oldest]
             super().__setitem__(key, value)
-            if len(self) > self.maxsize:
-                self.popitem(last=False)
 
 from sqlalchemy.orm import Session
 

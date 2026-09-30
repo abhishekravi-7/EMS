@@ -1309,11 +1309,9 @@ class StartMigrationUseCase:
         except (LLMNotConfiguredError, ChatLLMNotConfiguredError) as exc:
             logger.exception("LLM not configured for job %s", job_id)
             self._fail(store, job_id, "LLM_NOT_CONFIGURED")
-        except Exception as exc:  # noqa: BLE001
-            import traceback
-            logger.exception("Migration job %s failed with an unexpected error", job_id)
-            err_trace = traceback.format_exc()
-            self._fail(store, job_id, f"Migration failed due to an unexpected error.\\n{err_trace}")
+        except Exception as exc:  # noqa: BLE001 - report any unexpected failure cleanly
+            logger.exception("Unexpected migration failure for job %s: %s", job_id, exc)
+            self._fail(store, job_id, f"Migration failed: {exc}")
         finally:
             if repo_token is not None:
                 repository_url_ctx.reset(repo_token)

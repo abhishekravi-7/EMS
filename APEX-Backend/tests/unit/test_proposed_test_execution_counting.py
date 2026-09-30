@@ -275,7 +275,11 @@ def test_completion_log_reports_metrics_executed_not_len_tests_to_run(tmp_path):
         wp.return_value.original_repo_dir = tmp_path / "repo"
 
         svc.run_approved_tests(job_id, {})
-        time.sleep(1.2)  # let background thread finish
+        # Wait for background thread to complete (up to 20s)
+        for _ in range(200):
+            if any("Baseline execution completed" in m for m in captured):
+                break
+            time.sleep(0.1)
 
     completion = [m for m in captured if "Baseline execution completed" in m]
     assert completion, "Expected a 'Baseline execution completed' log line"

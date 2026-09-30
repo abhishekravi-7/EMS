@@ -77,6 +77,32 @@ class AppReadinessChecker:
                     process_exited=True,
                 )
 
+            # Step 1b: Verify that the process PID (or its children) actually owns the listening port
+            if not MigratedAppLauncher.is_port_owned_by_process(port, process_pid):
+                owner_pids = MigratedAppLauncher.get_port_listening_pids(port)
+                if owner_pids:
+                    logger.warning(
+                        "[APP] Port %d rejected: process PID %d does not own port (listening PIDs: %s)",
+                        port, process_pid, owner_pids,
+                    )
+                    return AppReadinessResult(
+                        ready=False,
+                        port=port,
+                        base_url=base_url,
+                        error=f"Port {port} rejected: not owned by {app_type_label} process (PID={process_pid}, listening PIDs={owner_pids}).",
+                        attempts=1,
+                        elapsed_seconds=round(time.time() - start, 2),
+                    )
+                else:
+                    return AppReadinessResult(
+                        ready=False,
+                        port=port,
+                        base_url=base_url,
+                        error=f"Port {port} is not listening yet ({app_type_label} PID={process_pid} is still initializing).",
+                        attempts=1,
+                        elapsed_seconds=round(time.time() - start, 2),
+                    )
+
         # Step 2: TCP check
         if not self._tcp_reachable(host, port, timeout_s):
             return AppReadinessResult(
@@ -89,10 +115,11 @@ class AppReadinessChecker:
             )
 
         # Step 3: HTTP probe across standard endpoints
+        rejection_reasons: list[str] = []
         for endpoint in _HEALTH_ENDPOINTS:
             url = base_url.rstrip("/") + endpoint
             status, err = self._http_get(url, timeout_s)
-            if status is not None and status < 500:
+            if status is not None:
                 elapsed = round(time.time() - start, 2)
                 logger.info(
                     "%s at %s is READY (endpoint=%s, status=%d, elapsed=%.2fs)",
@@ -107,13 +134,16 @@ class AppReadinessChecker:
                     attempts=1,
                     elapsed_seconds=elapsed,
                 )
+            if err:
+                rejection_reasons.append(f"{endpoint}: {err}")
 
         elapsed = round(time.time() - start, 2)
+        rej_info = f" Rejections: {'; '.join(rejection_reasons)}." if rejection_reasons else ""
         return AppReadinessResult(
             ready=False,
             port=port,
             base_url=base_url,
-            error=f"Port {port} is open but no HTTP endpoint responded. Probed: {', '.join(_HEALTH_ENDPOINTS)}.",
+            error=f"Port {port} is open but no valid application HTTP endpoint responded.{rej_info}",
             attempts=1,
             elapsed_seconds=elapsed,
         )
@@ -205,9 +235,21 @@ class AppReadinessChecker:
             req.add_header("Accept", "application/json, text/html, */*")
             req.add_header("User-Agent", "JavaAPEX-Readiness-Checker/1.0")
             with urllib.request.urlopen(req, timeout=timeout_s) as resp:  # noqa: S310
+                server_hdr = resp.headers.get("Server", "")
+                if "Microsoft-HTTPAPI" in server_hdr:
+                    return None, f"Rejected: unrelated Windows service ({server_hdr})"
                 return resp.status, None
         except urllib.error.HTTPError as e:
-            # 4xx responses (e.g. 401, 403, 404) mean the HTTP server is running and responding
+            server_hdr = e.headers.get("Server", "")
+            if "Microsoft-HTTPAPI" in server_hdr:
+                return None, f"Rejected: unrelated Windows service ({server_hdr})"
+            www_auth = e.headers.get("WWW-Authenticate", "")
+            if "NTLM" in www_auth:
+                return None, "Rejected: NTLM authentication challenge from unrelated Windows service"
+            content_len = e.headers.get("Content-Length", "")
+            if content_len == "0" and e.code in (401, 403, 404, 500):
+                return None, f"Rejected: HTTP {e.code} with empty body from unrelated service"
+            # Valid application 4xx responses (e.g. Spring Security login redirect or custom error body)
             return e.code, None
         except urllib.error.URLError as e:
             return None, str(e.reason)

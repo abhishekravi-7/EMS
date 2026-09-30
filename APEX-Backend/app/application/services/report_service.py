@@ -8,12 +8,28 @@ with safe zero/null defaults so the UI renders without crashing.
 
 from __future__ import annotations
 
+import logging
 import threading
 from typing import Any
-from cachetools import LRUCache
+try:
+    from cachetools import LRUCache
+except ImportError:
+    class LRUCache(dict):  # type: ignore[no-redef]
+        def __init__(self, maxsize: int = 128) -> None:
+            super().__init__()
+            self.maxsize = maxsize
+
+        def __setitem__(self, key: Any, value: Any) -> None:
+            if len(self) >= self.maxsize and key not in self:
+                oldest = next(iter(self))
+                del self[oldest]
+            super().__setitem__(key, value)
+
 from app.application.services.file_diff_service import FileDiffService
 from app.infrastructure.github.repo_creator import RepoCreator
 from app.infrastructure.workspace.workspace_paths import WorkspacePaths
+
+logger = logging.getLogger(__name__)
 
 _diff_service = FileDiffService()
 _RESULT_CACHE: LRUCache = LRUCache(maxsize=100)
@@ -189,6 +205,30 @@ def _build_issues(report: dict[str, Any]) -> list[dict[str, Any]]:
                 "conversion_type": "ui_transformation",
             })
 
+    # 6. Source Code Changes (Java modernization / refactoring)
+    source_changes = report.get("sourceChanges") or []
+    for idx, sc in enumerate(source_changes):
+        file_p = sc.get("file") or sc.get("file_path") or ""
+        lines_c = sc.get("lines_changed") or 0
+        desc = f"Modernized Java source code ({lines_c} lines modified)" if lines_c else "Modernized Java source code"
+        key = f"{file_p}:{desc}"
+        if key not in seen_keys:
+            seen_keys.add(key)
+            issues.append({
+                "id": f"issue-src-{idx + 1}",
+                "severity": "info",
+                "status": "fixed",
+                "category": "Java Modernization",
+                "message": desc,
+                "file_path": file_p,
+                "line_number": 1,
+                "column": None,
+                "code_snippet": None,
+                "suggested_fix": "Refactored Java source code for target version compatibility",
+                "fixed_at": report.get("completedAt") or report.get("startedAt"),
+                "conversion_type": "java_version",
+            })
+
     return issues
 
 
@@ -337,17 +377,19 @@ def _core(report: dict[str, Any]) -> dict[str, Any]:
     modified_files = report.get("modifiedFiles") or report.get("modified_files") or []
     files_modified_count = int(report.get("filesModified") or report.get("files_modified") or len(modified_files))
 
-    if files_modified_count == 0 and job_id:
+    if job_id:
         file_diffs = _diff_service.get_changed_files_summary(job_id, report)
-        if file_diffs:
+        if file_diffs and (files_modified_count < len(file_diffs) or files_modified_count == 0):
             files_modified_count = len(file_diffs)
 
     issues = _build_issues(report)
-    issues_fixed = int(
-        report.get("issuesFixed")
-        or report.get("issues_fixed")
-        or len(issues)
+    issues_fixed = max(
+        int(report.get("issuesFixed") or report.get("issues_fixed") or 0),
+        len(issues),
     )
+
+    trans_details = build_report_details(report, "transformations")
+    transformations_count = int(trans_details.get("total", 0))
 
     dep_upgrades = report.get("dependencyUpgrades") or report.get("dependency_upgrades") or []
     dep_count = int(report.get("dependencyCount") or len(dep_upgrades))
@@ -376,6 +418,7 @@ def _core(report: dict[str, Any]) -> dict[str, Any]:
         "stages": stages,
         "files_modified": files_modified_count,
         "issues_fixed": issues_fixed,
+        "transformations_count": transformations_count,
         "error_message": report.get("errorMessage") or report.get("error_message"),
         "dependency_count": dep_count,
         # --- migration engine report fields ---
@@ -917,15 +960,7 @@ def build_result(report: dict[str, Any]) -> dict[str, Any]:
         "issues_fixed": core["issues_fixed"],
         "migration_log": log_lines,
         "issues": issues,
-        "test_insights": report.get("test_insights") or default_insights,
-
-        "test_insights": report.get("test_insights") or [],
-        "test_summary": report.get("test_summary"),
-        "test_llm_model": report.get("test_llm_model"),
-        "sonar_report": report.get("sonar_report"),
-        "test_pipeline": report.get("test_pipeline"),
-
-        "test_insights": (report.get("test_insights") or []) if run_tests else [],
+        "test_insights": (report.get("test_insights") or default_insights) if run_tests else [],
         "test_summary": report.get("test_summary") if run_tests else None,
  
         "test_llm_model": report.get("test_llm_model") if run_tests else None,
