@@ -120,6 +120,9 @@ export default function AdminConsolePage() {
             return INITIAL_SYSTEM_SETTINGS;
           });
           setAdminSettings(sysData || INITIAL_SYSTEM_SETTINGS);
+          const loadedSettings = sysData || INITIAL_SYSTEM_SETTINGS;
+          setCiEnabled(String(loadedSettings.ci_enabled ?? "true").toLowerCase() !== "false");
+          setCdEnabled(String(loadedSettings.cd_enabled ?? "true").toLowerCase() !== "false");
         } else {
           const userData = await getUserSettings().catch(err => {
             console.error("Error loading user settings:", err);
@@ -198,8 +201,14 @@ export default function AdminConsolePage() {
     setIsSaving(true);
     try {
       if (isAdminUser) {
-        const updatedSys = await updateAdminSettings(adminSettings);
+        const updatedSys = await updateAdminSettings({
+          ...adminSettings,
+          ci_enabled: String(ciEnabled),
+          cd_enabled: String(cdEnabled),
+        });
         setAdminSettings(updatedSys || adminSettings);
+        setCiEnabled(String(updatedSys?.ci_enabled ?? ciEnabled).toLowerCase() !== "false");
+        setCdEnabled(String(updatedSys?.cd_enabled ?? cdEnabled).toLowerCase() !== "false");
         showToast("success", "System Admin Settings saved successfully!");
       } else {
         const updatedUser = await updateUserSettings(
@@ -474,6 +483,48 @@ const handleTestSonarConnection = async () => {
               configString={currentSys.quality_checks_config || ""}
               onChange={(newConfig) => handleAdminFieldChange("quality_checks_config", newConfig)}
             />
+            <div className="grid-2" style={{ marginTop: 20 }}>
+              <div className="settings-toggle-card">
+                <div className="settings-toggle-header">
+                  <div className="settings-toggle-title"><FaRocket /> Continuous Integration (CI)</div>
+                  <div className="switch-wrap">
+                    <label className="switch-ios">
+                      <input
+                        type="checkbox"
+                        checked={ciEnabled}
+                        onChange={e => setCiEnabled(e.target.checked)}
+                        aria-label="Enable Continuous Integration"
+                      />
+                      <span className="slider-ios"></span>
+                    </label>
+                    <span className="switch-label">{ciEnabled ? "Enabled" : "Disabled"}</span>
+                  </div>
+                </div>
+                <p className="settings-toggle-desc">
+                  Enable or disable automated CI build validation and quality gate checks on pull requests and commits.
+                </p>
+              </div>
+              <div className="settings-toggle-card">
+                <div className="settings-toggle-header">
+                  <div className="settings-toggle-title"><FaRocket /> Continuous Deployment (CD)</div>
+                  <div className="switch-wrap">
+                    <label className="switch-ios">
+                      <input
+                        type="checkbox"
+                        checked={cdEnabled}
+                        onChange={e => setCdEnabled(e.target.checked)}
+                        aria-label="Enable Continuous Deployment"
+                      />
+                      <span className="slider-ios"></span>
+                    </label>
+                    <span className="switch-label">{cdEnabled ? "Enabled" : "Disabled"}</span>
+                  </div>
+                </div>
+                <p className="settings-toggle-desc">
+                  Enable or disable automated deployment pipelines and artifact publishing after successful migration verification.
+                </p>
+              </div>
+            </div>
           </div>
 
           {/* Card 3: Test Cases Configuration */}
