@@ -19,47 +19,8 @@ class ApiEndpointDetector:
         self._jar_path = jar_path or settings.java_migration_engine_jar
 
     def detect(self, project_root: Path) -> List[dict[str, Any]]:
-        """Invoke the Java discovery engine to find endpoints, with Python fallback."""
-        if not self._jar_path.exists():
-            logger.warning("Migration engine JAR not found at %s. Using Python regex endpoint discovery fallback.", self._jar_path)
-            return self._fallback_python_detect(project_root)
-
-        try:
-            logger.info("Invoking Java Endpoint Discovery for project: %s", file_utils.to_plain_path_str(project_root))
-            # Use -cp to specify the main class since the JAR's manifest points to AstMigrationEngine
-            process = subprocess.run(
-                [
-                    "java",
-                    "-cp",
-                    file_utils.to_plain_path_str(self._jar_path),
-                    "com.javaapex.migration.engine.EndpointDiscoveryEngine",
-                    file_utils.to_plain_path_str(project_root)
-                ],
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                timeout=120 # Discovery should be relatively fast
-            )
-
-            if process.returncode != 0:
-                logger.error("Java Endpoint Discovery failed (exit code %s): %s. Falling back to Python scanner.", process.returncode, process.stderr)
-                return self._fallback_python_detect(project_root)
-
-            try:
-                report = json.loads(process.stdout)
-                endpoints = report.get("apiEndpoints", [])
-                logger.info("Detected %d API endpoints.", len(endpoints))
-                return endpoints if endpoints else self._fallback_python_detect(project_root)
-            except json.JSONDecodeError:
-                logger.error("Failed to parse JSON response from Java discovery engine: %s. Falling back to Python scanner.", process.stdout)
-                return self._fallback_python_detect(project_root)
-
-        except subprocess.TimeoutExpired:
-            logger.error("Java Endpoint Discovery timed out. Falling back to Python scanner.")
-            return self._fallback_python_detect(project_root)
-        except Exception:
-            logger.exception("Unexpected error during API endpoint detection. Falling back to Python scanner.")
-            return self._fallback_python_detect(project_root)
+        """Invoke the native Python endpoint discovery scanner."""
+        return self._fallback_python_detect(project_root)
 
     def _fallback_python_detect(self, project_root: Path) -> List[dict[str, Any]]:
         """Fallback Python regex scanner for Spring Boot & JAX-RS API endpoints."""
@@ -124,5 +85,5 @@ class ApiEndpointDetector:
                             "className": file.replace(".java", ""),
                         })
 
-        logger.info("Detected %d API endpoints using Python fallback scanner.", len(endpoints))
+        # logger.info("Detected %d API endpoints using native Python scanner.", len(endpoints))
         return endpoints
