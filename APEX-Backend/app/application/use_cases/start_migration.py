@@ -103,6 +103,35 @@ def _fetch_user_quality_checks_sync(user_id: Any, job_id: str | None = None) -> 
         return {}
 
 
+def _fetch_pipeline_flags_sync() -> tuple[bool, bool]:
+    """Read persisted CI/CD switches, defaulting to the legacy enabled state."""
+    from app.core.config import settings
+    import dotenv
+    import pymongo
+
+    values = dotenv.dotenv_values(Path('.env').resolve())
+    ci_value = values.get('CI_ENABLED')
+    cd_value = values.get('CD_ENABLED')
+    try:
+        client = pymongo.MongoClient(settings.mongodb_uri, serverSelectionTimeoutMS=2000)
+        docs = client[settings.mongodb_database].system_settings.find(
+            {'key': {'$in': ['ci_enabled', 'cd_enabled']}}
+        )
+        for doc in docs:
+            if doc.get('key') == 'ci_enabled':
+                ci_value = doc.get('value')
+            elif doc.get('key') == 'cd_enabled':
+                cd_value = doc.get('value')
+        client.close()
+    except Exception:
+        pass
+
+    def as_bool(value: Any) -> bool:
+        return str(value if value is not None else 'true').strip().lower() in {'1', 'true', 'yes', 'on'}
+
+    return as_bool(ci_value), as_bool(cd_value)
+
+
 def _fetch_user_github_pat(user_id: Any, job_id: str | None = None) -> str | None:
     from app.core.config import settings
     import pymongo
@@ -254,6 +283,15 @@ class StartMigrationUseCase:
                 else bool(options.get("runFossa") if "runFossa" in options else options.get("run_fossa", True))
             )
         )
+        run_cycode = (
+            bool(request["run_cycode"])
+            if "run_cycode" in request
+            else (
+                bool(request["runCycode"])
+                if "runCycode" in request
+                else bool(options.get("runCycode") if "runCycode" in options else options.get("run_cycode", False))
+            )
+        )
         run_tests = (
             bool(request["run_tests"])
             if "run_tests" in request
@@ -288,6 +326,12 @@ class StartMigrationUseCase:
         func_prompt_req = request.get("functional_testing_prompt") or qc_req.get("functional_testing_prompt")
         func_custom_req = request.get("functional_custom_prompt") or qc_req.get("functional_custom_prompt")
         func_suggestions_req = request.get("functional_testing_suggestions") or qc_req.get("functional_testing_suggestions")
+        ci_enabled, cd_enabled = _fetch_pipeline_flags_sync()
+        if not ci_enabled:
+            run_sonar = False
+            run_fossa = False
+            run_cycode = False
+            run_tests = False
 
         store = MigrationReportStore(WorkspacePaths(job_id))
         report = {
@@ -305,10 +349,16 @@ class StartMigrationUseCase:
             "run_sonar": run_sonar,
             "runFossa": run_fossa,
             "run_fossa": run_fossa,
+            "runCycode": run_cycode,
+            "run_cycode": run_cycode,
             "runTests": run_tests,
             "run_tests": run_tests,
             "runFunctionalTests": run_functional_tests,
             "run_functional_tests": run_functional_tests,
+            "ciEnabled": ci_enabled,
+            "ci_enabled": ci_enabled,
+            "cdEnabled": cd_enabled,
+            "cd_enabled": cd_enabled,
             "proposedTestSources": proposed_test_sources,
             "destination": destination,
             "targetRepo": initial_target_repo,
@@ -1059,6 +1109,7 @@ class StartMigrationUseCase:
                 status=MigrationStatus.RUNNING.value,
                 log_message="[DEPRECATION] Scanning for deprecated APIs and publishing migrated repository...",
             )
+            self._run_cycode_gate(store, job_id, paths.migrated_repo_dir, report)
             file_utils.remove_tree(paths.migrated_repo_dir / ".git")
             publish_target_java = result.effective_target_java_version or target_java
             # Build-gate: warn if publishing a repo with build failures
@@ -1503,6 +1554,25 @@ class StartMigrationUseCase:
             parts.append(f"Build validation result: {build_status}.")
 
         return " ".join(parts)
+
+    def _run_cycode_gate(self, store, job_id, project_dir, report) -> None:
+        if not report.get("run_cycode", report.get("runCycode", False)):
+            return
+        store.append_logs(["[CYCODE] Scanning migrated code for secrets and security issues..."])
+        values = _fetch_user_quality_checks_sync(user_id_ctx.get(), job_id)
+        try:
+            result = self._quality_gate_runner.run(
+                project_dir, job_id=job_id, run_cycode=True, quality_checks_values=values,
+            )
+            store.update(cycode_report=result.cycode)
+            store.append_logs(result.log_lines)
+        except Exception:  # noqa: BLE001
+            # Do not persist exception text: subprocess output can contain secrets.
+            store.update(cycode_report={
+                "execution_status": "ERROR", "gate_status": "UNAVAILABLE", "scans": [],
+                "error_message": "Cycode could not complete. Check scanner configuration and retry.",
+            })
+            store.append_logs(["[CYCODE] Scan unavailable; migration continues in advisory mode."])
 
     # -- optional quality gates --------------------------------------------- #
 

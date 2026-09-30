@@ -23,6 +23,7 @@ export interface PersistedWizardFormState {
   runTests: boolean;
   runSonar: boolean;
   runFossa: boolean;
+  runCycode?: boolean;
   fixBusinessLogic: boolean;
   selectedTestSources?: { llm: boolean; functionalDoc: boolean; existing: boolean };
   functionalTestToolMethod?: string[];
