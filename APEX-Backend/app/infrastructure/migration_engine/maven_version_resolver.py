@@ -11,11 +11,12 @@ import logging
 import time
 import urllib.parse
 import urllib.request
+from cachetools import LRUCache
 
 logger = logging.getLogger(__name__)
 
 # In-memory TTL cache: { "groupId:artifactId": (version_string, expiry_timestamp) }
-_VERSION_CACHE: dict[str, tuple[str, float]] = {}
+_VERSION_CACHE: LRUCache = LRUCache(maxsize=1000)
 CACHE_TTL_SECONDS = 3600  # 1 hour cache
 
 # Reliable fallback versions (used if network request fails or times out)

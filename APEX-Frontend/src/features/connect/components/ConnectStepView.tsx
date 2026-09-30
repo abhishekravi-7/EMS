@@ -617,22 +617,26 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
               type="button"
               className="connect-primary-btn is-green"
               disabled={
+                localProjectUploadFiles.length === 0 ||
                 localProjectUploadLoading ||
                 localProjectCapabilities?.enabled === false
               }
               onClick={() => {
                 if (localProjectUploadFiles.length > 0) {
                   void handleLocalProjectUpload();
-                } else {
-                  folderInputRef.current?.click();
                 }
               }}
+              title={
+                localProjectUploadFiles.length === 0
+                  ? "Please select a folder or ZIP file above first"
+                  : "Upload selected project files"
+              }
             >
               <span>
                 {localProjectUploadLoading
                   ? "Uploading..."
                   : localProjectUploadFiles.length > 0
-                    ? "Upload Project"
+                    ? `Upload Project (${localProjectUploadFiles.length} file${localProjectUploadFiles.length === 1 ? "" : "s"})`
                     : "Upload Project"}
               </span>
             </button>

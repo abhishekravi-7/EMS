@@ -131,6 +131,9 @@ export default function AdminConsolePage() {
             return INITIAL_SYSTEM_SETTINGS;
           });
           setAdminSettings(sysData || INITIAL_SYSTEM_SETTINGS);
+          const loadedSettings = sysData || INITIAL_SYSTEM_SETTINGS;
+          setCiEnabled(String(loadedSettings.ci_enabled ?? "true").toLowerCase() !== "false");
+          setCdEnabled(String(loadedSettings.cd_enabled ?? "true").toLowerCase() !== "false");
         } else {
           const userData = await getUserSettings().catch(err => {
             console.error("Error loading user settings:", err);
@@ -229,8 +232,14 @@ export default function AdminConsolePage() {
     setIsSaving(true);
     try {
       if (isAdminUser) {
-        const updatedSys = await updateAdminSettings(adminSettings);
+        const updatedSys = await updateAdminSettings({
+          ...adminSettings,
+          ci_enabled: String(ciEnabled),
+          cd_enabled: String(cdEnabled),
+        });
         setAdminSettings(updatedSys || adminSettings);
+        setCiEnabled(String(updatedSys?.ci_enabled ?? ciEnabled).toLowerCase() !== "false");
+        setCdEnabled(String(updatedSys?.cd_enabled ?? cdEnabled).toLowerCase() !== "false");
         showToast("success", "System Admin Settings saved successfully!");
       } else {
         const updatedUser = await updateUserSettings(
@@ -640,6 +649,48 @@ export default function AdminConsolePage() {
               configString={currentSys.quality_checks_config || ""}
               onChange={(newConfig) => handleAdminFieldChange("quality_checks_config", newConfig)}
             />
+            <div className="grid-2" style={{ marginTop: 20 }}>
+              <div className="settings-toggle-card">
+                <div className="settings-toggle-header">
+                  <div className="settings-toggle-title"><FaRocket /> Continuous Integration (CI)</div>
+                  <div className="switch-wrap">
+                    <label className="switch-ios">
+                      <input
+                        type="checkbox"
+                        checked={ciEnabled}
+                        onChange={e => setCiEnabled(e.target.checked)}
+                        aria-label="Enable Continuous Integration"
+                      />
+                      <span className="slider-ios"></span>
+                    </label>
+                    <span className="switch-label">{ciEnabled ? "Enabled" : "Disabled"}</span>
+                  </div>
+                </div>
+                <p className="settings-toggle-desc">
+                  Enable or disable automated CI build validation and quality gate checks on pull requests and commits.
+                </p>
+              </div>
+              <div className="settings-toggle-card">
+                <div className="settings-toggle-header">
+                  <div className="settings-toggle-title"><FaRocket /> Continuous Deployment (CD)</div>
+                  <div className="switch-wrap">
+                    <label className="switch-ios">
+                      <input
+                        type="checkbox"
+                        checked={cdEnabled}
+                        onChange={e => setCdEnabled(e.target.checked)}
+                        aria-label="Enable Continuous Deployment"
+                      />
+                      <span className="slider-ios"></span>
+                    </label>
+                    <span className="switch-label">{cdEnabled ? "Enabled" : "Disabled"}</span>
+                  </div>
+                </div>
+                <p className="settings-toggle-desc">
+                  Enable or disable automated deployment pipelines and artifact publishing after successful migration verification.
+                </p>
+              </div>
+            </div>
           </div>
 
           {/* Card 3: Test Cases Configuration */}
@@ -949,17 +1000,6 @@ export default function AdminConsolePage() {
               <div>
                 <h3 className="settings-card-title">BRD Analysis Scope & Target Baseline</h3>
                 <p className="settings-card-subtitle">Configure specific analysis categories and target modernization baseline.</p>
-          <div className="grid-2">
-            <div className="settings-toggle-card">
-              <div className="settings-toggle-header">
-                <div className="settings-toggle-title"><FaBriefcase /> BRD Generation</div>
-                <div className="switch-wrap">
-                  <label className="switch-ios">
-                    <input type="checkbox" checked={ciEnabled} onChange={e => setCiEnabled(e.target.checked)} />
-                    <span className="slider-ios"></span>
-                  </label>
-                  <span className="switch-label">{ciEnabled ? "Enabled" : "Disabled"}</span>
-                </div>
               </div>
             </div>
 
@@ -1054,9 +1094,6 @@ export default function AdminConsolePage() {
             />
           </div>
         </div>
-        </div>
-        </div>
-        </div>
       );
     }
 
@@ -1076,62 +1113,6 @@ export default function AdminConsolePage() {
             onChange={setUserSettings}
             mode="testing_only"
           />
-
-          {/* Additional E2E Application Base URL Configuration */}
-          <div className="settings-card" style={{ marginTop: "24px" }}>
-            <div className="settings-card-header">
-              <div className="settings-card-icon"><FaShieldAlt /></div>
-              <div>
-                <h3 className="settings-card-title">E2E Framework URL Configuration</h3>
-                <p className="settings-card-subtitle">Configure application base URLs for Playwright, Cypress, and Selenium testing.</p>
-              </div>
-            </div>
-
-            <div className="grid-2">
-              {/* Playwright */}
-              <div>
-                <h4 style={{ margin: "0 0 6px 0", fontSize: "14px", fontWeight: 700, color: "#0f172a" }}>Playwright</h4>
-                <label className="settings-label">APPLICATION BASE URL</label>
-                <input
-                  type="text"
-                  className="settings-input"
-                  value={currentUserStg.test_cases_values?.playwright_base_url || "http://host.docker.internal:3000"}
-                  onChange={e => handleUserTestCaseChange("playwright_base_url", e.target.value)}
-                />
-                <button
-                  className="settings-action-btn"
-                  style={{ width: "auto", marginTop: "10px", padding: "6px 14px", fontSize: "13px" }}
-                  onClick={() => handleTestPlaywright(currentUserStg.test_cases_values?.playwright_base_url || "http://host.docker.internal:3000")}
-                >
-                  <FaPlay size={12} /> Test Connection
-                </button>
-              </div>
-
-              {/* Cypress & Selenium */}
-              <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-                <div>
-                  <h4 style={{ margin: "0 0 6px 0", fontSize: "14px", fontWeight: 700, color: "#0f172a" }}>Cypress</h4>
-                  <label className="settings-label">APPLICATION BASE URL</label>
-                  <input
-                    type="text"
-                    className="settings-input"
-                    value={currentUserStg.test_cases_values?.cypress_base_url || "http://host.docker.internal:3000"}
-                    onChange={e => handleUserTestCaseChange("cypress_base_url", e.target.value)}
-                  />
-                </div>
-                <div>
-                  <h4 style={{ margin: "0 0 6px 0", fontSize: "14px", fontWeight: 700, color: "#0f172a" }}>Selenium</h4>
-                  <label className="settings-label">APPLICATION BASE URL</label>
-                  <input
-                    type="text"
-                    className="settings-input"
-                    value={currentUserStg.test_cases_values?.selenium_base_url || "http://host.docker.internal:3000"}
-                    onChange={e => handleUserTestCaseChange("selenium_base_url", e.target.value)}
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       );
     }
@@ -1142,7 +1123,7 @@ export default function AdminConsolePage() {
           <div className="settings-card-header" style={{ marginBottom: "20px" }}>
             <div className="settings-card-icon"><FaShieldAlt /></div>
             <div>
-              <h3 className="settings-card-title">Quality Gate / CI & CD & Compliance</h3>
+              <h3 className="settings-card-title">Quality Gates</h3>
               <p className="settings-card-subtitle">Configure SonarQube, FOSSA, CI, and CD quality gate pipelines.</p>
             </div>
           </div>
@@ -1156,7 +1137,6 @@ export default function AdminConsolePage() {
                   ? "1px solid #86efac"
                   : sonarValidationState === "invalid"
                   ? "1px solid #fca5a5"
-                  : "1px solid #e2e8f0",
                 backgroundColor: sonarValidationState === "valid"
                   ? "#f0fdf4"
                   : "#ffffff",
@@ -1245,11 +1225,6 @@ export default function AdminConsolePage() {
               </div>
               <p className="settings-card-subtitle" style={{ marginBottom: "16px" }}>Static code analysis to detect bugs and vulnerabilities.</p>
               
-              <div className="grid-2" style={{ gap: "12px", marginBottom: "12px" }}>
-                <div>
-                  <label className="settings-label">SONARQUBE URL</label>
-                  <input
-                    type="text"
                     className="settings-input"
                     value="https://sonarcloud.io"
                     readOnly
@@ -1270,8 +1245,11 @@ export default function AdminConsolePage() {
                     <input
                       type={showSecrets["sonar_token"] ? "text" : "password"}
                       className="settings-input"
-                      value={currentUserStg.quality_checks_values?.sonarqube_token || ""}
-                      onChange={e => handleUserQualityCheckChange("sonarqube_token", e.target.value)}
+                      value={currentUserStg.quality_checks_values?.sonarqube_token || currentUserStg.quality_checks_values?.auth_token || ""}
+                      onChange={e => {
+                        handleUserQualityCheckChange("sonarqube_token", e.target.value);
+                        handleUserQualityCheckChange("auth_token", e.target.value);
+                      }}
                       placeholder="••••••••••••••••••••"
                     />
                     <div className="settings-input-group-icon" onClick={() => toggleSecret("sonar_token")}>
@@ -1294,8 +1272,11 @@ export default function AdminConsolePage() {
                   <input
                     type="text"
                     className="settings-input"
-                    value={currentUserStg.quality_checks_values?.sonarqube_org || ""}
-                    onChange={e => handleUserQualityCheckChange("sonarqube_org", e.target.value)}
+                    value={currentUserStg.quality_checks_values?.sonarqube_org || currentUserStg.quality_checks_values?.sonar_organization || ""}
+                    onChange={e => {
+                      handleUserQualityCheckChange("sonarqube_org", e.target.value);
+                      handleUserQualityCheckChange("sonar_organization", e.target.value);
+                    }}
                     placeholder="Enter org key"
                   />
                 </div>
@@ -1594,9 +1575,9 @@ export default function AdminConsolePage() {
               )}
             </div>
 
-            <div className="settings-toggle-card">
-              <div className="settings-toggle-title" style={{ marginBottom: "12px" }}><FaShieldAlt /> Cycode</div>
-              <p className="settings-toggle-desc" style={{ marginBottom: "16px" }}>
+            <div className="settings-card">
+              <div className="settings-toggle-title" style={{ marginBottom: "6px" }}><FaShieldAlt /> Cycode</div>
+              <p className="settings-card-subtitle" style={{ marginBottom: "16px" }}>
                 Scan migrated code for exposed secrets and application security findings.
               </p>
               <div style={{ marginBottom: "12px" }}>
@@ -1646,28 +1627,47 @@ export default function AdminConsolePage() {
                   <span className="switch-label">{ciEnabled ? "Enabled" : "Disabled"}</span>
                 </div>
               </div>
-              <p className="settings-toggle-desc">
-                Enable or disable automated CI build validation and quality gate checks on pull requests and commits.
-              </p>
             </div>
 
-            {/* CD Card */}
-            <div className="settings-toggle-card">
-              <div className="settings-toggle-header">
-                <div className="settings-toggle-title">
-                  <FaRocket /> Continuous Deployment (CD)
+            {/* CI & CD Cards Stacked Vertically to the Right of Cycode */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+              {/* CI Card */}
+              <div className="settings-toggle-card" style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+                <div className="settings-toggle-header">
+                  <div className="settings-toggle-title">
+                    <FaRocket /> Continuous Integration (CI)
+                  </div>
+                  <div className="switch-wrap">
+                    <label className="switch-ios">
+                      <input type="checkbox" checked={ciEnabled} onChange={e => setCiEnabled(e.target.checked)} />
+                      <span className="slider-ios"></span>
+                    </label>
+                    <span className="switch-label">{ciEnabled ? "Enabled" : "Disabled"}</span>
+                  </div>
                 </div>
-                <div className="switch-wrap">
-                  <label className="switch-ios">
-                    <input type="checkbox" checked={cdEnabled} onChange={e => setCdEnabled(e.target.checked)} />
-                    <span className="slider-ios"></span>
-                  </label>
-                  <span className="switch-label">{cdEnabled ? "Enabled" : "Disabled"}</span>
-                </div>
+                <p className="settings-toggle-desc">
+                  Enable or disable automated CI build validation and quality gate checks on pull requests and commits.
+                </p>
               </div>
-              <p className="settings-toggle-desc">
-                Enable or disable automated deployment pipelines and artifact publishing upon successful migration verification.
-              </p>
+
+              {/* CD Card */}
+              <div className="settings-toggle-card" style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+                <div className="settings-toggle-header">
+                  <div className="settings-toggle-title">
+                    <FaRocket /> Continuous Deployment (CD)
+                  </div>
+                  <div className="switch-wrap">
+                    <label className="switch-ios">
+                      <input type="checkbox" checked={cdEnabled} onChange={e => setCdEnabled(e.target.checked)} />
+                      <span className="slider-ios"></span>
+                    </label>
+                    <span className="switch-label">{cdEnabled ? "Enabled" : "Disabled"}</span>
+                  </div>
+                </div>
+                <p className="settings-toggle-desc">
+                  Enable or disable automated deployment pipelines and artifact publishing upon successful migration verification.
+                </p>
+              </div>
             </div>
           </div>
         </div>
@@ -1676,7 +1676,15 @@ export default function AdminConsolePage() {
 
     if (activeUserTab === "llm") {
       return (
-        <div className="settings-card">
+        <div>
+          <div className="settings-card-header" style={{ marginBottom: "20px" }}>
+            <div className="settings-card-icon"><FaBrain /></div>
+            <div>
+              <h3 className="settings-card-title">LLM Configuration</h3>
+              <p className="settings-card-subtitle">Manage intelligence providers, models, and features.</p>
+            </div>
+          </div>
+
           <LlmUserSettings
             settings={currentUserStg}
             onChange={(key, val) => {
@@ -1759,7 +1767,8 @@ export default function AdminConsolePage() {
 
       <main className="settings-main-area" style={{ width: "100%" }}>
         <header className="settings-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", height: "80px", backgroundColor: "#ffffff", padding: "0 40px", borderBottom: "1px solid #e2e8f0" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <FaCog style={{ color: "#2563eb", fontSize: "22px" }} />
             <h1 style={{ fontSize: "22px", fontWeight: "800", color: "#0f172a", margin: 0 }}>Settings</h1>
           </div>
 

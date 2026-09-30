@@ -33,7 +33,6 @@ const DEFAULT_CONFIG: Record<string, QualityCheckConfig> = {
     fields: [
       { id: "sonarqube_url", name: "SonarQube URL", visible: true, required: true, defaultValue: "https://sonarcloud.io" },
       { id: "auth_token", name: "Authentication Token", visible: true, required: true },
-      { id: "project_key", name: "Project Key", visible: true, required: false },
       { id: "sonar_organization", name: "Sonar Organisation", visible: true, required: false }
     ],
   },
@@ -144,7 +143,11 @@ export default function QualityChecksSettings({ configString, onChange }: Qualit
     <div style={{ display: "flex", flexDirection: "column", gap: "24px", marginTop: "16px" }}>
       {Object.entries(safeConfigs).map(([key, check]) => {
         const isEnabled = Boolean(check?.enabled);
-        const fieldsList = check?.fields || [];
+        const fieldsList = (check?.fields || []).filter(
+          f => f.id !== "project_key" && 
+               f.id !== "sonar_project_key" && 
+               f.id !== "sonarqube_project_key"
+        );
 
         return (
           <div 

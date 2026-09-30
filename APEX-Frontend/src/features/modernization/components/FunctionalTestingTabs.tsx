@@ -1,5 +1,5 @@
 import React from "react";
-import { FaSpinner } from "react-icons/fa";
+import { FaSpinner, FaVial } from "react-icons/fa";
 
 interface FunctionalTestingTabsProps {
   title?: string;
@@ -34,7 +34,7 @@ export function FunctionalTestingTabs({
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
-        marginBottom: 16,
+        marginBottom: 8,
       }}
     >
       <h3

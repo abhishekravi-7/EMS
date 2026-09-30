@@ -8,7 +8,6 @@ import {
   FaLayerGroup,
   FaCode,
   FaCog,
-  FaPen,
 } from "react-icons/fa";
 import { classifyTestType, deriveTestingTypes, type TestResult, type TestSelectionItem } from "../services/existingTestService";
 import { getBrdMetadata, getBrdDocumentBlob } from "@/features/discovery/services/discoveryService";
@@ -224,78 +223,68 @@ export function ExistingTestCoverage({
       }}
     >
       {/* Header section */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 20,
-          flexWrap: "wrap",
-          gap: 16,
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <FaPen style={{ fontSize: 16, color: iconColor }} />
-          <span
-            style={{
-              fontWeight: 900,
-              fontSize: 16,
-              color: "#0f172a",
-            }}
-          >
-            {headerTitle}
-          </span>
+      {(hasDocument || onOpenReport) && (
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "flex-end",
+            alignItems: "center",
+            marginBottom: 20,
+            flexWrap: "wrap",
+            gap: 16,
+          }}
+        >
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            {hasDocument && (
+              <button
+                type="button"
+                onClick={() => void handleViewDocument()}
+                disabled={isViewingDocument}
+                style={{
+                  padding: "8px 16px",
+                  background: "#ffffff",
+                  color: "#7c3aed",
+                  border: "1px solid #ddd6fe",
+                  borderRadius: 8,
+                  fontWeight: 700,
+                  fontSize: 12,
+                  cursor: isViewingDocument ? "wait" : "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  transition: "all 0.15s ease",
+                }}
+                title="View Functional Testing Document"
+                aria-label="View Functional Testing Document"
+              >
+                {isViewingDocument ? (
+                  <FaSpinner className="animate-spin" size={12} />
+                ) : (
+                  <FaFileAlt size={12} style={{ color: "#7c3aed" }} />
+                )}
+                <span>View Document</span>
+              </button>
+            )}
+            {onOpenReport && (
+              <button
+                onClick={onOpenReport}
+                style={{
+                  padding: "8px 16px",
+                  background: "#ffffff",
+                  color: "#2563eb",
+                  border: "1px solid #bfdbfe",
+                  borderRadius: 8,
+                  fontWeight: 700,
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+              >
+                Open Report
+              </button>
+            )}
+          </div>
         </div>
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          {hasDocument && (
-            <button
-              type="button"
-              onClick={() => void handleViewDocument()}
-              disabled={isViewingDocument}
-              style={{
-                padding: "8px 16px",
-                background: "#ffffff",
-                color: "#7c3aed",
-                border: "1px solid #ddd6fe",
-                borderRadius: 8,
-                fontWeight: 700,
-                fontSize: 12,
-                cursor: isViewingDocument ? "wait" : "pointer",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-                transition: "all 0.15s ease",
-              }}
-              title="View Functional Testing Document"
-              aria-label="View Functional Testing Document"
-            >
-              {isViewingDocument ? (
-                <FaSpinner className="animate-spin" size={12} />
-              ) : (
-                <FaFileAlt size={12} style={{ color: "#7c3aed" }} />
-              )}
-              <span>View Document</span>
-            </button>
-          )}
-          {onOpenReport && (
-            <button
-              onClick={onOpenReport}
-              style={{
-                padding: "8px 16px",
-                background: "#ffffff",
-                color: "#2563eb",
-                border: "1px solid #bfdbfe",
-                borderRadius: 8,
-                fontWeight: 700,
-                fontSize: 12,
-                cursor: "pointer",
-              }}
-            >
-              Open Report
-            </button>
-          )}
-        </div>
-      </div>
+      )}
 
       {docError && (
         <div

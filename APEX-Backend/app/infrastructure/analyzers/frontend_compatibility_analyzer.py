@@ -34,6 +34,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from cachetools import LRUCache
 
 from app.infrastructure.llm.chat_llm import ChatLLM
 from app.infrastructure.llm.huggingface_client import HuggingFaceClient
@@ -45,11 +46,11 @@ logger = logging.getLogger(__name__)
 _CANDIDATE_DIRS = ("", "frontend", "client", "web", "ui", "webapp", "src/main/webapp")
 
 # In-memory recommendation cache: { cache_key: (FrameworkRecommendations, timestamp) }
-_RECOMMENDATION_CACHE: dict[str, tuple[FrameworkRecommendations, float]] = {}
+_RECOMMENDATION_CACHE: LRUCache = LRUCache(maxsize=500)
 CACHE_TTL_SECONDS = 3600  # 1 hour cache TTL
 
 # In-memory package versions cache: { package_name: (versions_list, timestamp) }
-_PACKAGE_VERSIONS_CACHE: dict[str, tuple[list[str], float]] = {}
+_PACKAGE_VERSIONS_CACHE: LRUCache = LRUCache(maxsize=1000)
 PACKAGE_CACHE_TTL_SECONDS = 3600  # 1 hour cache TTL
 
 FRONTEND_RECOMMENDATION_SYSTEM_PROMPT = """You are the JavaAPEX frontend compatibility recommendation engine.

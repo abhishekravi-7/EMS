@@ -330,15 +330,19 @@ async def test_user_sonarqube_connection(
         raise HTTPException(status_code=500, detail=f"Failed to connect to SonarQube at {url}.")
 
 class FossaTestPayload(BaseModel):
-    api_key: str
+    api_key: str | None = None
+    fossa_api_key: str | None = None
 
 @router.post("/user/settings/fossa/test")
 async def test_user_fossa_connection(
     payload: FossaTestPayload,
     current_user: User = Depends(get_current_user),  # noqa: B008
 ):
-    """Test FOSSA API Key."""
-    api_key = payload.api_key
+    """Test FOSSA API Key against FOSSA API."""
+    api_key = payload.api_key or payload.fossa_api_key
+    mongo_db = await get_mongodb()
+    user_doc = (await mongo_db.users.find_one({"_id": _get_query_id(str(current_user.id))})) or {} if mongo_db is not None else {}
+    qc_values = user_doc.get("quality_checks_values", {})
 
     if api_key == "********" or (isinstance(api_key, str) and api_key.startswith("****************")):
         mongo_db = await get_mongodb()
@@ -352,6 +356,15 @@ async def test_user_fossa_connection(
         raise HTTPException(status_code=400, detail="No FOSSA API Key provided.")
 
     import httpx
+    fossa_endpoints = [
+        "https://app.fossa.com/api/cli/organization",
+        "https://app.fossa.com/api/users/me",
+        "https://app.fossa.com/api/projects",
+    ]
+    
+    last_status = None
+    last_error_detail = None
+
     try:
         async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
             response = await client.get(
@@ -662,5 +675,4 @@ async def test_user_sonar_connection(
         except Exception as e:
             logger.error("SonarQube connection error: %s", str(e))
             raise HTTPException(status_code=400, detail=f"Unable to connect to SonarQube at {raw_url}. Check the URL and network.")
-
  
