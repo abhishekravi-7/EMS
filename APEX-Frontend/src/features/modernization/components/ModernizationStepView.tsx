@@ -195,6 +195,8 @@ export function ModernizationStepView({
     setRunSonar,
     runFossa,
     setRunFossa,
+    runCycode,
+    setRunCycode,
     runFunctionalTests,
     setRunFunctionalTests,
   } = modernization;
@@ -214,6 +216,7 @@ export function ModernizationStepView({
   const [discoveredTests, setDiscoveredTests] = useState<TestSelectionItem[]>(() => cachedScan?.test_cases || []);
   const [isLoadingDiscoveredTests, setIsLoadingDiscoveredTests] = useState(false);
   const [isSonarConfigured, setIsSonarConfigured] = useState(true);
+  const [isCycodeConfigured, setIsCycodeConfigured] = useState(false);
   const [isFossaConfigured, setIsFossaConfigured] = useState(false);
   const [isLlmConfiguredMod, setIsLlmConfiguredMod] = useState<boolean | null>(null);
   const [adminConfig, setAdminConfig] = useState<any[]>([]);
@@ -221,6 +224,8 @@ export function ModernizationStepView({
   const [isUserSettingsLoading, setIsUserSettingsLoading] = useState(true);
   const [adminConfigError, setAdminConfigError] = useState<string | null>(null);
   const [userSettingsError, setUserSettingsError] = useState<string | null>(null);
+  const [ciEnabled, setCiEnabled] = useState(true);
+  const [cdEnabled, setCdEnabled] = useState(true);
 
 
 
@@ -240,7 +245,7 @@ export function ModernizationStepView({
 
   const handleStartMigrationClick = () => {
     if (loading) return;
-    if (!runSonar || !runFossa) {
+    if (ciEnabled && (!runSonar || !runFossa)) {
       setShowQualityGateReminder(true);
       return;
     }
@@ -679,6 +684,9 @@ export function ModernizationStepView({
         const fossaConf = Boolean(fossaToken);
         setIsSonarConfigured(sonarConf);
         setIsFossaConfigured(fossaConf);
+        const cycodeConf = Boolean(qc.cycode_client_id && qc.cycode_client_secret);
+        setIsCycodeConfigured(cycodeConf);
+        if (!cycodeConf) setRunCycode(false);
 
         // Check LLM configuration
         const llm = settings.llm_values || {};
@@ -760,6 +768,19 @@ setIsLlmConfiguredMod(
             ? parsed
             : (typeof parsed === "object" && parsed !== null ? Object.values(parsed) : []);
           setAdminConfig(configArray);
+          const ciIsEnabled = String(res.ci_enabled ?? "true").toLowerCase() !== "false";
+          const cdIsEnabled = String(res.cd_enabled ?? "true").toLowerCase() !== "false";
+          setCiEnabled(ciIsEnabled);
+          setCdEnabled(cdIsEnabled);
+          // Quality gates are available only when both CI and CD are enabled.
+          // Clear any previous selections when either pipeline is disabled so
+          // hidden checks cannot still be submitted with the migration.
+          if (!ciIsEnabled || !cdIsEnabled) {
+            setRunSonar(false);
+            setRunFossa(false);
+            setRunCycode(false);
+            setRunTests(false);
+          }
 
           // Auto-disable state if not authorized globally
           const sonarGlobal = configArray.find((c: any) => c.name === "SonarQube")?.enabled;
@@ -768,6 +789,8 @@ setIsLlmConfiguredMod(
 
           if (sonarGlobal === false) setRunSonar(false);
           if (fossaGlobal === false) setRunFossa(false);
+          const cycodeConfig = configArray.find((c: any) => c.name === "Cycode");
+          if (!cycodeConfig?.enabled || cycodeConfig.execution_enabled === false) setRunCycode(false);
           if (testsGlobal === false) setRunTests(false);
         } else {
           setAdminConfig([]);
@@ -809,6 +832,20 @@ setIsLlmConfiguredMod(
     if (!isSonarConfigured) return "Not configured. Set up in User Settings.";
     return "Static analysis for bug and vulnerability detection.";
   };
+
+  const cycodeConfig = adminConfig.find((c: any) => c.name === "Cycode");
+  const isCycodeAvailable = !isQualityChecksLoading && !adminConfigError && !userSettingsError &&
+    Boolean(cycodeConfig?.enabled) && cycodeConfig?.execution_enabled !== false && isCycodeConfigured;
+  useEffect(() => {
+    if (!isQualityChecksLoading && !isCycodeAvailable) setRunCycode(false);
+  }, [isQualityChecksLoading, isCycodeAvailable, setRunCycode]);
+  const cycodeSubtitle = isQualityChecksLoading ? "Checking authorization..."
+    : adminConfigError ? "Unable to verify admin authorization."
+    : userSettingsError ? "Unable to verify user settings."
+    : !cycodeConfig?.enabled ? "Not authorized by Super Admin."
+    : cycodeConfig.execution_enabled === false ? "Execution disabled by Super Admin."
+    : !isCycodeConfigured ? "Not configured. Set up in User Settings."
+    : "Scan migrated code for secrets and security issues.";
 
   const getFossaSubtitle = () => {
     if (isQualityChecksLoading) return "Checking authorization...";
@@ -865,8 +902,17 @@ setIsLlmConfiguredMod(
         </div>
       )}
 
+      {!cdEnabled && (
+        <div style={{
+          background: "#f8fafc", border: "1px solid #cbd5e1", borderRadius: 10,
+          padding: "10px 16px", marginBottom: 16, fontSize: 13, color: "#475569",
+        }}>
+          Continuous Deployment is disabled in Settings. Deployment and artifact publishing are unavailable for this migration.
+        </div>
+      )}
+
       {/* ── Quality Gates & Test Suites Selection (3 Equal Cards in 1 Row) ── */}
-      <div style={{ marginBottom: 28, marginTop: 24 }}>
+      {ciEnabled && cdEnabled && <div style={{ marginBottom: 28, marginTop: 24 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
           <FaShieldAlt style={{ fontSize: 18, color: "#0f172a" }} />
           <span style={{ fontWeight: 800, fontSize: 18, color: "#0f172a" }}>Quality Gates</span>
@@ -981,6 +1027,29 @@ setIsLlmConfiguredMod(
             </span>
           </div>
 
+          <label style={{
+            display: "flex", alignItems: "center", gap: 12, padding: "14px 18px", borderRadius: 12,
+            border: `2px solid ${runCycode && isCycodeAvailable ? "#6366f1" : "#e2e8f0"}`,
+            background: runCycode && isCycodeAvailable ? "#eef2ff" : "#f8fafc",
+            cursor: isCycodeAvailable ? "pointer" : "not-allowed", minHeight: 88,
+            opacity: isCycodeAvailable ? 1 : 0.6,
+          }}>
+            <input type="checkbox" aria-label="Run Cycode security scans"
+              checked={runCycode && isCycodeAvailable} disabled={!isCycodeAvailable}
+              onChange={(event) => setRunCycode(event.target.checked)}
+              style={{ width: 18, height: 18, accentColor: "#6366f1", flexShrink: 0 }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a", display: "flex", alignItems: "center", gap: 8 }}>
+                <FaShieldAlt aria-hidden="true" /><span>Cycode</span>
+              </div>
+              <div style={{ fontSize: 12, color: "#64748b", marginTop: 2, lineHeight: 1.3 }}>{cycodeSubtitle}</div>
+            </div>
+            <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 6,
+              color: "#4338ca", background: "#e0e7ff", flexShrink: 0 }}>
+              {runCycode && isCycodeAvailable ? "ENABLED" : "OPTIONAL"}
+            </span>
+          </label>
+
           {/* 3. Run Unit Test Suite */}
           <div
             style={{
@@ -1087,7 +1156,7 @@ setIsLlmConfiguredMod(
             </span>
           </div>
         </div>
-      </div>
+      </div>}
 
       {/* Existing Test Cases Section (Discovered Only - No Execution) */}
       <ExistingTestCasesPanel

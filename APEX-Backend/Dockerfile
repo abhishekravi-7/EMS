@@ -30,6 +30,12 @@ RUN apt-get update \
 RUN curl -H 'Cache-Control: no-cache' https://raw.githubusercontent.com/fossas/fossa-cli/master/install-latest.sh | bash
 
 
+# -- Cycode CLI (isolated from application Python dependencies) --
+ARG CYCODE_VERSION=3.24.1
+RUN python -m venv /opt/cycode \
+    && /opt/cycode/bin/pip install --no-cache-dir "cycode==${CYCODE_VERSION}" \
+    && ln -s /opt/cycode/bin/cycode /usr/local/bin/cycode
+
 # -- Java toolchain --------------------------------------------------------- #
 # Installed under /opt/java/jdk-<major>, which matters: _discover_jdks()
 # (app/infrastructure/java_runtime.py) scans _POSIX_JDK_SEARCH_ROOTS -- which

@@ -18,6 +18,8 @@ export interface SystemSettings {
   fossa_api_key: string;
   jwt_secret_key: string;
   quality_checks_config?: string;
+  ci_enabled?: string | boolean;
+  cd_enabled?: string | boolean;
   test_cases_playwright_enabled?: string | boolean;
   test_cases_playwright_command?: string;
   test_cases_cypress_enabled?: string | boolean;
@@ -197,9 +199,9 @@ export async function testUserPlaywrightConnection(baseUrl: string): Promise<{ s
     }
   );
 }
-
-export async function getQualityChecksAdminConfig(): Promise<{quality_checks_config: string}> {
-  return requestJson<{quality_checks_config: string}>(
+ 
+export async function getQualityChecksAdminConfig(): Promise<{quality_checks_config: string; ci_enabled?: boolean; cd_enabled?: boolean}> {
+  return requestJson<{quality_checks_config: string; ci_enabled?: boolean; cd_enabled?: boolean}>(
     "/v1/user/settings/quality-checks-config",
     "Failed to fetch Quality Checks Admin Configuration"
   );

@@ -95,6 +95,8 @@ export default function AdminConsolePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+  const [ciEnabled, setCiEnabled] = useState(true);
+  const [cdEnabled, setCdEnabled] = useState(true);
 
   const showToast = (type: 'success' | 'error', text: string) => {
     setToastMessage({ type, text });
@@ -781,6 +783,17 @@ const handleTestSonarConnection = async () => {
               <div>
                 <h3 className="settings-card-title">BRD Analysis Scope & Target Baseline</h3>
                 <p className="settings-card-subtitle">Configure specific analysis categories and target modernization baseline.</p>
+          <div className="grid-2">
+            <div className="settings-toggle-card">
+              <div className="settings-toggle-header">
+                <div className="settings-toggle-title"><FaBriefcase /> BRD Generation</div>
+                <div className="switch-wrap">
+                  <label className="switch-ios">
+                    <input type="checkbox" checked={ciEnabled} onChange={e => setCiEnabled(e.target.checked)} />
+                    <span className="slider-ios"></span>
+                  </label>
+                  <span className="switch-label">{ciEnabled ? "Enabled" : "Disabled"}</span>
+                </div>
               </div>
             </div>
 
@@ -846,6 +859,15 @@ const handleTestSonarConnection = async () => {
                 <div>
                   <h3 className="settings-card-title">8-Phase BRD System Prompt Customization</h3>
                   <p className="settings-card-subtitle">System prompt template executed by LLM providers during document generation.</p>
+            <div className="settings-toggle-card">
+              <div className="settings-toggle-header">
+                <div className="settings-toggle-title"><FaFlask /> Microservice Assessment</div>
+                <div className="switch-wrap">
+                  <label className="switch-ios">
+                    <input type="checkbox" checked={cdEnabled} onChange={e => setCdEnabled(e.target.checked)} />
+                    <span className="slider-ios"></span>
+                  </label>
+                  <span className="switch-label">{cdEnabled ? "Enabled" : "Disabled"}</span>
                 </div>
               </div>
               <button
@@ -1053,7 +1075,45 @@ const handleTestSonarConnection = async () => {
               </button>
             </div>
 
-            {/* CI Card */}
+            <div className="settings-toggle-card">
+              <div className="settings-toggle-title" style={{ marginBottom: "12px" }}><FaShieldAlt /> Cycode</div>
+              <p className="settings-toggle-desc" style={{ marginBottom: "16px" }}>
+                Scan migrated code for exposed secrets and application security findings.
+              </p>
+              <div style={{ marginBottom: "12px" }}>
+                <label className="settings-label">CYCODE API / TENANT URL</label>
+                <input type="url" className="settings-input" placeholder="https://api.cycode.com"
+                  value={userSettings.quality_checks_values?.cycode_api_url || "https://api.cycode.com"}
+                  onChange={e => handleFieldChange("cycode_api_url", e.target.value, "quality")} />
+              </div>
+              <div style={{ marginBottom: "12px" }}>
+                <label className="settings-label">CYCODE ACCOUNT / TENANT</label>
+                <input type="text" className="settings-input" placeholder="Enter business group or tenant"
+                  value={userSettings.quality_checks_values?.cycode_tenant || ""}
+                  onChange={e => handleFieldChange("cycode_tenant", e.target.value, "quality")} />
+              </div>
+              <div style={{ marginTop: "12px", marginBottom: "12px" }}>
+                <label className="settings-label">CYCODE API TOKEN</label>
+                <div className="settings-input-group">
+                  <input type={showSecrets["cycode_api_token"] ? "text" : "password"} className="settings-input"
+                    placeholder="Enter Cycode API token" value={userSettings.quality_checks_values?.cycode_api_token || ""}
+                    onChange={e => handleFieldChange("cycode_api_token", e.target.value, "quality")} />
+                  <div className="settings-input-group-icon" onClick={() => toggleSecret("cycode_api_token")} style={{ cursor: "pointer" }}>
+                    {showSecrets["cycode_api_token"] ? <FaEyeSlash /> : <FaEye />}
+                  </div>
+                </div>
+              </div>
+              <div>
+                <label className="settings-label">REQUIRED SCOPES</label>
+                <input type="text" className="settings-input" placeholder="secrets,sast"
+                  value={userSettings.quality_checks_values?.cycode_scopes || "secrets,sast"}
+                  onChange={e => handleFieldChange("cycode_scopes", e.target.value, "quality")} />
+                <div className="settings-toggle-desc" style={{ marginTop: "4px" }}>Required: secrets,sast</div>
+              </div>
+            </div>
+          </div>
+          
+          <div className="grid-2">
             <div className="settings-toggle-card">
               <div className="settings-toggle-header">
                 <div className="settings-toggle-title">
@@ -1061,14 +1121,10 @@ const handleTestSonarConnection = async () => {
                 </div>
                 <div className="switch-wrap">
                   <label className="switch-ios">
-                    <input
-                      type="checkbox"
-                      checked={currentUserStg.quality_checks_values?.ci_enabled ?? true}
-                      onChange={e => handleUserQualityCheckChange("ci_enabled", e.target.checked)}
-                    />
+                    <input type="checkbox" checked={ciEnabled} onChange={e => setCiEnabled(e.target.checked)} />
                     <span className="slider-ios"></span>
                   </label>
-                  <span className="switch-label">Enabled</span>
+                  <span className="switch-label">{ciEnabled ? "Enabled" : "Disabled"}</span>
                 </div>
               </div>
               <p className="settings-toggle-desc">
@@ -1084,14 +1140,10 @@ const handleTestSonarConnection = async () => {
                 </div>
                 <div className="switch-wrap">
                   <label className="switch-ios">
-                    <input
-                      type="checkbox"
-                      checked={currentUserStg.quality_checks_values?.cd_enabled ?? true}
-                      onChange={e => handleUserQualityCheckChange("cd_enabled", e.target.checked)}
-                    />
+                    <input type="checkbox" checked={cdEnabled} onChange={e => setCdEnabled(e.target.checked)} />
                     <span className="slider-ios"></span>
                   </label>
-                  <span className="switch-label">Enabled</span>
+                  <span className="switch-label">{cdEnabled ? "Enabled" : "Disabled"}</span>
                 </div>
               </div>
               <p className="settings-toggle-desc">
