@@ -7,6 +7,9 @@ import json
 import logging
 import os
 import re
+import shutil
+import struct
+import subprocess
 import threading
 import time
 from datetime import datetime, timezone
@@ -23,6 +26,79 @@ from app.domain.models.proposed_test_models import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def parse_webm_ebml_duration(video_path: Path) -> float | None:
+    """Extracts duration from WebM EBML Segment Info tags without requiring external tools."""
+    try:
+        data = video_path.read_bytes()
+        idx = data.find(b"\x44\x89")
+        if idx == -1:
+            return None
+        length_byte = data[idx + 2]
+        val_len = length_byte & 0x0F
+        val_bytes = data[idx + 3 : idx + 3 + val_len]
+        if val_len == 4:
+            dur_raw = struct.unpack(">f", val_bytes)[0]
+        elif val_len == 8:
+            dur_raw = struct.unpack(">d", val_bytes)[0]
+        else:
+            return None
+
+        scale_idx = data.find(b"\x2a\xd7\xb1")
+        timecode_scale = 1000000.0  # Default is 1ms = 1,000,000ns
+        if scale_idx != -1:
+            s_len = data[scale_idx + 3] & 0x0F
+            s_bytes = data[scale_idx + 4 : scale_idx + 4 + s_len]
+            timecode_scale = float(int.from_bytes(s_bytes, "big"))
+
+        dur_seconds = (dur_raw * timecode_scale) / 1e9
+        return round(dur_seconds, 2) if dur_seconds > 0 else None
+    except Exception:
+        return None
+
+
+def extract_video_metadata(video_path: Path) -> dict[str, Any]:
+    """
+    Extracts actual media duration and file size from finalized WebM recording.
+    Uses ffprobe if available in PATH, falling back to pure Python EBML parser.
+    """
+    if not video_path.is_file():
+        return {"duration": None, "size": 0}
+
+    file_size = video_path.stat().st_size
+    duration = None
+
+    ffprobe_bin = shutil.which("ffprobe")
+    if ffprobe_bin:
+        try:
+            cmd = [
+                ffprobe_bin,
+                "-v", "error",
+                "-show_entries", "format=duration,size",
+                "-of", "json",
+                str(video_path),
+            ]
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            if res.returncode == 0 and res.stdout:
+                data = json.loads(res.stdout)
+                fmt = data.get("format", {})
+                if "duration" in fmt:
+                    dur_val = float(fmt["duration"])
+                    if dur_val > 0:
+                        duration = round(dur_val, 2)
+                if "size" in fmt:
+                    file_size = int(fmt["size"])
+        except Exception as e:
+            logger.warning(f"ffprobe extraction failed for {video_path}: {e}")
+
+    if duration is None:
+        duration = parse_webm_ebml_duration(video_path)
+
+    return {
+        "duration": duration,
+        "size": file_size,
+    }
 
 
 def resolve_app_port(repo_dir: Path | None = None, default_port: int = 8080) -> int:
@@ -101,29 +177,26 @@ class ProposedTestExecutor:
         except Exception as e:
             logger.warning(f"Failed to auto-install Playwright browsers: {e}")
 
-    _shared_playwright: Any = None
-    _playwright_lock: threading.Lock = threading.Lock()
+    _thread_local: threading.local = threading.local()
 
     @classmethod
     def get_shared_playwright(cls) -> Any:
-        """Lazily initializes and returns the process-level shared Playwright sync runtime."""
-        with cls._playwright_lock:
-            if cls._shared_playwright is None:
-                from playwright.sync_api import sync_playwright
-                cls.ensure_playwright_browsers()
-                cls._shared_playwright = sync_playwright().start()
-            return cls._shared_playwright
+        """Returns a Playwright sync runtime bound strictly to the current calling thread."""
+        if not hasattr(cls._thread_local, "playwright") or cls._thread_local.playwright is None:
+            from playwright.sync_api import sync_playwright
+            cls.ensure_playwright_browsers()
+            cls._thread_local.playwright = sync_playwright().start()
+        return cls._thread_local.playwright
 
     @classmethod
     def shutdown_playwright(cls) -> None:
-        """Gracefully stops the shared Playwright runtime on process exit."""
-        with cls._playwright_lock:
-            if cls._shared_playwright is not None:
-                try:
-                    cls._shared_playwright.stop()
-                except Exception:
-                    pass
-                cls._shared_playwright = None
+        """Gracefully stops the current thread's Playwright runtime."""
+        if hasattr(cls._thread_local, "playwright") and cls._thread_local.playwright is not None:
+            try:
+                cls._thread_local.playwright.stop()
+            except Exception:
+                pass
+            cls._thread_local.playwright = None
 
     def __init__(
         self,
@@ -142,19 +215,28 @@ class ProposedTestExecutor:
         self.api_base_url = api_base_url or self.base_url
         self.ui_base_url = ui_base_url or self.base_url
         self._api_context: Any = None
+        self._api_context_tid: int | None = None
 
     def _get_playwright(self) -> Any:
-        """Returns the process-level shared Playwright runtime."""
+        """Returns the Playwright sync runtime bound strictly to the current calling thread."""
         return self.get_shared_playwright()
 
     def _get_api_context(self) -> Any:
-        """Lazily initializes and reuses a single Playwright APIRequestContext for high performance."""
-        if self._api_context is None:
-            p = self._get_playwright()
+        """Lazily initializes and reuses a single Playwright APIRequestContext on the calling thread."""
+        current_tid = threading.get_ident()
+        p = self._get_playwright()
+        if self._api_context is None or self._api_context_tid != current_tid:
+            if self._api_context is not None:
+                try:
+                    self._api_context.dispose()
+                except Exception:
+                    pass
+                self._api_context = None
             self._api_context = p.request.new_context(
                 base_url=self.api_base_url,
                 ignore_https_errors=True,
             )
+            self._api_context_tid = current_tid
         return self._api_context
 
     def close(self) -> None:
@@ -165,6 +247,7 @@ class ProposedTestExecutor:
             except Exception:
                 pass
             self._api_context = None
+            self._api_context_tid = None
 
     def __del__(self) -> None:
         self.close()
@@ -667,7 +750,16 @@ class ProposedTestExecutor:
                 ],
             )
 
-        # 2. Launch real Playwright Browser session against the migrated application
+        # 2. Clean stale artifacts from previous runs to prevent cache collisions
+        if test_dir.exists():
+            for item in list(test_dir.iterdir()):
+                if item.is_file():
+                    try:
+                        item.unlink()
+                    except Exception:
+                        pass
+
+        # 3. Launch real Playwright Browser session against the migrated application
         executed_steps: list[StepExecutionRecord] = []
         screenshot_path = test_dir / "screenshot.png"
         video_path = test_dir / "video.webm"
@@ -692,6 +784,7 @@ class ProposedTestExecutor:
         browser = None
         context = None
         page = None
+        video = None
 
         try:
             p = self._get_playwright()
@@ -707,11 +800,15 @@ class ProposedTestExecutor:
             context.add_init_script("try { localStorage.setItem('isAuthenticated', 'true'); } catch(e) {}")
 
             page = context.new_page()
+            video = page.video
 
             try:
                 # Step 1: Navigate to full_url
                 t0 = time.time()
-                nav_resp = page.goto(full_url, wait_until="domcontentloaded", timeout=15000)
+                try:
+                    nav_resp = page.goto(full_url, wait_until="load", timeout=15000)
+                except Exception:
+                    nav_resp = page.goto(full_url, wait_until="domcontentloaded", timeout=15000)
                 nav_dur = round(time.time() - t0, 3)
                 status_code = nav_resp.status if nav_resp else 200
                 steps_log_lines.append(f"1. page.goto('{full_url}') -> HTTP {status_code} in {nav_dur}s")
@@ -727,33 +824,8 @@ class ProposedTestExecutor:
                 # Give dynamic React SPA brief time to hydrate DOM
                 page.wait_for_timeout(500)
 
-                # Step 2: Real DOM Assertions on target page layout
+                # Step 2: Fill input fields if specified (user actions)
                 step_idx = 2
-                t_ast = time.time()
-                body_loc = page.locator("body")
-                if not body_loc.is_visible():
-                    raise AssertionError(f"DOM <body> element not visible on '{full_url}'.")
-
-                if spec and spec.expected_elements:
-                    for el_sel in spec.expected_elements:
-                        el = page.locator(el_sel)
-                        if el.count() == 0 or not el.first.is_visible():
-                            raise AssertionError(f"Expected UI element '{el_sel}' was not visible in page DOM.")
-                        steps_log_lines.append(f"   Asserted UI element '{el_sel}' is visible in page DOM")
-
-                assertions_passed = len(spec.expected_elements) if (spec and spec.expected_elements) else (len(spec.assertions) if (spec and spec.assertions) else 1)
-                ast_dur = round(time.time() - t_ast, 3)
-                executed_steps.append(
-                    StepExecutionRecord(
-                        step_number=step_idx,
-                        description=f"Validate expected DOM elements ({', '.join(spec.expected_elements) if spec and spec.expected_elements else 'body'})",
-                        status=ProposedTestStatus.PASSED,
-                        duration=f"{ast_dur}s",
-                    )
-                )
-                step_idx += 1
-
-                # Step 3: Fill input fields if specified
                 if spec and spec.input_fields:
                     t_in = time.time()
                     for field in spec.input_fields:
@@ -775,7 +847,7 @@ class ProposedTestExecutor:
                     )
                     step_idx += 1
 
-                # Step 4: Trigger actions if specified
+                # Step 3: Trigger actions if specified (user workflow actions)
                 if spec and spec.actions:
                     t_act = time.time()
                     for act in spec.actions:
@@ -784,6 +856,10 @@ class ProposedTestExecutor:
                             if btn.count() > 0:
                                 btn.first.click(timeout=3000)
                                 steps_log_lines.append("   Clicked action button")
+                                try:
+                                    page.wait_for_load_state("load", timeout=3000)
+                                except Exception:
+                                    pass
                     act_dur = round(time.time() - t_act, 3)
                     executed_steps.append(
                         StepExecutionRecord(
@@ -794,6 +870,36 @@ class ProposedTestExecutor:
                         )
                     )
                     step_idx += 1
+
+                # Step 4: Real DOM Assertions on target page layout and expected elements
+                t_ast = time.time()
+                try:
+                    page.wait_for_selector("body", timeout=5000)
+                except Exception:
+                    raise AssertionError(f"DOM <body> element not attached on '{full_url}'.")
+
+                if spec and spec.expected_elements:
+                    for el_sel in spec.expected_elements:
+                        el = page.locator(el_sel)
+                        try:
+                            el.first.wait_for(state="visible", timeout=3000)
+                        except Exception:
+                            pass
+                        if el.count() == 0 or not el.first.is_visible():
+                            raise AssertionError(f"Expected UI element '{el_sel}' was not visible in page DOM.")
+                        steps_log_lines.append(f"   Asserted UI element '{el_sel}' is visible in page DOM")
+
+                assertions_passed = len(spec.expected_elements) if (spec and spec.expected_elements) else (len(spec.assertions) if (spec and spec.assertions) else 1)
+                ast_dur = round(time.time() - t_ast, 3)
+                executed_steps.append(
+                    StepExecutionRecord(
+                        step_number=step_idx,
+                        description=f"Validate expected DOM elements ({', '.join(spec.expected_elements) if spec and spec.expected_elements else 'body'})",
+                        status=ProposedTestStatus.PASSED,
+                        duration=f"{ast_dur}s",
+                    )
+                )
+                step_idx += 1
 
                 # Step 5: Capture actual full-page PNG screenshot for passed test
                 t_sc = time.time()
@@ -861,13 +967,6 @@ class ProposedTestExecutor:
                 )
 
             finally:
-                video_path_obj = None
-                try:
-                    if page and page.video:
-                        video_path_obj = Path(page.video.path())
-                except Exception:
-                    pass
-
                 # Stop tracing and retain trace.zip on failure and pass
                 try:
                     if context:
@@ -876,12 +975,31 @@ class ProposedTestExecutor:
                 except Exception as trace_err:
                     logger.warning(f"Failed to stop Playwright tracing for {test.id}: {trace_err}")
 
-                # Close context to flush video to disk
+                # Ensure page and context close in proper order so Playwright completes .webm recording
+                try:
+                    if page and not page.is_closed():
+                        page.close()
+                except Exception as p_close_err:
+                    logger.warning(f"Failed to close page for {test.id}: {p_close_err}")
+
                 try:
                     if context:
                         context.close()
                 except Exception as ctx_err:
                     logger.warning(f"Failed to close context for {test.id}: {ctx_err}")
+
+                # Save finalized video using Playwright Video API
+                dest_v = test_dir / "video.webm"
+                try:
+                    if video:
+                        video.save_as(str(dest_v))
+                        video_available = dest_v.is_file() and dest_v.stat().st_size > 0
+                        try:
+                            video.delete()
+                        except Exception:
+                            pass
+                except Exception as v_save_err:
+                    logger.warning(f"Failed to save_as video for {test.id}: {v_save_err}")
 
                 try:
                     if browser:
@@ -889,15 +1007,8 @@ class ProposedTestExecutor:
                 except Exception as b_err:
                     logger.warning(f"Failed to close browser for {test.id}: {b_err}")
 
-                # Find video file and rename to video.webm
-                dest_v = test_dir / "video.webm"
-                if video_path_obj and video_path_obj.exists():
-                    if dest_v.exists() and dest_v != video_path_obj:
-                        dest_v.unlink()
-                    if video_path_obj != dest_v:
-                        video_path_obj.rename(dest_v)
-                    video_available = True
-                else:
+                # Fallback: if dest_v does not exist, find any generated .webm in test_dir
+                if not video_available or not dest_v.is_file():
                     webms = sorted(
                         [f for f in test_dir.glob("*.webm") if f.name != "video.webm"],
                         key=lambda f: f.stat().st_mtime,
@@ -907,6 +1018,8 @@ class ProposedTestExecutor:
                         if dest_v.exists():
                             dest_v.unlink()
                         webms[0].rename(dest_v)
+                        video_available = dest_v.is_file() and dest_v.stat().st_size > 0
+
                 # Clean up any remaining intermediate Playwright video files
                 for vf in test_dir.glob("*.webm"):
                     if vf.name != "video.webm":
@@ -914,13 +1027,21 @@ class ProposedTestExecutor:
                             vf.unlink()
                         except Exception:
                             pass
-                video_available = dest_v.is_file()
+
+                video_available = dest_v.is_file() and dest_v.stat().st_size > 0
 
         except Exception as p_err:
             if not error_msg:
                 error_msg = str(p_err)
                 error_type = "INFRASTRUCTURE_UNAVAILABLE"
                 stack_trace = f"PlaywrightError: {p_err}"
+
+        # Extract actual media duration and size directly from the finalized .webm file
+        dest_v = test_dir / "video.webm"
+        video_metadata = extract_video_metadata(dest_v) if video_available else {"duration": None, "size": 0}
+        actual_video_duration = video_metadata.get("duration")
+        actual_video_size = video_metadata.get("size")
+        recording_status = "RECORDED" if video_available and actual_video_duration else ("FAILED" if video_available else "NO_RECORDING")
 
         test_status = ProposedTestStatus.PASSED if not error_msg else ProposedTestStatus.FAILED
         steps_log_lines.append(f"Result: {test_status.value} (Assertions passed: {assertions_passed}, failed: {assertions_failed})")
@@ -944,6 +1065,10 @@ class ProposedTestExecutor:
                 screenshot_available=screenshot_available,
                 video_available=video_available,
                 video_url=video_url,
+                video_duration=actual_video_duration,
+                video_duration_formatted=f"{actual_video_duration:.2f}s" if actual_video_duration is not None else None,
+                video_size=actual_video_size,
+                recording_status=recording_status,
                 trace_url=trace_url,
                 trace_available=trace_available,
                 logs_url=f"/api/v1/migration/{self.job_id}/proposed-tests/evidence/{test.id}/browser_steps.log",

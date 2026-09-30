@@ -76,6 +76,10 @@ class ExecutionEvidence(BaseModel):
     logs_url: str | None = None
     screenshot_available: bool = False
     video_available: bool = False
+    video_duration: float | None = None
+    video_duration_formatted: str | None = None
+    video_size: int | None = None
+    recording_status: str | None = None
     trace_url: str | None = None
     trace_available: bool = False
 

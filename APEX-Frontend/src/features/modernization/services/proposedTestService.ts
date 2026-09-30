@@ -58,6 +58,10 @@ export interface ExecutionEvidence {
   logs_url?: string | null;
   screenshot_available?: boolean;
   video_available?: boolean;
+  video_duration?: number | null;
+  video_duration_formatted?: string | null;
+  video_size?: number | null;
+  recording_status?: string | null;
   trace_url?: string | null;
 }
 

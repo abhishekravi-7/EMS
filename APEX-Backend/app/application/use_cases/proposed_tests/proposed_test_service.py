@@ -681,6 +681,7 @@ class ProposedTestService:
                                 self._run_state[job_id]["completed"] += 1
                 finally:
                     executor.close()
+                    ProposedTestExecutor.shutdown_playwright()
 
             if fe_server:
                 try:
@@ -1102,10 +1103,14 @@ class ProposedTestService:
                 base_url=source_app_url,
             )
 
-            for t in proposals:
-                res = executor.execute_test(t, repo_dir=source_dir)
-                t.baseline_execution_result = res
-                self._log(job_id, f"[BASELINE] {t.id} -> {res.status.value}")
+            try:
+                for t in proposals:
+                    res = executor.execute_test(t, repo_dir=source_dir)
+                    t.baseline_execution_result = res
+                    self._log(job_id, f"[BASELINE] {t.id} -> {res.status.value}")
+            finally:
+                executor.close()
+                ProposedTestExecutor.shutdown_playwright()
 
             try:
                 from app.application.use_cases.proposed_tests.proposed_test_allure_reporter import ProposedTestAllureReporter

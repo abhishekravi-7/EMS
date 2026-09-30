@@ -273,7 +273,14 @@ async def get_proposed_test_evidence_endpoint(
     if filename.endswith(".png"):
         return FileResponse(str(evidence_file), media_type="image/png")
     if filename.endswith((".webm", ".mp4")):
-        return FileResponse(str(evidence_file), media_type="video/webm")
+        return FileResponse(
+            str(evidence_file),
+            media_type="video/webm",
+            headers={
+                "Cache-Control": "no-cache, must-revalidate",
+                "Accept-Ranges": "bytes",
+            },
+        )
     if filename.endswith(".zip"):
         return FileResponse(str(evidence_file), media_type="application/zip", filename=filename)
     if filename.endswith(".json"):
@@ -318,11 +325,34 @@ async def get_proposed_test_report_endpoint(
     trace_file = evidence_dir / "trace.zip"
     logs_file = evidence_dir / "browser_steps.log"
 
+    from app.application.use_cases.proposed_tests.proposed_test_executor import extract_video_metadata
+
+    vid_metadata = extract_video_metadata(video_file) if video_file.is_file() else {"duration": None, "size": 0}
+    vid_dur = (
+        test.execution_result.evidence.video_duration
+        if test.execution_result and test.execution_result.evidence and test.execution_result.evidence.video_duration is not None
+        else vid_metadata.get("duration")
+    )
+    vid_size = (
+        test.execution_result.evidence.video_size
+        if test.execution_result and test.execution_result.evidence and test.execution_result.evidence.video_size is not None
+        else vid_metadata.get("size")
+    )
+    rec_status = (
+        test.execution_result.evidence.recording_status
+        if test.execution_result and test.execution_result.evidence and test.execution_result.evidence.recording_status
+        else ("RECORDED" if video_file.is_file() and vid_dur else ("FAILED" if video_file.is_file() else "NO_RECORDING"))
+    )
+
     evidence_dict = {
         "screenshot_url": f"/api/v1/migration/{job_id}/proposed-tests/evidence/{test_id}/screenshot.png" if screenshot_file.is_file() else None,
         "screenshot_available": screenshot_file.is_file(),
         "video_url": f"/api/v1/migration/{job_id}/proposed-tests/evidence/{test_id}/video.webm" if video_file.is_file() else None,
         "video_available": video_file.is_file(),
+        "video_duration": vid_dur,
+        "video_duration_formatted": f"{vid_dur:.2f}s" if vid_dur is not None else None,
+        "video_size": vid_size,
+        "recording_status": rec_status,
         "trace_url": f"/api/v1/migration/{job_id}/proposed-tests/evidence/{test_id}/trace.zip" if trace_file.is_file() else None,
         "logs_url": f"/api/v1/migration/{job_id}/proposed-tests/evidence/{test_id}/browser_steps.log" if logs_file.is_file() else None,
     }
