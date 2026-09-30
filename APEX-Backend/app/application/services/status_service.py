@@ -12,6 +12,7 @@ import threading
 import time
 from datetime import datetime, timezone
 from typing import Any
+from cachetools import LRUCache
 
 from app.infrastructure.persistence.mongodb_report_repository import (
     load_report_from_db_sync,
@@ -23,7 +24,7 @@ from app.shared import json_utils, migration_log_sanitizer
 logger = logging.getLogger(__name__)
 
 # In-memory fallback cache across threads in the same process
-_REPORT_CACHE: dict[str, dict[str, Any]] = {}
+_REPORT_CACHE: LRUCache = LRUCache(maxsize=100)
 _CACHE_LOCK = threading.RLock()
 _LAST_DB_FLUSH: dict[str, float] = {}
 

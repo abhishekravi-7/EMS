@@ -13,6 +13,7 @@ import json
 import logging
 from pathlib import Path
 from typing import Any
+from cachetools import LRUCache
 
 from sqlalchemy.orm import Session
 
@@ -36,7 +37,7 @@ from app.schemas.dependency_analysis_schema import (
 logger = logging.getLogger(__name__)
 
 _CACHE_DIR = Path(".cache/dependency_analysis")
-_memory_cache: dict[str, Any] = {}
+_memory_cache: LRUCache = LRUCache(maxsize=100)
 _in_flight_locks: dict[tuple[int, str], asyncio.Lock] = {}
 
 
