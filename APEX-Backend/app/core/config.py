@@ -140,7 +140,7 @@ class Settings(BaseSettings):
     # Some legacy projects keep Groovy/Spock/JUnit test toolchains that are not
     # Java-target compatible after migration; those should not block the basic
     # "does the migrated application package?" validation.
-    build_maven_args: str = "-B,-Dmaven.test.skip=true,package"
+    build_maven_args: str = "-B,-Dmaven.test.skip=true,-Dgit.commit.id.skip=true,-Dmaven.gitcommitid.skip=true,package"
     # Gradle tasks: build but skip tests.
     build_gradle_args: str = "build,-x,test,--no-daemon"
     # Timeout (seconds) for the build.
@@ -160,6 +160,10 @@ class Settings(BaseSettings):
     # Internal prefixes and CLI command names used by runners:
     sonarqube_project_key_prefix: str = "java-apex"
     sonarqube_scanner_command: str = "sonar-scanner"
+    cycode_cli_command: str = "cycode"
+    cycode_timeout_seconds: int = 600
+    cycode_api_url: str = Field(default="https://api.cycode.com", validation_alias=AliasChoices("CYCODE_API_URL", "cycode_api_url"))
+    cycode_app_url: str = Field(default="https://app.cycode.com", validation_alias=AliasChoices("CYCODE_APP_URL", "cycode_app_url"))
     # FOSSA API key. Required only when the FOSSA quality gate card is active.
     fossa_api_key: str = Field(default="", alias="FOSSA_API_KEY")
     # Optional custom FOSSA endpoint for self-hosted/enterprise setups.

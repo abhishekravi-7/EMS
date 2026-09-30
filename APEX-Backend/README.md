@@ -2,20 +2,19 @@
 
 FastAPI backend for the Java migration platform. Implements **Connect** (Step 1),
 **Discovery** (Step 2), **Migration Config** (Step 4 destination), and
-**Start Migration** (OpenRewrite migration + publish to GitHub).
+**Start Migration** (Native Python AST/Regex migration + publish to GitHub).
 
 > **Start Migration prerequisites (local):** JDK 21 + Maven on PATH (Gradle uses
 > each project's `gradlew`). Set `GITHUB_TARGET_TOKEN` (authorized on the target
 > owner) and `GITHUB_TARGET_OWNER` in `.env`.
 
 ### Start Migration — `POST /api/v1/migration/{jobId}/start`
-Copies `original-repo` → `migrated-repo`, runs OpenRewrite (UpgradeToJava{target}
-+ `javax`→`jakarta`) via Maven/Gradle, then creates a new repo under the target
+Copies `original-repo` → `migrated-repo`, runs native in-process Python fallback rules (Regex updates for Java target versions and `javax` to `jakarta` mapping) via `PomModernizer`/`GradleModernizer`, then creates a new repo under the target
 owner and pushes the result. Async (background thread); poll:
 `GET /api/v1/migration/{jobId}/summary` · `/detail` · `/logs`. Terminal statuses:
 `completed | failed`. The migrated code is published to
 `https://github.com/<owner>/<targetRepoName>` (returned as `target_repo`).
-Recipe/plugin versions are pinned in `core/config.py`. Tokens are masked in logs.
+Tokens are masked in logs.
 
 ## Connect stage
 
@@ -68,7 +67,7 @@ storage/migration-jobs/<jobId>/reports/connect-report.json
 
 `POST /api/v1/discovery/{jobId}` reads the job's connect report, clones the repo
 into `original-repo` (read-only), and analyzes the project. It does **not** run
-any migration, OpenRewrite, Maven/Gradle build, or push — and never modifies the
+any migration, AST transformation, Maven/Gradle build, or push — and never modifies the
 cloned repo. An optional `{ "githubToken": "..." }` body overrides the token for
 private repos (otherwise the token stored during Connect is used).
 

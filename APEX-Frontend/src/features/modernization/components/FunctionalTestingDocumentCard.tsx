@@ -244,7 +244,7 @@ export function FunctionalTestingDocumentCard({
           <span
             className="wizard-icon-badge wizard-icon-badge-sm"
             style={{
-              ...buildWizardAccentVars("#7c3aed"),
+              ...buildWizardAccentVars("#2563eb"),
               marginTop: 2,
               flexShrink: 0,
             }}
@@ -376,7 +376,7 @@ export function FunctionalTestingDocumentCard({
           >
             <div style={{ display: "flex", alignItems: "center", gap: 14, minWidth: 200, flex: 1 }}>
               <div style={{ fontSize: 26, display: "flex", alignItems: "center", flexShrink: 0 }}>
-                {getFileFormatIcon(metadata.file_type)}
+                {getFileFormatIcon(metadata.file_type || "")}
               </div>
               <div style={{ minWidth: 0 }}>
                 <div
@@ -403,13 +403,13 @@ export function FunctionalTestingDocumentCard({
                     flexWrap: "wrap",
                   }}
                 >
-                  <span>{formatFileSize(metadata.size_bytes)}</span>
+                  <span>{formatFileSize(metadata.size_bytes ?? 0)}</span>
                   <span>•</span>
-                  <span>{metadata.file_type} Document</span>
+                  <span>{metadata.file_type || "Document"} Document</span>
                   <span>•</span>
                   <span>
                     Uploaded{" "}
-                    {new Date(metadata.uploaded_at).toLocaleTimeString([], {
+                    {new Date(metadata.uploaded_at || Date.now()).toLocaleTimeString([], {
                       hour: "2-digit",
                       minute: "2-digit",
                     })}
@@ -517,11 +517,11 @@ export function FunctionalTestingDocumentCard({
             onDragLeave={() => setIsDragOver(false)}
             onDrop={handleDrop}
             style={{
-              border: `2px dashed ${isDragOver ? "#7c3aed" : "#cbd5e1"}`,
+              border: `2px dashed ${isDragOver ? "#2563eb" : "#cbd5e1"}`,
               borderRadius: 12,
               padding: "20px 24px",
               textAlign: "center",
-              background: isDragOver ? "#f5f3ff" : "#f8fafc",
+              background: isDragOver ? "#eff6ff" : "#f8fafc",
               transition: "all 0.15s ease",
               cursor: isUploading ? "wait" : "pointer",
               display: "flex",
@@ -544,7 +544,7 @@ export function FunctionalTestingDocumentCard({
                   alignItems: "center",
                   gap: 10,
                   padding: "8px 0",
-                  color: "#7c3aed",
+                  color: "#2563eb",
                   fontWeight: 700,
                   fontSize: 13,
                 }}
@@ -564,7 +564,7 @@ export function FunctionalTestingDocumentCard({
                     padding: "8px 20px",
                     borderRadius: 8,
                     border: "none",
-                    background: "linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)",
+                    background: "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)",
                     color: "#fff",
                     fontSize: 13,
                     fontWeight: 700,
@@ -572,7 +572,7 @@ export function FunctionalTestingDocumentCard({
                     display: "inline-flex",
                     alignItems: "center",
                     gap: 8,
-                    boxShadow: "0 2px 8px rgba(124, 58, 237, 0.25)",
+                    boxShadow: "0 2px 8px rgba(37, 99, 235, 0.25)",
                     transition: "all 0.15s ease",
                   }}
                   aria-label="Upload Document"

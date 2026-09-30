@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { MigrationCycodeSection } from "./MigrationCycodeSection";
 import React from "react";
 import {
   FaCheckCircle,
@@ -510,13 +511,20 @@ export function ResultReportView({
   const totalTestCases = testSummaryMetrics?.total_test_cases ?? (existingTestCases + generatedTestCases);
   const migrationJavaVersion = testSummaryMetrics?.java_migration_version ?? "";
   const coverageResult = migrationJob?.test_pipeline?.coverage_result as
-    | { available?: boolean; line_coverage_pct?: number; line_coverage?: number }
+    | {
+        available?: boolean;
+        line_coverage_pct?: number;
+        line_coverage?: number;
+        original?: { line_coverage_pct?: number };
+        final?: { line_coverage_pct?: number };
+        improvement?: { text?: string };
+      }
     | undefined;
   const jacocoCoverageAvailable = coverageResult?.available;
   const jacocoCoveragePct =
     jacocoCoverageAvailable === false
       ? null
-      : coverageResult?.line_coverage_pct ?? coverageResult?.line_coverage ?? null;
+      : coverageResult?.final?.line_coverage_pct ?? coverageResult?.line_coverage_pct ?? coverageResult?.line_coverage ?? null;
   const testSummaryReportDate = migrationJob?.completed_at
     ? new Date(migrationJob.completed_at).toLocaleDateString()
     : new Date().toLocaleDateString();
@@ -537,7 +545,7 @@ export function ResultReportView({
     { label: "Total Test Cases", value: totalTestCases },
     {
       label: "JaCoCo Coverage",
-      value: typeof jacocoCoveragePct === "number" ? `${jacocoCoveragePct.toFixed(1)}%` : "0.0%",
+      value: typeof jacocoCoveragePct === "number" ? `${jacocoCoveragePct.toFixed(1)}%` : "N/A",
     },
   ];
 
@@ -849,7 +857,7 @@ export function ResultReportView({
       group_id: source.group_id || source.groupId || source.coordinate?.split(":")[0] || "dependency",
       artifact_id: source.artifact_id || source.artifactId || source.coordinate?.split(":")[1] || "artifact",
       current_version: source.current_version || source.old_version || source.oldVersion || source.sourceVersion || "managed version",
-      new_version: source.new_version || source.newVersion || source.resolvedTargetVersion || "updated version",
+      new_version: (source.new_version || source.newVersion || (source as any).resolvedTargetVersion || "updated version") as string,
       status: source.status || "UPGRADED",
     };
   });
@@ -1822,6 +1830,8 @@ export function ResultReportView({
               })()}
             </div>
 
+            {migrationJob.run_cycode && <MigrationCycodeSection report={migrationJob.cycode_report} />}
+
             {/* DETAILED MIGRATION DASHBOARD */}
             <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 16, marginTop: 16, marginBottom: 16, alignItems: "stretch" }}>
                 {/* Left Column */}
@@ -1853,9 +1863,19 @@ export function ResultReportView({
                    <div style={{ flex: 1 }}>
                      <MigrationFossaSection
                         styles={{...styles, reportSection: { padding: 0, border: 'none', background: 'transparent', boxShadow: 'none' }}}
-                        fossaLicenseIssueCount={migrationJob.fossa_report?.license_issues || 0}
-                        fossaVulnerabilityTotal={(migrationJob.fossa_report as any)?.vulnerability_count || 0}
-                        fossaOutdatedCount={migrationJob.fossa_report?.outdated_dependencies || 0}
+                        fossaLicenseIssueCount={migrationJob.fossa_license_issues ?? (migrationJob.fossa_report as any)?.license_issues ?? (migrationJob as any)?.license_issues}
+                        fossaVulnerabilityTotal={migrationJob.fossa_vulnerabilities ?? (migrationJob.fossa_report as any)?.vulnerabilities ?? (migrationJob.fossa_report as any)?.vulnerability_count}
+                        fossaOutdatedCount={migrationJob.fossa_outdated_dependencies ?? (migrationJob.fossa_report as any)?.outdated_dependencies ?? (migrationJob as any)?.outdated_packages}
+ 
+                        fossaTotalDependencies={migrationJob.fossa_total_dependencies ?? (migrationJob.fossa_report as any)?.total_dependencies ?? (migrationJob as any)?.dependencies}
+ 
+                        fossaTotalLicenses={(migrationJob as any)?.fossa_total_licenses ?? (migrationJob.fossa_report as any)?.total_licenses ?? (migrationJob.fossa_report as any)?.license_count ?? (migrationJob.fossa_report as any)?.licenses ?? (migrationJob as any)?.licenses}
+ 
+                        fossaPolicyStatus={migrationJob.fossa_policy_status || (migrationJob.fossa_report as any)?.policy_status || (migrationJob as any)?.status}
+                        fossaScanMode={migrationJob.fossa_scan_mode || (migrationJob.fossa_report as any)?.scan_mode}
+                        fossaErrorMessage={migrationJob.fossa_error_message || (migrationJob.fossa_report as any)?.error_message}
+                        fossaAnalysisUrl={fossaAnalysisUrl || migrationJob.fossa_analysis_url || (migrationJob.fossa_report as any)?.analysis_url || (migrationJob as any)?.project_url}
+                        fossaRealScan={Boolean(fossaIsRealScan || migrationJob.fossa_real_scan || (migrationJob.fossa_report as any)?.real_scan)}
                       />
                    </div>
 

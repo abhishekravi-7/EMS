@@ -170,12 +170,12 @@ export function ExistingTestCasesPanel({
         background: "#fff",
         borderRadius: 20,
         border: "1px solid #e2e8f0",
-        padding: "28px",
-        marginTop: 24,
+        padding: "20px",
+        marginTop: 8,
         boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.05)",
         display: "flex",
         flexDirection: "column",
-        gap: 20,
+        gap: 2,
       }}
     >
       {/* Top Tabs: Functional Testing Summary & Business Report Summary */}

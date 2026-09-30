@@ -48,9 +48,17 @@ class GroqClient:
         self._timeout = timeout or settings.chat_llm_request_timeout_seconds
         self.last_usage: tuple[int, int, int, int] | None = None
 
+    def _get_effective_credentials(self) -> tuple[str, str]:
+        from app.core.context import llm_values_ctx
+        ctx_vals = llm_values_ctx.get() or {}
+        api_key = self._api_key or ctx_vals.get("groq_api_key") or settings.groq_api_key or ""
+        model = self._model or ctx_vals.get("groq_model") or settings.groq_model or "openai/gpt-oss-20b"
+        return api_key.strip(), model.strip()
+
     @property
     def is_configured(self) -> bool:
-        return bool(self._api_key)
+        api_key, _ = self._get_effective_credentials()
+        return bool(api_key)
 
     def _refresh_runtime_config(self) -> bool:
         """Reload provider values so rotated env/.env credentials take effect."""
@@ -71,10 +79,11 @@ class GroqClient:
         excluded_models = exclude_models or set()
         if self._api_key_overridden and self._model_overridden and not excluded_models:
             return False
+        api_key, _ = self._get_effective_credentials()
         try:
             response = await client.get(
                 f"{self._base_url}/models",
-                headers={"Authorization": f"Bearer {self._api_key}"},
+                headers={"Authorization": f"Bearer {api_key}"},
             )
             if response.status_code != 200:
                 return False
@@ -108,12 +117,13 @@ class GroqClient:
 
     async def stream_chat(self, system_prompt: str, user_prompt: str, max_tokens: int | None = None) -> AsyncIterator[str]:
         """Yield answer text deltas from Groq. Raises on config/transport errors."""
-        if not self._api_key:
+        api_key, effective_model = self._get_effective_credentials()
+        if not api_key:
             raise ChatLLMNotConfiguredError()
 
         self.last_usage = None
         payload = {
-            "model": self._model,
+            "model": effective_model,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
@@ -124,7 +134,7 @@ class GroqClient:
             "stream_options": {"include_usage": True},
         }
         headers = {
-            "Authorization": f"Bearer {self._api_key}",
+            "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
 

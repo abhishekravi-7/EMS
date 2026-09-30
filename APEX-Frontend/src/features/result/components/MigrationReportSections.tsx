@@ -18,7 +18,11 @@ import {
   FaLock,
   FaBiohazard,
   FaFire,
-  FaRocket
+  FaRocket,
+  FaTasks,
+  FaLightbulb,
+  FaTimes,
+  FaTimesCircle
 } from "react-icons/fa";
 export { MigrationProposedTestSection } from "./MigrationProposedTestSection";
 import { API_BASE_URL } from "@/services/config/env";
@@ -56,11 +60,12 @@ export function MigrationUnitTestSection({
 }: MigrationUnitTestSectionProps) {
   const [showAllModal, setShowAllModal] = useState(false);
   const [savedPrompt, setSavedPrompt] = useState<string | null>(null);
+  const [selectedPromptTab, setSelectedPromptTab] = useState<string | null>(null);
 
   useEffect(() => {
     getUserSettings()
       .then((data) => {
-        const p = data.quality_checks_values?.testing_prompt || data.test_cases_values?.testing_prompt;
+        const p = data.test_cases_values?.testing_prompt || data.quality_checks_values?.testing_prompt;
         if (p && typeof p === "string" && p.trim()) {
           setSavedPrompt(p.trim());
         }
@@ -109,11 +114,83 @@ export function MigrationUnitTestSection({
   const newTestFiles = getValueByLabel("NEW TEST FILES", 0);
   const existingTestCases = getValueByLabel("EXISTING TEST CASES", 0);
   const generatedTestCases = getValueByLabel("GENERATED TEST CASES", "+0");
-  const jacocoCoverageRaw = getValueByLabel("JACOCO COVERAGE", "0%");
-  const jacocoCoverageVal = parseFloat(jacocoCoverageRaw.toString().replace("%", "")) || 0;
+  const jacocoCoverageRaw = getValueByLabel("JACOCO COVERAGE", "N/A");
+  const jacocoCoverageVal = (jacocoCoverageRaw && jacocoCoverageRaw !== "N/A" && jacocoCoverageRaw !== "0.0%")
+    ? parseFloat(jacocoCoverageRaw.toString().replace("%", ""))
+    : null;
 
   const testPipeline = migrationJob?.test_pipeline ?? {};
-  const executedDetails = testPipeline?.executed_test_details ?? [];
+  const executedDetails = (testPipeline as any)?.executed_test_details ?? [];
+  const generatedFiles = (testPipeline as any)?.generated_test_files ?? [];
+  const genExec = (testPipeline as any)?.generated_test_execution ?? {};
+  const covResult = (testPipeline as any)?.coverage_result || (migrationJob as any)?.coverage_result || (migrationJob as any)?.coverage;
+  const isCovAvailable = Boolean(covResult?.available);
+  const originalCov = isCovAvailable && typeof covResult?.original?.line_coverage_pct === "number" ? covResult.original.line_coverage_pct : null;
+  const finalCov = isCovAvailable
+    ? (typeof covResult?.final?.line_coverage_pct === "number"
+        ? covResult.final.line_coverage_pct
+        : (typeof covResult?.line_coverage_pct === "number"
+            ? covResult.line_coverage_pct
+            : (typeof covResult?.line === "number" ? covResult.line : jacocoCoverageVal)))
+    : null;
+  const branchCov = isCovAvailable
+    ? (typeof covResult?.final?.branch_coverage_pct === "number"
+        ? covResult.final.branch_coverage_pct
+        : (typeof covResult?.branch_coverage_pct === "number"
+            ? covResult.branch_coverage_pct
+            : (typeof covResult?.branch === "number" ? covResult.branch : null)))
+    : null;
+  const instCov = isCovAvailable
+    ? (typeof covResult?.final?.instruction_coverage_pct === "number"
+        ? covResult.final.instruction_coverage_pct
+        : (typeof covResult?.instruction_coverage_pct === "number"
+            ? covResult.instruction_coverage_pct
+            : (typeof covResult?.instruction === "number" ? covResult.instruction : null)))
+    : null;
+  const methodCov = isCovAvailable
+    ? (typeof covResult?.final?.method_coverage_pct === "number"
+        ? covResult.final.method_coverage_pct
+        : (typeof covResult?.method_coverage_pct === "number"
+            ? covResult.method_coverage_pct
+            : (typeof covResult?.method === "number" ? covResult.method : null)))
+    : null;
+  const classCov = isCovAvailable
+    ? (typeof covResult?.final?.class_coverage_pct === "number"
+        ? covResult.final.class_coverage_pct
+        : (typeof covResult?.class_coverage_pct === "number"
+            ? covResult.class_coverage_pct
+            : (typeof covResult?.class === "number" ? covResult.class : null)))
+    : null;
+
+  const improvementText = isCovAvailable && covResult?.improvement?.text
+    ? covResult.improvement.text
+    : (typeof originalCov === "number" && typeof finalCov === "number" ? `+${(finalCov - originalCov).toFixed(1)} pp` : null);
+
+  const genMethodCount = Number(genExec.generated_test_methods ?? parseInt(String(generatedTestCases).replace("+", "")) ?? 0) || 0;
+  const execGenCount = Number(genExec.executed_generated_test_methods ?? genExec.executed ?? executedDetails.length) || 0;
+  const passedGenCount = Number(genExec.passed_generated_test_methods ?? genExec.passed ?? executedDetails.filter((d: any) => d.status === "PASSED").length) || 0;
+  const failedGenCount = Number(genExec.failed_generated_test_methods ?? genExec.failed ?? executedDetails.filter((d: any) => d.status === "FAILED").length) || 0;
+  const skippedGenCount = Number(genExec.skipped_generated_test_methods ?? genExec.skipped ?? executedDetails.filter((d: any) => d.status === "SKIPPED").length) || 0;
+
+  const rawExecStatus = (testPipeline as any)?.execution_status || (execGenCount > 0 ? (failedGenCount === 0 ? "EXECUTED" : (passedGenCount > 0 ? "PARTIAL" : "FAILED")) : "NOT_EXECUTED");
+  const execStatusLabel =
+    rawExecStatus === "EXECUTED"
+      ? "EXECUTED"
+      : rawExecStatus === "PARTIAL"
+      ? "PARTIALLY EXECUTED"
+      : rawExecStatus === "FAILED"
+      ? "FAILED"
+      : rawExecStatus === "COMPILE FAILED" || rawExecStatus === "COMPILE_FAILED"
+      ? "COMPILE FAILED"
+      : "NOT EXECUTED / NO EXECUTION RESULTS";
+  const execStatusColor =
+    rawExecStatus === "EXECUTED"
+      ? { bg: "#dcfce7", text: "#166534", border: "#86efac" }
+      : rawExecStatus === "PARTIAL"
+      ? { bg: "#fef3c7", text: "#b45309", border: "#fde68a" }
+      : rawExecStatus === "FAILED" || rawExecStatus === "COMPILE FAILED" || rawExecStatus === "COMPILE_FAILED"
+      ? { bg: "#fee2e2", text: "#991b1b", border: "#fecaca" }
+      : { bg: "#f1f5f9", text: "#475569", border: "#e2e8f0" };
 
   return (
     <div style={{ ...styles.reportSection, background: "#ffffff", border: "1px solid #eef2f6", borderRadius: 16, padding: "24px 32px", boxShadow: "0 4px 20px rgba(0,0,0,0.03)", height: "100%", display: "flex", flexDirection: "column" }}>
@@ -139,17 +216,45 @@ export function MigrationUnitTestSection({
       </div>
 
       {/* Metrics Row */}
-      <div style={{ display: "flex", alignItems: "center", gap: 24, marginBottom: 32 }}>
-        {/* Radial Gauge */}
-        <div style={{ position: "relative", width: 110, height: 110, flexShrink: 0 }}>
-          <svg width="110" height="110" viewBox="0 0 110 110">
-            <circle cx="55" cy="55" r="48" fill="none" stroke="#f1f5f9" strokeWidth="10" />
-            <circle cx="55" cy="55" r="48" fill="none" stroke="#22c55e" strokeWidth="10" strokeDasharray={`${jacocoCoverageVal * 3} 301`} strokeLinecap="round" transform="rotate(-90 55 55)" />
-          </svg>
-          <div style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center" }}>
-            <div style={{ fontSize: 24, fontWeight: 800, color: "#0f172a" }}>{jacocoCoverageVal}%</div>
-            <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", lineHeight: 1.1 }}>JaCoCo<br/>Coverage</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 24, marginBottom: 20 }}>
+        {/* Radial Gauge & JaCoCo Breakdown */}
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, flexShrink: 0, minWidth: 124 }}>
+          <div style={{ position: "relative", width: 110, height: 110 }}>
+            <svg width="110" height="110" viewBox="0 0 110 110">
+              <circle cx="55" cy="55" r="48" fill="none" stroke="#f1f5f9" strokeWidth="10" />
+              <circle cx="55" cy="55" r="48" fill="none" stroke="#22c55e" strokeWidth="10" strokeDasharray={`${typeof finalCov === "number" ? Math.min(100, Math.max(0, finalCov)) * 3 : 0} 301`} strokeLinecap="round" transform="rotate(-90 55 55)" />
+            </svg>
+            <div style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center" }}>
+              <div style={{ fontSize: 24, fontWeight: 800, color: "#0f172a" }}>
+                {typeof finalCov === "number" ? `${finalCov.toFixed(1)}%` : "N/A"}
+              </div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", lineHeight: 1.1 }}>JaCoCo<br/>Coverage</div>
+            </div>
           </div>
+          {typeof originalCov === "number" && (
+            <div style={{ fontSize: 11, color: "#334155", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, padding: "4px 8px", width: "100%" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 6 }}>
+                <span style={{ color: "#64748b" }}>Original:</span>
+                <span style={{ fontWeight: 700 }}>{originalCov.toFixed(1)}%</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 6, marginTop: 2 }}>
+                <span style={{ color: "#64748b" }}>Final:</span>
+                <span style={{ fontWeight: 700, color: typeof finalCov === "number" ? "#166534" : "#64748b" }}>
+                  {typeof finalCov === "number" ? `${finalCov.toFixed(1)}%` : "N/A"}
+                </span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 6, marginTop: 2, borderTop: "1px dashed #cbd5e1", paddingTop: 2 }}>
+                <span style={{ color: "#64748b" }}>Delta:</span>
+                {typeof finalCov === "number" && improvementText ? (
+                  <span style={{ fontWeight: 800, color: improvementText.startsWith("-") ? "#b91c1c" : "#15803d" }}>
+                    {improvementText}
+                  </span>
+                ) : (
+                  <span style={{ fontWeight: 700, color: "#64748b" }}>N/A</span>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* 6 Metric Cards */}
@@ -170,12 +275,538 @@ export function MigrationUnitTestSection({
         </div>
       </div>
 
+      {/* JaCoCo Missing Notice Banner */}
+      {(!isCovAvailable || typeof finalCov !== "number") && (
+        <div style={{
+          background: "#fffbeb",
+          border: "1px solid #fef3c7",
+          borderRadius: 12,
+          padding: "10px 16px",
+          marginBottom: 16,
+          fontSize: 12,
+          color: "#92400e",
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+        }}>
+          <strong>JaCoCo Coverage: N/A</strong>
+          <span style={{ color: "#b45309" }}>— Reason: {covResult?.error || covResult?.final?.error || "JaCoCo XML report was not generated."}</span>
+        </div>
+      )}
 
+      {/* JaCoCo Detailed 5-Dimension Coverage Bar */}
+      {isCovAvailable && (typeof finalCov === "number" || typeof instCov === "number") && (
+        <div style={{
+          background: "#f0fdf4",
+          border: "1px solid #bbf7d0",
+          borderRadius: 12,
+          padding: "10px 16px",
+          marginBottom: 16,
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: 12,
+        }}>
+          <div style={{ fontSize: 11, fontWeight: 800, color: "#166534", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+            JaCoCo Coverage Metrics:
+          </div>
+          <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+            <div style={{ fontSize: 11 }}>
+              <span style={{ color: "#15803d", fontWeight: 600 }}>Line: </span>
+              <strong style={{ color: "#166534" }}>{typeof finalCov === "number" ? `${finalCov.toFixed(1)}%` : "N/A"}</strong>
+            </div>
+            <div style={{ fontSize: 11 }}>
+              <span style={{ color: "#15803d", fontWeight: 600 }}>Branch: </span>
+              <strong style={{ color: "#166534" }}>{typeof branchCov === "number" ? `${branchCov.toFixed(1)}%` : "N/A"}</strong>
+            </div>
+            <div style={{ fontSize: 11 }}>
+              <span style={{ color: "#15803d", fontWeight: 600 }}>Instruction: </span>
+              <strong style={{ color: "#166534" }}>{typeof instCov === "number" ? `${instCov.toFixed(1)}%` : "N/A"}</strong>
+            </div>
+            <div style={{ fontSize: 11 }}>
+              <span style={{ color: "#15803d", fontWeight: 600 }}>Method: </span>
+              <strong style={{ color: "#166534" }}>{typeof methodCov === "number" ? `${methodCov.toFixed(1)}%` : "N/A"}</strong>
+            </div>
+            <div style={{ fontSize: 11 }}>
+              <span style={{ color: "#15803d", fontWeight: 600 }}>Class: </span>
+              <strong style={{ color: "#166534" }}>{typeof classCov === "number" ? `${classCov.toFixed(1)}%` : "N/A"}</strong>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Execution Summary Banner */}
+      <div style={{
+        background: "#f8fafc",
+        border: "1px solid #e2e8f0",
+        borderRadius: 12,
+        padding: "14px 20px",
+        marginBottom: 24,
+        display: "flex",
+        flexWrap: "wrap",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 14,
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ fontSize: 12, fontWeight: 800, color: "#0f172a", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+            Execution Status:
+          </div>
+          <span style={{
+            background: execStatusColor.bg,
+            color: execStatusColor.text,
+            border: `1px solid ${execStatusColor.border}`,
+            padding: "3px 10px",
+            borderRadius: 14,
+            fontSize: 11,
+            fontWeight: 800,
+            letterSpacing: "0.02em"
+          }}>
+            {execStatusLabel}
+          </span>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap" }}>
+          <div style={{ fontSize: 12 }}>
+            <span style={{ color: "#64748b", fontWeight: 600 }}>Generated: </span>
+            <strong style={{ color: "#0f172a" }}>{genMethodCount}</strong>
+          </div>
+          <div style={{ fontSize: 12 }}>
+            <span style={{ color: "#64748b", fontWeight: 600 }}>Executed: </span>
+            <strong style={{ color: execGenCount > 0 ? "#2563eb" : "#64748b" }}>{execGenCount}</strong>
+          </div>
+          <div style={{ fontSize: 12 }}>
+            <span style={{ color: "#64748b", fontWeight: 600 }}>Passed: </span>
+            <strong style={{ color: passedGenCount > 0 ? "#16a34a" : "#64748b" }}>{passedGenCount}</strong>
+          </div>
+          <div style={{ fontSize: 12 }}>
+            <span style={{ color: "#64748b", fontWeight: 600 }}>Failed: </span>
+            <strong style={{ color: failedGenCount > 0 ? "#dc2626" : "#64748b" }}>{failedGenCount}</strong>
+          </div>
+          <div style={{ fontSize: 12 }}>
+            <span style={{ color: "#64748b", fontWeight: 600 }}>Skipped: </span>
+            <strong style={{ color: skippedGenCount > 0 ? "#d97706" : "#64748b" }}>{skippedGenCount}</strong>
+          </div>
+        </div>
+      </div>
+
+      {/* PROMPT COMPLIANCE ANALYSIS */}
+      {(() => {
+        const promptCompliance = (testPipeline as any)?.prompt_compliance;
+        if (!promptCompliance || !promptCompliance.compliance_items || promptCompliance.compliance_items.length === 0) {
+          return null;
+        }
+
+        const items = promptCompliance.compliance_items;
+        const activeTabId = selectedPromptTab || items[0]?.prompt_id;
+        const activeItem = items.find((i: any) => i.prompt_id === activeTabId) || items[0];
+        const overallPct = promptCompliance.overall_compliance_percentage ?? 0;
+        const isPassed = overallPct >= 80;
+
+        return (
+          <div
+            style={{
+              background: "#ffffff",
+              border: "1px solid #e2e8f0",
+              borderRadius: 14,
+              padding: "20px 24px",
+              marginBottom: 28,
+              boxShadow: "0 2px 12px rgba(0,0,0,0.04)",
+            }}
+          >
+            {/* Header */}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                flexWrap: "wrap",
+                gap: 12,
+                marginBottom: 16,
+                paddingBottom: 14,
+                borderBottom: "1px solid #f1f5f9",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div
+                  style={{
+                    background: "#ecfdf5",
+                    color: "#059669",
+                    width: 34,
+                    height: 34,
+                    borderRadius: 8,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: 18,
+                  }}
+                >
+                  <FaTasks />
+                </div>
+                <div>
+                  <h4 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: "#0f172a" }}>
+                    JUnit Test Prompt Compliance Analysis
+                  </h4>
+                  <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>
+                    Deep semantic verification of test logic, mocks, assertions, and boundary inputs
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span
+                  style={{
+                    background: isPassed ? "#dcfce7" : "#fef3c7",
+                    color: isPassed ? "#15803d" : "#b45309",
+                    padding: "6px 16px",
+                    borderRadius: 20,
+                    fontSize: 12,
+                    fontWeight: 800,
+                    border: `1px solid ${isPassed ? "#86efac" : "#fde68a"}`,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                  }}
+                >
+                  <FaCheckCircle /> {overallPct}% Overall Compliance
+                </span>
+              </div>
+            </div>
+
+            {/* Quick Inspection Stats */}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
+                gap: 10,
+                marginBottom: 18,
+              }}
+            >
+              <div style={{ background: "#f8fafc", padding: "10px 12px", borderRadius: 8, border: "1px solid #eef2f6", textAlign: "center" }}>
+                <div style={{ fontSize: 18, fontWeight: 800, color: "#2563eb" }}>{promptCompliance.total_prompts_evaluated}</div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#64748b", marginTop: 2 }}>Prompts Evaluated</div>
+              </div>
+              <div style={{ background: "#f8fafc", padding: "10px 12px", borderRadius: 8, border: "1px solid #eef2f6", textAlign: "center" }}>
+                <div style={{ fontSize: 18, fontWeight: 800, color: "#16a34a" }}>
+                  {promptCompliance.passed_prompts_count}/{promptCompliance.total_prompts_evaluated}
+                </div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#64748b", marginTop: 2 }}>Prompts Satisfied</div>
+              </div>
+              <div style={{ background: "#f8fafc", padding: "10px 12px", borderRadius: 8, border: "1px solid #eef2f6", textAlign: "center" }}>
+                <div style={{ fontSize: 18, fontWeight: 800, color: "#0f172a" }}>{promptCompliance.total_assertions_inspected}</div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#64748b", marginTop: 2 }}>Assertions Verified</div>
+              </div>
+              <div style={{ background: "#f8fafc", padding: "10px 12px", borderRadius: 8, border: "1px solid #eef2f6", textAlign: "center" }}>
+                <div style={{ fontSize: 18, fontWeight: 800, color: "#d97706" }}>{promptCompliance.total_exceptions_verified}</div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#64748b", marginTop: 2 }}>Exception Checks</div>
+              </div>
+              <div style={{ background: "#f8fafc", padding: "10px 12px", borderRadius: 8, border: "1px solid #eef2f6", textAlign: "center" }}>
+                <div style={{ fontSize: 18, fontWeight: 800, color: "#7c3aed" }}>{promptCompliance.total_boundary_inputs_tested}</div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#64748b", marginTop: 2 }}>Boundary Values</div>
+              </div>
+              <div style={{ background: "#f8fafc", padding: "10px 12px", borderRadius: 8, border: "1px solid #eef2f6", textAlign: "center" }}>
+                <div style={{ fontSize: 18, fontWeight: 800, color: "#0891b2" }}>{promptCompliance.total_mocks_verified}</div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#64748b", marginTop: 2 }}>Mock Interactions</div>
+              </div>
+            </div>
+
+            {/* Prompt Selector Tabs */}
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 8,
+                marginBottom: 18,
+                background: "#f1f5f9",
+                padding: 6,
+                borderRadius: 10,
+              }}
+            >
+              {items.map((it: any) => {
+                const isSelected = it.prompt_id === activeTabId;
+                return (
+                  <button
+                    key={it.prompt_id}
+                    onClick={() => setSelectedPromptTab(it.prompt_id)}
+                    style={{
+                      border: "none",
+                      outline: "none",
+                      padding: "8px 14px",
+                      borderRadius: 8,
+                      fontSize: 12,
+                      fontWeight: isSelected ? 800 : 600,
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      background: isSelected ? "#2563eb" : "#ffffff",
+                      color: isSelected ? "#ffffff" : "#475569",
+                      boxShadow: isSelected ? "0 2px 8px rgba(37,99,235,0.25)" : "none",
+                      transition: "all 0.15s ease",
+                    }}
+                  >
+                    <span>{it.prompt_name}</span>
+                    <span
+                      style={{
+                        background: isSelected ? "rgba(255,255,255,0.2)" : (it.compliance_percentage >= 80 ? "#dcfce7" : "#fef3c7"),
+                        color: isSelected ? "#ffffff" : (it.compliance_percentage >= 80 ? "#15803d" : "#b45309"),
+                        padding: "2px 6px",
+                        borderRadius: 10,
+                        fontSize: 10,
+                        fontWeight: 800,
+                      }}
+                    >
+                      {Math.round(it.compliance_percentage)}%
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Active Prompt Details Card */}
+            {activeItem && (
+              <div
+                style={{
+                  background: "#f8fafc",
+                  border: "1px solid #e2e8f0",
+                  borderRadius: 10,
+                  padding: "16px 20px",
+                }}
+              >
+                {/* Active Prompt Header & Progress Bar */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 10 }}>
+                  <div>
+                    <h5 style={{ margin: 0, fontSize: 14, fontWeight: 800, color: "#0f172a" }}>
+                      {activeItem.prompt_name}
+                    </h5>
+                    <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>
+                      Compliance Score: {activeItem.compliance_percentage}% • {activeItem.passed_count} passed test(s)
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span
+                      style={{
+                        background: activeItem.execution_status === "PASSED" ? "#dcfce7" : (activeItem.execution_status === "PARTIAL" ? "#fef3c7" : "#fee2e2"),
+                        color: activeItem.execution_status === "PASSED" ? "#166534" : (activeItem.execution_status === "PARTIAL" ? "#b45309" : "#991b1b"),
+                        padding: "3px 10px",
+                        borderRadius: 12,
+                        fontSize: 11,
+                        fontWeight: 700,
+                      }}
+                    >
+                      Execution: {activeItem.execution_status}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Progress Bar */}
+                <div style={{ height: 6, background: "#e2e8f0", borderRadius: 4, overflow: "hidden", marginBottom: 16 }}>
+                  <div
+                    style={{
+                      height: "100%",
+                      width: `${Math.min(100, Math.max(0, activeItem.compliance_percentage))}%`,
+                      background: activeItem.compliance_percentage >= 80 ? "linear-gradient(90deg, #10b981, #059669)" : "linear-gradient(90deg, #f59e0b, #d97706)",
+                      transition: "width 0.4s ease",
+                    }}
+                  />
+                </div>
+
+                {/* Two-Column: Covered vs Uncovered Scenarios */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14, marginBottom: 16 }}>
+                  {/* Covered Scenarios */}
+                  <div style={{ background: "#ffffff", padding: "12px 14px", borderRadius: 8, border: "1px solid #e2e8f0" }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#166534", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                      <FaCheckCircle color="#16a34a" /> Covered Scenarios ({activeItem.covered_scenarios?.length || 0})
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {activeItem.covered_scenarios && activeItem.covered_scenarios.length > 0 ? (
+                        activeItem.covered_scenarios.map((scen: string, idx: number) => (
+                          <div key={idx} style={{ fontSize: 11, color: "#334155", display: "flex", alignItems: "flex-start", gap: 6 }}>
+                            <span style={{ color: "#16a34a", marginTop: 2 }}>✓</span>
+                            <span>{scen}</span>
+                          </div>
+                        ))
+                      ) : (
+                        <div style={{ fontSize: 11, color: "#94a3b8" }}>No covered scenarios recorded.</div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Uncovered Scenarios */}
+                  <div style={{ background: "#ffffff", padding: "12px 14px", borderRadius: 8, border: "1px solid #e2e8f0" }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: activeItem.uncovered_scenarios?.length ? "#b45309" : "#64748b", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                      <FaExclamationTriangle color={activeItem.uncovered_scenarios?.length ? "#f59e0b" : "#94a3b8"} />
+                      Uncovered Scenarios ({activeItem.uncovered_scenarios?.length || 0})
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {activeItem.uncovered_scenarios && activeItem.uncovered_scenarios.length > 0 ? (
+                        activeItem.uncovered_scenarios.map((scen: string, idx: number) => (
+                          <div key={idx} style={{ fontSize: 11, color: "#b45309", display: "flex", alignItems: "flex-start", gap: 6 }}>
+                            <span style={{ color: "#f59e0b", marginTop: 2 }}>!</span>
+                            <span>{scen}</span>
+                          </div>
+                        ))
+                      ) : (
+                        <div style={{ fontSize: 11, color: "#16a34a", fontWeight: 600 }}>
+                          All expected testing scenarios satisfied by verified test logic.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Associated Test Methods & Code Inspection Badges */}
+                {activeItem.generated_test_methods && activeItem.generated_test_methods.length > 0 && (
+                  <div style={{ marginBottom: 14 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#475569", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
+                      Traceable Test Methods & Verified Code Logic
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {activeItem.generated_test_methods.map((methodName: string, mIdx: number) => (
+                        <span
+                          key={mIdx}
+                          style={{
+                            background: "#eff6ff",
+                            color: "#1d4ed8",
+                            border: "1px solid #dbeafe",
+                            padding: "3px 8px",
+                            borderRadius: 6,
+                            fontSize: 11,
+                            fontFamily: "monospace",
+                            fontWeight: 600,
+                          }}
+                        >
+                          {methodName}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* JaCoCo Gaps & Recommendations */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 12 }}>
+                  {activeItem.jacoco_gaps_addressed && activeItem.jacoco_gaps_addressed.length > 0 && (
+                    <div style={{ fontSize: 11, color: "#475569" }}>
+                      <span style={{ fontWeight: 700, color: "#0f172a" }}>JaCoCo Gaps Addressed: </span>
+                      {activeItem.jacoco_gaps_addressed.join(", ")}
+                    </div>
+                  )}
+
+                  {activeItem.recommendations && activeItem.recommendations.length > 0 && (
+                    <div style={{ fontSize: 11, color: "#475569", display: "flex", alignItems: "flex-start", gap: 6 }}>
+                      <FaLightbulb color="#f59e0b" style={{ flexShrink: 0, marginTop: 2 }} />
+                      <div>
+                        <span style={{ fontWeight: 700, color: "#0f172a" }}>Recommendation: </span>
+                        {activeItem.recommendations.join("; ")}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* GENERATED TEST FILES SECTION */}
+      {generatedFiles.length > 0 && (
+        <div style={{ marginBottom: 28, background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 14, padding: "18px 22px", boxShadow: "0 2px 10px rgba(0,0,0,0.03)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ background: "#eff6ff", color: "#2563eb", width: 30, height: 30, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700 }}>
+                {generatedFiles.length}
+              </div>
+              <div>
+                <h5 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "#0f172a" }}>
+                  Generated Test Files ({generatedFiles.length} created)
+                </h5>
+                <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>
+                  Physical JUnit test files generated from selected testing prompts
+                </div>
+              </div>
+            </div>
+            <span style={{ fontSize: 11, fontWeight: 600, color: "#059669", background: "#ecfdf5", padding: "4px 10px", borderRadius: 12 }}>
+              Traceable & Verifiable
+            </span>
+          </div>
+
+          <div style={{ border: "1px solid #eef2f6", borderRadius: 10, overflow: "hidden" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead style={{ background: "#f8fafc", borderBottom: "1px solid #eef2f6" }}>
+                <tr>
+                  <th style={{ padding: "10px 16px", textAlign: "left", color: "#64748b", fontWeight: 700, textTransform: "uppercase" }}>Target Class</th>
+                  <th style={{ padding: "10px 16px", textAlign: "left", color: "#64748b", fontWeight: 700, textTransform: "uppercase" }}>Generated Test File</th>
+                  <th style={{ padding: "10px 16px", textAlign: "center", color: "#64748b", fontWeight: 700, textTransform: "uppercase" }}>Generator</th>
+                  <th style={{ padding: "10px 16px", textAlign: "center", color: "#64748b", fontWeight: 700, textTransform: "uppercase" }}>@Test Methods</th>
+                  <th style={{ padding: "10px 16px", textAlign: "right", color: "#64748b", fontWeight: 700, textTransform: "uppercase" }}>Execution Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {generatedFiles.map((gf: any, idx: number) => {
+                  const statusRaw = (gf.execution_status || (gf.status === "CREATED" ? (execGenCount > 0 ? "EXECUTED" : "NOT EXECUTED") : gf.status || "NOT EXECUTED")).toUpperCase();
+                  let statusLabel = "NOT EXECUTED";
+                  let statusBg = "#f1f5f9";
+                  let statusColor = "#475569";
+                  let statusBorder = "#e2e8f0";
+
+                  if (statusRaw === "EXECUTED" || statusRaw === "PASSED") {
+                    statusLabel = "EXECUTED";
+                    statusBg = "#dcfce7";
+                    statusColor = "#166534";
+                    statusBorder = "#86efac";
+                  } else if (statusRaw === "COMPILE FAILED" || statusRaw === "COMPILE_FAILED") {
+                    statusLabel = "COMPILE FAILED";
+                    statusBg = "#fee2e2";
+                    statusColor = "#991b1b";
+                    statusBorder = "#fecaca";
+                  } else if (statusRaw === "FAILED" || statusRaw === "GENERATION FAILED") {
+                    statusLabel = "FAILED";
+                    statusBg = "#fee2e2";
+                    statusColor = "#991b1b";
+                    statusBorder = "#fecaca";
+                  } else if (statusRaw === "PARTIAL" || statusRaw === "PARTIALLY EXECUTED") {
+                    statusLabel = "PARTIALLY EXECUTED";
+                    statusBg = "#fef3c7";
+                    statusColor = "#b45309";
+                    statusBorder = "#fde68a";
+                  } else {
+                    statusLabel = "NOT EXECUTED";
+                    statusBg = "#f1f5f9";
+                    statusColor = "#475569";
+                    statusBorder = "#e2e8f0";
+                  }
+
+                  return (
+                    <tr key={idx} style={{ borderBottom: "1px solid #f1f5f9", background: idx % 2 === 0 ? "#fff" : "#fafbfc" }}>
+                      <td style={{ padding: "10px 16px", fontWeight: 600, color: "#0f172a" }}>{gf.source_class}</td>
+                      <td style={{ padding: "10px 16px", color: "#2563eb", fontFamily: "monospace", fontSize: 11 }}>{gf.path}</td>
+                      <td style={{ padding: "10px 16px", textAlign: "center" }}>
+                        <span style={{ background: gf.generator === "LLM" ? "#f3e8ff" : "#e0e7ff", color: gf.generator === "LLM" ? "#7e22ce" : "#3730a3", padding: "2px 8px", borderRadius: 12, fontSize: 10, fontWeight: 700 }}>
+                          {gf.generator}
+                        </span>
+                      </td>
+                      <td style={{ padding: "10px 16px", textAlign: "center", fontWeight: 700, color: "#0f172a" }}>
+                        {gf.test_method_count}
+                      </td>
+                      <td style={{ padding: "10px 16px", textAlign: "right" }}>
+                        <span style={{ background: statusBg, color: statusColor, border: `1px solid ${statusBorder}`, padding: "2px 8px", borderRadius: 12, fontSize: 10, fontWeight: 700 }}>
+                          {statusLabel}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
 
       {/* Table Heading */}
       <h5 style={{ margin: "0 0 16px 0", fontSize: 15, fontWeight: 700, color: "#0f172a" }}>
-        Executed Test Method Details ({executedDetails.length || totalTestCases || 0} methods)
+        Executed Test Method Details ({executedDetails.length} methods)
       </h5>
 
       {/* Table */}
@@ -455,17 +1086,74 @@ export function MigrationSonarSection({
 // ── FOSSA SECTION ────────────────────────────────────────────────────────────
 
 interface MigrationFossaSectionProps {
-  styles: StyleMap;
-  fossaLicenseIssueCount: number | null;
-  fossaVulnerabilityTotal: number | null;
-  fossaOutdatedCount: number | null;
+  styles?: StyleMap;
+  fossaLicenseIssueCount?: number | null;
+  fossaVulnerabilityTotal?: number | null;
+  fossaOutdatedCount?: number | null;
+  fossaTotalDependencies?: number | null;
+  fossaTotalLicenses?: number | null;
+  fossaPolicyStatus?: string | null;
+  fossaScanMode?: string | null;
+  fossaErrorMessage?: string | null;
+  fossaAnalysisUrl?: string | null;
+  fossaRealScan?: boolean;
 }
 
 export function MigrationFossaSection({
   fossaLicenseIssueCount,
   fossaVulnerabilityTotal,
   fossaOutdatedCount,
+  fossaTotalDependencies,
+  fossaTotalLicenses,
+  fossaPolicyStatus,
+  fossaScanMode,
+  fossaErrorMessage,
+  fossaAnalysisUrl,
+  fossaRealScan,
 }: MigrationFossaSectionProps) {
+  const scanMode = (fossaScanMode || "").toLowerCase();
+  const policyStatus = (fossaPolicyStatus || "UNAVAILABLE").toUpperCase();
+  const isAvailable = (policyStatus === "PASSED" || policyStatus === "OK" || policyStatus === "FAILED") && fossaRealScan;
+
+  let warningText: string | null = null;
+  if (scanMode === "missing_token") {
+    warningText = fossaErrorMessage || "FOSSA API key not configured. Set FOSSA_API_KEY in .env to enable scans.";
+  } else if (scanMode === "missing_cli") {
+    warningText = fossaErrorMessage || "FOSSA CLI (fossa) was not found on PATH or known locations.";
+  } else if (scanMode === "missing_maven") {
+    warningText = fossaErrorMessage || "Maven executable was not found or could not be launched for FOSSA analysis.";
+  } else if (scanMode === "analysis_failed") {
+    warningText = fossaErrorMessage || "FOSSA analysis failed during CLI execution.";
+  } else if (scanMode === "test_failed" || scanMode === "test_cli_error") {
+    warningText = fossaErrorMessage || "FOSSA policy test command encountered an error.";
+  } else if (fossaErrorMessage && !isAvailable && policyStatus === "UNAVAILABLE") {
+    warningText = fossaErrorMessage;
+  } else if (!isAvailable && !fossaRealScan && policyStatus === "UNAVAILABLE") {
+    warningText = "FOSSA quality gate was not executed or is unavailable for this run.";
+  }
+
+  const isPassed = policyStatus === "PASSED" || policyStatus === "OK";
+  const isFailed = policyStatus === "FAILED" || policyStatus === "VIOLATIONS";
+  const statusLabel = isPassed ? "PASSED" : isFailed ? "FAILED" : "UNAVAILABLE";
+  const badgeColor = isPassed ? "#15803d" : isFailed ? "#b91c1c" : "#c2410c";
+  const badgeBg = isPassed ? "#f0fdf4" : isFailed ? "#fef2f2" : "#fff7ed";
+  const badgeBorder = isPassed ? "#bbf7d0" : isFailed ? "#fecaca" : "#ffedd5";
+
+  const renderValue = (val: number | null | undefined) => {
+    if (val !== null && val !== undefined) {
+      return val;
+    }
+    return isAvailable ? 0 : "—";
+  };
+
+  const totalDeps = renderValue(fossaTotalDependencies);
+ 
+  const totalLics = renderValue(fossaTotalLicenses);
+ 
+  const licIssues = renderValue(fossaLicenseIssueCount);
+  const vulns = renderValue(fossaVulnerabilityTotal);
+  const outdated = renderValue(fossaOutdatedCount);
+
   return (
     <div style={{ padding: 0 }}>
        <h3 style={{ fontSize: 18, fontWeight: 800, color: "#0f172a", marginBottom: 20, display: "flex", alignItems: "center", gap: 12 }}>
@@ -485,15 +1173,18 @@ export function MigrationFossaSection({
         </button>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
         <div style={{ background: "#f8fafc", border: "1px solid #eef2f6", borderRadius: 12, padding: "12px", textAlign: "center" }}>
           <div style={{ background: "#fff7ed", color: "#c2410c", padding: "2px 8px", borderRadius: 6, fontSize: 11, fontWeight: 800, border: "1px solid #ffedd5", marginBottom: 4, display: "inline-block" }}>UNAVAILABLE</div>
           <div style={{ fontSize: 11, fontWeight: 600, color: "#64748b", textTransform: "uppercase" }}>Policy Status</div>
         </div>
         {[
-          { label: "License Issues", value: fossaLicenseIssueCount || 0 },
-          { label: "Vulnerabilities", value: fossaVulnerabilityTotal || 0 },
-          { label: "Outdated Packages", value: fossaOutdatedCount || 0 }
+          { label: "Dependencies", value: totalDeps, color: "#2563eb" },
+ 
+          { label: "Licenses", value: totalLics, color: "#0891b2" },
+          { label: "License Issues", value: licIssues, color: typeof licIssues === "number" && licIssues > 0 ? "#ef4444" : "#10b981" },
+          { label: "Vulnerabilities", value: vulns, color: typeof vulns === "number" && vulns > 0 ? "#ef4444" : "#10b981" },
+          { label: "Outdated Packages", value: outdated, color: typeof outdated === "number" && outdated > 0 ? "#f59e0b" : "#10b981" }
         ].map((card, idx) => (
           <div key={idx} style={{ background: "#f8fafc", border: "1px solid #eef2f6", borderRadius: 12, padding: "12px", textAlign: "center" }}>
             <div style={{ fontSize: 20, fontWeight: 800, color: "#10b981" }}>{card.value}</div>

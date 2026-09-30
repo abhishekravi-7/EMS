@@ -8,7 +8,7 @@ Provides authentication resolvers (`get_current_user`), authorization checks
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
@@ -33,24 +33,14 @@ class User:
     is_email_verified: bool = False
     created_at: datetime | None = None
     last_login_at: datetime | None = None
-
-
-def _get_mock_user() -> User:
-    user = User(
-        id="1",
-        email="dev@example.com",
-        full_name="Java APEX User",
-        role="USER",
-        is_active=True,
-        is_email_verified=True,
-        created_at=datetime.now(timezone.utc),
-    )
-    user_id_ctx.set(str(user.id))
-    return user
+    llm_values: dict[str, Any] = field(default_factory=dict)
 
 
 async def get_current_user(request: Request) -> User:
-    """Resolve the logged-in user via MongoDB authentication with fallback for guest/unauthenticated access."""
+    """Resolve the logged-in user via MongoDB authentication.
+    
+    Raises HTTPException(status_code=401) if unauthenticated, expired, or invalid.
+    """
     auth_header = request.headers.get("Authorization", "")
     bearer_token = ""  # nosec B105
     if auth_header and auth_header.lower().startswith(_BEARER_PREFIX):
@@ -60,18 +50,32 @@ async def get_current_user(request: Request) -> User:
     raw_token = cookie_token or bearer_token
 
     if not raw_token:
-        return _get_mock_user()
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     from app.application.services.mongodb_auth_service import MongoDBAuthService
     from app.infrastructure.persistence.mongodb import get_mongodb
 
     mongo_db = await get_mongodb()
     if mongo_db is None:
-        return _get_mock_user()
+        raise HTTPException(
+            status_code=503,
+            detail="Database connection unavailable.",
+        )
 
     auth_service = MongoDBAuthService(mongo_db)
     try:
         user_data = await auth_service.get_user_from_access_token(raw_token)
+        if not user_data or not user_data.get("_id"):
+            raise HTTPException(
+                status_code=401,
+                detail="User not found or session invalid.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        llm_vals = user_data.get("llm_values") or {}
         user = User(
             id=str(user_data["_id"]),
             email=user_data.get("email", ""),
@@ -81,14 +85,31 @@ async def get_current_user(request: Request) -> User:
             is_email_verified=user_data.get("is_email_verified", False),
             created_at=user_data.get("created_at") or datetime.now(timezone.utc),
             last_login_at=user_data.get("last_login_at"),
+            llm_values=llm_vals,
         )
+        if not user.is_active:
+            raise HTTPException(
+                status_code=401,
+                detail="Account is deactivated.",
+            )
         user_id_ctx.set(str(user.id))
+        llm_values_ctx.set(llm_vals)
         return user
-    except NotAuthenticatedError:
-        return _get_mock_user()
+    except NotAuthenticatedError as exc:
+        raise HTTPException(
+            status_code=401,
+            detail=exc.message or "Authentication required.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    except HTTPException:
+        raise
     except Exception as exc:
-        logger.warning("Error resolving user from token, falling back to guest user: %s", exc)
-        return _get_mock_user()
+        logger.warning("Error resolving user from token: %s", exc)
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or expired authentication token.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 
 async def verify_job_ownership(arg1: Any, arg2: Any, arg3: Any = None) -> None:

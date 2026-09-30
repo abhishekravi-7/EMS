@@ -120,125 +120,129 @@ export function LlmUserSettings({ settings, onChange, isAdminEnabled, allowedGro
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "24px", marginTop: "16px" }}>
-      <div>
-        <h3 className="card-heading-modern">
-          <FaBrain style={{ color: "#2563eb", marginRight: "8px" }} />
-          LLM Configuration
-        </h3>
+    <div className="grid-2">
+      {/* Groq Configuration Card */}
+      <div className="settings-card" style={{ display: "flex", flexDirection: "column" }}>
+        <div style={{ marginBottom: "16px" }}>
+          <h4 style={{ margin: 0, fontSize: "16px", fontWeight: 700, color: "#0f172a" }}>
+            Groq Configuration (Chatbot)
+          </h4>
+          <p className="settings-card-subtitle" style={{ marginTop: "4px" }}>
+            Configure Groq LLM model and API key for AI chatbot integration.
+          </p>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: "16px", marginBottom: "16px" }}>
+          <div>
+            <label className="settings-label">MODEL</label>
+            <select
+              className="settings-select"
+              value={llmValues.groq_model || ""}
+              onChange={(e) => updateLlmValue("groq_model", e.target.value)}
+            >
+              <option value="">Select Model</option>
+              {(allowedGroqModels.length > 0 ? allowedGroqModels : GROQ_MODELS.map(gm => gm.id)).map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="settings-label">API KEY</label>
+            <div className="settings-input-group">
+              <input
+                type={showGroqSecret ? "text" : "password"}
+                className="settings-input"
+                value={llmValues.groq_api_key || ""}
+                onChange={(e) => updateLlmValue("groq_api_key", e.target.value)}
+                placeholder="Enter your Groq API Key"
+              />
+              <div className="settings-input-group-icon" onClick={() => setShowGroqSecret(!showGroqSecret)}>
+                {showGroqSecret ? <FaEyeSlash /> : <FaEye />}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: "8px" }}>
+          {testResultGroq && (
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.85rem", color: testResultGroq.status === "success" ? "#16a34a" : "#dc2626", fontWeight: 500 }}>
+              {testResultGroq.status === "success" ? <FaCheckCircle /> : <FaTimesCircle />}
+              {testResultGroq.message}
+            </div>
+          )}
+          <button
+            onClick={() => handleTestConnection("groq")}
+            disabled={testingGroq || !llmValues.groq_api_key}
+            className="settings-action-btn"
+            style={{ width: "100%", marginTop: "auto" }}
+          >
+            {testingGroq ? <FaSpinner className="animate-spin" /> : <FaPlay size={12} />}
+            <span style={{ marginLeft: "6px" }}>{testingGroq ? "Testing..." : "Test Connection"}</span>
+          </button>
+        </div>
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-        {/* Groq Configuration */}
-        <div>
-          <h4 style={{ margin: "0 0 16px 0", fontSize: "1rem", color: "#0f172a", fontWeight: 800 }}>Groq Configuration (Chatbot)</h4>
-          <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-            <div className="field-modern">
-              <label className="label-modern">Model</label>
-              <select
-                className="input-modern"
-                value={llmValues.groq_model || ""}
-                onChange={(e) => updateLlmValue("groq_model", e.target.value)}
-              >
-                <option value="">Select Model</option>
-                {(allowedGroqModels.length > 0 ? allowedGroqModels : GROQ_MODELS.map(gm => gm.id)).map((m) => (
-                  <option key={m} value={m}>{m}</option>
-                ))}
-              </select>
-            </div>
+      {/* HuggingFace Configuration Card */}
+      <div className="settings-card" style={{ display: "flex", flexDirection: "column" }}>
+        <div style={{ marginBottom: "16px" }}>
+          <h4 style={{ margin: 0, fontSize: "16px", fontWeight: 700, color: "#0f172a" }}>
+            HuggingFace Configuration (Code Analysis)
+          </h4>
+          <p className="settings-card-subtitle" style={{ marginTop: "4px" }}>
+            Configure HuggingFace model and API key for code analysis features.
+          </p>
+        </div>
 
-            <div className="field-modern">
-              <label className="label-modern">API Key</label>
-              <div className="input-wrap-modern">
-                <input
-                  type={showGroqSecret ? "text" : "password"}
-                  className="input-modern"
-                  value={llmValues.groq_api_key || ""}
-                  onChange={(e) => updateLlmValue("groq_api_key", e.target.value)}
-                  placeholder="Enter your Groq API Key"
-                />
-                <div className="toggle-modern" onClick={() => setShowGroqSecret(!showGroqSecret)}>
-                  {showGroqSecret ? <FaEyeSlash /> : <FaEye />}
-                </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: "16px", marginBottom: "16px" }}>
+          <div>
+            <label className="settings-label">MODEL</label>
+            <select
+              className="settings-select"
+              value={llmValues.huggingface_model || ""}
+              onChange={(e) => updateLlmValue("huggingface_model", e.target.value)}
+            >
+              <option value="">Select Model</option>
+              {(allowedHuggingFaceModels.length > 0 ? allowedHuggingFaceModels : HUGGINGFACE_MODELS.map(hm => hm.id)).map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="settings-label">API KEY</label>
+            <div className="settings-input-group">
+              <input
+                type={showHFSecret ? "text" : "password"}
+                className="settings-input"
+                value={llmValues.huggingface_api_key || ""}
+                onChange={(e) => updateLlmValue("huggingface_api_key", e.target.value)}
+                placeholder="Enter your HuggingFace API Key"
+              />
+              <div className="settings-input-group-icon" onClick={() => setShowHFSecret(!showHFSecret)}>
+                {showHFSecret ? <FaEyeSlash /> : <FaEye />}
               </div>
             </div>
-
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "12px", marginTop: "12px" }}>
-              {testResultGroq && (
-                <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.9rem", color: testResultGroq.status === "success" ? "#16a34a" : "#dc2626", fontWeight: 500 }}>
-                  {testResultGroq.status === "success" ? <FaCheckCircle /> : <FaTimesCircle />}
-                  {testResultGroq.message}
-                </div>
-              )}
-              <button
-                onClick={() => handleTestConnection("groq")}
-                disabled={testingGroq || !llmValues.groq_api_key}
-                className="deploy-btn-modern"
-                style={{ width: "auto" }}
-              >
-                {testingGroq ? <FaSpinner className="fa-spin" /> : <FaPlay />}
-                <span style={{ marginLeft: "8px" }}>{testingGroq ? "Testing..." : "Test Connection"}</span>
-              </button>
-            </div>
-
           </div>
         </div>
 
-        {/* HuggingFace Configuration */}
-        <div>
-          <h4 style={{ margin: "0 0 16px 0", fontSize: "1rem", color: "#0f172a", fontWeight: 800 }}>HuggingFace Configuration (Code Analysis)</h4>
-          <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-            <div className="field-modern">
-              <label className="label-modern">Model</label>
-              <select
-                className="input-modern"
-                value={llmValues.huggingface_model || ""}
-                onChange={(e) => updateLlmValue("huggingface_model", e.target.value)}
-              >
-                <option value="">Select Model</option>
-                {(allowedHuggingFaceModels.length > 0 ? allowedHuggingFaceModels : HUGGINGFACE_MODELS.map(hm => hm.id)).map((m) => (
-                  <option key={m} value={m}>{m}</option>
-                ))}
-              </select>
+        <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: "8px" }}>
+          {testResultHF && (
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.85rem", color: testResultHF.status === "success" ? "#16a34a" : "#dc2626", fontWeight: 500 }}>
+              {testResultHF.status === "success" ? <FaCheckCircle /> : <FaTimesCircle />}
+              {testResultHF.message}
             </div>
-
-            <div className="field-modern">
-              <label className="label-modern">API Key</label>
-              <div className="input-wrap-modern">
-                <input
-                  type={showHFSecret ? "text" : "password"}
-                  className="input-modern"
-                  value={llmValues.huggingface_api_key || ""}
-                  onChange={(e) => updateLlmValue("huggingface_api_key", e.target.value)}
-                  placeholder="Enter your HuggingFace API Key"
-                />
-                <div className="toggle-modern" onClick={() => setShowHFSecret(!showHFSecret)}>
-                  {showHFSecret ? <FaEyeSlash /> : <FaEye />}
-                </div>
-              </div>
-            </div>
-
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "12px", marginTop: "12px" }}>
-              {testResultHF && (
-                <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.9rem", color: testResultHF.status === "success" ? "#16a34a" : "#dc2626", fontWeight: 500 }}>
-                  {testResultHF.status === "success" ? <FaCheckCircle /> : <FaTimesCircle />}
-                  {testResultHF.message}
-                </div>
-              )}
-              <button
-                onClick={() => handleTestConnection("huggingface")}
-                disabled={testingHF || !llmValues.huggingface_api_key}
-                className="deploy-btn-modern"
-                style={{ width: "auto" }}
-              >
-                {testingHF ? <FaSpinner className="fa-spin" /> : <FaPlay />}
-                <span style={{ marginLeft: "8px" }}>{testingHF ? "Testing..." : "Test Connection"}</span>
-              </button>
-            </div>
-
-          </div>
+          )}
+          <button
+            onClick={() => handleTestConnection("huggingface")}
+            disabled={testingHF || !llmValues.huggingface_api_key}
+            className="settings-action-btn"
+            style={{ width: "100%", marginTop: "auto" }}
+          >
+            {testingHF ? <FaSpinner className="animate-spin" /> : <FaPlay size={12} />}
+            <span style={{ marginLeft: "6px" }}>{testingHF ? "Testing..." : "Test Connection"}</span>
+          </button>
         </div>
-
       </div>
     </div>
   );

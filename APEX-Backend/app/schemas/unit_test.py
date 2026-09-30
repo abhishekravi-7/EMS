@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
@@ -96,6 +98,38 @@ class PromptCoverageEvaluation(BaseModel):
     recommendations: list[str] = Field(default_factory=list, description="Actionable testing recommendations")
 
 
+class PromptComplianceItem(BaseModel):
+    __test__ = False
+    prompt_id: str = Field(..., description="Predefined prompt ID or 'manual_prompt'")
+    prompt_name: str = Field(..., description="Human-readable prompt name")
+    expected_scenarios: list[str] = Field(default_factory=list, description="Expected testing criteria/scenarios")
+    covered_scenarios: list[str] = Field(default_factory=list, description="Scenarios confirmed satisfied by actual test logic & execution")
+    uncovered_scenarios: list[str] = Field(default_factory=list, description="Scenarios not satisfied or missed")
+    generated_test_methods: list[str] = Field(default_factory=list, description="Test methods exercising this prompt requirement")
+    passed_count: int = Field(0, description="Number of passed test methods")
+    failed_count: int = Field(0, description="Number of failed test methods")
+    execution_status: str = Field("PASSED", description="PASSED | PARTIAL | FAILED | NOT_RUN")
+    jacoco_gaps_addressed: list[str] = Field(default_factory=list, description="JaCoCo coverage gaps addressed")
+    compliance_percentage: float = Field(0.0, description="Compliance percentage 0.0 to 100.0")
+    recommendations: list[str] = Field(default_factory=list, description="Actionable recommendations")
+    inspected_features: dict[str, Any] = Field(default_factory=dict, description="Inspected code features: mocks, assertions, exceptions, boundaries")
+
+
+class PromptComplianceReport(BaseModel):
+    __test__ = False
+    overall_compliance_percentage: float = Field(0.0, description="Overall average/weighted prompt compliance percentage")
+    total_prompts_evaluated: int = Field(0, description="Total number of evaluated prompts")
+    passed_prompts_count: int = Field(0, description="Number of prompts meeting >= 80% compliance")
+    failed_prompts_count: int = Field(0, description="Number of prompts below 80% compliance")
+    compliance_items: list[PromptComplianceItem] = Field(default_factory=list, description="Compliance item per evaluated prompt")
+    evaluation_summary: str = Field("", description="High-level evaluation summary")
+    total_test_methods_inspected: int = Field(0, description="Total test methods whose AST/logic was inspected")
+    total_assertions_inspected: int = Field(0, description="Total assertions found in tests")
+    total_exceptions_verified: int = Field(0, description="Total assertThrows/exceptions checked")
+    total_boundary_inputs_tested: int = Field(0, description="Total boundary/null/empty inputs tested")
+    total_mocks_verified: int = Field(0, description="Total mock setups/verifications detected")
+
+
 class UnitTestSuiteResult(BaseModel):
     total_run: int = 0
     passed: int = 0
@@ -103,11 +137,23 @@ class UnitTestSuiteResult(BaseModel):
     skipped: int = 0
     existing_test_results: list[TestExecutionDetail] = Field(default_factory=list)
     generated_test_results: list[TestExecutionDetail] = Field(default_factory=list)
+    generated_test_files: list[dict[str, Any]] = Field(default_factory=list)
+    generated_test_execution: dict[str, Any] | None = None
+    execution_status: str = "NOT_EXECUTED"
+    original_coverage: dict[str, Any] | None = None
+    final_coverage: dict[str, Any] | None = None
+    coverage_improvement: dict[str, Any] | None = None
+    line_coverage_pct: float | None = None
+    branch_coverage_pct: float | None = None
+    instruction_coverage_pct: float | None = None
+    method_coverage_pct: float | None = None
+    class_coverage_pct: float | None = None
     generated_code: str = ""
     generated_test_file_path: str | None = None
     validation_report: UnitTestValidationReport | None = None
     prompt_analysis: TestingPromptAnalysis | None = None
     prompt_coverage_evaluation: PromptCoverageEvaluation | None = None
+    prompt_compliance: PromptComplianceReport | None = None
     raw_logs: list[str] = Field(default_factory=list)
 
 

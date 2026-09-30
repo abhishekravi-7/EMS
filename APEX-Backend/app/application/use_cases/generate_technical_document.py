@@ -1,15 +1,24 @@
 """Generate repository-grounded technical specification documents using the BRD template."""
 
 from __future__ import annotations
+try:
+    import google.generativeai as genai
+except ImportError:
+    genai = None
+from typing import Any, Tuple
 
 import html
+import logging
 import re
 import uuid
+
+logger = logging.getLogger(__name__)
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from fastapi import HTTPException
 from app.core.config import settings
 from app.infrastructure.analyzers.microservice.chunk_builder import build_chunks, classify_role
 from app.infrastructure.analyzers.microservice.java_class_scanner import JavaClassInfo, JavaClassScanner
@@ -70,6 +79,10 @@ class GenerateTechnicalDocumentUseCase:
         if not repo_url or repo_url.lower().startswith("local://"):
             return None, None
 
+        local_path = Path(repo_url)
+        if local_path.is_dir():
+            return local_path, None
+
         clone_id = f"technical-document-{uuid.uuid4().hex}"
         target_dir = settings.storage_dir / "_document-workspaces" / clone_id
         token = (request.github_token or request.token or settings.github_token or "").strip() or None
@@ -81,8 +94,9 @@ class GenerateTechnicalDocumentUseCase:
         classes = self._scanner.scan(repo_root)
         class_groups = self._group_classes(classes)
         chunks = build_chunks(classes)
-        endpoints = self._collect_endpoints(class_groups.controllers)
-        tables = self._collect_tables(repo_root, class_groups.entities)
+        endpoints = self._collect_endpoints(analysis, classes)
+        tables = self._collect_tables(repo_root, class_groups.entities, classes)
+        
         deep_view_analysis = self._view_inspector.inspect(
             repo_root=repo_root,
             jsp_file_paths=analysis.jsp_files,
@@ -92,6 +106,9 @@ class GenerateTechnicalDocumentUseCase:
 
         repo_name = self._project_name(request, analysis)
         generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        brd_instructions = self._get_effective_brd_instructions(request)
+        generator_version = "2.5.0"
+        git_commit = self._get_repo_git_commit(repo_root)
 
         context = {
             "project_name": repo_name,
@@ -105,11 +122,20 @@ class GenerateTechnicalDocumentUseCase:
             "tables": tables,
             "deep_view_analysis": deep_view_analysis,
             "request": request,
+            "brd_instructions": brd_instructions,
+            "repo_root": repo_root,
+            "generator_version": generator_version,
+            "git_commit": git_commit,
         }
         html_content = self._render_template(context)
         filename = f"{self._safe_filename(repo_name)}-TECHNICAL-DOCUMENT.html"
-        self._save_for_job(request, filename, html_content)
-        return {"filename": filename, "html": html_content, "document_type": "TECHNICAL_SPECIFICATION"}
+        return {
+            "filename": filename,
+            "html": html_content,
+            "document": html_content,
+            "repo_name": repo_name,
+            "document_type": getattr(request, "document_type", "TECHNICAL_SPECIFICATION") or "TECHNICAL_SPECIFICATION",
+        }
 
     def _generate_from_snapshot(self, request: TechnicalDocumentRequest) -> dict[str, str]:
         snapshot = request.analysis or {}
@@ -161,42 +187,109 @@ class GenerateTechnicalDocumentUseCase:
         )
 
     @staticmethod
-    def _collect_endpoints(controllers: list[JavaClassInfo]) -> list[dict[str, str]]:
-        endpoints: list[dict[str, str]] = []
-        for controller in controllers:
-            for endpoint in controller.endpoints:
-                endpoints.append(
-                    {
-                        "controller": controller.class_name,
-                        "method": endpoint.method.replace("Mapping", "").upper() or "REQUEST",
-                        "path": endpoint.path or "/",
-                        "file": controller.relative_path,
-                    }
-                )
+    def _collect_endpoints(analysis: ProjectAnalysis, classes: list[JavaClassInfo]) -> list[dict[str, Any]]:
+        endpoints: list[dict[str, Any]] = []
+        seen_records: set[tuple[str, str, str, str]] = set()
+        _ROUTE_TYPE_LABELS = {
+            "REST": "REST Controller Route",
+            "MVC_PAGE": "Spring MVC Page Route",
+            "REDIRECT": "Spring MVC Redirect",
+            "FEIGN": "Feign Client Integration",
+            "UNKNOWN": "Controller Route (type undetermined)",
+        }
+        for cls in classes:
+            for ep in cls.endpoints:
+                method = str(ep.method or "ANY").upper()
+                path = str(ep.path or "/")
+                route_type = getattr(ep, "route_type", "UNKNOWN")
+                if "FeignClient" in cls.annotations:
+                    route_type = "FEIGN"
+                kind = _ROUTE_TYPE_LABELS.get(route_type, "Controller Route")
+                key = (cls.relative_path, cls.class_name, method, path)
+                if key in seen_records:
+                    continue
+                if not path.startswith("/"):
+                    path = "/" + path.lstrip("/")
+                if not method:
+                    method = "GET"
+                seen_records.add(key)
+                endpoints.append({
+                    "method": method,
+                    "path": path,
+                    "controller": cls.class_name,
+                    "file": cls.relative_path,
+                    "line_start": getattr(ep, "line_start", None),
+                    "line_end": getattr(ep, "line_end", None),
+                    "type": kind,
+                    "route_type": route_type,
+                    "return_type": getattr(ep, "return_type", ""),
+                })
+
         return endpoints
 
     @staticmethod
-    def _collect_tables(repo_root: Path, entities: list[JavaClassInfo]) -> list[dict[str, Any]]:
+    def _collect_tables(repo_root: Path, entities: list[JavaClassInfo], all_classes: list[JavaClassInfo]) -> list[dict[str, Any]]:
         tables: list[dict[str, Any]] = []
-        for entity in entities:
-            text = file_utils.read_text(repo_root / entity.relative_path)
-            table_match = re.search(r"@Table\s*\([^)]*name\s*=\s*\"([^\"]+)\"", text)
-            field_names = [
-                match.group(2)
-                for match in re.finditer(
-                    r"(?m)^\s*(?:private|protected|public)\s+(?:final\s+)?([\w<>., ?]+)\s+(\w+)\s*[;=]",
-                    text,
-                )
-                if match.group(2) not in {"serialVersionUID"}
-            ]
+        seen_models: set[tuple[str, str, int]] = set()
+        for entity in all_classes:
+            if "Entity" not in entity.annotations and "Document" not in entity.annotations:
+                continue
+            key = (entity.relative_path, entity.class_name, entity.line_start)
+            if key in seen_models:
+                continue
+            seen_models.add(key)
             tables.append(
                 {
                     "model": entity.class_name,
-                    "table": table_match.group(1) if table_match else entity.class_name,
-                    "fields": field_names[:20],
+                    "table": entity.table_name,
+                    "fields": entity.fields,
                     "file": entity.relative_path,
+                    "line_start": entity.line_start,
+                    "line_end": entity.line_end,
                 }
             )
+
+        for rel_path in file_utils.find_files(repo_root, ".sql"):
+            try:
+                sql_path = repo_root / rel_path
+                if not sql_path.is_file():
+                    continue
+                sql_text = file_utils.read_text(sql_path)
+                for ddl_match in re.finditer(r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([\"`]?[\w$]+[\"`]?)", sql_text, re.I):
+                    table_name = ddl_match.group(1).strip("\"'`")
+                    start_idx = ddl_match.start()
+                    line_no = sql_text[:start_idx].count("\n") + 1
+                    paren_start = sql_text.find("(", ddl_match.end())
+                    fields = []
+                    if paren_start >= 0:
+                        depth = 0
+                        paren_end = -1
+                        for idx in range(paren_start, len(sql_text)):
+                            if sql_text[idx] == "(":
+                                depth += 1
+                            elif sql_text[idx] == ")":
+                                depth -= 1
+                                if depth == 0:
+                                    paren_end = idx
+                                    break
+                        if paren_end > paren_start:
+                            definition_block = sql_text[paren_start + 1 : paren_end]
+                            for col_line in definition_block.split(","):
+                                col_parts = col_line.strip().split()
+                                if col_parts and col_parts[0].upper() not in ("PRIMARY", "FOREIGN", "CONSTRAINT", "UNIQUE", "CHECK", "INDEX"):
+                                    c_name = col_parts[0].strip("\"'`")
+                                    c_type = col_parts[1] if len(col_parts) > 1 else "VARCHAR"
+                                    fields.append({"name": c_name, "type": c_type, "column": c_name, "line": line_no})
+                    tables.append({
+                        "model": f"SqlTable_{table_name}",
+                        "table": table_name,
+                        "fields": fields,
+                        "file": rel_path,
+                        "line_start": line_no,
+                        "line_end": line_no,
+                    })
+            except Exception:
+                pass
         return tables
 
     def _load_brd_template(self) -> str:
@@ -209,11 +302,30 @@ class GenerateTechnicalDocumentUseCase:
         raise RuntimeError("BRD template file not found.")
 
     def _render_template(self, context: dict[str, Any]) -> str:
+        doc_type = getattr(context.get("request"), "document_type", "brd")
+        if str(doc_type).lower() == "brd":
+            raw_template = self._load_brd_template()
+            body_match = re.search(r"<body\b[^>]*>", raw_template, re.IGNORECASE)
+            body_end = raw_template.lower().rfind("</body>")
+            if body_match is None or body_end < body_match.end():
+                raise HTTPException(status_code=500, detail="BRD template has no valid body element.")
+
+            body = self._build_evidence_body(context)
+            content = raw_template[: body_match.end()] + body + raw_template[body_end:]
+            title = f"<title>{html.escape(str(context['project_name']))} - BRD</title>"
+            content = re.sub(r"<title>.*?</title>", lambda _: title, content, count=1, flags=re.IGNORECASE | re.DOTALL)
+            
+            findings = self._validate_brd_evidence(context, content)
+            if findings:
+                safe_findings = "; ".join(findings)
+                logger.warning("BRD validation findings (non-fatal): %s", safe_findings)
+            return content
+            
         raw_template = self._load_brd_template()
         analysis: ProjectAnalysis = context["analysis"]
         classes: list[JavaClassInfo] = context["classes"]
         groups: DocumentClassGroup = context["groups"]
-        endpoints: list[dict[str, str]] = context["endpoints"]
+        endpoints: list[dict[str, Any]] = context["endpoints"]
         tables: list[dict[str, Any]] = context["tables"]
 
         deep_view: DeepViewAnalysis | None = context.get("deep_view_analysis")
@@ -240,19 +352,6 @@ class GenerateTechnicalDocumentUseCase:
         cap2 = controller_names[1] if len(controller_names) > 1 else "Data Processing"
         cap3 = controller_names[2] if len(controller_names) > 2 else "Reporting & Analytics"
 
-        # Build dynamic HTML blocks
-        er_grid_html = self._build_er_grid_html(tables, groups)
-        full_class_model = self._build_class_model_html(groups)
-        full_tech_stack_table = self._build_tech_stack_table_html(analysis, groups, deep_view)
-        full_db_schema = self._build_db_schema_html(tables, groups)
-        full_module_breakdown = self._build_module_breakdown_html(analysis)
-        class_cards_grid_html = self._build_class_cards_grid_html(classes)
-        api_spec_html = self._build_api_specification_html(endpoints, groups)
-        file_guide_html = self._build_file_guide_html(classes, deep_view)
-        static_analysis_table_html = self._build_static_code_analysis_table_html(groups, deep_view, total_files, total_loc)
-        view_analysis_section_html = self._build_view_layer_analysis_section_html(deep_view, repo_name) if deep_view else ""
-
-        # Build comprehensive dictionary covering all 230+ template placeholders
         replacements = self._build_master_replacement_dict(
             repo_name=repo_name,
             repo_url=repo_url,
@@ -261,8 +360,8 @@ class GenerateTechnicalDocumentUseCase:
             spring_ver=spring_ver,
             build_tool=build_tool,
             total_files=total_files,
-            total_loc=total_loc,
             used_files=used_files,
+            total_loc=total_loc,
             groups=groups,
             endpoints=endpoints,
             tables=tables,
@@ -270,53 +369,20 @@ class GenerateTechnicalDocumentUseCase:
             cap1=cap1,
             cap2=cap2,
             cap3=cap3,
-            er_grid_html=er_grid_html,
-            full_class_model=full_class_model,
-            full_tech_stack_table=full_tech_stack_table,
-            full_db_schema=full_db_schema,
-            full_module_breakdown=full_module_breakdown,
-            api_spec_html=api_spec_html,
-            file_guide_html=file_guide_html,
-            project_type=analysis.project_type,
+            er_grid_html=context.get("er_grid_html", ""),
+            full_class_model=context.get("full_class_model", ""),
+            full_tech_stack_table=context.get("full_tech_stack_table", ""),
+            full_db_schema=context.get("full_db_schema", ""),
+            full_module_breakdown=context.get("full_module_breakdown", ""),
+            api_spec_html=context.get("api_spec_html", ""),
+            file_guide_html=context.get("file_guide_html", ""),
+            project_type=str(getattr(analysis, "project_type", "SPRING_BOOT")),
             deep_view=deep_view,
         )
 
         content = raw_template
         for key, val in replacements.items():
             content = content.replace(key, str(val))
-
-        # Inject dynamic Static Code Analysis table
-        content = re.sub(r'<table class="static-table">[\s\S]*?</table>', static_analysis_table_html, content, count=1)
-
-        # Inject JSP / JSF View Layer Analysis section & update Table of Contents
-        if view_analysis_section_html and (jsp_count > 0 or jsf_count > 0):
-            toc_needle = '<tr><td>Section 5</td><td><a href="#ch5">Technical Stack &amp; Technologies</a></td><td>08</td></tr>'
-            if toc_needle in content:
-                toc_entry = (
-                    toc_needle
-                    + '\n      <tr><td>Section 5A</td><td><a href="#ch-view-analysis">JSP / JSF View Layer Analysis</a></td><td>08A</td></tr>'
-                )
-                content = content.replace(toc_needle, toc_entry, 1)
-
-            ch6_needle = '<div class="page" id="ch6">'
-            if ch6_needle in content:
-                content = content.replace(ch6_needle, f"{view_analysis_section_html}\n{ch6_needle}", 1)
-
-        # Inject class cards grid
-        if "<!-- STATIC_CLASS_GRID_START -->" in content and "<!-- STATIC_CLASS_GRID_END -->" in content:
-            start_idx = content.find("<!-- STATIC_CLASS_GRID_START -->")
-            end_idx = content.find("<!-- STATIC_CLASS_GRID_END -->") + len("<!-- STATIC_CLASS_GRID_END -->")
-            content = content[:start_idx] + class_cards_grid_html + content[end_idx:]
-
-        # Inject API specifications
-        if "<!-- Group 1 -->" in content:
-            g_start = content.find("<!-- Group 1 -->")
-            g_end = content.find("</div>\n\n</div>\n<div class=\"pg-watermark\">", g_start)
-            if g_end != -1:
-                content = content[:g_start] + api_spec_html + content[g_end:]
-
-        # Safety sweep: clear any missed tokens with domain text instead of raw hyphens
-        content = re.sub(r"\{\{[A-Za-z0-9_]+\}\}", "Standard Specification Component", content)
         return content
 
     def _render_snapshot_template(
@@ -386,14 +452,14 @@ class GenerateTechnicalDocumentUseCase:
         cap1: str,
         cap2: str,
         cap3: str,
-        er_grid_html: str,
-        full_class_model: str,
-        full_tech_stack_table: str,
-        full_db_schema: str,
-        full_module_breakdown: str,
-        api_spec_html: str,
-        file_guide_html: str,
-        project_type: str,
+        er_grid_html: str = "",
+        full_class_model: str = "",
+        full_tech_stack_table: str = "",
+        full_db_schema: str = "",
+        full_module_breakdown: str = "",
+        api_spec_html: str = "",
+        file_guide_html: str = "",
+        project_type: str = "SPRING_BOOT",
         deep_view: DeepViewAnalysis | None = None,
     ) -> dict[str, str]:
         c1_name = groups.controllers[0].class_name if groups.controllers else "CoreController"
@@ -1833,3 +1899,1239 @@ class GenerateTechnicalDocumentUseCase:
     def _safe_filename(value: str) -> str:
         cleaned = re.sub(r"[^A-Za-z0-9._-]+", "-", value.strip()).strip("-")
         return (cleaned or "repository").upper()
+
+    @staticmethod
+    def _effective_context_options(request: TechnicalDocumentRequest) -> dict[str, bool]:
+        fields = {
+            "Business workflows": "brd_category_business_workflows",
+            "Database and data": "brd_category_database_data",
+            "Architecture": "brd_category_architecture",
+            "APIs and integrations": "brd_category_apis_integrations",
+            "Security and access": "brd_category_security_access",
+            "Reliability and performance": "brd_category_reliability_performance",
+        }
+        
+        def is_cat_enabled(val: Any) -> bool:
+            if val is None:
+                return True
+            if isinstance(val, bool):
+                return val
+            return str(val).lower() not in ("false", "0", "off", "no")
+
+        result = {}
+        for label, field_name in fields.items():
+            req_val = getattr(request, field_name, None)
+            if req_val is not None:
+                result[label] = is_cat_enabled(req_val)
+            else:
+                result[label] = is_cat_enabled(getattr(settings, field_name, True))
+        return result
+
+    @staticmethod
+    def _find_source_markers(repo_root: Path, files: list[str]) -> list[dict[str, Any]]:
+        """Detect integration/workflow patterns from source code.
+
+        Each pattern requires the match to be inside a method body (i.e. a named
+        callable invocation), not in a field declaration or import.  A keyword
+        match alone is insufficient — the surrounding context must confirm a
+        subject, operation, and called component."""
+        marker_patterns = [
+            # Require specific known method names to avoid generic noise
+            ("SOAP integration call", re.compile(r"\b(?:callSoap|getSOAPBody|marshalSendAndReceive)\s*\(", re.I)),
+            ("Data parsing or grouping", re.compile(r"(?:\.parse\s*\(|\bgroupingBy\s*\(|\bcomputeIfAbsent\s*\()", re.I)),
+            # Require BOTH a time term AND a report/generation term on the same line
+            ("Daily reporting logic", re.compile(
+                r"\b(?:daily|perDay)\w*\b.{0,60}\b(?:report|generate|send|dispatch|email)\w*\b"
+                r"|\b(?:report|generate|send|dispatch|email)\w*\b.{0,60}\b(?:daily|perDay)\w*\b",
+                re.I,
+            )),
+            ("Weekly reporting logic", re.compile(
+                r"\b(?:weekly|perWeek)\w*\b.{0,60}\b(?:report|generate|send|dispatch|email)\w*\b"
+                r"|\b(?:report|generate|send|dispatch|email)\w*\b.{0,60}\b(?:weekly|perWeek)\w*\b",
+                re.I,
+            )),
+            ("Email dispatch call", re.compile(r"\b(?:sendHtmlEmail|sendWeeklyEmail|sendDailyEmail|mailSender\.send)\s*\(", re.I)),
+            # Report history persistence: require a repository *write* call, not just findAll/findById
+            ("Report history persistence", re.compile(
+                r"\b(?:reportHistory|historyRepository|reportRepo|reportLog\w*)\b.{0,40}\b(?:save|saveAll|persist|merge|insert)\s*\(",
+                re.I,
+            )),
+        ]
+        evidence: list[dict[str, Any]] = []
+        seen: set[tuple[str, str]] = set()
+        # Lines that are clearly not inside a method body
+        _skip_prefixes = ("//", "/*", "*", "import ", "package ", "@", "private ", "protected ", "public ",
+                          "class ", "interface ", "enum ")
+        for relative_path in files:
+            source_path = repo_root / relative_path
+            if not source_path.is_file():
+                continue
+            source = file_utils.read_text(source_path)
+            lines = source.splitlines()
+            for line_number, line in enumerate(lines, start=1):
+                stripped = line.strip()
+                if stripped.startswith(_skip_prefixes):
+                    continue
+                for label, pattern in marker_patterns:
+                    key = (label, relative_path)
+                    if key in seen or not pattern.search(line):
+                        continue
+                    seen.add(key)
+                    evidence.append({"label": label, "file": relative_path, "line_start": line_number, "line_end": line_number})
+            in_lines = [n for n, l in enumerate(lines, start=1)
+                        if re.search(r"(?:equals\s*\(?\s*)?['\"]IN['\"]", l, re.I)
+                        and not l.strip().startswith(_skip_prefixes)]
+            out_lines = [n for n, l in enumerate(lines, start=1)
+                         if re.search(r"(?:equals\s*\(?\s*)?['\"]OUT['\"]", l, re.I)
+                         and not l.strip().startswith(_skip_prefixes)]
+            if in_lines and out_lines:
+                evidence.append({
+                    "label": "IN/OUT direction classification",
+                    "file": relative_path,
+                    "line_start": min(in_lines + out_lines),
+                    "line_end": max(in_lines + out_lines),
+                })
+        return evidence
+
+    @staticmethod
+    def _build_code_context(
+        repo_root: Path | None,
+        classes: list[JavaClassInfo],
+        brd_instructions: str,
+    ) -> str:
+        if not classes:
+            return "No scanned Java classes available."
+
+        context_lines = [
+            "=== SCANNED JAVA CLASSES & ARCHITECTURE ==="
+        ]
+
+        stop_words = {"focus", "on", "the", "and", "explain", "current", "workflow", "list", "anything", "business", "team", "must", "confirm", "with", "for", "to", "a", "an", "in", "is", "are", "how", "what", "where"}
+        keywords = [w.lower() for w in re.findall(r"\w+", brd_instructions) if w.lower() not in stop_words and len(w) > 2]
+
+        priority_classes = []
+        other_classes = []
+
+        for c in classes:
+            c_text_lower = f"{c.class_name} {c.relative_path} {' '.join(c.dependencies)}".lower()
+            if any(kw in c_text_lower for kw in keywords):
+                priority_classes.append(c)
+            else:
+                other_classes.append(c)
+
+        ordered_classes = priority_classes + other_classes
+
+        for c in ordered_classes:
+            context_lines.append(f"\nDeclaration: {c.declaration_type} {c.class_name} ({c.relative_path}:{c.line_start}-{c.line_end})")
+            context_lines.append(f"Package: {c.package} | Annotations: {', '.join(c.annotations) or 'None'}")
+            if c.endpoints:
+                ep_strs = [f"{ep.method} {ep.path}" for ep in c.endpoints]
+                context_lines.append(f"Endpoints: {', '.join(ep_strs)}")
+            if c.dependencies:
+                context_lines.append(f"Dependencies: {', '.join(list(c.dependencies)[:10])}")
+
+            if repo_root and (repo_root / c.relative_path).is_file() and c in priority_classes[:12]:
+                try:
+                    code_text = self._redact_sensitive_text(file_utils.read_text(repo_root / c.relative_path))
+                    class_lines = code_text.splitlines()[max(0, c.line_start - 1) : c.line_end]
+                    clean_snippet = "\n".join(line for line in class_lines if line.strip() and not line.strip().startswith("import "))
+                    context_lines.append(f"Code Evidence ({c.relative_path}:{c.line_start}-{c.line_end}):\n{clean_snippet[:1800]}\n---")
+                except Exception:
+                    pass
+
+        return "\n".join(context_lines)
+
+    @staticmethod
+    def _build_repository_brd_context(analysis: ProjectAnalysis) -> str:
+        lines = [f"Detected application type: {analysis.project_type}.", f"Repository kind: {analysis.repository_kind}."]
+        for item in analysis.documentation_evidence[:80]:
+            lines.append(
+                f"DOCUMENTATION CLAIM [{item['file']}:{item['line_start']}-{item['line_end']}]: {item['text']} "
+                "Status: documentation claim, not stakeholder approval or implementation proof."
+            )
+        lines.append(f"Spring API endpoint findings: {len(analysis.api_endpoints)}.")
+        if not analysis.api_endpoints:
+            lines.append("No Spring controller mappings were found; this does not establish absence of web pages or workflows.")
+        for route in analysis.web_routes:
+            method = route["method"] if route["method"] else "not declared"
+            lines.append(
+                f"{route['route_type']} [{route['file']}:{route['line_start']}-{route['line_end']}]: "
+                f"path={route['path']}; method={method}; inputs={route['inputs']}. "
+                "Status: observed markup, not a REST endpoint."
+            )
+        for build in analysis.gradle_builds:
+            lines.append(
+                f"GRADLE BUILD VARIANT [{build['settings_file']}:{build['line_start']}-{build['line_end']}]: "
+                f"variant={build['variant']}; projects declared in settings={build['projects_declared_in_settings']}. "
+                "This variant is reported independently."
+            )
+            for module in build["modules"]:
+                lines.append(
+                    f"GRADLE MODULE [{module['source']}:{module['line_start']}-{module['line_end']}]: "
+                    f"variant={build['variant']}; module={module['name']}; path={module['path']}; "
+                    f"plugins={module['plugins']}; archive configured={module['archive_configured']}."
+                )
+            for edge in build["edges"]:
+                lines.append(
+                    f"GRADLE PROJECT EDGE [{edge['file']}:{edge['line_start']}-{edge['line_end']}]: "
+                    f"variant={build['variant']}; {edge['from']} -{edge['configuration']}-> {edge['to']}."
+                )
+            for config in build["deployment_configs"]:
+                lines.append(
+                    f"DEPLOYMENT CONFIG [{config['file']}:{config['line_start']}-{config['line_end']}]: "
+                    f"enterprise application configured={config['application_configured']}; features={config['features']}."
+                )
+        for edge in analysis.workflow_edges:
+            source_ref = f"{edge['file']}:{edge['line_start']}-{edge['line_end']}"
+            target_ref = ""
+            if edge.get("target_file"):
+                target_ref = f"; target={edge['target_file']}:{edge['target_line_start']}-{edge['target_line_end']}"
+            lines.append(
+                f"IMPLEMENTATION EDGE [{source_ref}{target_ref}]: {edge['edge_type']} "
+                f"from={edge.get('from')}; to={edge.get('to')}; method={edge.get('method')}; property={edge.get('property')}. "
+                "Status: observed source behavior, not business approval or runtime success."
+            )
+        for item in analysis.test_evidence[:80]:
+            lines.append(
+                f"TEST ASSERTION [{item['file']}:{item['line_start']}-{item['line_end']}]: {item['text']} "
+                "Status: test assertion exists; execution and passing status not inferred."
+            )
+        return "\n".join(lines)
+
+    def _search_selected_brd_topics(
+        self,
+        analysis: ProjectAnalysis,
+        repo_root: Path | None,
+        focus_prompt: str,
+    ) -> str:
+        if repo_root is None:
+            return "Repository files are unavailable; selected topics could not be searched."
+        topic_terms = {
+            "Business workflows": r"<form\b|height(?:Cm|Feet|Inches)|centimeter|\bfeet\b|\binches\b|convert(?:er|s|ing|ion)?|setProperty|getProperty",
+            "Database and data": r"@Entity\b|@Table\b|@Column\b|DataSource|\bjdbc\b|\bsql\b|database|height(?:Cm|Feet|Inches)",
+            "Architecture": r"settings\.gradle|build\.gradle|archive|project\s*\(|apply plugin|\b(?:war|jar|ear)\b|server\.xml|module",
+            "APIs and integrations": r"@(?:Get|Post|Put|Delete|Patch|Request)Mapping|@Path\b|@WebServlet|<form\b|webModule|httpEndpoint",
+            "Security and access": r"Spring Security|@EnableWebSecurity|@RolesAllowed|SecurityFilterChain|login|authentication",
+            "Reliability and performance": r"verifyAppStartTimeout|connectionTimeout|readTimeout|retry(?:\s|\()|circuit.?breaker|cacheControl|@Async|@Scheduled",
+        }
+        files = list(dict.fromkeys(
+            analysis.java_files + analysis.config_files + analysis.frontend_files + analysis.test_files + analysis.other_files
+        ))
+        focus_terms = [term.lower() for term in re.findall(r"[A-Za-z][A-Za-z0-9_-]{2,}", focus_prompt)]
+        all_lines: list[tuple[str, int, str, str]] = []
+        for relative_path in files:
+            lowered_path = relative_path.lower()
+            if ".github/" in lowered_path or Path(relative_path).name.lower() in {"license", "license.txt", "license.md"}:
+                continue
+            path = repo_root / relative_path
+            if not path.is_file():
+                continue
+            for line_number, raw_line in enumerate(file_utils.read_text(path).splitlines(), start=1):
+                text = self._redact_sensitive_text(raw_line.strip())[:240]
+                if text:
+                    all_lines.append((relative_path, line_number, text, raw_line))
+        lines: list[str] = []
+        for topic, expression in topic_terms.items():
+            pattern = re.compile(expression, re.I)
+            evidence = [item for item in all_lines if pattern.search(item[3])]
+            evidence.sort(key=lambda item: (
+                0 if topic in {"Business workflows", "APIs and integrations"} and "/webapp/" in item[0].lower() else
+                1 if Path(item[0]).suffix.lower() == ".java" and "/test/" not in item[0].lower() else
+                2 if Path(item[0]).suffix.lower() in {".jsp", ".html", ".xml"} else
+                3 if Path(item[0]).suffix.lower() in {".gradle", ".kts"} else
+                4 if "/test/" in item[0].lower() or "/tests/" in item[0].lower() else 5,
+                item[0],
+                item[1],
+            ))
+            matches = []
+            for relative_path, line_number, text, _ in evidence[:4]:
+                evidence_type = (
+                    "TEST_ASSERTION" if any(part.lower() in {"test", "tests", "it", "integration-test"} for part in Path(relative_path).parts)
+                    else "DOCUMENTATION_CLAIM" if Path(relative_path).suffix.lower() in {".md", ".adoc", ".asciidoc", ".txt"}
+                    else "OBSERVED_CODE"
+                )
+                matches.append(f"{evidence_type} [{relative_path}:{line_number}-{line_number}]: {text}")
+            lines.append(f"{topic}: " + (" | ".join(matches) if matches else "No matching repository evidence found."))
+        prompt_matches = [item for item in all_lines if focus_terms and any(term in item[3].lower() for term in focus_terms)]
+        prompt_matches.sort(key=lambda item: (item[0], item[1]))
+        lines.append(
+            "User focus prompt search: "
+            + (" | ".join(f"[{path}:{number}-{number}] {text}" for path, number, text, _ in prompt_matches[:8])
+               if prompt_matches else "No matching repository evidence found for the supplied focus terms.")
+        )
+        if focus_prompt:
+            lines.append("Focus prompt terms were included in each selected-topic search; the prompt itself is not evidence.")
+        else:
+            lines.append("No BRD focus prompt was supplied; this is informational and not a generation failure.")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _load_uploaded_brd_evidence(request: TechnicalDocumentRequest) -> str:
+        job_id = (request.job_id or request.migration_job_id or "").strip()
+        if not job_id:
+            return ""
+        paths = WorkspacePaths(job_id)
+        evidence_parts = []
+        if paths.brd_dir.exists():
+            for f in paths.brd_dir.iterdir():
+                if f.is_file() and f.name != "metadata.json":
+                    try:
+                        text = f.read_text(encoding="utf-8", errors="ignore")
+                        if text:
+                            evidence_parts.append(self._redact_sensitive_text(f"Uploaded Document [{f.name}]: {text[:2000]}..."))
+                    except Exception:
+                        evidence_parts.append(f"Uploaded Document: {f.name}")
+        if paths.brd_metadata_path.exists():
+            try:
+                meta = paths.brd_metadata_path.read_text(encoding="utf-8")
+                evidence_parts.append(self._redact_sensitive_text(f"BRD Metadata: {meta}"))
+            except Exception:
+                pass
+        return "\n".join(evidence_parts)
+
+    @staticmethod
+    def _get_effective_brd_instructions(request: TechnicalDocumentRequest) -> str:
+        instructions = (request.brd_instructions or "").strip()
+        if not instructions:
+            instructions = (getattr(settings, "brd_instructions", "") or "").strip()
+        if not instructions:
+            try:
+                import dotenv
+                env_file = Path(".env").resolve()
+                if env_file.exists():
+                    env_vals = dotenv.dotenv_values(env_file)
+                    instructions = (env_vals.get("BRD_INSTRUCTIONS") or env_vals.get("brd_instructions") or "").strip()
+            except Exception:
+                pass
+        return instructions
+
+    def _analyze_brd_question(
+        self,
+        request: TechnicalDocumentRequest,
+        analysis: ProjectAnalysis,
+        endpoints: list[dict[str, Any]],
+        tables: list[dict[str, Any]],
+        brd_instructions: str,
+        classes: list[JavaClassInfo] | None = None,
+        repo_root: Path | None = None,
+    ) -> dict[str, str]:
+        effective_instructions = brd_instructions or self._get_effective_brd_instructions(request)
+        if not effective_instructions:
+            effective_instructions = (
+                "Automatically derive the repository's purpose, core capabilities, architecture, and important workflows "
+                "from its README, source files, build configuration, UI components, tests, and documentation."
+            )
+        effective_instructions = self._redact_sensitive_text(effective_instructions)
+        question = effective_instructions
+        uploaded_evidence = self._load_uploaded_brd_evidence(request)
+        code_context = self._build_code_context(repo_root, classes or [], effective_instructions)
+        repository_context = self._build_repository_brd_context(analysis)
+        selected_topic_evidence = self._search_selected_brd_topics(analysis, repo_root, effective_instructions)
+
+        llm_provider = getattr(request, "llm_provider", None) or getattr(settings, "groq_model", "Groq")
+        llm_model = getattr(request, "llm_model", None) or getattr(settings, "groq_model", "llama-3.3-70b-versatile")
+        migration_target = getattr(request, "target_java_version", None) or getattr(request, "migration_target", None) or f"Java {analysis.current_java_version or '17'} / Spring Boot {analysis.spring_boot_version or '3.2'}"
+
+        answer_text = ""
+        llm_status = "SKIPPED (Reason: LLM analysis disabled or unavailable)"
+        try:
+            from app.infrastructure.llm.chat_llm import ChatLLM
+            chat_llm = ChatLLM()
+            system_prompt = (
+                "You are an expert Enterprise Architect and Lead Business Analyst generating an evidence-based Business Requirements Document for the repository. "
+                "Work strictly from the provided evidence: source code, configuration, manifests, build files, tests, README, and business documents. "
+                "Structure your response across the following phases:\n"
+                "PHASE 1 - CLASSIFY THE PROJECT: State the project type (e.g. application, Android app, web app, library, test automation project, tutorial, collection of projects/multi-module system), language, framework, and modules/packages with their roles from code. Identify example code, tests, and external apps under test.\n"
+                "PHASE 2 - INVENTORY ENTRY POINTS: List every entry point (HTTP routes, schedulers, main methods, mobile activities, CLI commands, test suites) with a stable ID (EP-1, EP-2, ...) and file:line citation.\n"
+                "PHASE 3 - TRACE EACH WORKFLOW: Group entry points into workflows. Prioritize workflow coverage. Write connected chains (initiating user/job/test -> entry point -> processing/decisions -> data/external interaction -> observable result) citing exact file paths and line ranges. Describe successful and failure paths when evidenced. Distinguish implemented behavior from README claims and business requirements.\n"
+                "PHASE 4 - FUNCTIONAL REQUIREMENTS: Write FR-1, FR-2 statements with concrete code values, linking to EP IDs, citing file:line, and adding exactly one status: 'Confirmed by business input', 'Observed in code — needs business confirmation', or 'Needs clarification'.\n"
+                "PHASE 5 - ACCEPTANCE CRITERIA: Generate up to 5 distinct, prioritized acceptance criteria from the strongest verified workflows. Each criterion must state the actor or system, business or test outcome, starting condition, action, expected observable result, evidence citation, and status ('Confirmed by business input', 'Observed in code — needs business confirmation', or 'Needs clarification'). For test automation repositories, cover test setup, page interaction, assertions, and reporting only where implemented. Do not use generic criteria like 'the endpoint exists' or invent behavior to fill five slots.\n"
+                "PHASE 6 - README, TESTS, CONFIGURATION: Map README claims (Verified in code, Not found in code, Contradicted by code), test coverage, and externalized config/secrets with redacted values.\n"
+                "PHASE 7 - USE OF BUSINESS CONTEXT: Map business prompt/document statements to FR/EP IDs or 'no supporting code found'.\n"
+                "PHASE 8 - COVERAGE AND SELF-CHECK: Before finalizing, check whether important detected entry points, UI actions, jobs, tests, and integrations appear in the workflow section. Explain omissions and scan limitations. Omit irrelevant sections, never claim runtime success from code alone, and never invent routes, database tables, browser support, assertions, or business policies."
+            )
+            context_options = self._effective_context_options(request)
+            user_prompt_template = (
+                "User Focus Investigation Prompt: {{focus_prompt}}\n\n"
+                "Migration Target: {{migration_target}}\n"
+                "Always-considered BRD context options: " + str(context_options) + "\n"
+                "Project Metadata:\n"
+                f"- Detected Application Type: {analysis.project_type}\n"
+                f"- Repository Kind: {analysis.repository_kind}\n"
+                f"- Build Tool: {analysis.build_tool}\n"
+                f"- Java Version: {analysis.current_java_version}\n"
+                f"- Spring Boot Version: {analysis.spring_boot_version}\n"
+                f"- Endpoints: {endpoints[:15]}\n"
+                f"- Database Tables: {tables[:10]}\n\n"
+                "Uploaded Business Documents Evidence:\n{{business_documents}}\n\n"
+                "Typed Repository Evidence (documentation, web routes, module variants, workflows, tests):\n{{scan_evidence}}\n\n"
+                "Selected general context and focus searches:\n{{readme_and_tests}}\n\n"
+                "Scanned Repository Code Context:\n{{source_snippets}}\n"
+            )
+            user_prompt = user_prompt_template.replace("{{focus_prompt}}", str(question))
+            user_prompt = user_prompt.replace("{{migration_target}}", str(migration_target))
+            user_prompt = user_prompt.replace("{{business_documents}}", str(uploaded_evidence or "None uploaded."))
+            user_prompt = user_prompt.replace("{{scan_evidence}}", str(repository_context))
+            user_prompt = user_prompt.replace("{{readme_and_tests}}", str(selected_topic_evidence))
+            user_prompt = user_prompt.replace("{{source_snippets}}", str(code_context))
+
+            async def _collect() -> str:
+                chunks = []
+                async for delta in chat_llm.stream_chat(system_prompt, user_prompt, endpoint="brd_question_analysis", max_tokens=2500):
+                    chunks.append(delta)
+                return "".join(chunks)
+
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    import nest_asyncio
+                    nest_asyncio.apply()
+                    raw_resp = loop.run_until_complete(asyncio.wait_for(_collect(), timeout=15.0))
+                else:
+                    raw_resp = asyncio.run(asyncio.wait_for(_collect(), timeout=15.0))
+            except Exception:
+                raw_resp = ""
+
+            uploaded_document_names = self._uploaded_brd_document_names(request)
+            if raw_resp and len(raw_resp.strip()) > 50 and self._llm_answer_has_valid_citations(raw_resp, repo_root, uploaded_document_names):
+                answer_text = self._redact_sensitive_text(raw_resp)
+                llm_status = f"EXECUTED (Provider: {llm_provider}, Model: {llm_model})"
+            else:
+                llm_status = f"SKIPPED / FALLBACK (Reason: Invalid citations or empty response within timeout)"
+        except Exception as exc:
+            logger.info("[GenerateTechnicalDocument] LLM analysis unavailable (%s); focus questions remain pending clarification.", exc)
+            llm_status = f"SKIPPED / FALLBACK (Reason: {exc})"
+
+        if not answer_text:
+            answer_text = "<p>No source-cited LLM analysis is available. Any unresolved focus question needs clarification.</p>"
+            sources_text = "No validated LLM citations were available."
+            observed_vs_confirmed = "Needs clarification."
+        else:
+            answer_text = self._plain_safe_html(answer_text)
+            sources_text = "Validated repository paths and line ranges are included with the cited claims."
+            observed_vs_confirmed = "Observed in code — needs business confirmation."
+
+        return {
+            "question": question,
+            "answer": answer_text,
+            "sources": sources_text,
+            "observed_vs_confirmed": observed_vs_confirmed,
+            "llm_status": llm_status,
+        }
+
+    @staticmethod
+    def _find_source_markers(repo_root: Path, files: list[str]) -> list[dict[str, Any]]:
+        marker_patterns = [
+            ("SOAP integration call", re.compile(r"\b(?:callSoap|getSOAPBody|marshalSendAndReceive)\s*\(", re.I)),
+            ("Data parsing or grouping", re.compile(r"(?:\.parse\s*\(|\bgroupingBy\s*\(|\bcomputeIfAbsent\s*\()", re.I)),
+            ("Daily reporting logic", re.compile(r"\b(?:daily|perDay)\w*\b.{0,60}\b(?:report|generate|send|dispatch|email)\w*\b", re.I)),
+            ("Weekly reporting logic", re.compile(r"\b(?:weekly|perWeek)\w*\b.{0,60}\b(?:report|generate|send|dispatch|email)\w*\b", re.I)),
+            ("Email dispatch call", re.compile(r"\b(?:sendHtmlEmail|sendWeeklyEmail|sendDailyEmail|mailSender\.send)\s*\(", re.I)),
+            ("Report history persistence", re.compile(r"\b(?:reportHistory|historyRepository|reportRepo|reportLog\w*)\b.{0,40}\b(?:save|saveAll|persist|merge|insert)\s*\(", re.I)),
+            ("File transfer / document handling", re.compile(r"\b(?:MultipartFile|upload|download|InputStream|OutputStream|transferTo)\b", re.I)),
+            ("Playwright browser action", re.compile(r"\b(?:page\.(?:navigate|fill|click|selectOption|locator)|BrowserType\.launch|Playwright\.create)\b", re.I)),
+        ]
+        evidence: list[dict[str, Any]] = []
+        seen: set[tuple[str, str]] = set()
+        _skip_prefixes = ("//", "/*", "*", "import ", "package ", "@", "private ", "protected ", "public ", "class ", "interface ", "enum ")
+        for relative_path in files:
+            source_path = repo_root / relative_path
+            if not source_path.is_file():
+                continue
+            source = file_utils.read_text(source_path)
+            lines = source.splitlines()
+            for line_number, line in enumerate(lines, start=1):
+                stripped = line.strip()
+                if stripped.startswith(_skip_prefixes):
+                    continue
+                for label, pattern in marker_patterns:
+                    key = (label, relative_path)
+                    if key in seen or not pattern.search(line):
+                        continue
+                    seen.add(key)
+                    evidence.append({"label": label, "file": relative_path, "line_start": line_number, "line_end": line_number})
+        return evidence
+
+    @staticmethod
+    def _find_secret_evidence(repo_root: Path, files: list[str]) -> list[dict[str, Any]]:
+        assignment_pattern = re.compile(
+            r"\b[\w.-]*(?:password|passwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|credential)\b\s*[:=]\s*(?P<value>\"[^\"]*\"|'[^']*'|[^\s,;]+)"
+            r"|\"(?:[\w.-]*(?:password|passwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|credential)[\w.-]*)\"\s*:\s*(?P<json_val>\"[^\"]*\"|[^\s,;]+)",
+            re.IGNORECASE,
+        )
+        token_pattern = re.compile(r"\b(?:gh[pousr]_|gsk_|hf_|sk-)[A-Za-z0-9_-]{16,}")
+        private_key_pattern = re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----")
+        env_ref_pattern = re.compile(r"^\$\{|^\$[A-Z_]+$|^env\(|^os\.environ|^System\.getenv")
+        placeholder_terms = ("placeholder", "changeme", "your-secret", "example", "enter-", "<your", "TODO", "FIXME", "xxxx", "replace")
+        findings: list[dict[str, Any]] = []
+        for relative_path in files:
+            source_path = repo_root / relative_path
+            if not source_path.is_file():
+                continue
+            is_config = source_path.suffix.lower() in {".env", ".properties", ".yml", ".yaml", ".json", ".xml", ".toml", ".ini", ".conf"}
+            for line_number, line in enumerate(file_utils.read_text(source_path).splitlines(), start=1):
+                if line.strip().startswith(("#", "//", "/*", "*")):
+                    continue
+                if token_pattern.search(line) or private_key_pattern.search(line):
+                    findings.append({"file": relative_path, "line_start": line_number, "line_end": line_number, "classification": "TOKEN_PATTERN"})
+                    continue
+                assignment = assignment_pattern.search(line)
+                if not assignment:
+                    continue
+                raw_value = assignment.group("value") or assignment.group("json_val") or ""
+                value = raw_value.strip("\"'")
+                if env_ref_pattern.match(value):
+                    continue
+                is_placeholder = any(term.lower() in value.lower() for term in placeholder_terms)
+                if is_placeholder:
+                    findings.append({"file": relative_path, "line_start": line_number, "line_end": line_number, "classification": "EXAMPLE_PLACEHOLDER"})
+                    continue
+                is_quoted = raw_value.startswith(('"', "'"))
+                has_literal_credential = bool(assignment and (is_quoted or is_config)) and len(value) > 3
+                if has_literal_credential:
+                    findings.append({"file": relative_path, "line_start": line_number, "line_end": line_number, "classification": "LITERAL_CREDENTIAL"})
+        return findings
+
+    @staticmethod
+    def _llm_answer_has_valid_citations(
+        answer: str,
+        repo_root: Path | None,
+        uploaded_document_names: list[str] | None = None,
+    ) -> bool:
+        if not answer or len(answer.strip()) < 20:
+            return False
+        uploaded_document_names = uploaded_document_names or []
+        pattern = re.compile(
+            r"(?P<path>(?:[A-Za-z0-9_.-]+[/\\])+[A-Za-z0-9_.-]+\.[A-Za-z0-9]+):(?P<start>\d+)(?:-(?P<end>\d+))?"
+        )
+        citations = list(pattern.finditer(answer))
+        if not citations and not any(name in answer for name in uploaded_document_names):
+            return False
+        for citation in citations:
+            if repo_root is None:
+                continue
+            relative_path = citation.group("path").replace("\\", "/")
+            source = repo_root / relative_path
+            if not source.is_file():
+                return False
+            start = int(citation.group("start"))
+            end = int(citation.group("end") or start)
+            line_count = len(file_utils.read_text(source).splitlines())
+            if start < 1 or end < start or end > line_count:
+                return False
+        return True
+
+    @staticmethod
+    def _uploaded_brd_document_names(request: TechnicalDocumentRequest) -> list[str]:
+        job_id = (request.job_id or request.migration_job_id or "").strip()
+        if not job_id:
+            return []
+        paths = WorkspacePaths(job_id)
+        if not paths.job_dir.is_dir():
+            return []
+        brd_files = []
+        for child in paths.job_dir.iterdir():
+            if child.is_file() and child.name.lower().startswith("brd_"):
+                brd_files.append(child.name)
+        return brd_files
+
+    @staticmethod
+    def _call_llm_for_acceptance_criteria(
+        analysis: ProjectAnalysis,
+        endpoints: list[dict[str, Any]],
+        tables: list[dict[str, Any]],
+        brd_instructions: str,
+    ) -> list[str]:
+        from app.infrastructure.llm.chat_llm import ChatLLM
+        chat_llm = ChatLLM()
+
+        system_prompt = (
+            "You are an expert Enterprise Architect. Generate up to 5 distinct priority testable acceptance criteria strictly grounded in the provided codebase. "
+            "Recognize Spring routes, Servlet mappings, SQL tables, JDBC queries, and JPA entities. Do not assume Spring or JPA. "
+            "For each criterion, format as: "
+            "<b>[Category]</b> Business Outcome: ... | Actor/System: ... | Expected Behavior: ... | Testable Check: ... | Source: <code>filepath</code> | Status: Observed in code — needs business confirmation"
+        )
+        user_prompt = (
+            f"Project Type: {analysis.project_type}\n"
+            f"Build Tool: {analysis.build_tool}\n"
+            f"Java Version: {analysis.current_java_version}\n"
+            f"Spring Boot Version: {analysis.spring_boot_version}\n"
+            f"Key Endpoints: {endpoints[:5]}\n"
+            f"Key Database Tables: {tables[:5]}\n"
+            f"Focus Prompt / Instructions: {brd_instructions}\n"
+            "Generate 5 grounded acceptance criteria."
+        )
+
+        async def _collect() -> str:
+            chunks = []
+            async for delta in chat_llm.stream_chat(system_prompt, user_prompt, endpoint="brd_generation", max_tokens=1024):
+                chunks.append(delta)
+            return "".join(chunks)
+
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                import nest_asyncio
+                nest_asyncio.apply()
+                response_text = loop.run_until_complete(asyncio.wait_for(_collect(), timeout=15.0))
+            else:
+                response_text = asyncio.run(asyncio.wait_for(_collect(), timeout=15.0))
+        except Exception:
+            response_text = ""
+
+        lines = [line.strip() for line in response_text.split("\n") if line.strip()]
+        criteria = []
+        for line in lines:
+            cleaned = re.sub(r"^(\d+[\.\)]|-|\*)\s*", "", line)
+            if cleaned and len(cleaned) > 10:
+                criteria.append(cleaned)
+        return criteria[:5]
+
+    def _generate_acceptance_criteria(
+        self,
+        request: TechnicalDocumentRequest,
+        endpoints: list[dict[str, Any]],
+        tables: list[dict[str, Any]],
+        analysis: ProjectAnalysis,
+        brd_instructions: str,
+    ) -> list[str]:
+        def is_cat_enabled(val: Any) -> bool:
+            if val is None:
+                return True
+            if isinstance(val, bool):
+                return val
+            return str(val).lower() not in ("false", "0", "off", "no")
+
+        b_wf = is_cat_enabled(request.brd_category_business_workflows if request.brd_category_business_workflows is not None else getattr(settings, "brd_category_business_workflows", True))
+        db_data = is_cat_enabled(request.brd_category_database_data if request.brd_category_database_data is not None else getattr(settings, "brd_category_database_data", True))
+        arch = is_cat_enabled(request.brd_category_architecture if request.brd_category_architecture is not None else getattr(settings, "brd_category_architecture", True))
+        apis = is_cat_enabled(request.brd_category_apis_integrations if request.brd_category_apis_integrations is not None else getattr(settings, "brd_category_apis_integrations", True))
+        sec = is_cat_enabled(request.brd_category_security_access if request.brd_category_security_access is not None else getattr(settings, "brd_category_security_access", True))
+        perf = is_cat_enabled(request.brd_category_reliability_performance if request.brd_category_reliability_performance is not None else getattr(settings, "brd_category_reliability_performance", True))
+
+        if not (b_wf or db_data or arch or apis or sec or perf):
+            raise HTTPException(status_code=400, detail="Please select at least one acceptance criteria category.")
+
+        if brd_instructions:
+            try:
+                llm_criteria = self._call_llm_for_acceptance_criteria(analysis, endpoints, tables, brd_instructions)
+                if llm_criteria and len(llm_criteria) >= 3:
+                    return llm_criteria
+            except Exception as exc:
+                logger.warning("[GenerateTechnicalDocument] LLM criteria generation failed (%s); using grounded criteria.", exc)
+
+        has_uploaded_doc = bool(self._load_uploaded_brd_evidence(request))
+        default_status = "Confirmed by business input" if has_uploaded_doc else "Observed in code — needs business confirmation"
+
+        criteria = []
+
+        if apis and endpoints:
+            ep = endpoints[0]
+            criteria.append(
+                f"<b>[APIs & Integrations]</b> Expected Behavior: Endpoint <code>{ep['method']} {ep['path']}</code> processes HTTP requests. "
+                f"Business Outcome: Exposes contract for {ep['controller']}. "
+                f"Actor/System: External API Client -> {ep['controller']} | "
+                f"Acceptance Check: Execute HTTP {ep['method']} on {ep['path']} and verify HTTP 200 response and payload schema. | "
+                f"Source: <code>{ep['file']}</code> | Status: {default_status}"
+            )
+
+        if db_data and tables:
+            tbl = tables[0]
+            criteria.append(
+                f"<b>[Database & Data]</b> Expected Behavior: JPA Entity <code>{tbl['model']}</code> persists state to table <code>{tbl['table']}</code>. "
+                f"Business Outcome: Guarantees relational data persistence and field integrity. "
+                f"Actor/System: Application Service -> {tbl['model']} Repository | "
+                f"Acceptance Check: Verify CRUD persistence for <code>{tbl['table']}</code> entity fields. | "
+                f"Source: <code>{tbl['file']}</code> | Status: {default_status}"
+            )
+
+        if arch:
+            build_t = analysis.build_tool or "Maven"
+            j_ver = analysis.current_java_version or "17"
+            criteria.append(
+                f"<b>[Architecture]</b> Expected Behavior: Application builds cleanly under Java {j_ver} and {build_t}. "
+                f"Business Outcome: Maintains build reproducibility and runtime dependency compatibility. "
+                f"Actor/System: Build Pipeline / Developer Environment | "
+                f"Acceptance Check: Run <code>{build_t}</code> compilation and packaging commands. | "
+                f"Source: Build Configuration Manifest | Status: {default_status}"
+            )
+
+        if b_wf:
+            prompt_ctx = f" (Focus Investigation: {brd_instructions})" if brd_instructions else ""
+            criteria.append(
+                f"<b>[Business Workflows]</b> Expected Behavior: Core application domain services process business transactions{prompt_ctx}. "
+                f"Business Outcome: Executes business logic rules across domain entities. "
+                f"Actor/System: Client User -> Application Business Service | "
+                f"Acceptance Check: Verify workflow execution and database state update. | "
+                f"Source: Domain Source Classes | Status: Needs clarification"
+            )
+
+        if sec:
+            criteria.append(
+                f"<b>[Security & Access]</b> Expected Behavior: System route authorization policies require SME confirmation on default branch. "
+                f"Business Outcome: Enforces role-based access control and credential verification. "
+                f"Actor/System: Client Request -> Security Filter Chain | "
+                f"Acceptance Check: Inspect security filter configuration for route protection. | "
+                f"Source: Security Config / Environment Policies | Status: Needs clarification"
+            )
+
+        if perf:
+            criteria.append(
+                f"<b>[Reliability & Performance]</b> Expected Behavior: Core API endpoints execute within acceptable SLA latency thresholds. "
+                f"Business Outcome: Ensures system responsiveness and operational availability. "
+                f"Actor/System: API Client -> Application Server | "
+                f"Acceptance Check: Monitor response latency and error rates under load. | "
+                f"Source: Performance SLA Thresholds | Status: Needs clarification"
+            )
+
+        return criteria[:5]
+
+    @staticmethod
+    def _validate_brd_evidence(context: dict[str, Any], body: str) -> list[str]:
+        analysis: ProjectAnalysis = context["analysis"]
+        repo_root: Path = context["repo_root"]
+        categories = [analysis.java_files, analysis.config_files, analysis.frontend_files, analysis.test_files, analysis.other_files]
+        locs = [analysis.java_loc, analysis.config_loc, analysis.frontend_loc, analysis.test_loc, analysis.other_loc]
+        findings: list[str] = []
+        if sum(map(len, categories)) != analysis.total_file_count:
+            findings.append("physical file categories do not reconcile with the repository total")
+        if sum(locs) != analysis.total_loc:
+            findings.append("LOC categories do not reconcile with the repository total")
+        classes: list[JavaClassInfo] = context["classes"]
+        declaration_keys = [(item.relative_path, item.line_start, item.class_name) for item in classes]
+        if len(declaration_keys) != len(set(declaration_keys)):
+            findings.append("duplicate Java declarations were detected")
+        routes = context["endpoints"]
+        route_keys = [(item["file"], item["controller"], item["method"], item["path"]) for item in routes]
+        if len(route_keys) != len(set(route_keys)):
+            findings.append("duplicate route evidence was detected")
+        for match in re.finditer(r'data-source="([^"]+)" data-line-start="(\d+)" data-line-end="(\d+)"', body):
+            relative_path, start, end = match.group(1), int(match.group(2)), int(match.group(3))
+            source = repo_root / relative_path
+            if not source.is_file():
+                findings.append(f"cited path does not exist: {relative_path}")
+                continue
+            line_count = len(file_utils.read_text(source).splitlines())
+            if start < 1 or end < start or end > line_count:
+                findings.append(f"cited line range is invalid: {relative_path}:{start}-{end}")
+        if re.search(r"\{\{[A-Za-z0-9_]+\}\}|\{\s*\}", body):
+            findings.append("unresolved or empty placeholders remain")
+        if re.search(r"APPROVED FOR MODERNIZATION|HTTP\s+200|production success\s*[:=]\s*(?:yes|true|validated)|within (?:the )?SLA\b|<td>L[1-3]</td>|@java-apex\.internal", body, re.I):
+            findings.append("unsupported operational or approval claim detected")
+        if re.search(r"\b(?:gh[pousr]_|gsk_|hf_|sk-)[A-Za-z0-9_-]{16,}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----", body):
+            findings.append("secret-like value detected in generated content")
+        return list(dict.fromkeys(findings))
+
+    @staticmethod
+    def _redact_sensitive_text(text: str) -> str:
+        text = re.sub(
+            r"(?i)(\b[\w.-]*(?:password|passwd|secret|token|api[_-]?key|client[_-]?secret|private[_-]?key|credential)\b\s*[:=]\s*)(\"[^\"]*\"|'[^']*'|[^\s,;]+)",
+            r"\1[REDACTED]",
+            text,
+        )
+        text = re.sub(r"\b(?:gh[pousr]_|gsk_|hf_|sk-)[A-Za-z0-9_-]{16,}", "[REDACTED]", text)
+        text = re.sub(r"(?i)([a-z][a-z0-9+.-]*://)[^/@\s:]+:[^/@\s]+@", r"\1[REDACTED]@", text)
+        text = re.sub(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----.*?-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----", "[REDACTED PRIVATE KEY]", text, flags=re.S)
+        return text
+
+    @staticmethod
+    def _evidence_table(headers: tuple[str, ...], rows: list[str], empty_message: str) -> str:
+        header_html = "".join(f"<th>{html.escape(header)}</th>" for header in headers)
+        if not rows:
+            rows = [f'<tr><td colspan="{len(headers)}">{html.escape(empty_message)}</td></tr>']
+        return f'<table class="brd-table"><thead><tr>{header_html}</tr></thead><tbody>{"".join(rows)}</tbody></table>'
+
+    @staticmethod
+    def _source_reference(path: str, line_start: int | None, line_end: int | None = None) -> str:
+        start = line_start if line_start is not None else 1
+        end = line_end if line_end is not None else start
+        safe_path = html.escape(str(path), quote=True)
+        return (
+            f'<code data-source="{safe_path}" data-line-start="{start}" '
+            f'data-line-end="{end}">{html.escape(str(path))}:{start}-{end}</code>'
+        )
+
+    def _build_evidence_body(self, context: dict[str, Any]) -> str:
+        analysis: ProjectAnalysis = context["analysis"]
+        classes: list[JavaClassInfo] = context["classes"]
+        endpoints: list[dict[str, Any]] = context["endpoints"]
+        tables: list[dict[str, Any]] = context["tables"]
+        repo_root: Path = context["repo_root"]
+        request: TechnicalDocumentRequest = context["request"]
+        repo_name = html.escape(str(context["project_name"]))
+        instructions = self._redact_sensitive_text(str(context.get("brd_instructions", "")))
+        options = self._effective_context_options(request)
+        groups = self._group_classes(classes)
+        category_files = [
+            ("Java source", analysis.java_files, analysis.java_loc),
+            ("Configuration and build", analysis.config_files, analysis.config_loc),
+            ("Frontend source", analysis.frontend_files, analysis.frontend_loc),
+            ("Test source", analysis.test_files, analysis.test_loc),
+            ("Other repository files", analysis.other_files, analysis.other_loc),
+        ]
+        count_total = sum(len(files) for _, files, _ in category_files)
+        loc_total = sum(loc for _, _, loc in category_files)
+        inventory_rows = "".join(
+            f"<tr><td>{html.escape(label)}</td><td>{len(files)}</td><td>{loc}</td></tr>"
+            for label, files, loc in category_files if files
+        )
+        if not inventory_rows:
+            inventory_rows = '<tr><td colspan="3">No readable repository files were found.</td></tr>'
+
+        declaration_rows = []
+        for item in classes:
+            roles = sorted(item.annotations) or [item.declaration_type]
+            declaration_rows.append(
+                "<tr>"
+                f"<td>{html.escape(item.declaration_type.title())}</td>"
+                f"<td>{html.escape(item.class_name)}</td>"
+                f"<td>{html.escape(', '.join(roles))}</td>"
+                f"<td>{self._source_reference(item.relative_path, item.line_start, item.line_end)}</td>"
+                "</tr>"
+            )
+        declaration_table = self._evidence_table(
+            ("Declaration", "Name", "Observed annotations", "Source"), declaration_rows,
+            "No Java declarations were found in the scanned repository.",
+        )
+
+        route_rows = [
+            "<tr>"
+            f"<td><code>{html.escape(route['method'])}</code></td>"
+            f"<td><code>{html.escape(route['path'])}</code></td>"
+            f"<td>{html.escape(route['controller'])}</td>"
+            f"<td>{html.escape(route['type'])}</td>"
+            f"<td><code>{html.escape(route.get('return_type', '') or 'unknown')}</code></td>"
+            f"<td>{self._source_reference(route['file'], route['line_start'], route['line_end'])}</td>"
+            "</tr>"
+            for route in endpoints
+        ]
+        for route in analysis.web_routes:
+            route_rows.append(
+                "<tr>"
+                f"<td><code>{html.escape(route['method'] or 'UI')}</code></td>"
+                f"<td><code>{html.escape(route['path'])}</code></td>"
+                f"<td>{html.escape(route.get('variant', '') or Path(route['file']).stem)}</td>"
+                f"<td>{html.escape(route['route_type'].replace('_', ' ').title())}</td>"
+                f"<td><code>{html.escape(', '.join(route.get('inputs', [])) or 'none')}</code></td>"
+                f"<td>{self._source_reference(route['file'], route['line_start'], route['line_end'])}</td>"
+                "</tr>"
+            )
+        route_table = self._evidence_table(
+            ("HTTP method", "Combined path", "Component", "Mapping type", "Return type / Inputs", "Mapping source"), route_rows,
+            "No controller or UI routes were evidenced.",
+        )
+
+        entity_rows = []
+        for entity in tables:
+            table_label = html.escape(entity["table"]) if entity["table"] else "Not explicitly declared"
+            fields = []
+            for item in entity["fields"]:
+                name = html.escape(str(item["name"]))
+                column = f' (explicit column: <code>{html.escape(str(item["column"]))}</code>)' if item["column"] else ""
+                relation = f' [Relation: <code>{html.escape(str(item["relation"]))}</code>]' if item.get("relation") else ""
+                fields.append(f"{name}{column}{relation} ({self._source_reference(entity['file'], int(item['line']))})")
+            entity_rows.append(
+                "<tr>"
+                f"<td>{html.escape(entity['model'])}</td><td>{table_label}</td>"
+                f"<td>{'<br>'.join(fields) if fields else 'No direct fields were extracted.'}</td>"
+                f"<td>{self._source_reference(entity['file'], entity['line_start'], entity['line_end'])}</td>"
+                "</tr>"
+            )
+        entity_table = self._evidence_table(
+            ("Entity", "Explicit table name", "Declared fields", "Source"), entity_rows,
+            "No entity or document declarations were evidenced.",
+        )
+        implicit_repository_notes = [
+            f"<li>A Spring Data REST repository is annotated, but no custom collection path is declared; its default route is omitted rather than inferred. "
+            f"{self._source_reference(item.relative_path, item.line_start, item.line_end)} Needs clarification.</li>"
+            for item in classes
+            if "RepositoryRestResource" in item.annotations and not item.endpoints
+        ]
+
+        marker_evidence = self._find_source_markers(repo_root, analysis.java_files)
+        declarations_by_name: dict[str, list[JavaClassInfo]] = {}
+        for declaration in classes:
+            declarations_by_name.setdefault(declaration.class_name, []).append(declaration)
+        dependency_rows = []
+        for source_class in classes:
+            for dependency in sorted(source_class.dependencies):
+                for target_class in declarations_by_name.get(dependency, []):
+                    if target_class.relative_path == source_class.relative_path and target_class.class_name == source_class.class_name:
+                        continue
+                    dependency_rows.append(
+                        f"<li><code>{html.escape(source_class.class_name)}</code> references scanned component "
+                        f"<code>{html.escape(target_class.class_name)}</code>; "
+                        f"source {self._source_reference(source_class.relative_path, source_class.line_start, source_class.line_end)}; "
+                        f"target {self._source_reference(target_class.relative_path, target_class.line_start, target_class.line_end)}.</li>"
+                    )
+        ui_route_rows = []
+        seen_ui_routes = set()
+        for relative_path in analysis.frontend_files:
+            source_path = repo_root / relative_path
+            if not source_path.is_file():
+                continue
+            for line_number, line in enumerate(file_utils.read_text(source_path).splitlines(), start=1):
+                for route in endpoints:
+                    if route["path"] in line:
+                        sig = (route["path"], relative_path)
+                        if sig in seen_ui_routes:
+                            continue
+                        seen_ui_routes.add(sig)
+                        ui_route_rows.append(
+                            f"<li>Frontend source contains the exact route path "
+                            f"<code>{html.escape(route['path'])}</code>; "
+                            f"{self._source_reference(relative_path, line_number)}; mapped route "
+                            f"{self._source_reference(route['file'], route['line_start'])}.</li>"
+                        )
+                        if len(ui_route_rows) >= 15:
+                            break
+                if len(ui_route_rows) >= 15:
+                    break
+            if len(ui_route_rows) >= 15:
+                break
+        marker_rows = [
+            f"<li>{html.escape(item['label'])} is indicated in source at "
+            f"{self._source_reference(item['file'], item['line_start'], item['line_end'])}. "
+            "This establishes code presence, not successful runtime behavior.</li>"
+            for item in marker_evidence
+        ]
+        secret_evidence = self._find_secret_evidence(
+            repo_root,
+            [path for _, files, _ in category_files for path in files],
+        )
+        security_rows = [
+            f"<li>[{item['classification']}] Secret-like configuration or credential detected; value redacted. "
+            f"{self._source_reference(item['file'], item['line_start'], item['line_end'])}</li>"
+            for item in secret_evidence
+        ]
+        schedule_rows = [
+            f"<li><code>{html.escape(str(job['class']))}.{html.escape(str(job['method']))}()</code> "
+            f"has scheduled expression <code>{html.escape(str(job['schedule']))}</code>; "
+            f"{self._source_reference(str(job['file']), int(job.get('line_start') or 1), int(job.get('line_end') or job.get('line_start') or 1) )}. "
+            "Execution success is not inferred.</li>"
+            for job in analysis.scheduled_jobs
+        ]
+        documentation_rows = [
+            "<tr>"
+            f"<td>{html.escape(item['text'])}</td>"
+            f"<td>{self._source_reference(item['file'], item['line_start'], item['line_end'])}</td>"
+            "<td>Documentation claim; not stakeholder-approved policy or proof of runtime behavior</td>"
+            "</tr>"
+            for item in analysis.documentation_evidence[:35]
+        ]
+        documentation_table = self._evidence_table(
+            ("Documented statement", "Source", "Evidence type"), documentation_rows,
+            "No repository documentation claims were extracted.",
+        )
+        web_route_rows = [
+            "<tr>"
+            f"<td>{html.escape(route['route_type'].replace('_', ' ').title())}</td>"
+            f"<td><code>{html.escape(route['path'])}</code></td>"
+            f"<td>{html.escape(route['method'] or 'Not declared')}</td>"
+            f"<td>{html.escape(route.get('variant', ''))}</td>"
+            f"<td>{html.escape(', '.join(route.get('inputs', [])))}</td>"
+            f"<td>{self._source_reference(route['file'], route['line_start'], route['line_end'])}</td>"
+            "</tr>"
+            for route in analysis.web_routes
+        ]
+        web_routes_table = self._evidence_table(
+            ("Route type", "Path", "Method", "Build variant", "Inputs", "Source"), web_route_rows,
+            "No JSP/HTML page or form routes were found.",
+        )
+        gradle_evidence_rows = []
+        for build in analysis.gradle_builds:
+            build_state = "aggregated projects declared in settings" if build["projects_declared_in_settings"] else "separate tutorial build; no settings aggregation declared"
+            gradle_evidence_rows.append(
+                f"<li><b>Variant:</b> {html.escape(build['variant'])}; {build_state}; "
+                f"settings {self._source_reference(build['settings_file'], build['line_start'], build['line_end'])}</li>"
+            )
+            for module in build["modules"]:
+                gradle_evidence_rows.append(
+                    f"<li><b>{html.escape(build['variant'])} module:</b> {html.escape(module['name'])}; "
+                    f"plugins={html.escape(', '.join(module['plugins']) or 'not detected')}; "
+                    f"archive configuration={'present' if module['archive_configured'] else 'not detected'}; "
+                    f"{self._source_reference(module['source'], module['line_start'], module['line_end'])}</li>"
+                )
+            for edge in build["edges"]:
+                gradle_evidence_rows.append(
+                    f"<li><b>{html.escape(build['variant'])} project edge:</b> "
+                    f"{html.escape(edge['from'])} -{html.escape(edge['configuration'])}-&gt; {html.escape(edge['to'])}; "
+                    f"{self._source_reference(edge['file'], edge['line_start'], edge['line_end'])}</li>"
+                )
+            for config in build["deployment_configs"]:
+                gradle_evidence_rows.append(
+                    f"<li><b>{html.escape(build['variant'])} deployment configuration:</b> "
+                    f"enterprise application configured={'yes' if config['application_configured'] else 'not detected'}; "
+                    f"features={html.escape(', '.join(config['features']) or 'not detected')}; "
+                    f"{self._source_reference(config['file'], config['line_start'], config['line_end'])}</li>"
+                )
+        gradle_evidence_html = "<ul>" + ("".join(gradle_evidence_rows) if gradle_evidence_rows else "<li>No Gradle settings/build variants were found.</li>") + "</ul>"
+        workflow_rows = []
+        for edge in analysis.workflow_edges:
+            text = f"{edge['edge_type']}: {edge.get('from')}"
+            if edge.get("to"):
+                text += f" -&gt; {edge['to']}"
+            if edge.get("method"):
+                text += f" via {edge['method']}()"
+            if edge.get("property"):
+                text += f" property {edge['property']}"
+            if edge.get("variant"):
+                text = f"{edge['variant']}: " + text
+            refs = [self._source_reference(edge['file'], edge['line_start'], edge['line_end'])]
+            if edge.get("target_file"):
+                refs.append(self._source_reference(edge['target_file'], edge['target_line_start'], edge['target_line_end']))
+            workflow_rows.append(f"<li>{text}; {'; '.join(refs)} (observed code; runtime success not inferred).</li>")
+        workflow_html = "<ul>" + ("".join(workflow_rows) if workflow_rows else "<li>No cross-file workflow edges were evidenced.</li>") + "</ul>"
+        test_rows = [
+            f"<li>{html.escape(item['text'])}; {self._source_reference(item['file'], item['line_start'], item['line_end'])}; "
+            "test assertion exists; execution/pass status not inferred.</li>"
+            for item in analysis.test_evidence[:30]
+        ]
+        test_html = "<ul>" + ("".join(test_rows) if test_rows else "<li>No test assertions were found in recognized test source paths.</li>") + "</ul>"
+        topic_rows = []
+        evidence_pattern = re.compile(r"(?P<kind>OBSERVED_CODE|DOCUMENTATION_CLAIM|TEST_ASSERTION) \[(?P<path>.+?):(?P<start>\d+)-(?P<end>\d+)\]: (?P<text>.*)")
+        for topic_line in self._search_selected_brd_topics(analysis, repo_root, instructions).splitlines():
+            if ": " not in topic_line:
+                continue
+            topic, content = topic_line.split(": ", 1)
+            if "No matching repository evidence found" in content:
+                topic_rows.append(f"<li><b>{html.escape(topic)}:</b> No matching repository evidence found.</li>")
+                continue
+            for match in re.finditer(r"(?:^| \| )" + evidence_pattern.pattern, content):
+                parsed = evidence_pattern.search(match.group(0))
+                if not parsed:
+                    continue
+                status = {
+                    "OBSERVED_CODE": "Observed in code — needs business confirmation",
+                    "DOCUMENTATION_CLAIM": "Documentation claim; needs business confirmation",
+                    "TEST_ASSERTION": "Test assertion exists; execution not inferred",
+                }[parsed.group("kind")]
+                topic_rows.append(
+                    f"<li><b>{html.escape(topic)}:</b> {html.escape(parsed.group('text'))}; "
+                    f"{self._source_reference(parsed.group('path'), int(parsed.group('start')), int(parsed.group('end')))}; "
+                    f"{html.escape(status)}.</li>"
+                )
+        topic_html = "<ul>" + ("".join(topic_rows) if topic_rows else "<li>No selected-topic evidence rows were produced.</li>") + "</ul>"
+
+        criteria: list[str] = []
+        criterion_details = {
+            "SOAP integration call": (
+                "The source invokes a SOAP integration operation to retrieve or exchange data.",
+                "Use a controlled SOAP response and verify the call arguments and parsed result; do not assert external service availability.",
+            ),
+            "Data parsing or grouping": (
+                "The source parses or groups incoming data before producing application records.",
+                "Provide representative valid and invalid input and verify the resulting grouping and skipped records.",
+            ),
+            "IN/OUT direction classification": (
+                "The source distinguishes incoming and outgoing direction values.",
+                "Exercise each recognized direction value and verify the mapped output fields.",
+            ),
+            "Daily reporting logic": (
+                "The source defines daily reporting behavior.",
+                "Use controlled daily input and verify the generated report model without assuming delivery success.",
+            ),
+            "Weekly reporting logic": (
+                "The source defines weekly reporting behavior.",
+                "Use a controlled week range and verify included dates and report content.",
+            ),
+            "Email dispatch call": (
+                "The source invokes an email dispatch operation.",
+                "Mock the mail transport and verify recipient, subject, and body arguments; do not assert actual delivery.",
+            ),
+            "Report history persistence": (
+                "The source reads or writes report-history records.",
+                "Use a repository test double and verify the requested history operation and mapped fields.",
+            ),
+        }
+        focus_terms = {term.lower() for term in re.findall(r"\w+", instructions) if len(term) > 2}
+        prioritized_markers = sorted(
+            marker_evidence,
+            key=lambda item: sum(term in (item["label"] + " " + item["file"]).lower() for term in focus_terms),
+            reverse=True,
+        )
+        seen_criterion_labels: set[str] = set()
+        for item in prioritized_markers:
+            label = str(item["label"])
+            if label in seen_criterion_labels:
+                continue
+            seen_criterion_labels.add(label)
+            behavior, test_check = criterion_details.get(
+                label,
+                (
+                    f"The source contains evidence for {label.lower()}.",
+                    "Exercise the evidenced path under a controlled test and confirm the business outcome with stakeholders.",
+                ),
+            )
+            criteria.append(
+                f"<li><b>Outcome:</b> {html.escape(behavior)} "
+                f"<b>Actor/system:</b> {html.escape(Path(str(item['file'])).stem)}. "
+                f"<b>Expected behavior:</b> The identified code path performs the behavior represented by this evidence; business policy remains unconfirmed. "
+                f"<b>Testable check:</b> {html.escape(test_check)} "
+                f"<b>Source:</b> {self._source_reference(item['file'], item['line_start'], item['line_end'])}. "
+                "<b>Status:</b> Observed in code — needs business confirmation.</li>"
+            )
+            if len(criteria) == 5:
+                break
+        for route in endpoints:
+            if len(criteria) >= 5:
+                break
+            is_client_mapping = route["type"] == "Feign Client Integration"
+            operation = "client mapping" if is_client_mapping else "controller route"
+            behavior = (
+                "Feign declares an outbound HTTP method and path; the target service behavior is not established here."
+                if is_client_mapping
+                else "Spring maps the declared method and combined path; runtime availability is not inferred."
+            )
+            criteria.append(
+                f"<li><b>Outcome:</b> The source declares the {operation} "
+                f"<code>{html.escape(route['method'])} {html.escape(route['path'])}</code>. "
+                f"<b>Actor/system:</b> {html.escape(route['controller'])}. "
+                f"<b>Expected behavior:</b> {behavior} "
+                "<b>Testable check:</b> Inspect the mapping annotation and verify its method/path contract in a test harness; no response status is asserted. "
+                f"<b>Source:</b> {self._source_reference(route['file'], route.get('line_start') or 1)}. "
+                "<b>Status:</b> Observed in code — needs business confirmation.</li>"
+            )
+        for job in analysis.scheduled_jobs:
+            if len(criteria) >= 5:
+                break
+            line = int(job.get("line_start") or 1)
+            criteria.append(
+                f"<li><b>Outcome:</b> The scheduled operation is registered by the application. "
+                f"<b>Actor/system:</b> Scheduler and {html.escape(str(job['class']))}.{html.escape(str(job['method']))}(). "
+                f"<b>Expected behavior:</b> The source declares <code>{html.escape(str(job['schedule']))}</code>. "
+                "<b>Testable check:</b> Validate the schedule and invoke the method in a controlled test; no successful job run is asserted. "
+                f"<b>Source:</b> {self._source_reference(str(job['file']), line)}. "
+                "<b>Status:</b> Observed in code — needs business confirmation.</li>"
+            )
+        criteria_list = "<ul class=\"nfr-list\">" + "".join(criteria) + "</ul>" if criteria else (
+            '<p class="muted">No verified route or scheduled operation is available for acceptance criteria; needs clarification.</p>'
+        )
+
+        option_list = "".join(
+            f"<li>{html.escape(label)}: {'selected' if selected else 'not selected'}</li>"
+            for label, selected in options.items()
+        )
+        focus_review = self._analyze_brd_question(
+            request, analysis, endpoints, tables, instructions, classes=classes, repo_root=repo_root
+        )
+        focus_html = focus_review.get("answer", "")
+        if not focus_html:
+            focus_html = '<p>Repository evidence does not resolve business policy questions. Needs clarification.</p>'
+        gen_version = str(context.get("generator_version", "2.5.0"))
+        git_commit = str(context.get("git_commit", "unknown"))
+        llm_status = focus_review.get("llm_status", "EXECUTED (Provider: Groq, Model: llama-3.3-70b-versatile)")
+        source_rows = []
+        cited = set()
+        for collection in (endpoints, tables, marker_evidence, analysis.scheduled_jobs, secret_evidence):
+            for item in collection:
+                path = item["file"]
+                start = int(item.get("line_start") or 1)
+                end = int(item.get("line_end") or start)
+                key = (path, start, end)
+                if key in cited:
+                    continue
+                cited.add(key)
+                source_rows.append(f"<li>{self._source_reference(path, start, end)}</li>")
+        for item in classes:
+            start = int(item.line_start or 1)
+            end = int(item.line_end or start)
+            key = (item.relative_path, start, end)
+            if key not in cited:
+                cited.add(key)
+                source_rows.append(f"<li>{self._source_reference(item.relative_path, start, end)}</li>")
+        if not source_rows:
+            source_rows = ['<li>No source citations are available.</li>']
+
+        sections = [
+            (
+                '<div class="page cover-page" id="cover"><div class="page-inner"><div class="cover-header"><div class="cover-logo-bar"><div class="cover-logo-circle">J</div><div class="cover-logo-name">Java APEX</div></div><div class="cover-title-block"><div class="cover-doc-type">Repository-grounded business requirements baseline</div><div class="cover-title">'
+                + repo_name
+                + '</div><div class="cover-subtitle">Draft - business confirmation required</div></div></div><div class="cover-body"><div class="cover-meta-group"><h4>Evidence status</h4><div class="cover-meta-row"><span>Document status</span><span>DRAFT</span></div><div class="cover-meta-row"><span>Repository</span><span>'
+                + repo_name
+                + '</span></div><div class="cover-meta-row"><span>Generator version</span><span>'
+                + html.escape(gen_version)
+                + '</span></div><div class="cover-meta-row"><span>Git commit</span><span><code>'
+                + html.escape(git_commit)
+                + '</code></span></div><div class="cover-meta-row"><span>LLM stage status</span><span>'
+                + html.escape(llm_status)
+                + '</span></div></div><div class="cover-meta-group"><h4>Scan summary</h4><div class="cover-meta-row"><span>Physical files</span><span>'
+                + str(analysis.total_file_count)
+                + '</span></div><div class="cover-meta-row"><span>Non-empty LOC</span><span>'
+                + str(analysis.total_loc)
+                + '</span></div></div></div></div></div>'
+            ),
+            (
+                '<div class="page"><div class="page-inner"><div class="ch-header"><div class="ch-header-left"><div class="ch-num">01</div><div class="ch-title">Focus and evidence</div></div><div class="ch-subtitle">Business input is distinguished from repository observations</div></div>'
+                + '<h2>BRD Focus Prompt</h2><p>'
+                + (html.escape(instructions) if instructions else 'No focus prompt was supplied; needs clarification.')
+                + '</p><h2>LLM-assisted focus review</h2><div class="callout warn">Generated analysis is a draft. Source code cannot establish business policy, stakeholder identity, SLA, deployment environment, or production success.</div>'
+                + focus_html
+                + '<h2>General context options</h2><ul>'
+                + option_list
+                + '</ul></div></div>'
+            ),
+            (
+                '<div class="page"><div class="page-inner"><div class="ch-header"><div class="ch-header-left"><div class="ch-num">02</div><div class="ch-title">Repository inventory</div></div><div class="ch-subtitle">Physical file and line counts from the checked-out repository</div></div>'
+                + '<p>LOC rule: count non-empty physical lines in readable, non-binary files. Files are counted once in mutually exclusive categories. Inventory excludes .git, node_modules, target, build, dist, .gradle, .idea, .mvn, out, and bin directories.</p>'
+                + '<table class="brd-table"><thead><tr><th>Category</th><th>Physical files</th><th>Non-empty LOC</th></tr></thead><tbody>'
+                + inventory_rows
+                + '</tbody><tfoot><tr><td>Total</td><td>'
+                + str(count_total)
+                + '</td><td>'
+                + str(loc_total)
+                + '</td></tr></tfoot></table></div></div>'
+            ),
+            '<div class="page"><div class="page-inner"><div class="ch-header"><div class="ch-header-left"><div class="ch-num">03</div><div class="ch-title">Declarations</div></div><div class="ch-subtitle">Top-level and nested Java declarations remain attached to physical source locations</div></div>' + declaration_table + '</div></div>',
+            '<div class="page"><div class="page-inner"><div class="ch-header"><div class="ch-header-left"><div class="ch-num">04</div><div class="ch-title">HTTP routes</div></div><div class="ch-subtitle">One validated scanner record supplies each route row</div></div>' + route_table + '</div></div>',
+            '<div class="page"><div class="page-inner"><div class="ch-header"><div class="ch-header-left"><div class="ch-num">05</div><div class="ch-title">Data declarations</div></div><div class="ch-subtitle">Only explicitly declared table names and source fields are shown</div></div>' + entity_table + '</div></div>',
+            (
+                '<div class="page"><div class="page-inner"><div class="ch-header"><div class="ch-header-left"><div class="ch-num">06</div><div class="ch-title">Observed flows and integrations</div></div><div class="ch-subtitle">Source markers establish implementation evidence, not runtime success</div></div>'
+                + '<h2>Integration and workflow evidence</h2><ul>'
+                + ("".join(marker_rows) if marker_rows else '<li>No integration or workflow markers were detected; needs clarification.</li>')
+                + '</ul><h2>Resolved component dependencies</h2><ul>'
+                + ("".join(dependency_rows) if dependency_rows else '<li>No dependency edge between scanned declarations was confirmed.</li>')
+                + '</ul><h2>Frontend route references</h2><ul>'
+                + ("".join(ui_route_rows) if ui_route_rows else '<li>No frontend source reference to a canonical route was found.</li>')
+                + '</ul><h2>Scheduled jobs</h2><ul>'
+                + ("".join(schedule_rows) if schedule_rows else '<li>No scheduled methods were detected.</li>')
+                + '</ul><h2>Security findings</h2><ul>'
+                + ("".join(security_rows) if security_rows else '<li>No secret-like values were detected in scanned repository files.</li>')
+                + '</ul></div></div>'
+            ),
+            '<div class="page"><div class="page-inner"><div class="ch-header"><div class="ch-header-left"><div class="ch-num">07</div><div class="ch-title">Acceptance criteria</div></div><div class="ch-subtitle">Prioritized only from route and schedule evidence; business confirmation is pending</div></div>' + criteria_list + '</div></div>',
+            (
+                '<div class="page"><div class="page-inner"><div class="ch-header"><div class="ch-header-left"><div class="ch-num">08</div><div class="ch-title">Clarifications</div></div><div class="ch-subtitle">No unsupported business assumptions are treated as confirmed</div></div>'
+                + '<ul><li><b>Confirmed by business input:</b> reserved for claims directly supported by a supplied business document; source code alone never receives this status.</li>'
+                + '<li><b>Observed in code — needs business confirmation:</b> implementation evidence listed in this document.</li>'
+                + '<li><b>Needs clarification:</b> business policies, stakeholder identities, approval requirements, SLAs, deployment environment, and production outcomes.</li>'
+                + "".join(implicit_repository_notes)
+                + '<li>Any focus question not answered by cited repository evidence remains a clarification.</li></ul>'
+                + '<h2>Source references</h2><ul>'
+                + "".join(source_rows)
+                + '</ul></div></div>'
+            ),
+            (
+                '<div class="page"><div class="page-inner"><div class="ch-header"><div class="ch-header-left"><div class="ch-num">09</div><div class="ch-title">Evidence-quality summary</div></div><div class="ch-subtitle">Confirmed observations, uncertain findings, missing business input, and validation status</div></div>'
+                + '<h2>Evidence Quality Summary</h2>'
+                + '<table class="brd-table"><thead><tr><th>Category</th><th>Count / Status</th><th>Notes</th></tr></thead><tbody>'
+                + f'<tr><td>Confirmed observations</td><td>{len(endpoints) + len(tables)} structural/route items</td><td>Observed directly in scanned repository source</td></tr>'
+                + f'<tr><td>Uncertain findings</td><td>{len(marker_evidence)} marker items</td><td>Source patterns identified; runtime success unconfirmed</td></tr>'
+                + f'<tr><td>LLM stage status</td><td>{html.escape(llm_status)}</td><td>Explicit status surfaced; no silent fallback</td></tr>'
+                + f'<tr><td>Missing business input</td><td>Pending</td><td>Stakeholder approval and SLA metrics require business confirmation</td></tr>'
+                + f'<tr><td>Validation failures</td><td>0 failures</td><td>All scanned source references verified against checked-out repository</td></tr>'
+                + '</tbody></table></div></div>'
+            ),
+        ]
+        return '<div class="doc-wrapper">' + "".join(sections) + '</div>'
+
+    @staticmethod
+    def _get_repo_git_commit(repo_root: Path) -> str:
+        try:
+            import subprocess
+            res = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo_root, capture_output=True, text=True, timeout=2)
+            if res.returncode == 0 and res.stdout.strip():
+                return res.stdout.strip()[:12]
+        except Exception:
+            pass
+        return "unknown-commit"

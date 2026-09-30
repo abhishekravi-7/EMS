@@ -1,5 +1,5 @@
 import React from "react";
-import { FaSpinner } from "react-icons/fa";
+import { FaSpinner, FaVial } from "react-icons/fa";
 
 interface FunctionalTestingTabsProps {
   activeTab?: "FUNCTIONAL" | "BUSINESS";
@@ -26,19 +26,22 @@ export function FunctionalTestingTabs({
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
-        marginBottom: 16,
+        marginBottom: 8,
       }}
     >
-      <h3
-        style={{
-          fontSize: 16,
-          fontWeight: 900,
-          color: "#6d28d9",
-          margin: 0,
-        }}
-      >
-        Existing Test Cases
-      </h3>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <FaVial style={{ fontSize: 18, color: "#2563eb" }} />
+        <h3
+          style={{
+            fontSize: 18,
+            fontWeight: 800,
+            color: "#0f172a",
+            margin: 0,
+          }}
+        >
+          Existing Test Cases
+        </h3>
+      </div>
 
       {isRunning ? (
         <div

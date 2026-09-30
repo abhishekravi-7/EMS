@@ -3,7 +3,6 @@ import { FaCode, FaCogs, FaJava, FaLeaf, FaProjectDiagram, FaCheckCircle, FaTime
 import { wizardStyles as styles } from "@/shared/components/wizard/wizardStyles";
 import {
   renderWizardIconBadge,
-  renderBackButtonLabel,
   renderForwardButtonLabel,
   WizardInfoTooltip,
   WizardOptionCard,
@@ -60,7 +59,7 @@ interface StrategyStepViewProps {
   riskLevel: string;
   riskExplanation?: string | null;
   riskExplanationLoading?: boolean;
-  stepSummary: string;
+  stepSummary?: string;
   buildToolDisplayLabel: string;
   renderCategorizedDependencies: (dependencies: DependencyInfo[]) => React.ReactNode;
   dependencyAnalysis?: import("../services/strategyService").DependencyAnalysisResponse | null;
@@ -94,7 +93,7 @@ export function StrategyStepView({
   riskExplanationLoading: propRiskExplanationLoading,
   dependencyAnalysis: propDependencyAnalysis,
   dependencyAnalysisLoading: propDependencyAnalysisLoading,
-  stepSummary,
+  stepSummary = "",
   buildToolDisplayLabel,
   renderCategorizedDependencies,
   effectiveTargetVersion,
@@ -1357,8 +1356,7 @@ export function StrategyStepView({
 
       </div>
 
-      <div style={styles.btnRow} className="strategy-nav-btn-row">
-        <button style={styles.secondaryBtn} onClick={onBack}>{renderBackButtonLabel()}</button>
+      <div style={{ ...styles.btnRow, justifyContent: "flex-end" }} className="strategy-nav-btn-row">
         <button style={styles.primaryBtn} onClick={onContinue}>{renderForwardButtonLabel("Continue to Migration")}</button>
       </div>
     </div>

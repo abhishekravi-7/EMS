@@ -28,7 +28,6 @@ import {
 } from "react-icons/fa";
 import {
   renderWizardIconBadge,
-  renderBackButtonLabel,
   renderForwardButtonLabel,
 } from "@/shared/components/wizard";
 import { wizardStyles as styles } from "@/shared/components/wizard/wizardStyles";
@@ -418,7 +417,7 @@ interface DiscoveryStepViewProps {
   documentGenerationLoading: "brd" | null;
   brdFile: File | null;
   brdUploadStatus: "IDLE" | "FILE_SELECTED" | "UPLOADING" | "UPLOAD_SUCCESS" | "UPLOAD_FAILED" | "EXISTING_ATTACHMENT";
-  brdMetadata: { filename: string; size: number; uploadedAt: string } | null;
+  brdMetadata: { filename: string; size?: number; uploadedAt?: string } | null;
   brdUploadError: string | null;
   handleBrdFileSelect: (file: File | null) => void;
   handleBrdUpload: () => Promise<void>;
@@ -2145,17 +2144,14 @@ export function DiscoveryStepView({
 
       {/* Bottom Bar: Navigation Buttons (hidden while analysis is in progress) */}
       {!isDiscoveryPending && (
-        <div style={styles.btnRow} className="discovery-nav-btn-row">
-                 <button style={styles.secondaryBtn} onClick={onBack}>
-                   {renderBackButtonLabel()}
-                 </button>
-                 <button
-                   style={styles.primaryBtn}
-                   onClick={onContinueToStrategy}
-                   disabled={isDiscoveryPending}
-                 >
-                   {renderForwardButtonLabel("Continue to Strategy")}
-                 </button>
+        <div style={{ ...styles.btnRow, justifyContent: "flex-end" }} className="discovery-nav-btn-row">
+          <button
+            style={styles.primaryBtn}
+            onClick={onContinueToStrategy}
+            disabled={isDiscoveryPending}
+          >
+            {renderForwardButtonLabel("Continue to Strategy")}
+          </button>
         </div>
       )}
 

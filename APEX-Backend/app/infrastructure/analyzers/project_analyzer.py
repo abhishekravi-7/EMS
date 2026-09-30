@@ -30,6 +30,7 @@ from app.infrastructure.analyzers.spring_boot_detector import SpringBootDetector
 from app.infrastructure.analyzers.spring_entrypoint_scanner import SpringEntrypointScanner
 from app.infrastructure.analyzers.spring_framework_detector import SpringFrameworkDetector
 from app.infrastructure.analyzers.view_technology_analyzer import ViewTechnologyAnalyzer
+from app.infrastructure.analyzers.brd_repository_evidence import BrdRepositoryEvidenceScanner
 from app.shared import file_utils
 
 
@@ -69,6 +70,39 @@ class ProjectAnalysis:
     jsp_file_count: int = 0
     jsf_file_count: int = 0
     view_technologies: dict[str, Any] = field(default_factory=dict)
+    test_files: list[str] = field(default_factory=list)
+    frontend_files: list[str] = field(default_factory=list)
+    documentation_evidence: list[dict[str, Any]] = field(default_factory=list)
+    web_routes: list[dict[str, Any]] = field(default_factory=list)
+    gradle_builds: list[dict[str, Any]] = field(default_factory=list)
+    workflow_edges: list[dict[str, Any]] = field(default_factory=list)
+    test_evidence: list[dict[str, Any]] = field(default_factory=list)
+    repository_kind: str = "APPLICATION_REPOSITORY"
+    scheduled_jobs: list[dict[str, Any]] = field(default_factory=list)
+
+    @property
+    def java_loc(self) -> int:
+        return len(self.java_files) * 185
+
+    @property
+    def config_loc(self) -> int:
+        return len(self.config_files) * 50
+
+    @property
+    def frontend_loc(self) -> int:
+        return len(self.frontend_files or (self.jsp_files + self.jsf_files)) * 120
+
+    @property
+    def test_loc(self) -> int:
+        return len(self.test_files) * 100
+
+    @property
+    def other_loc(self) -> int:
+        return len(self.other_files) * 40
+
+    @property
+    def total_loc(self) -> int:
+        return self.java_loc + self.config_loc + self.frontend_loc + self.test_loc + self.other_loc
 
     @property
     def dependency_count(self) -> int:
@@ -95,6 +129,7 @@ class ProjectAnalyzer:
         self._frontend = FrontendDetector()
         self._api_endpoints = ApiEndpointDetector()
         self._view_technology = ViewTechnologyAnalyzer()
+        self._brd_evidence = BrdRepositoryEvidenceScanner()
 
     def analyze(self, root: Path) -> ProjectAnalysis:
         # The Java project may live in a subfolder (e.g. backend/pom.xml) rather
@@ -202,6 +237,10 @@ class ProjectAnalyzer:
             dependencies=dependencies,
         ).to_dict()
 
+        test_files = [f for f in all_files if any(p in f.lower() for p in ("test", "tests", "src/test"))]
+        frontend_files = list(dict.fromkeys(jsp_files + jsf_files + [f for f in all_files if f.lower().endswith((".html", ".htm", ".xhtml", ".js", ".ts", ".jsx", ".tsx", ".css", ".vue"))]))
+        brd_evidence = self._brd_evidence.scan(root, all_files, project_type)
+
         return ProjectAnalysis(
             build_tool=build_tool.build_tool,
             primary_build_tool=build_tool.primary_build_tool,
@@ -237,6 +276,14 @@ class ProjectAnalyzer:
             jsp_file_count=len(jsp_files),
             jsf_file_count=len(jsf_files),
             view_technologies=view_technologies,
+            test_files=test_files,
+            frontend_files=frontend_files,
+            documentation_evidence=brd_evidence.documentation,
+            web_routes=brd_evidence.web_routes,
+            gradle_builds=brd_evidence.gradle_builds,
+            workflow_edges=brd_evidence.workflow_edges,
+            test_evidence=brd_evidence.test_evidence,
+            repository_kind=brd_evidence.repository_kind,
         )
 
     @staticmethod

@@ -7,6 +7,8 @@ logger = logging.getLogger(__name__)
 
 async def get_job_owner_user_id(db: AsyncIOMotorDatabase, job_id: str) -> Optional[str]:
     """Retrieve the owner user ID for a given job ID from MongoDB."""
+    if db is None:
+        return None
     doc = await db.migration_job_owners.find_one({"job_id": job_id})
     return doc["user_id"] if doc else None
 
@@ -19,6 +21,8 @@ async def record_job_owner(
     repository_name: Optional[str] = None,
 ):
     """Record the owner of a migration job in MongoDB."""
+    if db is None:
+        return
     update_doc = {"$set": {"user_id": str(user_id)}}
 
     set_on_insert = {

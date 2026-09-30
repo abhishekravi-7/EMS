@@ -12,6 +12,7 @@ import threading
 import time
 from datetime import datetime, timezone
 from typing import Any
+from cachetools import LRUCache
 
 from app.infrastructure.persistence.mongodb_report_repository import (
     load_report_from_db_sync,
@@ -23,7 +24,7 @@ from app.shared import json_utils, migration_log_sanitizer
 logger = logging.getLogger(__name__)
 
 # In-memory fallback cache across threads in the same process
-_REPORT_CACHE: dict[str, dict[str, Any]] = {}
+_REPORT_CACHE: LRUCache = LRUCache(maxsize=100)
 _CACHE_LOCK = threading.RLock()
 _LAST_DB_FLUSH: dict[str, float] = {}
 
@@ -119,11 +120,12 @@ class MigrationReportStore:
                 logger.debug("Non-fatal: failed saving report to db for %s: %s", self._job_id, db_err)
 
     def update(self, **fields: Any) -> dict[str, Any]:
-        report = self.read() or {}
-        report.update(fields)
-        report["updatedAt"] = datetime.now(timezone.utc).isoformat()
-        self.write(report, force_db=("status" in fields or "currentStep" in fields))
-        return report
+        with _CACHE_LOCK:
+            report = self.read() or {}
+            report.update(fields)
+            report["updatedAt"] = datetime.now(timezone.utc).isoformat()
+            self.write(report, force_db=("status" in fields or "currentStep" in fields))
+            return report
 
     def append_logs(self, lines: list[str]) -> None:
         """Persist ``lines`` for this job's log stream."""

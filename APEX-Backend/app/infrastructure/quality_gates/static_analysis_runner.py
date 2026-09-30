@@ -304,23 +304,13 @@ class StaticAnalysisRunner:
         "No plugin found for prefix 'sonar'" error.
         """
         binaries_dir = project_dir / "target" / "classes"
-        if not binaries_dir.is_dir():
-            error_msg = (
-                f"Compiled classes not found at '{binaries_dir}'. "
-                "Ensure the Maven build succeeded before SonarQube analysis."
-            )
-            logger.error("SonarQube: %s", error_msg)
-            return [], SonarScanResult(
-                quality_gate="FAILED",
-                scan_mode="cli_failed",
-                real_scan=True,
-                analysis_url=analysis_url,
-                error_message=error_msg,
-                log_lines=[error_msg],
-            )
+        binaries_dir.mkdir(parents=True, exist_ok=True)
 
         command = [
             "mvn",
+            "test-compile",
+            "-Dgit.commit.id.skip=true",
+            "-Dmaven.gitcommitid.skip=true",
             self._SONAR_MVN_GOAL,          # FQCN — no pom.xml plugin entry needed
             f"-Dsonar.projectKey={project_key}",
             f"-Dsonar.projectName={display_name}",

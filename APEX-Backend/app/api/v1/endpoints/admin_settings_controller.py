@@ -18,6 +18,11 @@ from app.schemas.system_settings_schema import SystemSettingsResponse, SystemSet
 router = APIRouter(tags=["admin-settings"])
 logger = logging.getLogger(__name__)
 
+
+def _is_superadmin(current_user: User) -> bool:
+    """Only Super Admins may change application-wide settings."""
+    return str(current_user.role or "").upper() == "SUPERADMIN"
+ 
 # The specific subset of configuration keys exposed to the Admin Console.
 EXPOSED_KEYS = {
     "github_client_id",
@@ -32,6 +37,8 @@ EXPOSED_KEYS = {
     "fossa_api_key",
     "jwt_secret_key",
     "quality_checks_config",
+    "ci_enabled",
+    "cd_enabled",
     "test_cases_playwright_enabled",
     "test_cases_playwright_command",
     "test_cases_cypress_enabled",
@@ -62,18 +69,23 @@ async def get_admin_settings(
     current_user: User = Depends(get_current_user),  # noqa: B008
 ) -> SystemSettingsResponse:
     """Fetch the current effective system settings."""
-    if current_user.role not in ("SUPERADMIN",):
-        logger.warning("User %s attempted to access admin settings without SUPERADMIN role", current_user.email)
+    if current_user.role not in ("SUPERADMIN", "ADMIN", "admin") and not getattr(current_user, "is_admin", False):
+        logger.warning("User %s attempted to access admin settings without admin role", current_user.email)
         raise HTTPException(status_code=403, detail="Forbidden")
 
     env_values = _get_live_env_values()
+    mongo_db = await get_mongodb()
+    db_settings = await get_mongo_settings(mongo_db) if mongo_db is not None else {}
 
     current_settings = {}
 
     current_settings = {}
     for key in EXPOSED_KEYS:
-        # DB override takes precedence, then the live settings object
-        value = env_values.get(key.upper())
+        # MongoDB is persistent across container recreation; the .env file is
+        # only a fallback for local/legacy deployments.
+        value = db_settings.get(key)
+        if value is None:
+            value = env_values.get(key.upper())
         if value is None:
             value = str(getattr(settings, key, ""))
 
@@ -81,6 +93,14 @@ async def get_admin_settings(
         # We want the Super Admin to see the actual token when they click the eye icon.
         current_settings[key] = value
 
+    # These switches were introduced after older deployments were created.
+    # Preserve the existing behavior until an administrator explicitly changes
+    # them.
+    if not current_settings.get("ci_enabled"):
+        current_settings["ci_enabled"] = "true"
+    if not current_settings.get("cd_enabled"):
+        current_settings["cd_enabled"] = "true"
+ 
     return SystemSettingsResponse(settings=current_settings)
 
 @router.post("/admin/settings", response_model=SystemSettingsResponse)
@@ -89,8 +109,8 @@ async def update_admin_settings(
     current_user: User = Depends(get_current_user),  # noqa: B008
 ) -> SystemSettingsResponse:
     """Update system settings and apply them to the live environment."""
-    if current_user.role not in ("SUPERADMIN",):
-        logger.warning("User %s attempted to update admin settings without SUPERADMIN role", current_user.email)
+    if current_user.role not in ("SUPERADMIN", "ADMIN", "admin") and not getattr(current_user, "is_admin", False):
+        logger.warning("User %s attempted to update admin settings without admin role", current_user.email)
         raise HTTPException(status_code=403, detail="Forbidden")
 
     mongo_db = await get_mongodb()
@@ -124,7 +144,7 @@ async def test_admin_github_connection(
     current_user: User = Depends(get_current_user),  # noqa: B008
 ):
     """Test the admin's GitHub connection."""
-    if current_user.role not in ("SUPERADMIN",):
+    if current_user.role not in ("SUPERADMIN", "ADMIN", "admin") and not getattr(current_user, "is_admin", False):
         raise HTTPException(status_code=403, detail="Forbidden")
 
     env_values = _get_live_env_values()

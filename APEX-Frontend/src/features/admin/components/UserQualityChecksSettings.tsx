@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars, react-hooks/exhaustive-deps */
 import React, { useState, useEffect } from "react";
 import { FaShieldAlt, FaEye, FaEyeSlash, FaFlask, FaSpinner, FaLightbulb, FaCheckCircle } from "react-icons/fa";
-import { getQualityChecksAdminConfig, analyzeTestingPrompt, type FullUserSettings, type TestingPromptAnalysisResult } from "../services/adminService";
+import { getQualityChecksAdminConfig, analyzeTestingPrompt, testUserPlaywrightConnection, type FullUserSettings, type TestingPromptAnalysisResult } from "../services/adminService";
 
 const TEST_SCENARIO_SUGGESTIONS = [
   {
@@ -71,55 +71,105 @@ const JUNIT_PREDEFINED_PROMPTS = [
   ];
 
 export default function UserQualityChecksSettings({
-  settings,
+  settings: rawSettings,
   onChange,
   mode = "all"
 }: UserQualityChecksSettingsProps) {
+  const settings = rawSettings || ({
+    github_config: {},
+    quality_checks_values: {},
+    test_cases_values: {},
+    llm_values: {},
+  } as any);
+
   const [adminConfig, setAdminConfig] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showSecrets, setShowSecrets] = useState<{ [key: string]: boolean }>({});
 
-  const currentPrompt = settings?.quality_checks_values?.testing_prompt || settings?.test_cases_values?.testing_prompt || "";
+  const currentPrompt = settings?.test_cases_values?.testing_prompt ?? settings?.quality_checks_values?.testing_prompt ?? "";
 
   const [analyzingPrompt, setAnalyzingPrompt] = useState(false);
   const [promptAnalysis, setPromptAnalysis] = useState<TestingPromptAnalysisResult | null>(null);
   const [promptAnalysisErr, setPromptAnalysisErr] = useState<string | null>(null);
 
-  const selectedPredefinedPrompts: string[] = settings?.quality_checks_values?.selected_predefined_prompts ?? JUNIT_PREDEFINED_PROMPTS.map(p => p.id);
-
-  
+  const selectedPredefinedPrompts: string[] =
+    settings?.test_cases_values?.selected_predefined_prompts ??
+    settings?.quality_checks_values?.selected_predefined_prompts ??
+    JUNIT_PREDEFINED_PROMPTS.map(p => p.id);
 
   const [activeModalPrompt, setActiveModalPrompt] = useState<any | null>(null);
 
+  const [testingPlaywright, setTestingPlaywright] = useState(false);
+  const [playwrightStatusMsg, setPlaywrightStatusMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  const handleTestPlaywrightConnection = async () => {
+    const url = (settings?.test_cases_values?.playwright_base_url || "").trim();
+    if (!url) {
+      setPlaywrightStatusMsg({
+        type: "error",
+        text: "Please enter an Application Base URL before testing connection."
+      });
+      return;
+    }
+    setTestingPlaywright(true);
+    setPlaywrightStatusMsg(null);
+    try {
+      const res = await testUserPlaywrightConnection(url);
+      setPlaywrightStatusMsg({ type: "success", text: res.message || "Playwright test connection successful" });
+    } catch (err: any) {
+      setPlaywrightStatusMsg({
+        type: "error",
+        text: err.message || "Failed to reach Application Base URL. Ensure your target web application server is running and accessible."
+      });
+    } finally {
+      setTestingPlaywright(false);
+    }
+  };
+
   const handleTogglePredefinedPrompt = (promptId: string) => {
-    const currentSelected: string[] = settings?.quality_checks_values?.selected_predefined_prompts ?? JUNIT_PREDEFINED_PROMPTS.map(p => p.id);
+    const currentSelected: string[] =
+      settings?.test_cases_values?.selected_predefined_prompts ??
+      settings?.quality_checks_values?.selected_predefined_prompts ??
+      JUNIT_PREDEFINED_PROMPTS.map(p => p.id);
     const nextSelected = currentSelected.includes(promptId)
       ? currentSelected.filter((id) => id !== promptId)
       : [...currentSelected, promptId];
 
-    onChange((prev) => ({
-      ...prev,
-      quality_checks_values: {
-        ...(prev?.quality_checks_values || {}),
-        selected_predefined_prompts: nextSelected,
-      },
-    }));
+    onChange((prev) => {
+      const updatedQc = { ...(prev?.quality_checks_values || {}) };
+      delete updatedQc.selected_predefined_prompts;
+      delete updatedQc.selectedPredefinedPrompts;
+
+      return {
+        ...prev,
+        quality_checks_values: updatedQc,
+        test_cases_values: {
+          ...(prev?.test_cases_values || {}),
+          selected_predefined_prompts: nextSelected,
+        },
+      };
+    });
     setPromptAnalysis(null);
   };
 
   const handlePromptChange = (val: string) => {
-    onChange((prev) => ({
-      ...prev,
-      quality_checks_values: {
-        ...(prev?.quality_checks_values || {}),
-        testing_prompt: val,
-      },
-      test_cases_values: {
-        ...(prev?.test_cases_values || {}),
-        testing_prompt: val,
-      },
-    }));
+    onChange((prev) => {
+      const updatedQc = { ...(prev?.quality_checks_values || {}) };
+      delete updatedQc.testing_prompt;
+      delete updatedQc.testingPrompt;
+      delete updatedQc.junit_prompt;
+      delete updatedQc.junitPrompt;
+
+      return {
+        ...prev,
+        quality_checks_values: updatedQc,
+        test_cases_values: {
+          ...(prev?.test_cases_values || {}),
+          testing_prompt: val,
+        },
+      };
+    });
     setPromptAnalysis(null);
   };
 
@@ -145,8 +195,8 @@ export default function UserQualityChecksSettings({
     }
   };
 
-  const currentFunctionalCustomPrompt = settings.quality_checks_values?.functional_custom_prompt || "";
-  const selectedFunctionalSuggestions = settings.quality_checks_values?.functional_testing_suggestions ?? TEST_SCENARIO_SUGGESTIONS.map(s => s.id);
+  const currentFunctionalCustomPrompt = settings?.quality_checks_values?.functional_custom_prompt || "";
+  const selectedFunctionalSuggestions = settings?.quality_checks_values?.functional_testing_suggestions ?? TEST_SCENARIO_SUGGESTIONS.map(s => s.id);
 
   const [analyzingFunctionalPrompt, setAnalyzingFunctionalPrompt] = useState(false);
   const [functionalPromptAnalysis, setFunctionalPromptAnalysis] = useState<TestingPromptAnalysisResult | null>(null);
@@ -217,13 +267,7 @@ export default function UserQualityChecksSettings({
     }
   };
 
-  useEffect(() => {
-    if ((currentPrompt.trim() || selectedPredefinedPrompts.length > 0) && !promptAnalysis && !analyzingPrompt) {
-      analyzeTestingPrompt(currentPrompt, selectedPredefinedPrompts)
-        .then((res) => setPromptAnalysis(res))
-        .catch(() => {});
-    }
-  }, [currentPrompt, selectedPredefinedPrompts.length]);
+
 
   useEffect(() => {
     const fetchAdminConfig = async () => {
@@ -304,6 +348,19 @@ export default function UserQualityChecksSettings({
     setShowSecrets((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
+  const handleToggleFeature = (featureKey: string) => {
+    onChange((prev) => {
+      const currentVal = prev.quality_checks_values?.[featureKey] ?? true;
+      return {
+        ...prev,
+        quality_checks_values: {
+          ...(prev.quality_checks_values || {}),
+          [featureKey]: !currentVal
+        }
+      };
+    });
+  };
+
   if (isLoading) {
     return (
       <div className="admin-loading-state">
@@ -327,30 +384,11 @@ export default function UserQualityChecksSettings({
   });
 
   const renderFunctionalPromptSection = () => {
-    const hasAnyPrompt = selectedFunctionalSuggestions.length > 0 || currentFunctionalCustomPrompt.trim();
+    const hasAnyPrompt = selectedFunctionalSuggestions.length > 0 || currentFunctionalCustomPrompt.trim().length > 0;
     return (
-    <div style={{ marginTop: "20px", padding: "20px", borderRadius: "8px", border: "1px solid #cbd5e1", backgroundColor: "#f8fafc" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
-        <h4 style={{ margin: 0, fontSize: "1.05rem", color: "#1e293b", fontWeight: 600, display: "flex", alignItems: "center", gap: "8px" }}>
-          <FaFlask style={{ color: "#2563eb" }} />
-          Functional Testing Custom Prompt Suggestions
-        </h4>
-        <span style={{
-          padding: "4px 12px",
-          borderRadius: "20px",
-          fontSize: "0.75rem",
-          fontWeight: 700,
-          backgroundColor: hasAnyPrompt ? "#dcfce7" : "#f1f5f9",
-          color: hasAnyPrompt ? "#166534" : "#64748b",
-          border: `1px solid ${hasAnyPrompt ? "#86efac" : "#cbd5e1"}`
-        }}>
-          {hasAnyPrompt ? "✓ ACTIVE & CONFIGURED" : "STANDARD SUITE (NO PROMPT)"}
-        </span>
-      </div>
-
-      <div style={{ marginBottom: "16px" }}>
-        <h5 style={{ margin: "0 0 8px", fontSize: "0.9rem", color: "#1e293b" }}>Suggested Test Scenarios</h5>
-        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+      <div style={{ marginTop: "16px", display: "flex", flexDirection: "column", gap: "16px" }}>
+        {/* PREDEFINED FUNCTIONAL PROMPTS CHECKBOXES */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
           {TEST_SCENARIO_SUGGESTIONS.map(suggestion => (
             <label key={suggestion.id} style={{ display: "flex", alignItems: "flex-start", gap: "8px", fontSize: "0.85rem", color: "#475569", cursor: "pointer" }}>
               <input
@@ -366,126 +404,72 @@ export default function UserQualityChecksSettings({
             </label>
           ))}
         </div>
-      </div>
 
-      <p style={{ margin: "0 0 8px", fontSize: "0.9rem", color: "#1e293b", fontWeight: 600 }}>
-        Custom Prompt (Optional)
-      </p>
-
-      <textarea
-        className="input-modern"
-        rows={3}
-        value={currentFunctionalCustomPrompt}
-        onChange={(e) => handleFunctionalCustomPromptChange(e.target.value)}
-        placeholder="Add any additional areas or scenarios to cover (e.g., Focus mainly on user checkout flows, payment processing)..."
-        style={{ width: "100%", padding: "12px", borderRadius: "6px", fontSize: "0.9rem", border: "1px solid #cbd5e1", backgroundColor: "#ffffff" }}
-      />
-
-      <div style={{ marginTop: "12px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px" }}>
-        <span style={{ fontSize: "0.8rem", color: "#64748b", fontStyle: "italic" }}>
-          The selected suggestions and your custom prompt will be combined to generate functional tests.
-        </span>
-
-        <button
-          className="back-btn-modern"
-          onClick={() => handleAnalyzeFunctionalPrompt()}
-          disabled={analyzingFunctionalPrompt || !hasAnyPrompt}
-          type="button"
-          style={{ display: "flex", alignItems: "center", gap: "8px", background: "#2563eb", color: "#ffffff", border: "none", padding: "8px 16px", borderRadius: "6px", fontWeight: 600, cursor: "pointer" }}
-        >
-          {analyzingFunctionalPrompt ? <FaSpinner className="animate-spin" /> : <FaLightbulb />}
-          Generate Functional Tests
-        </button>
-      </div>
-
-      {functionalPromptAnalysisErr && (
-        <div style={{ marginTop: "12px", padding: "12px", borderRadius: "6px", background: "#fef2f2", border: "1px solid #fca5a5", color: "#991b1b", fontSize: "0.85rem" }}>
-          {functionalPromptAnalysisErr}
+        {/* MANUAL USER PROMPT TEXTAREA */}
+        <div>
+          <label style={{ display: "block", fontSize: "0.875rem", fontWeight: 600, color: "#1e293b", marginBottom: "6px" }}>
+            Custom Prompt (Optional)
+          </label>
+          <textarea
+            className="input-modern"
+            rows={3}
+            value={currentFunctionalCustomPrompt}
+            onChange={(e) => handleFunctionalCustomPromptChange(e.target.value)}
+            placeholder="Add any additional areas or scenarios to cover (e.g., Focus mainly on user checkout flows, payment processing)..."
+            style={{ width: "100%", padding: "12px", borderRadius: "6px", fontSize: "0.9rem", border: "1px solid #cbd5e1", backgroundColor: "#ffffff" }}
+          />
         </div>
-      )}
 
-      {functionalPromptAnalysis && (
-        <div style={{ marginTop: "16px", padding: "16px", borderRadius: "8px", background: "#f0fdf4", border: "1px solid #86efac" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px", color: "#166534", fontWeight: 700, fontSize: "0.9rem" }}>
-            <FaCheckCircle style={{ color: "#16a34a" }} />
-            LLM Dynamic Analysis Result (Configured Focus)
-          </div>
-          <p style={{ margin: "0 0 8px", fontSize: "0.85rem", color: "#15803d", fontWeight: 600 }}>
-            Focus Identified: {functionalPromptAnalysis.testing_focus}
-          </p>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", fontSize: "0.8rem", color: "#1e293b" }}>
-            <div>
-              <strong>Target Areas / Endpoints:</strong> {(functionalPromptAnalysis.target_areas && functionalPromptAnalysis.target_areas.length > 0 && functionalPromptAnalysis.target_areas[0] !== "Requested Focus") ? functionalPromptAnalysis.target_areas.join(", ") : (functionalPromptAnalysis.target_classes?.join(", ") || "API Endpoints, UI Workflows")}
-            </div>
-            <div>
-              <strong>Priority Scenarios:</strong> {functionalPromptAnalysis.scenarios?.join(", ") || "Standard"}
-            </div>
-          </div>
-          {functionalPromptAnalysis.edge_cases?.length > 0 && (
-            <div style={{ marginTop: "6px", fontSize: "0.8rem", color: "#1e293b" }}>
-              <strong>Edge Cases:</strong> {functionalPromptAnalysis.edge_cases.join(", ")}
-            </div>
-          )}
-          <div style={{ marginTop: "8px", fontSize: "0.75rem", color: "#15803d", fontStyle: "italic", borderTop: "1px stroke #86efac", paddingTop: "6px" }}>
-            ✓ Verified: When you start migration, Functional test generation will automatically prioritize these scenarios.
-          </div>
+        <div style={{ marginTop: "4px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px" }}>
+          <span style={{ fontSize: "0.8rem", color: "#64748b", fontStyle: "italic" }}>
+            The selected suggestions and your custom prompt will be combined to generate functional tests.
+          </span>
+
+          <button
+            className="back-btn-modern"
+            onClick={() => handleAnalyzeFunctionalPrompt()}
+            disabled={analyzingFunctionalPrompt || !hasAnyPrompt}
+            type="button"
+            style={{ display: "flex", alignItems: "center", gap: "8px", background: "#2563eb", color: "#ffffff", border: "none", padding: "8px 16px", borderRadius: "6px", fontWeight: 600, cursor: "pointer" }}
+          >
+            {analyzingFunctionalPrompt ? <FaSpinner className="animate-spin" /> : <FaLightbulb />}
+            Generate Functional Tests
+          </button>
         </div>
-      )}
-    </div>
+
+        {functionalPromptAnalysisErr && (
+          <div style={{ padding: "12px", borderRadius: "6px", background: "#fef2f2", border: "1px solid #fca5a5", color: "#991b1b", fontSize: "0.85rem" }}>
+            {functionalPromptAnalysisErr}
+          </div>
+        )}
+      </div>
     );
   };
 
   const renderPromptSection = () => (
-    <div style={{ marginTop: "20px", padding: "20px", borderRadius: "8px", border: "1px solid #cbd5e1", backgroundColor: "#f8fafc" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
-        <h4 style={{ margin: 0, fontSize: "1.05rem", color: "#1e293b", fontWeight: 600, display: "flex", alignItems: "center", gap: "8px" }}>
-          <FaFlask style={{ color: "#2563eb" }} />
-          Run Unit Test Suite Focus Prompt (JUnit)
-        </h4>
-        <span style={{
-          padding: "4px 12px",
-          borderRadius: "20px",
-          fontSize: "0.75rem",
-          fontWeight: 700,
-          backgroundColor: hasAnyActivePrompt ? "#dcfce7" : "#f1f5f9",
-          color: hasAnyActivePrompt ? "#166534" : "#64748b",
-          border: `1px solid ${hasAnyActivePrompt ? "#86efac" : "#cbd5e1"}`
-        }}>
-          {hasAnyActivePrompt ? `✓ ${selectedPredefinedPrompts.length} PREDEFINED + MANUAL` : "STANDARD SUITE (NO PROMPT)"}
-        </span>
+    <div style={{ marginTop: "16px", display: "flex", flexDirection: "column", gap: "16px" }}>
+      {/* PREDEFINED JUNIT PROMPTS CHECKBOXES */}
+      <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+        {JUNIT_PREDEFINED_PROMPTS.map(p => (
+          <label key={p.id} style={{ display: "flex", alignItems: "flex-start", gap: "8px", fontSize: "0.85rem", color: "#475569", cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={selectedPredefinedPrompts.includes(p.id)}
+              onChange={() => handleTogglePredefinedPrompt(p.id)}
+              style={{ marginTop: "3px" }}
+            />
+            <span style={{ display: "flex", flexDirection: "column" }}>
+              <strong style={{ color: "#1e293b" }}>{p.title}</strong>
+              <span style={{ fontSize: "0.8rem", color: "#64748b", marginTop: "2px" }}>{p.description}</span>
+            </span>
+          </label>
+        ))}
       </div>
 
-      {/* SECTION 1: PREDEFINED JUNIT PROMPTS CHECKBOXES */}
-      <div style={{ marginBottom: "20px", padding: "16px", borderRadius: "8px", backgroundColor: "#ffffff", border: "1px solid #e2e8f0" }}>
-        <h5 style={{ margin: "0 0 8px", fontSize: "0.95rem", color: "#1e293b", fontWeight: 700 }}>
-          JUnit Coverage Prompts
-        </h5>
-        <p style={{ margin: "0 0 12px", fontSize: "0.825rem", color: "#64748b" }}>
-          Select one or more predefined prompts below to guide dynamic JUnit coverage targets:
-        </p>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-            {JUNIT_PREDEFINED_PROMPTS.map(p => (
-              <label key={p.id} style={{ display: "flex", alignItems: "flex-start", gap: "8px", fontSize: "0.85rem", color: "#475569", cursor: "pointer" }}>
-                <input
-                  type="checkbox"
-                  checked={selectedPredefinedPrompts.includes(p.id)}
-                  onChange={() => handleTogglePredefinedPrompt(p.id)}
-                  style={{ marginTop: "3px" }}
-                />
-                <span style={{ display: "flex", flexDirection: "column" }}>
-                  <strong style={{ color: "#1e293b" }}>{p.title}</strong>
-                  <span style={{ fontSize: "0.8rem", color: "#64748b", marginTop: "2px" }}>{p.description}</span>
-                </span>
-              </label>
-            ))}
-          </div>
-        </div>
-
-        {/* SECTION 2: MANUAL USER PROMPT TEXTAREA */}
-      <div style={{ marginBottom: "12px" }}>
+      {/* MANUAL USER PROMPT TEXTAREA */}
+      <div>
         <label style={{ display: "block", fontSize: "0.875rem", fontWeight: 600, color: "#1e293b", marginBottom: "6px" }}>
-          Manual User Prompt (Optional)
+          Custom Prompt (Optional)
         </label>
         <textarea
           className="input-modern"
@@ -497,7 +481,28 @@ export default function UserQualityChecksSettings({
         />
       </div>
 
-      
+      <div style={{ marginTop: "4px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px" }}>
+        <span style={{ fontSize: "0.8rem", color: "#64748b", fontStyle: "italic" }}>
+          The selected suggestions and your custom prompt will be combined to generate JUnit tests.
+        </span>
+
+        <button
+          className="back-btn-modern"
+          onClick={() => handleAnalyzePrompt()}
+          disabled={analyzingPrompt || !hasAnyActivePrompt}
+          type="button"
+          style={{ display: "flex", alignItems: "center", gap: "8px", background: "#2563eb", color: "#ffffff", border: "none", padding: "8px 16px", borderRadius: "6px", fontWeight: 600, cursor: "pointer" }}
+        >
+          {analyzingPrompt ? <FaSpinner className="animate-spin" /> : <FaLightbulb />}
+          Generate JUnit Tests
+        </button>
+      </div>
+
+      {promptAnalysisErr && (
+        <div style={{ padding: "12px", borderRadius: "6px", background: "#fef2f2", border: "1px solid #fca5a5", color: "#991b1b", fontSize: "0.85rem" }}>
+          {promptAnalysisErr}
+        </div>
+      )}
 
       {/* PROMPT DESCRIPTION MODAL */}
       {activeModalPrompt && (
@@ -573,6 +578,9 @@ export default function UserQualityChecksSettings({
       )}
     </div>
   );
+
+
+
   let renderedFunctionalPromptInCheck = false;
 
   if (mode === "testing_only") {
@@ -618,42 +626,73 @@ export default function UserQualityChecksSettings({
           <div className="settings-toggle-header" style={{ marginBottom: "16px" }}>
             <div className="settings-toggle-title">
               <FaFlask style={{ color: "#2563eb", marginRight: "8px" }} />
-              E2E Framework Selection
+              Playwright E2E Testing
             </div>
             <div className="switch-wrap">
               <label className="switch-ios">
-                <input type="checkbox" checked={settings.quality_checks_values?.e2e_framework_enabled ?? true} onChange={() => handleToggleFeature("e2e_framework_enabled")} />
+                <input
+                  type="checkbox"
+                  checked={settings.quality_checks_values?.e2e_framework_enabled ?? true}
+                  onChange={() => handleToggleFeature("e2e_framework_enabled")}
+                />
                 <span className="slider-ios"></span>
               </label>
               <span className="switch-label">Enabled</span>
             </div>
           </div>
           <p className="settings-toggle-desc" style={{ marginBottom: "16px" }}>
-            Select the preferred framework to generate and execute end-to-end functional UI tests.
+            Configure Playwright end-to-end browser testing framework and target application base URL.
           </p>
           
-          <div style={{ padding: "16px", borderRadius: "8px", border: "1px solid #cbd5e1", backgroundColor: "#f8fafc" }}>
-            <label style={{ display: "block", fontSize: "0.875rem", fontWeight: 600, color: "#1e293b", marginBottom: "8px" }}>
-              Framework
-            </label>
-            <select
-              className="input-modern"
-              value={settings?.quality_checks_values?.functional_testing_framework || "playwright"}
-              onChange={(e) => {
-                onChange(prev => ({
-                  ...prev,
-                  quality_checks_values: {
-                    ...(prev.quality_checks_values || {}),
-                    functional_testing_framework: e.target.value
-                  }
-                }))
-              }}
-              style={{ width: "100%", padding: "10px", borderRadius: "6px", border: "1px solid #cbd5e1", backgroundColor: "#ffffff" }}
-            >
-              <option value="playwright">Playwright</option>
-              <option value="selenium">Selenium</option>
-              <option value="cypress">Cypress</option>
-            </select>
+          <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+            <div>
+              <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 600, color: "#1e293b", marginBottom: "6px" }}>
+                APPLICATION BASE URL
+              </label>
+              <input
+                type="text"
+                className="input-modern"
+                value={settings?.test_cases_values?.playwright_base_url || ""}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  onChange(prev => ({
+                    ...prev,
+                    test_cases_values: {
+                      ...(prev.test_cases_values || {}),
+                      playwright_base_url: val
+                    }
+                  }));
+                }}
+                placeholder="e.g. http://localhost:3000"
+                style={{ width: "100%", padding: "10px", borderRadius: "6px", border: "1px solid #cbd5e1", backgroundColor: "#ffffff", fontSize: "0.9rem" }}
+              />
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+              <button
+                type="button"
+                className="back-btn-modern"
+                disabled={testingPlaywright}
+                onClick={handleTestPlaywrightConnection}
+                style={{ display: "flex", alignItems: "center", gap: "8px", background: "#2563eb", color: "#ffffff", border: "none", padding: "8px 16px", borderRadius: "6px", fontWeight: 600, cursor: "pointer", fontSize: "0.85rem" }}
+              >
+                {testingPlaywright ? <FaSpinner className="animate-spin" /> : <FaFlask />}
+                Test Connection
+              </button>
+            </div>
+
+            {playwrightStatusMsg && (
+              <div style={{
+                padding: "10px 14px",
+                borderRadius: "6px",
+                fontSize: "0.85rem",
+                background: playwrightStatusMsg.type === "success" ? "#f0fdf4" : "#fef2f2",
+                border: `1px solid ${playwrightStatusMsg.type === "success" ? "#86efac" : "#fca5a5"}`,
+                color: playwrightStatusMsg.type === "success" ? "#166534" : "#991b1b"
+              }}>
+                {playwrightStatusMsg.text}
+              </div>
+            )}
           </div>
         </div>
 </div>
@@ -663,22 +702,27 @@ export default function UserQualityChecksSettings({
   return (
     <div className="admin-content-stacked">
       {enabledChecks.map((check: any, index: number) => {
-        const visibleFields = Array.isArray(check.fields) ? check.fields.filter((f: any) => f.visible) : [];
+        const visibleFields = Array.isArray(check.fields)
+          ? check.fields.filter(
+              (f: any) =>
+                f.visible &&
+                f.id !== "project_key" &&
+                f.id !== "sonar_project_key" &&
+                f.id !== "sonarqube_project_key"
+            )
+          : [];
         const isUnitTestCheck = (check.id || "").toLowerCase().includes("unit") || 
                               (check.name || "").toLowerCase().includes("unit") || 
                               ((check.name || "").toLowerCase().includes("test") && !(check.name || "").toLowerCase().includes("functional"));
         const isFunctionalTestCheck = (check.id || "").toLowerCase().includes("functional") || 
                                       (check.name || "").toLowerCase().includes("functional");
 
-        if (isUnitTestCheck) {
-          renderedPromptInCheck = true;
-        }
         if (isFunctionalTestCheck) {
           renderedFunctionalPromptInCheck = true;
         }
 
         return (
-          <div key={check.id || index} className="user-config-card">
+          <div key={check.id || index} className="user-config-card" style={{ marginBottom: "20px" }}>
             <h3 className="card-heading-modern">
               <FaShieldAlt style={{ color: "#2563eb" }} />
               {check.name}
@@ -694,7 +738,7 @@ export default function UserQualityChecksSettings({
                 No configuration fields required for this check.
               </p>
             ) : (
-              <div className="field-grid-three">
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "16px", marginBottom: "12px" }}>
                 {visibleFields.map((field: any) => {
                   const isSecret = field.id.toLowerCase().includes("token") || 
                                    field.id.toLowerCase().includes("key") || 
@@ -707,26 +751,30 @@ export default function UserQualityChecksSettings({
 
                   return (
                     <div className="field-modern" key={field.id}>
-                      <label className="label-modern">
+                      <label className="label-modern" style={{ display: "block", marginBottom: "6px", fontSize: "0.85rem", fontWeight: 600, color: "#1e293b" }}>
                         {field.name}
                         {field.required && <span style={{ color: "#ef4444", marginLeft: "4px" }}>*</span>}
                       </label>
                       
                       {isSecret ? (
-                        <div className="input-wrap-modern">
+                        <div className="input-wrap-modern" style={{ position: "relative", display: "flex", alignItems: "center" }}>
                           <input
                             type={showSecrets[field.id] ? "text" : "password"}
                             className="input-modern"
                             value={value}
                             onChange={(e) => handleValueChange(field.id, e.target.value)}
                             placeholder={field.required ? "Required" : "Optional"}
+                            style={{ paddingRight: "40px", width: "100%", padding: "10px 12px", borderRadius: "6px", border: "1px solid #cbd5e1", backgroundColor: "#ffffff", fontSize: "0.9rem" }}
                           />
-                          <div
+                          <button
+                            type="button"
                             className="toggle-modern"
                             onClick={() => toggleSecret(field.id)}
+                            style={{ position: "absolute", right: "12px", background: "none", border: "none", cursor: "pointer", color: "#64748b", display: "flex", alignItems: "center", padding: 0 }}
+                            title={showSecrets[field.id] ? "Hide secret key" : "Show secret key"}
                           >
-                            {showSecrets[field.id] ? <FaEyeSlash /> : <FaEye />}
-                          </div>
+                            {showSecrets[field.id] ? <FaEyeSlash size={15} /> : <FaEye size={15} />}
+                          </button>
                         </div>
                       ) : (
                         <input
@@ -735,6 +783,7 @@ export default function UserQualityChecksSettings({
                           value={value}
                           onChange={(e) => handleValueChange(field.id, e.target.value)}
                           placeholder={field.required ? "Required" : "Optional"}
+                          style={{ width: "100%", padding: "10px 12px", borderRadius: "6px", border: "1px solid #cbd5e1", backgroundColor: "#ffffff", fontSize: "0.9rem" }}
                         />
                       )}
                     </div>
@@ -771,17 +820,5 @@ export default function UserQualityChecksSettings({
     </div>
   );
 }
-  const handleToggleFeature = (featureKey: string) => {
-    onChange((prev) => {
-      const currentVal = prev.quality_checks_values?.[featureKey] ?? true;
-      return {
-        ...prev,
-        quality_checks_values: {
-          ...(prev.quality_checks_values || {}),
-          [featureKey]: !currentVal
-        }
-      };
-    });
-  };
 
   

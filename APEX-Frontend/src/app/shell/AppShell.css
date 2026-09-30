@@ -66,8 +66,9 @@
 
 .ui-profile-trigger:hover,
 .ui-profile-trigger.is-open {
-  background: #f1f5f9 !important;
-  border-color: #cbd5e1 !important;
+  background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%) !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.45) !important;
 }
 
 .app-shell-brand-group {

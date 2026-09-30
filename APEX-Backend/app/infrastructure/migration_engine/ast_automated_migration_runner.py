@@ -12,6 +12,7 @@ from app.infrastructure.migration_engine.gradle_modernizer import GradleModerniz
 from app.infrastructure.migration_engine.pom_modernizer import PomModernizer
 
 from app.shared import file_utils
+from app.infrastructure.migration_engine.tree_sitter_migrator import safe_migrate_java_syntax
 
 logger = logging.getLogger(__name__)
 
@@ -218,16 +219,7 @@ class AstMigrationRunner:
             original_source = source
 
             if should_convert_jakarta:
-                source = re.sub(r"\bjavax\.persistence\b", "jakarta.persistence", source)
-                source = re.sub(r"\bjavax\.servlet\b", "jakarta.servlet", source)
-                source = re.sub(r"\bjavax\.annotation\b", "jakarta.annotation", source)
-                source = re.sub(r"\bjavax\.validation\b", "jakarta.validation", source)
-                source = re.sub(r"\bjavax\.ws\.rs\b", "jakarta.ws.rs", source)
-                source = re.sub(r"\bjavax\.xml\.bind\b", "jakarta.xml.bind", source)
-                source = re.sub(r"\bjavax\.transaction\b", "jakarta.transaction", source)
-                source = re.sub(r"\bjavax\.ejb\b", "jakarta.ejb", source)
-                source = re.sub(r"\bjavax\.jms\b", "jakarta.jms", source)
-                source = re.sub(r"\bjavax\.mail\b", "jakarta.mail", source)
+                source = safe_migrate_java_syntax(source)
 
             if "junit" in str(active_packs) or "junit" in source:
                 source = source.replace("import org.junit.Test;", "import org.junit.jupiter.api.Test;")

@@ -109,6 +109,7 @@ export default function MigrationWizardPage() {
     loading,
     handleStartMigration,
     migrationJob,
+    migrationLogs,
     migrationTimerNow,
     animationProgress,
     runFossa,
@@ -254,7 +255,7 @@ export default function MigrationWizardPage() {
     const outdatedList = allDependencies
       .filter((d) => d.status === "review" || d.status === "outdated" || d.status === "upgrade_needed")
       .map((d) => ({
-        name: d.artifact_id || d.group_id || "dependency",
+        name: d.artifact_id || (d as any).group_id || "dependency",
         currentVersion: d.current_version,
         status: d.status,
       }));
@@ -287,7 +288,7 @@ export default function MigrationWizardPage() {
           selectedRepo?.name ||
           (repoUrl ? (repoUrl || "").split("/").pop()?.replace(/\.git$/i, "") : null) ||
           "essl",
-        repository: repoUrl || selectedRepo?.clone_url || "https://github.com/example/repo",
+        repository: repoUrl || selectedRepo?.url || "https://github.com/example/repo",
         currentJavaVersion: currentJava,
         targetJavaVersion: targetJava,
       },
@@ -322,7 +323,7 @@ export default function MigrationWizardPage() {
       },
       migration: {
         readiness: 78,
-        progress: migrationJob?.progress ?? (step >= 6 ? 100 : step === 5 ? (animationProgress || 65) : 0),
+        progress: migrationJob?.progress_percent ?? migrationJob?.progress ?? (step >= 6 ? 100 : step === 5 ? (animationProgress || 65) : 0),
         currentStage: currentStageName,
         completedSteps: completedStepsList,
         activeStep: activeStepName,
@@ -601,6 +602,7 @@ export default function MigrationWizardPage() {
               repoAnalysis={repoAnalysis}
               codeChanges={resultExecState.codeChanges}
               fossaResult={resultExecState.fossaResult}
+              backendLogs={migrationLogs || resultExecState.migrationLogs || migrationJob?.migration_log || []}
               onMigrationComplete={navigateToResults}
               onViewReport={navigateToResults}
               onRetry={handleStartMigration}

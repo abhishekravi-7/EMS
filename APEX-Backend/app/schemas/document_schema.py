@@ -21,8 +21,21 @@ class TechnicalDocumentRequest(BaseModel):
     target_java_version: Optional[str] = None
     document_type: Optional[str] = Field(default="TECHNICAL_SPECIFICATION")
     analysis: Optional[dict[str, Any]] = None
+    brd_instructions: Optional[str] = None
+    brd_focus_prompt: Optional[str] = None
+    brd_system_prompt: Optional[str] = None
+    brd_migration_target: Optional[str] = None
+    brd_generation_enabled: Optional[bool] = None
+    brd_microservices_enabled: Optional[bool] = None
+    microservice_assessment_enabled: Optional[bool] = None
+    brd_category_business_workflows: Optional[bool] = None
+    brd_category_database_data: Optional[bool] = None
+    brd_category_architecture: Optional[bool] = None
+    brd_category_apis_integrations: Optional[bool] = None
+    brd_category_security_access: Optional[bool] = None
+    brd_category_reliability_performance: Optional[bool] = None
 
-    model_config = {"populate_by_name": True, "extra": "ignore"}
+    model_config = {"populate_by_name": True, "extra": "allow"}
 
 
 class TechnicalDocumentResponse(BaseModel):
