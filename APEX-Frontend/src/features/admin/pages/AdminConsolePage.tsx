@@ -1137,6 +1137,9 @@ export default function AdminConsolePage() {
                   ? "1px solid #86efac"
                   : sonarValidationState === "invalid"
                   ? "1px solid #fca5a5"
+                  : sonarValidationState === "error"
+                  ? "1px solid #fde68a"
+                  : "1px solid #e2e8f0",
                 backgroundColor: sonarValidationState === "valid"
                   ? "#f0fdf4"
                   : "#ffffff",
@@ -1225,6 +1228,11 @@ export default function AdminConsolePage() {
               </div>
               <p className="settings-card-subtitle" style={{ marginBottom: "16px" }}>Static code analysis to detect bugs and vulnerabilities.</p>
               
+              <div className="grid-2" style={{ gap: "12px", marginBottom: "12px" }}>
+                <div>
+                  <label className="settings-label">SONARQUBE URL</label>
+                  <input
+                    type="text"
                     className="settings-input"
                     value="https://sonarcloud.io"
                     readOnly
