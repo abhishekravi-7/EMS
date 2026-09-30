@@ -11,7 +11,20 @@ from __future__ import annotations
 import logging
 import threading
 from typing import Any
-from cachetools import LRUCache
+try:
+    from cachetools import LRUCache
+except ImportError:
+    class LRUCache(dict):  # type: ignore[no-redef]
+        def __init__(self, maxsize: int = 128) -> None:
+            super().__init__()
+            self.maxsize = maxsize
+
+        def __setitem__(self, key: Any, value: Any) -> None:
+            if len(self) >= self.maxsize and key not in self:
+                oldest = next(iter(self))
+                del self[oldest]
+            super().__setitem__(key, value)
+
 from app.application.services.file_diff_service import FileDiffService
 from app.infrastructure.github.repo_creator import RepoCreator
 from app.infrastructure.workspace.workspace_paths import WorkspacePaths
