@@ -442,6 +442,7 @@ export interface MigrationJobSummary {
   stages?: MigrationStageInfo[];
   files_modified: number;
   issues_fixed: number;
+  transformations_count?: number;
   api_endpoints_validated: number;
   api_endpoints_working: number;
   tests_run: number;

@@ -309,3 +309,44 @@ def test_build_report_details_categories():
     assert trans_detail["items"][0]["target_file"] == "LoginComponent.tsx"
     assert trans_detail["items"][0]["transformation_type"] == "JSP -> React"
 
+
+def test_build_report_details_and_summary_with_source_changes_and_ui_transformations():
+    mock_report = {
+        "jobId": "test-job-source-ui",
+        "status": "COMPLETED",
+        "filesModified": 9,
+        "sourceChanges": [
+            {"file": "src/main/java/ServiceA.java", "lines_changed": 5},
+            {"file": "src/main/java/ServiceB.java", "lines_changed": 10},
+            {"file": "src/main/java/ModelC.java", "lines_changed": 2},
+        ],
+        "uiTransformations": [
+            {
+                "sourceFile": "src/main/webapp/page1.jsp",
+                "targetSourceFile": "Page1Component.tsx",
+                "category": "JSP -> React",
+                "status": "Added",
+            },
+            {
+                "sourceFile": "src/main/webapp/page2.jsp",
+                "targetSourceFile": "Page2Component.tsx",
+                "category": "JSP -> React",
+                "status": "Added",
+            },
+        ],
+    }
+
+    summary = report_service.build_summary(mock_report)
+    # 3 source changes + 2 UI transformations = 5 issues fixed
+    assert summary["issues_fixed"] == 5
+    assert summary["transformations_count"] == 2
+
+    issues_detail = report_service.build_report_details(mock_report, "issues")
+    assert issues_detail["total"] == 5
+    assert len(issues_detail["items"]) == 5
+
+    trans_detail = report_service.build_report_details(mock_report, "transformations")
+    assert trans_detail["total"] == 2
+    assert summary["transformations_count"] == trans_detail["total"]
+
+

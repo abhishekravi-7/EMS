@@ -273,64 +273,200 @@ async def get_proposed_test_evidence_endpoint(
     if filename.endswith(".png"):
         return FileResponse(str(evidence_file), media_type="image/png")
     if filename.endswith((".webm", ".mp4")):
-        return FileResponse(str(evidence_file), media_type="video/webm")
+        return FileResponse(
+            str(evidence_file),
+            media_type="video/webm",
+            headers={
+                "Cache-Control": "no-cache, must-revalidate",
+                "Accept-Ranges": "bytes",
+            },
+        )
+    if filename.endswith(".zip"):
+        return FileResponse(str(evidence_file), media_type="application/zip", filename=filename)
+    if filename.endswith(".json"):
+        return Response(content=evidence_file.read_bytes(), media_type="application/json")
+    if filename.endswith((".log", ".txt")):
+        return Response(content=evidence_file.read_text(encoding="utf-8", errors="replace"), media_type="text/plain")
 
     return FileResponse(str(evidence_file))
 
 
-@router.get("/{job_id}/proposed-tests/allure-report")
-@router.get("/{job_id}/proposed-tests/allure-report/index.html")
-async def get_proposed_test_allure_report_endpoint(
+@router.get("/{job_id}/proposed-tests/{test_id}/report")
+async def get_proposed_test_report_endpoint(
     job_id: str,
+    test_id: str,
     current_user: User = Depends(get_current_user),  # noqa: B008
 ):
-    """Serves the generated standalone Allure HTML Report for the proposed test execution."""
+    """Retrieves execution results and real artifacts for a single test case report."""
     await verify_job_ownership(job_id, current_user)
     paths = WorkspacePaths(job_id)
-    report_file = paths.job_dir / "proposed-tests" / "allure-report" / "index.html"
+    test = proposed_test_service.get_proposed_test(job_id, test_id)
+    if not test:
+        raise HTTPException(status_code=404, detail="Proposed test not found")
+
+    evidence_dir = paths.job_dir / "proposed-tests" / "evidence" / test_id
+    api_trace = None
+    browser_log = None
+
+    if (evidence_dir / "api_trace.json").is_file():
+        try:
+            api_trace = json.loads((evidence_dir / "api_trace.json").read_text(encoding="utf-8"))
+        except Exception:
+            pass
+
+    if (evidence_dir / "browser_steps.log").is_file():
+        try:
+            browser_log = (evidence_dir / "browser_steps.log").read_text(encoding="utf-8")
+        except Exception:
+            pass
+
+    screenshot_file = evidence_dir / "screenshot.png"
+    video_file = evidence_dir / "video.webm"
+    trace_file = evidence_dir / "trace.zip"
+    logs_file = evidence_dir / "browser_steps.log"
+
+    from app.application.use_cases.proposed_tests.proposed_test_executor import extract_video_metadata
+
+    vid_metadata = extract_video_metadata(video_file) if video_file.is_file() else {"duration": None, "size": 0}
+    vid_dur = (
+        test.execution_result.evidence.video_duration
+        if test.execution_result and test.execution_result.evidence and test.execution_result.evidence.video_duration is not None
+        else vid_metadata.get("duration")
+    )
+    vid_size = (
+        test.execution_result.evidence.video_size
+        if test.execution_result and test.execution_result.evidence and test.execution_result.evidence.video_size is not None
+        else vid_metadata.get("size")
+    )
+    rec_status = (
+        test.execution_result.evidence.recording_status
+        if test.execution_result and test.execution_result.evidence and test.execution_result.evidence.recording_status
+        else ("RECORDED" if video_file.is_file() and vid_dur else ("FAILED" if video_file.is_file() else "NO_RECORDING"))
+    )
+
+    evidence_dict = {
+        "screenshot_url": f"/api/v1/migration/{job_id}/proposed-tests/evidence/{test_id}/screenshot.png" if screenshot_file.is_file() else None,
+        "screenshot_available": screenshot_file.is_file(),
+        "video_url": f"/api/v1/migration/{job_id}/proposed-tests/evidence/{test_id}/video.webm" if video_file.is_file() else None,
+        "video_available": video_file.is_file(),
+        "video_duration": vid_dur,
+        "video_duration_formatted": f"{vid_dur:.2f}s" if vid_dur is not None else None,
+        "video_size": vid_size,
+        "recording_status": rec_status,
+        "trace_url": f"/api/v1/migration/{job_id}/proposed-tests/evidence/{test_id}/trace.zip" if trace_file.is_file() else None,
+        "logs_url": f"/api/v1/migration/{job_id}/proposed-tests/evidence/{test_id}/browser_steps.log" if logs_file.is_file() else None,
+    }
+
+    has_artifacts = evidence_dir.exists() and any(evidence_dir.iterdir())
+    is_executed = test.execution_result is not None and test.execution_result.status not in [
+        ProposedTestStatus.NOT_EXECUTED,
+        ProposedTestStatus.PROPOSED,
+    ]
+
+    exec_dump = test.execution_result.model_dump() if test.execution_result else None
+    if exec_dump:
+        if not exec_dump.get("evidence"):
+            exec_dump["evidence"] = {}
+        for k, v in evidence_dict.items():
+            if v is not None or k not in exec_dump["evidence"]:
+                exec_dump["evidence"][k] = v
+    elif has_artifacts:
+        exec_dump = {
+            "status": test.status.value if hasattr(test.status, "value") else str(test.status),
+            "evidence": evidence_dict,
+        }
+
+    return JSONResponse(content={
+        "job_id": job_id,
+        "test_id": test.id,
+        "title": test.title,
+        "type": test.type.value if hasattr(test.type, "value") else str(test.type),
+        "source": test.source,
+        "status": test.status.value if hasattr(test.status, "value") else str(test.status),
+        "description": test.description,
+        "steps": test.steps,
+        "preconditions": test.preconditions,
+        "expected_result": test.expected_result,
+        "api_spec": test.api_spec.model_dump() if test.api_spec else None,
+        "ui_spec": test.ui_spec.model_dump() if test.ui_spec else None,
+        "execution_result": exec_dump,
+        "baseline_execution_result": test.baseline_execution_result.model_dump() if test.baseline_execution_result else None,
+        "evidence": evidence_dict,
+        "api_trace": api_trace,
+        "browser_log": browser_log,
+        "has_artifacts": has_artifacts,
+        "report_available": is_executed or has_artifacts,
+    })
+
+
+@router.get("/{job_id}/proposed-tests/{report_type}")
+@router.get("/{job_id}/proposed-tests/{report_type}/")
+@router.get("/{job_id}/proposed-tests/{report_type}/index.html")
+async def get_proposed_test_html_report_endpoint(
+    job_id: str,
+    report_type: str,
+    current_user: User = Depends(get_current_user),  # noqa: B008
+):
+    """Serves the generated standalone HTML Reports (Allure/Playwright)."""
+    if report_type not in ["allure-report", "allure-report-baseline", "playwright-report", "playwright-report-baseline"]:
+        raise HTTPException(status_code=404, detail="Invalid report type")
+        
+    await verify_job_ownership(job_id, current_user)
+    paths = WorkspacePaths(job_id)
+    report_file = paths.job_dir / "proposed-tests" / report_type / "index.html"
 
     if not report_file.is_file():
-        raise HTTPException(status_code=404, detail="Allure report not found for this migration job")
+        raise HTTPException(status_code=404, detail=f"{report_type} not found for this migration job")
 
-    return Response(content=report_file.read_text(encoding="utf-8"), media_type="text/html")
+    return FileResponse(str(report_file), media_type="text/html")
 
 
-@router.get("/{job_id}/proposed-tests/allure-report/{file_path:path}")
-async def get_proposed_test_allure_asset_endpoint(
+@router.get("/{job_id}/proposed-tests/{report_type}/{file_path:path}")
+async def get_proposed_test_report_asset_endpoint(
     job_id: str,
+    report_type: str,
     file_path: str,
     current_user: User = Depends(get_current_user),  # noqa: B008
 ):
-    """Serves static assets and evidence attachments for the Allure report."""
+    """Serves static assets and evidence attachments for the reports."""
+    if report_type not in ["allure-report", "allure-report-baseline", "playwright-report", "playwright-report-baseline"]:
+        raise HTTPException(status_code=404, detail="Invalid report type")
+        
     await verify_job_ownership(job_id, current_user)
     paths = WorkspacePaths(job_id)
-    target_file = (paths.job_dir / "proposed-tests" / "allure-report" / file_path).resolve()
+    target_file = (paths.job_dir / "proposed-tests" / report_type / file_path).resolve()
 
     # Prevent directory traversal
-    base_report_dir = (paths.job_dir / "proposed-tests" / "allure-report").resolve()
+    base_report_dir = (paths.job_dir / "proposed-tests" / report_type).resolve()
     if not str(target_file).startswith(str(base_report_dir)) or not target_file.is_file():
-        # Also check in allure-results
-        alt_file = (paths.job_dir / "proposed-tests" / "allure-results" / file_path).resolve()
-        base_results_dir = (paths.job_dir / "proposed-tests" / "allure-results").resolve()
-        if str(alt_file).startswith(str(base_results_dir)) and alt_file.is_file():
-            target_file = alt_file
+        # Check in allure-results if it's an allure report
+        if "allure" in report_type:
+            results_dir_name = "allure-results-baseline" if "baseline" in report_type else "allure-results"
+            alt_file = (paths.job_dir / "proposed-tests" / results_dir_name / file_path).resolve()
+            base_results_dir = (paths.job_dir / "proposed-tests" / results_dir_name).resolve()
+            if str(alt_file).startswith(str(base_results_dir)) and alt_file.is_file():
+                target_file = alt_file
+            else:
+                raise HTTPException(status_code=404, detail="Report asset not found")
         else:
-            raise HTTPException(status_code=404, detail="Allure report asset not found")
+            raise HTTPException(status_code=404, detail="Report asset not found")
 
     if target_file.name.endswith(".html"):
-        return Response(content=target_file.read_text(encoding="utf-8"), media_type="text/html")
+        return FileResponse(str(target_file), media_type="text/html")
     if target_file.name.endswith(".css"):
-        return Response(content=target_file.read_text(encoding="utf-8"), media_type="text/css")
+        return FileResponse(str(target_file), media_type="text/css")
     if target_file.name.endswith(".js"):
-        return Response(content=target_file.read_text(encoding="utf-8"), media_type="application/javascript")
+        return FileResponse(str(target_file), media_type="application/javascript")
     if target_file.name.endswith(".json"):
-        return Response(content=target_file.read_text(encoding="utf-8"), media_type="application/json")
+        return FileResponse(str(target_file), media_type="application/json")
     if target_file.name.endswith(".svg"):
-        return Response(content=target_file.read_bytes(), media_type="image/svg+xml")
+        return FileResponse(str(target_file), media_type="image/svg+xml")
     if target_file.name.endswith(".png"):
         return FileResponse(str(target_file), media_type="image/png")
     if target_file.name.endswith((".webm", ".mp4")):
         return FileResponse(str(target_file), media_type="video/webm")
+    if target_file.name.endswith(".ico"):
+        return FileResponse(str(target_file), media_type="image/x-icon")
 
     return FileResponse(str(target_file))
 
