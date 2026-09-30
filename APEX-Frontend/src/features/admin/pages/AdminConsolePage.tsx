@@ -22,7 +22,7 @@ import {
 import { useAuth } from "@/shared/context/AuthContext";
 import {
   FaGithub, FaBrain, FaShieldAlt, FaEye, FaEyeSlash,
-  FaCog, FaLink, FaSpinner, FaCheckCircle, FaTimesCircle, FaFlask, FaPlug,
+  FaCog, FaLink, FaSpinner, FaCheckCircle, FaTimesCircle, FaExclamationTriangle, FaFlask, FaPlug,
   FaBriefcase, FaRocket, FaPlay
 } from "react-icons/fa";
 import QualityChecksSettings from "../components/QualityChecksSettings";
@@ -108,13 +108,15 @@ export default function AdminConsolePage() {
   const [testingFossa, setTestingFossa] = useState(false);
 
   // Quality Gate SonarQube & FOSSA validation states
-  const [sonarValidationState, setSonarValidationState] = useState<"idle" | "validating" | "valid" | "invalid">("idle");
+  const [sonarValidationState, setSonarValidationState] = useState<"idle" | "validating" | "valid" | "invalid" | "error">("idle");
   const [sonarValidationMessage, setSonarValidationMessage] = useState<string>("");
   const sonarLastValidatedRef = React.useRef<string>("");
+  const sonarReqSeqRef = React.useRef<number>(0);
 
-  const [fossaValidationState, setFossaValidationState] = useState<"idle" | "validating" | "valid" | "invalid">("idle");
+  const [fossaValidationState, setFossaValidationState] = useState<"idle" | "validating" | "valid" | "invalid" | "error">("idle");
   const [fossaValidationMessage, setFossaValidationMessage] = useState<string>("");
   const fossaLastValidatedRef = React.useRef<string>("");
+  const fossaReqSeqRef = React.useRef<number>(0);
 
   const [availableRepos, setAvailableRepos] = useState<GithubRepo[]>([]);
   const [availableBranches, setAvailableBranches] = useState<GithubBranch[]>([]);
@@ -183,17 +185,15 @@ export default function AdminConsolePage() {
       field === "sonarqube_org" ||
       field === "sonar_organization"
     ) {
-      if (sonarValidationState !== "idle") {
-        setSonarValidationState("idle");
-        setSonarValidationMessage("");
-      }
+      setSonarValidationState("idle");
+      setSonarValidationMessage("");
       sonarLastValidatedRef.current = "";
+      sonarReqSeqRef.current += 1;
     } else if (field === "fossa_api_key" || field === "api_key") {
-      if (fossaValidationState !== "idle") {
-        setFossaValidationState("idle");
-        setFossaValidationMessage("");
-      }
+      setFossaValidationState("idle");
+      setFossaValidationMessage("");
       fossaLastValidatedRef.current = "";
+      fossaReqSeqRef.current += 1;
     }
 
     setUserSettings(prev => ({
@@ -242,6 +242,16 @@ export default function AdminConsolePage() {
         setUserSettings(updatedUser || userSettings);
         showToast("success", "Personal User Settings saved successfully!");
       }
+
+      // Reset temporary validation UI states upon successful save
+      setSonarValidationState("idle");
+      setSonarValidationMessage("");
+      sonarLastValidatedRef.current = "";
+
+      setFossaValidationState("idle");
+      setFossaValidationMessage("");
+      fossaLastValidatedRef.current = "";
+
       window.dispatchEvent(new CustomEvent("javaapex:settings-saved"));
     } catch (err: any) {
       console.error(err);
@@ -285,11 +295,7 @@ export default function AdminConsolePage() {
   };
 
   const validateSonarqube = async (manual: boolean = false) => {
-    const url = (
-      userSettings.quality_checks_values?.sonarqube_url ||
-      userSettings.quality_checks_values?.url ||
-      ""
-    ).trim();
+    const url = "https://sonarcloud.io";
 
     const token = (
       userSettings.quality_checks_values?.sonarqube_token ||
@@ -311,11 +317,15 @@ export default function AdminConsolePage() {
       ""
     ).trim();
 
-    const isComplete = Boolean(url && token && org);
+    const isComplete = Boolean(
+      token &&
+      org &&
+      (manual || (!token.startsWith("****************") && token !== "********"))
+    );
 
     if (!isComplete) {
       if (manual) {
-        showToast("error", "Please enter SonarQube URL, Auth Token, and Organization before testing.");
+        showToast("error", "Please enter SonarQube Auth Token and Organization before testing.");
       }
       setSonarValidationState("idle");
       setSonarValidationMessage("");
@@ -328,6 +338,7 @@ export default function AdminConsolePage() {
       return;
     }
 
+    const seq = ++sonarReqSeqRef.current;
     setSonarValidationState("validating");
     setSonarValidationMessage("");
 
@@ -335,21 +346,29 @@ export default function AdminConsolePage() {
       const res = await testUserSonarqubeConnection({
         url,
         token,
-        project_key: projectKey,
-        org,
+        project_key: projectKey || undefined,
+        org: org || undefined,
       });
+      if (seq !== sonarReqSeqRef.current) return;
       sonarLastValidatedRef.current = payloadKey;
       setSonarValidationState("valid");
-      setSonarValidationMessage(res.message || "Configuration Valid");
+      setSonarValidationMessage(res.message || "Configuration is valid");
       if (manual) {
         showToast("success", res.message || "SonarQube Connection Successful!");
       }
     } catch (err: any) {
+      if (seq !== sonarReqSeqRef.current) return;
       sonarLastValidatedRef.current = payloadKey;
-      setSonarValidationState("invalid");
-      setSonarValidationMessage(err.message || "Failed to connect to SonarQube.");
+      const isInvalid = err.status === 400 || (err.message && err.message.toLowerCase().includes("invalid"));
+      if (isInvalid) {
+        setSonarValidationState("invalid");
+        setSonarValidationMessage(err.message || "Invalid SonarQube configuration.");
+      } else {
+        setSonarValidationState("error");
+        setSonarValidationMessage(err.message || "Failed to test SonarQube connection.");
+      }
       if (manual) {
-        showToast("error", err.message || "Failed to test SonarQube connection.");
+        showToast("error", err.message || (isInvalid ? "Invalid SonarQube configuration." : "Failed to test SonarQube connection."));
       }
     }
   };
@@ -361,7 +380,12 @@ export default function AdminConsolePage() {
       ""
     ).trim();
 
-    if (!apiKey) {
+    const isComplete = Boolean(
+      apiKey &&
+      (manual || (!apiKey.startsWith("****************") && apiKey !== "********"))
+    );
+
+    if (!isComplete) {
       if (manual) {
         showToast("error", "Please enter a FOSSA API Key before testing.");
       }
@@ -375,11 +399,13 @@ export default function AdminConsolePage() {
       return;
     }
 
+    const seq = ++fossaReqSeqRef.current;
     setFossaValidationState("validating");
     setFossaValidationMessage("");
 
     try {
       const res = await testUserFossaConnection({ api_key: apiKey });
+      if (seq !== fossaReqSeqRef.current) return;
       fossaLastValidatedRef.current = apiKey;
       setFossaValidationState("valid");
       setFossaValidationMessage(res.message || "Configuration Valid");
@@ -387,11 +413,18 @@ export default function AdminConsolePage() {
         showToast("success", res.message || "FOSSA Connection Successful!");
       }
     } catch (err: any) {
+      if (seq !== fossaReqSeqRef.current) return;
       fossaLastValidatedRef.current = apiKey;
-      setFossaValidationState("invalid");
-      setFossaValidationMessage(err.message || "Failed to connect to FOSSA.");
+      const isInvalid = err.status === 400 || (err.message && err.message.toLowerCase().includes("invalid"));
+      if (isInvalid) {
+        setFossaValidationState("invalid");
+        setFossaValidationMessage(err.message || "Invalid FOSSA API key.");
+      } else {
+        setFossaValidationState("error");
+        setFossaValidationMessage(err.message || "Failed to test FOSSA connection.");
+      }
       if (manual) {
-        showToast("error", err.message || "Failed to test FOSSA connection.");
+        showToast("error", err.message || (isInvalid ? "Invalid FOSSA API key." : "Failed to test FOSSA connection."));
       }
     }
   };
@@ -405,11 +438,7 @@ export default function AdminConsolePage() {
   useEffect(() => {
     if (activeUserTab !== "quality_gate" || isLoading) return;
 
-    const url = (
-      userSettings.quality_checks_values?.sonarqube_url ||
-      userSettings.quality_checks_values?.url ||
-      ""
-    ).trim();
+    const url = "https://sonarcloud.io";
 
     const token = (
       userSettings.quality_checks_values?.sonarqube_token ||
@@ -431,7 +460,12 @@ export default function AdminConsolePage() {
       ""
     ).trim();
 
-    const isComplete = Boolean(url && token && org);
+    const isComplete = Boolean(
+      token &&
+      org &&
+      !token.startsWith("****************") &&
+      token !== "********"
+    );
 
     if (!isComplete) {
       setSonarValidationState("idle");
@@ -453,13 +487,14 @@ export default function AdminConsolePage() {
   }, [
     activeUserTab,
     isLoading,
-    userSettings.quality_checks_values?.sonarqube_url,
     userSettings.quality_checks_values?.sonarqube_token,
     userSettings.quality_checks_values?.auth_token,
+    userSettings.quality_checks_values?.token,
     userSettings.quality_checks_values?.sonarqube_project_key,
     userSettings.quality_checks_values?.project_key,
     userSettings.quality_checks_values?.sonarqube_org,
     userSettings.quality_checks_values?.sonar_organization,
+    userSettings.quality_checks_values?.org,
   ]);
 
   // Automatic validation for FOSSA when on quality_gate tab
@@ -472,7 +507,13 @@ export default function AdminConsolePage() {
       ""
     ).trim();
 
-    if (!apiKey) {
+    const isComplete = Boolean(
+      apiKey &&
+      !apiKey.startsWith("****************") &&
+      apiKey !== "********"
+    );
+
+    if (!isComplete) {
       setFossaValidationState("idle");
       setFossaValidationMessage("");
       fossaLastValidatedRef.current = "";
@@ -1183,6 +1224,24 @@ export default function AdminConsolePage() {
                     <FaTimesCircle style={{ color: "#dc2626", fontSize: "11px" }} /> Invalid
                   </span>
                 )}
+                {sonarValidationState === "error" && (
+                  <span
+                    style={{
+                      padding: "3px 10px",
+                      borderRadius: "12px",
+                      fontSize: "11px",
+                      fontWeight: 700,
+                      backgroundColor: "#fffbeb",
+                      color: "#92400e",
+                      border: "1px solid #fde68a",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "5px",
+                    }}
+                  >
+                    <FaExclamationTriangle style={{ color: "#d97706", fontSize: "11px" }} /> Unable to validate
+                  </span>
+                )}
               </div>
               <p className="settings-card-subtitle" style={{ marginBottom: "16px" }}>Static code analysis to detect bugs and vulnerabilities.</p>
               
@@ -1192,9 +1251,17 @@ export default function AdminConsolePage() {
                   <input
                     type="text"
                     className="settings-input"
-                    value={currentUserStg.quality_checks_values?.sonarqube_url || "https://sonarcloud.io"}
-                    onChange={e => handleUserQualityCheckChange("sonarqube_url", e.target.value)}
-                    placeholder="https://sonarcloud.io"
+                    value="https://sonarcloud.io"
+                    readOnly
+                    disabled
+                    style={{
+                      backgroundColor: "#f8fafc",
+                      color: "#64748b",
+                      cursor: "not-allowed",
+                      borderColor: "#cbd5e1",
+                      userSelect: "none",
+                    }}
+                    title="SonarQube URL is fixed to https://sonarcloud.io for all users"
                   />
                 </div>
                 <div>
@@ -1305,23 +1372,46 @@ export default function AdminConsolePage() {
                   </div>
                 </div>
               )}
+
+              {sonarValidationState === "error" && (
+                <div
+                  style={{
+                    marginTop: "16px",
+                    padding: "14px 16px",
+                    borderRadius: "10px",
+                    background: "#fffbeb",
+                    border: "1px solid #fde68a",
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: "10px",
+                  }}
+                >
+                  <FaExclamationTriangle style={{ color: "#d97706", fontSize: "16px", marginTop: "2px", flexShrink: 0 }} />
+                  <div>
+                    <div style={{ fontSize: "13px", fontWeight: 700, color: "#92400e" }}>
+                      Failed to test SonarQube connection
+                    </div>
+                    {sonarValidationMessage && (
+                      <div style={{ fontSize: "12px", color: "#b45309", marginTop: "2px" }}>
+                        {sonarValidationMessage}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* FOSSA Card */}
             <div
               className="settings-card"
               style={{
-                border: fossaValidationState === "valid"
-                  ? "1px solid #86efac"
-                  : fossaValidationState === "invalid"
+                border: fossaValidationState === "invalid"
                   ? "1px solid #fca5a5"
+                  : fossaValidationState === "error"
+                  ? "1px solid #fde68a"
                   : "1px solid #e2e8f0",
-                backgroundColor: fossaValidationState === "valid"
-                  ? "#f0fdf4"
-                  : "#ffffff",
-                boxShadow: fossaValidationState === "valid"
-                  ? "0 0 0 1px #86efac, 0 4px 12px rgba(34, 197, 94, 0.08)"
-                  : "0 1px 3px rgba(0,0,0,0.02)",
+                backgroundColor: "#ffffff",
+                boxShadow: "0 1px 3px rgba(0,0,0,0.02)",
                 transition: "all 0.3s ease",
                 display: "flex",
                 flexDirection: "column",
@@ -1329,26 +1419,8 @@ export default function AdminConsolePage() {
             >
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
                 <div className="settings-toggle-title" style={{ margin: 0 }}>
-                  <FaShieldAlt style={{ color: fossaValidationState === "valid" ? "#16a34a" : "#2563eb" }} /> FOSSA
+                  <FaShieldAlt style={{ color: "#2563eb" }} /> FOSSA
                 </div>
-                {fossaValidationState === "valid" && (
-                  <span
-                    style={{
-                      padding: "3px 10px",
-                      borderRadius: "12px",
-                      fontSize: "11px",
-                      fontWeight: 700,
-                      backgroundColor: "#dcfce7",
-                      color: "#166534",
-                      border: "1px solid #86efac",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "5px",
-                    }}
-                  >
-                    <FaCheckCircle style={{ color: "#16a34a", fontSize: "11px" }} /> Connected
-                  </span>
-                )}
                 {fossaValidationState === "validating" && (
                   <span
                     style={{
@@ -1383,6 +1455,24 @@ export default function AdminConsolePage() {
                     }}
                   >
                     <FaTimesCircle style={{ color: "#dc2626", fontSize: "11px" }} /> Invalid
+                  </span>
+                )}
+                {fossaValidationState === "error" && (
+                  <span
+                    style={{
+                      padding: "3px 10px",
+                      borderRadius: "12px",
+                      fontSize: "11px",
+                      fontWeight: 700,
+                      backgroundColor: "#fffbeb",
+                      color: "#92400e",
+                      border: "1px solid #fde68a",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "5px",
+                    }}
+                  >
+                    <FaExclamationTriangle style={{ color: "#d97706", fontSize: "11px" }} /> Unable to validate
                   </span>
                 )}
               </div>
@@ -1475,6 +1565,33 @@ export default function AdminConsolePage() {
                   </div>
                 </div>
               )}
+
+              {fossaValidationState === "error" && (
+                <div
+                  style={{
+                    marginTop: "auto",
+                    padding: "14px 16px",
+                    borderRadius: "10px",
+                    background: "#fffbeb",
+                    border: "1px solid #fde68a",
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: "10px",
+                  }}
+                >
+                  <FaExclamationTriangle style={{ color: "#d97706", fontSize: "16px", marginTop: "2px", flexShrink: 0 }} />
+                  <div>
+                    <div style={{ fontSize: "13px", fontWeight: 700, color: "#92400e" }}>
+                      Failed to test FOSSA connection
+                    </div>
+                    {fossaValidationMessage && (
+                      <div style={{ fontSize: "12px", color: "#b45309", marginTop: "2px" }}>
+                        {fossaValidationMessage}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="settings-toggle-card">
@@ -1486,20 +1603,20 @@ export default function AdminConsolePage() {
                 <label className="settings-label">CYCODE API / TENANT URL</label>
                 <input type="url" className="settings-input" placeholder="https://api.cycode.com"
                   value={userSettings.quality_checks_values?.cycode_api_url || "https://api.cycode.com"}
-                  onChange={e => handleFieldChange("cycode_api_url", e.target.value, "quality")} />
+                  onChange={e => handleUserQualityCheckChange("cycode_api_url", e.target.value)} />
               </div>
               <div style={{ marginBottom: "12px" }}>
                 <label className="settings-label">CYCODE ACCOUNT / TENANT</label>
                 <input type="text" className="settings-input" placeholder="Enter business group or tenant"
                   value={userSettings.quality_checks_values?.cycode_tenant || ""}
-                  onChange={e => handleFieldChange("cycode_tenant", e.target.value, "quality")} />
+                  onChange={e => handleUserQualityCheckChange("cycode_tenant", e.target.value)} />
               </div>
               <div style={{ marginTop: "12px", marginBottom: "12px" }}>
                 <label className="settings-label">CYCODE API TOKEN</label>
                 <div className="settings-input-group">
                   <input type={showSecrets["cycode_api_token"] ? "text" : "password"} className="settings-input"
                     placeholder="Enter Cycode API token" value={userSettings.quality_checks_values?.cycode_api_token || ""}
-                    onChange={e => handleFieldChange("cycode_api_token", e.target.value, "quality")} />
+                    onChange={e => handleUserQualityCheckChange("cycode_api_token", e.target.value)} />
                   <div className="settings-input-group-icon" onClick={() => toggleSecret("cycode_api_token")} style={{ cursor: "pointer" }}>
                     {showSecrets["cycode_api_token"] ? <FaEyeSlash /> : <FaEye />}
                   </div>
@@ -1509,7 +1626,7 @@ export default function AdminConsolePage() {
                 <label className="settings-label">REQUIRED SCOPES</label>
                 <input type="text" className="settings-input" placeholder="secrets,sast"
                   value={userSettings.quality_checks_values?.cycode_scopes || "secrets,sast"}
-                  onChange={e => handleFieldChange("cycode_scopes", e.target.value, "quality")} />
+                  onChange={e => handleUserQualityCheckChange("cycode_scopes", e.target.value)} />
                 <div className="settings-toggle-desc" style={{ marginTop: "4px" }}>Required: secrets,sast</div>
               </div>
             </div>

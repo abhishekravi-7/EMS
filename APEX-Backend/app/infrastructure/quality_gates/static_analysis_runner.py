@@ -103,20 +103,10 @@ class StaticAnalysisRunner:
             or qc_config.get("projectKey")
             or ""
         )
-        project_key = self._project_key(job_id, project_name or project_dir.name, proj_key_val)
-        raw_host = (
-            qc_config.get("sonarqube_url")
-            or qc_config.get("sonar_url")
-            or qc_config.get("sonar_host_url")
-            or qc_config.get("sonarHostUrl")
-            or qc_config.get("host_url")
-            or qc_config.get("url")
-            or "http://localhost:9000"
-        ).strip().rstrip("/")
-        if not raw_host.startswith(("http://", "https://")):
-            host_url = f"https://{raw_host}" if "sonarcloud.io" in raw_host else f"http://{raw_host}"
-        else:
-            host_url = raw_host
+        # SonarQube host URL is fixed to https://sonarcloud.io for all users
+        host_url = (getattr(settings, "sonarqube_host_url", None) or "https://sonarcloud.io").strip().rstrip("/")
+        if not host_url.startswith(("http://", "https://")):
+            host_url = f"https://{host_url}"
 
         analysis_url = f"{host_url}/dashboard?id={urllib.parse.quote(project_key)}"
         display_name = project_name or project_dir.name
