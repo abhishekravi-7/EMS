@@ -11,7 +11,19 @@ import logging
 import time
 import urllib.parse
 import urllib.request
-from cachetools import LRUCache
+try:
+    from cachetools import LRUCache
+except ImportError:
+    class LRUCache(dict):  # type: ignore[no-redef]
+        def __init__(self, maxsize: int = 128) -> None:
+            super().__init__()
+            self.maxsize = maxsize
+
+        def __setitem__(self, key: Any, value: Any) -> None:
+            if len(self) >= self.maxsize and key not in self:
+                oldest = next(iter(self))
+                del self[oldest]
+            super().__setitem__(key, value)
 
 logger = logging.getLogger(__name__)
 

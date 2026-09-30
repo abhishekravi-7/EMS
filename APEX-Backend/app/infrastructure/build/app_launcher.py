@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import socket
 import subprocess  # nosec B404
 import threading
 import time
@@ -21,6 +22,13 @@ from pathlib import Path
 from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
+
+
+def find_free_port() -> int:
+    """Dynamically acquires an available, unallocated TCP port from the OS kernel."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("", 0))
+        return s.getsockname()[1]
 
 # Startup log indicators that suggest the app has started successfully
 _STARTUP_INDICATORS = [
@@ -173,11 +181,73 @@ class MigratedAppLauncher:
             and not any(excl in p.name.lower() for excl in self._JAR_EXCLUDE_PATTERNS)
         ]
 
-        if not runnable and war_candidates:
+        is_war_project = False
+        pom_file = project_dir / "pom.xml"
+        if pom_file.is_file():
+            try:
+                pom_content = pom_file.read_text(encoding="utf-8", errors="ignore")
+                if "<packaging>war</packaging>" in pom_content:
+                    is_war_project = True
+            except Exception:  # noqa: BLE001
+                pass
+        gradle_file = project_dir / "build.gradle"
+        if not is_war_project and gradle_file.is_file():
+            try:
+                gradle_content = gradle_file.read_text(encoding="utf-8", errors="ignore")
+                if any(k in gradle_content for k in ["apply plugin: 'war'", 'apply plugin: "war"', "id 'war'", 'id "war"']):
+                    is_war_project = True
+            except Exception:  # noqa: BLE001
+                pass
+
+        if not runnable and (war_candidates or is_war_project):
+            war_name = war_candidates[0].name if war_candidates else "packaging=war"
             return None, (
-                f"Application produces a WAR archive ({war_candidates[0].name}) which requires an external "
-                "servlet container (e.g. Apache Tomcat, Jetty, WebLogic). Standalone 'java -jar' execution is not supported."
+                f"Migrated application could not be started: Application produces a WAR archive ({war_name}) "
+                "which requires an external servlet container (e.g. Apache Tomcat, Jetty, WebLogic). "
+                "Standalone 'java -jar' execution is not supported."
             )
+
+        if not runnable:
+            # Dynamically attempt packaging if no JAR found yet but build descriptor exists
+            pom_file = project_dir / "pom.xml"
+            gradle_file = project_dir / "build.gradle"
+            mvnw = project_dir / ("mvnw.cmd" if os.name == "nt" else "mvnw")
+            gradlew = project_dir / ("gradlew.bat" if os.name == "nt" else "gradlew")
+            java_exe = self._resolve_java()
+            env = {**os.environ}
+            if java_exe:
+                jdk_home = str(Path(java_exe).parent.parent)
+                env["JAVA_HOME"] = jdk_home
+                env["PATH"] = f"{Path(java_exe).parent}{os.pathsep}{env.get('PATH', '')}"
+
+            if pom_file.is_file() and not is_war_project:
+                cmd = [str(mvnw) if mvnw.exists() else "mvn", "package", "-DskipTests"]
+                try:
+                    logger.info("No JAR found; auto-packaging project with Maven: %s", " ".join(cmd))
+                    subprocess.run(cmd, cwd=str(project_dir), env=env, capture_output=True, timeout=120)
+                    target_dir = project_dir / "target"
+                    if target_dir.exists():
+                        candidates = list(target_dir.glob("*.jar"))
+                        runnable = [
+                            p for p in candidates
+                            if p.is_file() and not any(excl in p.name.lower() for excl in self._JAR_EXCLUDE_PATTERNS)
+                        ]
+                except Exception as build_err:
+                    logger.warning("Auto-packaging with Maven failed: %s", build_err)
+            elif gradle_file.is_file() and not is_war_project:
+                cmd = [str(gradlew) if gradlew.exists() else "gradle", "assemble", "-x", "test"]
+                try:
+                    logger.info("No JAR found; auto-packaging project with Gradle: %s", " ".join(cmd))
+                    subprocess.run(cmd, cwd=str(project_dir), env=env, capture_output=True, timeout=120)
+                    for libs_dir in [project_dir / "build" / "libs", project_dir / "build" / "output"]:
+                        if libs_dir.exists():
+                            candidates = list(libs_dir.glob("*.jar"))
+                            runnable = [
+                                p for p in candidates
+                                if p.is_file() and not any(excl in p.name.lower() for excl in self._JAR_EXCLUDE_PATTERNS)
+                            ]
+                except Exception as build_err:
+                    logger.warning("Auto-packaging with Gradle failed: %s", build_err)
 
         if not runnable:
             # Fallback to any JAR at all
@@ -218,6 +288,7 @@ class MigratedAppLauncher:
 
         Streams stdout and stderr in background and detects early exit / errors.
         """
+        project_dir = Path(project_dir).resolve()
         artifact, unsupported_err = self.find_artifact(project_dir, build_tool)
         if unsupported_err or artifact is None:
             return AppLaunchResult(
@@ -238,11 +309,12 @@ class MigratedAppLauncher:
                 failure_category="FATAL_ERROR",
             )
 
+        resolved_artifact = artifact.resolve()
         cmd = [
             java_exe,
             f"-Dserver.port={port}",
             "-jar",
-            str(artifact),
+            str(resolved_artifact),
             f"--server.port={port}",
         ]
         env = {
@@ -413,7 +485,7 @@ class MigratedAppLauncher:
 
     @staticmethod
     def _resolve_java(java_home: str | None = None) -> str | None:
-        """Resolve the java executable from JAVA_HOME env or PATH."""
+        """Resolve the java executable from explicit home, env, or discovered LTS JDKs."""
         if java_home:
             candidate = Path(java_home) / "bin" / ("java.exe" if os.name == "nt" else "java")
             if candidate.exists():
@@ -422,6 +494,33 @@ class MigratedAppLauncher:
         build_java = os.environ.get("BUILD_JAVA_HOME")
         if build_java:
             candidate = Path(build_java) / "bin" / ("java.exe" if os.name == "nt" else "java")
+            if candidate.exists():
+                return str(candidate)
+
+        # Dynamic search for installed JDKs (prefer JDK 21 / 17 LTS for compatibility)
+        java_roots: list[Path] = []
+        if os.name == "nt":
+            for base in [Path("C:/Program Files/Java"), Path("C:/Program Files (x86)/Java")]:
+                if base.exists():
+                    java_roots.extend([p for p in base.iterdir() if p.is_dir() and "jdk" in p.name.lower()])
+        else:
+            for base in [Path("/usr/lib/jvm"), Path("/Library/Java/JavaVirtualMachines")]:
+                if base.exists():
+                    java_roots.extend([p for p in base.iterdir() if p.is_dir()])
+
+        def _jdk_priority(p: Path) -> int:
+            name = p.name.lower()
+            if "21" in name:
+                return 1
+            if "17" in name:
+                return 2
+            if "25" in name:
+                return 5
+            return 3
+
+        java_roots.sort(key=_jdk_priority)
+        for jdk_dir in java_roots:
+            candidate = jdk_dir / "bin" / ("java.exe" if os.name == "nt" else "java")
             if candidate.exists():
                 return str(candidate)
 
@@ -436,6 +535,166 @@ class MigratedAppLauncher:
 
     # Class-level process registry
     _running_processes: dict[int, Any] = {}
+
+    @staticmethod
+    def get_port_listening_pids(port: int) -> set[int]:
+        """Returns the set of process PIDs actively listening on the given TCP port."""
+        pids: set[int] = set()
+        if os.name == "nt":
+            try:
+                out = subprocess.check_output("netstat -ano -p tcp", shell=True, text=True, errors="ignore")
+                pattern = re.compile(rf":{port}\s+.*?\s+LISTENING\s+(\d+)", re.IGNORECASE)
+                for line in out.splitlines():
+                    m = pattern.search(line)
+                    if m:
+                        pids.add(int(m.group(1)))
+            except Exception as e:
+                logger.debug("netstat failed for port %d: %s", port, e)
+        else:
+            try:
+                out = subprocess.check_output(["lsof", "-t", f"-i:{port}", "-sTCP:LISTEN"], text=True, errors="ignore")
+                for line in out.splitlines():
+                    if line.strip().isdigit():
+                        pids.add(int(line.strip()))
+            except Exception:
+                pass
+        return pids
+
+    @staticmethod
+    def get_process_tree(parent_pid: int) -> set[int]:
+        """Returns all descendant PIDs of parent_pid."""
+        descendants: set[int] = set()
+        if not parent_pid or parent_pid <= 0:
+            return descendants
+        if os.name == "nt":
+            try:
+                import ctypes
+                import ctypes.wintypes
+
+                TH32CS_SNAPPROCESS = 0x00000002
+
+                class PROCESSENTRY32(ctypes.Structure):
+                    _fields_ = [
+                        ("dwSize", ctypes.wintypes.DWORD),
+                        ("cntUsage", ctypes.wintypes.DWORD),
+                        ("th32ProcessID", ctypes.wintypes.DWORD),
+                        ("th32DefaultHeapID", ctypes.POINTER(ctypes.c_ulong)),
+                        ("th32ModuleID", ctypes.wintypes.DWORD),
+                        ("cntThreads", ctypes.wintypes.DWORD),
+                        ("th32ParentProcessID", ctypes.wintypes.DWORD),
+                        ("pcPriClassBase", ctypes.c_long),
+                        ("dwFlags", ctypes.wintypes.DWORD),
+                        ("szExeFile", ctypes.c_char * 260),
+                    ]
+
+                h_snap = ctypes.windll.kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
+                if h_snap != -1:
+                    pe = PROCESSENTRY32()
+                    pe.dwSize = ctypes.sizeof(PROCESSENTRY32)
+                    parent_map: dict[int, set[int]] = {}
+                    if ctypes.windll.kernel32.Process32First(h_snap, ctypes.byref(pe)):
+                        while True:
+                            parent_map.setdefault(pe.th32ParentProcessID, set()).add(pe.th32ProcessID)
+                            if not ctypes.windll.kernel32.Process32Next(h_snap, ctypes.byref(pe)):
+                                break
+                    ctypes.windll.kernel32.CloseHandle(h_snap)
+
+                    queue = [parent_pid]
+                    while queue:
+                        curr = queue.pop(0)
+                        for child in parent_map.get(curr, set()):
+                            if child not in descendants:
+                                descendants.add(child)
+                                queue.append(child)
+            except Exception as e:
+                logger.debug("Failed to build process tree for PID %d: %s", parent_pid, e)
+        else:
+            try:
+                out = subprocess.check_output(["pgrep", "-P", str(parent_pid)], text=True, errors="ignore")
+                for line in out.splitlines():
+                    if line.strip().isdigit():
+                        c_pid = int(line.strip())
+                        descendants.add(c_pid)
+                        descendants.update(MigratedAppLauncher.get_process_tree(c_pid))
+            except Exception:
+                pass
+        return descendants
+
+    @staticmethod
+    def is_port_owned_by_process(port: int, pid: int) -> bool:
+        """Verify whether the specified TCP port is owned by the given PID or one of its child processes."""
+        if not pid or pid <= 0:
+            return False
+        listening_pids = MigratedAppLauncher.get_port_listening_pids(port)
+        if not listening_pids:
+            return False
+        if pid in listening_pids:
+            return True
+        descendants = MigratedAppLauncher.get_process_tree(pid)
+        return bool(descendants.intersection(listening_pids))
+
+    @staticmethod
+    def get_listening_ports_for_process(pid: int) -> set[int]:
+        """Finds all listening TCP ports owned by the given PID or its descendant processes."""
+        if not pid or pid <= 0:
+            return set()
+        target_pids = {pid} | MigratedAppLauncher.get_process_tree(pid)
+        owned_ports: set[int] = set()
+        if os.name == "nt":
+            try:
+                out = subprocess.check_output("netstat -ano -p tcp", shell=True, text=True, errors="ignore")
+                pattern = re.compile(r":(\d+)\s+.*?\s+LISTENING\s+(\d+)", re.IGNORECASE)
+                for line in out.splitlines():
+                    m = pattern.search(line)
+                    if m:
+                        p_num, p_pid = int(m.group(1)), int(m.group(2))
+                        if p_pid in target_pids:
+                            owned_ports.add(p_num)
+            except Exception as e:
+                logger.debug("netstat failed for process %d: %s", pid, e)
+        else:
+            try:
+                out = subprocess.check_output(["lsof", "-iTCP", "-sTCP:LISTEN", "-P", "-n"], text=True, errors="ignore")
+                for line in out.splitlines():
+                    parts = line.split()
+                    if len(parts) >= 9 and parts[1].isdigit():
+                        proc_pid = int(parts[1])
+                        if proc_pid in target_pids:
+                            name_col = parts[8]
+                            if ":" in name_col:
+                                port_str = name_col.rsplit(":", 1)[1]
+                                if port_str.isdigit():
+                                    owned_ports.add(int(port_str))
+            except Exception:
+                pass
+        return owned_ports
+
+    @staticmethod
+    def is_pid_alive(pid: int | None) -> bool:
+        """Check if a process with the given PID is currently active."""
+        if not pid or pid <= 0:
+            return False
+        if os.name == "nt":
+            try:
+                import ctypes
+                import ctypes.wintypes
+                PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+                STILL_ACTIVE = 259
+                handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+                if not handle:
+                    return False
+                exit_code = ctypes.wintypes.DWORD()
+                success = ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code))
+                ctypes.windll.kernel32.CloseHandle(handle)
+                return bool(success and exit_code.value == STILL_ACTIVE)
+            except Exception:
+                return False
+        else:
+            try:
+                os.kill(pid, 0)
+                return True
+            except OSError:
+                return False
 
 
 # Alias for backward compatibility

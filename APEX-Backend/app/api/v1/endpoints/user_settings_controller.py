@@ -269,39 +269,65 @@ async def test_user_sonarqube_connection(
         raise HTTPException(status_code=400, detail=f"Failed to connect to SonarQube at {url}.")
 
 class FossaTestPayload(BaseModel):
-    api_key: str
+    api_key: str | None = None
+    fossa_api_key: str | None = None
 
 @router.post("/user/settings/fossa/test")
 async def test_user_fossa_connection(
     payload: FossaTestPayload,
     current_user: User = Depends(get_current_user),  # noqa: B008
 ):
-    """Test FOSSA API Key."""
-    api_key = payload.api_key
+    """Test FOSSA API Key against FOSSA API."""
+    api_key = payload.api_key or payload.fossa_api_key
+    mongo_db = await get_mongodb()
+    user_doc = (await mongo_db.users.find_one({"_id": _get_query_id(str(current_user.id))})) or {} if mongo_db is not None else {}
+    qc_values = user_doc.get("quality_checks_values", {})
 
-    if api_key == "********" or (isinstance(api_key, str) and api_key.startswith("****************")):
-        mongo_db = await get_mongodb()
-        user_doc = (await mongo_db.users.find_one({"_id": _get_query_id(str(current_user.id))})) or {} if mongo_db is not None else {}
-        qc_values = user_doc.get("quality_checks_values", {})
+    if not api_key or api_key == "********" or (isinstance(api_key, str) and api_key.startswith("****************")):
         api_key = qc_values.get("fossa_api_key", api_key)
 
-    if not api_key:
-        raise HTTPException(status_code=400, detail="No FOSSA API Key provided.")
+    if not api_key or api_key == "********" or (isinstance(api_key, str) and api_key.startswith("****************")):
+        raise HTTPException(status_code=400, detail="No FOSSA API Key provided. Please enter a valid API key.")
 
     import httpx
+    fossa_endpoints = [
+        "https://app.fossa.com/api/cli/organization",
+        "https://app.fossa.com/api/users/me",
+        "https://app.fossa.com/api/projects",
+    ]
+    
+    last_status = None
+    last_error_detail = None
+
     try:
         async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
-            response = await client.get(
-                "https://app.fossa.com/api/cli/organization",
-                headers={"Authorization": f"Bearer {api_key}"}
-            )
-            if response.status_code in (200, 201):
-                return {"status": "success", "message": "FOSSA connection successful! API key validated."}
+            headers_list = [
+                {"Authorization": f"Bearer {api_key}"},
+                {"Authorization": f"token {api_key}"},
+            ]
+            for endpoint in fossa_endpoints:
+                for headers in headers_list:
+                    try:
+                        response = await client.get(endpoint, headers=headers)
+                        last_status = response.status_code
+                        if response.status_code in (200, 201, 204):
+                            return {"status": "success", "message": "FOSSA connection successful! API Key validated."}
+                        elif response.status_code in (401, 403):
+                            last_error_detail = f"Invalid FOSSA API Key: Unauthorized (HTTP {response.status_code})."
+                    except Exception as req_err:
+                        last_error_detail = str(req_err)
+                        
+            if last_status in (401, 403):
+                raise HTTPException(status_code=400, detail=last_error_detail or "Invalid FOSSA API Key: Unauthorized (401).")
+            elif last_status:
+                raise HTTPException(status_code=400, detail=f"FOSSA API connection returned HTTP {last_status}.")
             else:
-                return {"status": "success", "message": "FOSSA API Key submitted and validated."}
+                raise HTTPException(status_code=400, detail=f"FOSSA connection failed: {last_error_detail or 'Unable to reach app.fossa.com'}")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("FOSSA Test Connection error: %s", str(e))
-        raise HTTPException(status_code=400, detail="Failed to connect to FOSSA API.")
+        raise HTTPException(status_code=400, detail=f"FOSSA test connection error: {str(e)}")
  
 @router.get("/user/settings/quality-checks-config")
 async def get_user_quality_checks_config(
@@ -630,23 +656,40 @@ async def test_user_fossa_connection(
         "Accept": "application/json",
     }
  
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        try:
-            url = f"{endpoint}/api/users/me"
-            response = await client.get(url, headers=headers)
-            if response.status_code == 200:
-                user_info = response.json()
-                email = user_info.get("email") or user_info.get("username") or ""
-                msg = f"FOSSA connection successful. Connected as {email}." if email else "FOSSA connection successful."
-                return {"status": "success", "message": msg}
-            elif response.status_code in (401, 403):
-                raise HTTPException(status_code=400, detail="FOSSA authentication failed. Invalid API key.")
-            else:
-                logger.error("FOSSA validate failed status %d: %s", response.status_code, response.text)
-                raise HTTPException(status_code=400, detail=f"FOSSA returned status {response.status_code}.")
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error("FOSSA connection error: %s", str(e))
-            raise HTTPException(status_code=400, detail=f"Unable to connect to FOSSA at {endpoint}. Check the endpoint and network.")
+    async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+        test_urls = [
+            f"{endpoint}/api/cli/organization",
+            f"{endpoint}/api/users/me",
+            f"{endpoint}/api/projects?limit=1",
+        ]
+        success = False
+        user_msg = "FOSSA connection successful."
+        last_error = ""
+
+        for test_url in test_urls:
+            try:
+                response = await client.get(test_url, headers=headers)
+                if response.status_code in (200, 201):
+                    success = True
+                    try:
+                        info = response.json()
+                        if isinstance(info, dict):
+                            org_name = info.get("name") or info.get("email") or info.get("username")
+                            if org_name:
+                                user_msg = f"FOSSA connection successful ({org_name})."
+                    except Exception:
+                        pass
+                    break
+                elif response.status_code in (401, 403):
+                    last_error = "FOSSA authentication failed. Invalid API key."
+                else:
+                    last_error = f"FOSSA returned status {response.status_code}."
+            except Exception as e:
+                logger.error("FOSSA connection error for %s: %s", test_url, str(e))
+                last_error = f"Unable to connect to FOSSA at {endpoint}."
+
+        if success:
+            return {"status": "success", "message": user_msg}
+        else:
+            raise HTTPException(status_code=400, detail=last_error or "FOSSA connection test failed.")
  

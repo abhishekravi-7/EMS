@@ -1,7 +1,10 @@
 import logging
 from datetime import datetime, timezone
 from typing import Any, Optional
-from motor.motor_asyncio import AsyncIOMotorDatabase
+try:
+    from motor.motor_asyncio import AsyncIOMotorDatabase
+except ImportError:
+    AsyncIOMotorDatabase = Any  # type: ignore[misc,assignment]
 from app.infrastructure.persistence.mongodb import mongodb_manager
 
 logger = logging.getLogger(__name__)
