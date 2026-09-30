@@ -610,19 +610,7 @@ export default function UserQualityChecksSettings({
     </div>
   );
 
-  let renderedPromptInCheck = false;
-  const handleToggleFeature = (featureKey: string) => {
-    onChange((prev) => {
-      const currentVal = prev.quality_checks_values?.[featureKey] ?? true;
-      return {
-        ...prev,
-        quality_checks_values: {
-          ...(prev.quality_checks_values || {}),
-          [featureKey]: !currentVal
-        }
-      };
-    });
-  };
+
 
   let renderedFunctionalPromptInCheck = false;
 

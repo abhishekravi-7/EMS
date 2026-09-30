@@ -859,15 +859,6 @@ const handleTestSonarConnection = async () => {
                 <div>
                   <h3 className="settings-card-title">8-Phase BRD System Prompt Customization</h3>
                   <p className="settings-card-subtitle">System prompt template executed by LLM providers during document generation.</p>
-            <div className="settings-toggle-card">
-              <div className="settings-toggle-header">
-                <div className="settings-toggle-title"><FaFlask /> Microservice Assessment</div>
-                <div className="switch-wrap">
-                  <label className="switch-ios">
-                    <input type="checkbox" checked={cdEnabled} onChange={e => setCdEnabled(e.target.checked)} />
-                    <span className="slider-ios"></span>
-                  </label>
-                  <span className="switch-label">{cdEnabled ? "Enabled" : "Disabled"}</span>
                 </div>
               </div>
               <button
@@ -896,6 +887,9 @@ const handleTestSonarConnection = async () => {
               onChange={e => updateBrdField("brd_system_prompt", e.target.value)}
             />
           </div>
+        </div>
+        </div>
+        </div>
         </div>
       );
     }
