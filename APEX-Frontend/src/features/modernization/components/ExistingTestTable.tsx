@@ -193,7 +193,7 @@ export function ExistingTestTable({
                 width: 32,
                 height: 32,
                 borderRadius: 8,
-                background: "#6d28d9",
+                background: "#2563eb",
                 color: "#fff",
                 display: "flex",
                 alignItems: "center",

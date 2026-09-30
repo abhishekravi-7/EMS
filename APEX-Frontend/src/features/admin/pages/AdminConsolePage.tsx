@@ -285,11 +285,7 @@ export default function AdminConsolePage() {
   const handleTestFossa = async () => {
     try {
       const apiKey = userSettings.quality_checks_values?.fossa_api_key || "";
-      if (!apiKey) {
-        showToast("error", "Please enter a FOSSA API Key before testing.");
-        return;
-      }
-      const res = await testUserFossaConnection({ api_key: apiKey });
+      const res = await testUserFossaConnection({ api_key: apiKey, fossa_api_key: apiKey });
       showToast("success", res.message || "FOSSA Connection Successful!");
     } catch (err: any) {
       showToast("error", err.message || "Failed to test FOSSA connection.");
@@ -834,17 +830,6 @@ const handleTestSonarConnection = async () => {
               <div>
                 <h3 className="settings-card-title">BRD Analysis Scope & Target Baseline</h3>
                 <p className="settings-card-subtitle">Configure specific analysis categories and target modernization baseline.</p>
-          <div className="grid-2">
-            <div className="settings-toggle-card">
-              <div className="settings-toggle-header">
-                <div className="settings-toggle-title"><FaBriefcase /> BRD Generation</div>
-                <div className="switch-wrap">
-                  <label className="switch-ios">
-                    <input type="checkbox" checked={ciEnabled} onChange={e => setCiEnabled(e.target.checked)} />
-                    <span className="slider-ios"></span>
-                  </label>
-                  <span className="switch-label">{ciEnabled ? "Enabled" : "Disabled"}</span>
-                </div>
               </div>
             </div>
 
@@ -939,9 +924,6 @@ const handleTestSonarConnection = async () => {
             />
           </div>
         </div>
-        </div>
-        </div>
-        </div>
       );
     }
 
@@ -961,62 +943,6 @@ const handleTestSonarConnection = async () => {
             onChange={setUserSettings}
             mode="testing_only"
           />
-
-          {/* Additional E2E Application Base URL Configuration */}
-          <div className="settings-card" style={{ marginTop: "24px" }}>
-            <div className="settings-card-header">
-              <div className="settings-card-icon"><FaShieldAlt /></div>
-              <div>
-                <h3 className="settings-card-title">E2E Framework URL Configuration</h3>
-                <p className="settings-card-subtitle">Configure application base URLs for Playwright, Cypress, and Selenium testing.</p>
-              </div>
-            </div>
-
-            <div className="grid-2">
-              {/* Playwright */}
-              <div>
-                <h4 style={{ margin: "0 0 6px 0", fontSize: "14px", fontWeight: 700, color: "#0f172a" }}>Playwright</h4>
-                <label className="settings-label">APPLICATION BASE URL</label>
-                <input
-                  type="text"
-                  className="settings-input"
-                  value={currentUserStg.test_cases_values?.playwright_base_url || "http://host.docker.internal:3000"}
-                  onChange={e => handleUserTestCaseChange("playwright_base_url", e.target.value)}
-                />
-                <button
-                  className="settings-action-btn"
-                  style={{ width: "auto", marginTop: "10px", padding: "6px 14px", fontSize: "13px" }}
-                  onClick={() => handleTestPlaywright(currentUserStg.test_cases_values?.playwright_base_url || "http://host.docker.internal:3000")}
-                >
-                  <FaPlay size={12} /> Test Connection
-                </button>
-              </div>
-
-              {/* Cypress & Selenium */}
-              <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-                <div>
-                  <h4 style={{ margin: "0 0 6px 0", fontSize: "14px", fontWeight: 700, color: "#0f172a" }}>Cypress</h4>
-                  <label className="settings-label">APPLICATION BASE URL</label>
-                  <input
-                    type="text"
-                    className="settings-input"
-                    value={currentUserStg.test_cases_values?.cypress_base_url || "http://host.docker.internal:3000"}
-                    onChange={e => handleUserTestCaseChange("cypress_base_url", e.target.value)}
-                  />
-                </div>
-                <div>
-                  <h4 style={{ margin: "0 0 6px 0", fontSize: "14px", fontWeight: 700, color: "#0f172a" }}>Selenium</h4>
-                  <label className="settings-label">APPLICATION BASE URL</label>
-                  <input
-                    type="text"
-                    className="settings-input"
-                    value={currentUserStg.test_cases_values?.selenium_base_url || "http://host.docker.internal:3000"}
-                    onChange={e => handleUserTestCaseChange("selenium_base_url", e.target.value)}
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       );
     }
@@ -1027,14 +953,14 @@ const handleTestSonarConnection = async () => {
           <div className="settings-card-header" style={{ marginBottom: "20px" }}>
             <div className="settings-card-icon"><FaShieldAlt /></div>
             <div>
-              <h3 className="settings-card-title">Quality Gate / CI & CD & Compliance</h3>
+              <h3 className="settings-card-title">Quality Gates</h3>
               <p className="settings-card-subtitle">Configure SonarQube, FOSSA, CI, and CD quality gate pipelines.</p>
             </div>
           </div>
 
           <div className="grid-2">
             {/* SonarQube Card */}
-            <div className="settings-card">
+            <div className="settings-card" style={{ display: "flex", flexDirection: "column" }}>
               <div className="settings-toggle-title" style={{ marginBottom: "6px" }}>
                 <FaShieldAlt /> SonarQube
               </div>
@@ -1056,8 +982,11 @@ const handleTestSonarConnection = async () => {
                     <input
                       type={showSecrets["sonar_token"] ? "text" : "password"}
                       className="settings-input"
-                      value={currentUserStg.quality_checks_values?.sonarqube_token || ""}
-                      onChange={e => handleUserQualityCheckChange("sonarqube_token", e.target.value)}
+                      value={currentUserStg.quality_checks_values?.sonarqube_token || currentUserStg.quality_checks_values?.auth_token || ""}
+                      onChange={e => {
+                        handleUserQualityCheckChange("sonarqube_token", e.target.value);
+                        handleUserQualityCheckChange("auth_token", e.target.value);
+                      }}
                       placeholder="••••••••••••••••••••"
                     />
                     <div className="settings-input-group-icon" onClick={() => toggleSecret("sonar_token")}>
@@ -1066,34 +995,27 @@ const handleTestSonarConnection = async () => {
                   </div>
                 </div>
                 <div>
-                  <label className="settings-label">PROJECT KEY</label>
-                  <input
-                    type="text"
-                    className="settings-input"
-                    value={currentUserStg.quality_checks_values?.sonarqube_project_key || ""}
-                    onChange={e => handleUserQualityCheckChange("sonarqube_project_key", e.target.value)}
-                    placeholder="Enter project key"
-                  />
-                </div>
-                <div>
                   <label className="settings-label">SONAR ORGANISATION</label>
                   <input
                     type="text"
                     className="settings-input"
-                    value={currentUserStg.quality_checks_values?.sonarqube_org || ""}
-                    onChange={e => handleUserQualityCheckChange("sonarqube_org", e.target.value)}
+                    value={currentUserStg.quality_checks_values?.sonarqube_org || currentUserStg.quality_checks_values?.sonar_organization || ""}
+                    onChange={e => {
+                      handleUserQualityCheckChange("sonarqube_org", e.target.value);
+                      handleUserQualityCheckChange("sonar_organization", e.target.value);
+                    }}
                     placeholder="Enter org key"
                   />
                 </div>
               </div>
 
-              <button className="settings-action-btn" style={{ width: "100%" }} onClick={handleTestSonarqube}>
+              <button className="settings-action-btn" style={{ width: "100%", marginTop: "auto" }} onClick={handleTestSonarqube}>
                 <FaPlug /> Test Connection
               </button>
             </div>
 
             {/* FOSSA Card */}
-            <div className="settings-card">
+            <div className="settings-card" style={{ display: "flex", flexDirection: "column" }}>
               <div className="settings-toggle-title" style={{ marginBottom: "6px" }}>
                 <FaShieldAlt /> FOSSA
               </div>
@@ -1120,80 +1042,84 @@ const handleTestSonarConnection = async () => {
               </button>
             </div>
 
-            <div className="settings-toggle-card">
-              <div className="settings-toggle-title" style={{ marginBottom: "12px" }}><FaShieldAlt /> Cycode</div>
-              <p className="settings-toggle-desc" style={{ marginBottom: "16px" }}>
+            <div className="settings-card">
+              <div className="settings-toggle-title" style={{ marginBottom: "6px" }}><FaShieldAlt /> Cycode</div>
+              <p className="settings-card-subtitle" style={{ marginBottom: "16px" }}>
                 Scan migrated code for exposed secrets and application security findings.
               </p>
-              <div style={{ marginBottom: "12px" }}>
-                <label className="settings-label">CYCODE API / TENANT URL</label>
-                <input type="url" className="settings-input" placeholder="https://api.cycode.com"
-                  value={userSettings.quality_checks_values?.cycode_api_url || "https://api.cycode.com"}
-                  onChange={e => handleFieldChange("cycode_api_url", e.target.value, "quality")} />
-              </div>
-              <div style={{ marginBottom: "12px" }}>
-                <label className="settings-label">CYCODE ACCOUNT / TENANT</label>
-                <input type="text" className="settings-input" placeholder="Enter business group or tenant"
-                  value={userSettings.quality_checks_values?.cycode_tenant || ""}
-                  onChange={e => handleFieldChange("cycode_tenant", e.target.value, "quality")} />
-              </div>
-              <div style={{ marginTop: "12px", marginBottom: "12px" }}>
-                <label className="settings-label">CYCODE API TOKEN</label>
-                <div className="settings-input-group">
-                  <input type={showSecrets["cycode_api_token"] ? "text" : "password"} className="settings-input"
-                    placeholder="Enter Cycode API token" value={userSettings.quality_checks_values?.cycode_api_token || ""}
-                    onChange={e => handleFieldChange("cycode_api_token", e.target.value, "quality")} />
-                  <div className="settings-input-group-icon" onClick={() => toggleSecret("cycode_api_token")} style={{ cursor: "pointer" }}>
-                    {showSecrets["cycode_api_token"] ? <FaEyeSlash /> : <FaEye />}
+              <div className="grid-2" style={{ gap: "12px" }}>
+                <div>
+                  <label className="settings-label">CYCODE API / TENANT URL</label>
+                  <input type="url" className="settings-input" placeholder="https://api.cycode.com"
+                    value={userSettings.quality_checks_values?.cycode_api_url || "https://api.cycode.com"}
+                    onChange={e => handleFieldChange("cycode_api_url", e.target.value, "quality")} />
+                </div>
+                <div>
+                  <label className="settings-label">CYCODE ACCOUNT / TENANT</label>
+                  <input type="text" className="settings-input" placeholder="Enter business group or tenant"
+                    value={userSettings.quality_checks_values?.cycode_tenant || ""}
+                    onChange={e => handleFieldChange("cycode_tenant", e.target.value, "quality")} />
+                </div>
+                <div>
+                  <label className="settings-label">CYCODE API TOKEN</label>
+                  <div className="settings-input-group">
+                    <input type={showSecrets["cycode_api_token"] ? "text" : "password"} className="settings-input"
+                      placeholder="Enter Cycode API token" value={userSettings.quality_checks_values?.cycode_api_token || ""}
+                      onChange={e => handleFieldChange("cycode_api_token", e.target.value, "quality")} />
+                    <div className="settings-input-group-icon" onClick={() => toggleSecret("cycode_api_token")} style={{ cursor: "pointer" }}>
+                      {showSecrets["cycode_api_token"] ? <FaEyeSlash /> : <FaEye />}
+                    </div>
                   </div>
                 </div>
-              </div>
-              <div>
-                <label className="settings-label">REQUIRED SCOPES</label>
-                <input type="text" className="settings-input" placeholder="secrets,sast"
-                  value={userSettings.quality_checks_values?.cycode_scopes || "secrets,sast"}
-                  onChange={e => handleFieldChange("cycode_scopes", e.target.value, "quality")} />
-                <div className="settings-toggle-desc" style={{ marginTop: "4px" }}>Required: secrets,sast</div>
-              </div>
-            </div>
-          </div>
-          
-          <div className="grid-2">
-            <div className="settings-toggle-card">
-              <div className="settings-toggle-header">
-                <div className="settings-toggle-title">
-                  <FaRocket /> Continuous Integration (CI)
-                </div>
-                <div className="switch-wrap">
-                  <label className="switch-ios">
-                    <input type="checkbox" checked={ciEnabled} onChange={e => setCiEnabled(e.target.checked)} />
-                    <span className="slider-ios"></span>
-                  </label>
-                  <span className="switch-label">{ciEnabled ? "Enabled" : "Disabled"}</span>
+                <div>
+                  <label className="settings-label">REQUIRED SCOPES</label>
+                  <input type="text" className="settings-input" placeholder="secrets,sast"
+                    value={userSettings.quality_checks_values?.cycode_scopes || "secrets,sast"}
+                    onChange={e => handleFieldChange("cycode_scopes", e.target.value, "quality")} />
+                  <div className="settings-card-subtitle" style={{ marginTop: "4px", fontSize: "11px" }}>Required: secrets,sast</div>
                 </div>
               </div>
-              <p className="settings-toggle-desc">
-                Enable or disable automated CI build validation and quality gate checks on pull requests and commits.
-              </p>
             </div>
 
-            {/* CD Card */}
-            <div className="settings-toggle-card">
-              <div className="settings-toggle-header">
-                <div className="settings-toggle-title">
-                  <FaRocket /> Continuous Deployment (CD)
+            {/* CI & CD Cards Stacked Vertically to the Right of Cycode */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+              {/* CI Card */}
+              <div className="settings-toggle-card" style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+                <div className="settings-toggle-header">
+                  <div className="settings-toggle-title">
+                    <FaRocket /> Continuous Integration (CI)
+                  </div>
+                  <div className="switch-wrap">
+                    <label className="switch-ios">
+                      <input type="checkbox" checked={ciEnabled} onChange={e => setCiEnabled(e.target.checked)} />
+                      <span className="slider-ios"></span>
+                    </label>
+                    <span className="switch-label">{ciEnabled ? "Enabled" : "Disabled"}</span>
+                  </div>
                 </div>
-                <div className="switch-wrap">
-                  <label className="switch-ios">
-                    <input type="checkbox" checked={cdEnabled} onChange={e => setCdEnabled(e.target.checked)} />
-                    <span className="slider-ios"></span>
-                  </label>
-                  <span className="switch-label">{cdEnabled ? "Enabled" : "Disabled"}</span>
-                </div>
+                <p className="settings-toggle-desc">
+                  Enable or disable automated CI build validation and quality gate checks on pull requests and commits.
+                </p>
               </div>
-              <p className="settings-toggle-desc">
-                Enable or disable automated deployment pipelines and artifact publishing upon successful migration verification.
-              </p>
+
+              {/* CD Card */}
+              <div className="settings-toggle-card" style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+                <div className="settings-toggle-header">
+                  <div className="settings-toggle-title">
+                    <FaRocket /> Continuous Deployment (CD)
+                  </div>
+                  <div className="switch-wrap">
+                    <label className="switch-ios">
+                      <input type="checkbox" checked={cdEnabled} onChange={e => setCdEnabled(e.target.checked)} />
+                      <span className="slider-ios"></span>
+                    </label>
+                    <span className="switch-label">{cdEnabled ? "Enabled" : "Disabled"}</span>
+                  </div>
+                </div>
+                <p className="settings-toggle-desc">
+                  Enable or disable automated deployment pipelines and artifact publishing upon successful migration verification.
+                </p>
+              </div>
             </div>
           </div>
         </div>
@@ -1202,7 +1128,15 @@ const handleTestSonarConnection = async () => {
 
     if (activeUserTab === "llm") {
       return (
-        <div className="settings-card">
+        <div>
+          <div className="settings-card-header" style={{ marginBottom: "20px" }}>
+            <div className="settings-card-icon"><FaBrain /></div>
+            <div>
+              <h3 className="settings-card-title">LLM Configuration</h3>
+              <p className="settings-card-subtitle">Manage intelligence providers, models, and features.</p>
+            </div>
+          </div>
+
           <LlmUserSettings
             settings={currentUserStg}
             onChange={(key, val) => {
@@ -1285,7 +1219,8 @@ const handleTestSonarConnection = async () => {
 
       <main className="settings-main-area" style={{ width: "100%" }}>
         <header className="settings-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", height: "80px", backgroundColor: "#ffffff", padding: "0 40px", borderBottom: "1px solid #e2e8f0" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <FaCog style={{ color: "#2563eb", fontSize: "22px" }} />
             <h1 style={{ fontSize: "22px", fontWeight: "800", color: "#0f172a", margin: 0 }}>Settings</h1>
           </div>
 

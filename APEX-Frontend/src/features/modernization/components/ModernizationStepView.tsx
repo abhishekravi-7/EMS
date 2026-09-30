@@ -23,7 +23,7 @@ import { ProposedTestCasesPanel } from "./ProposedTestCasesPanel";
 import { runApprovedProposedTests } from "../services/proposedTestService";
 import { TestReportsModal, type TestReportData } from "./TestReportsModal";
 import { wizardStyles as styles } from "@/shared/components/wizard/wizardStyles";
-import { renderWizardIconBadge, renderBackButtonLabel, renderForwardButtonLabel } from "@/shared/components/wizard";
+import { renderWizardIconBadge, renderForwardButtonLabel } from "@/shared/components/wizard";
 import type { RepoAnalysis, RepoInfo } from "@/shared/types/domain";
 import type { FunctionalTestScopePreview } from "../services/modernizationService";
 import { getLocalProjectFileContent } from "@/features/connect/services/connectService";
@@ -918,7 +918,7 @@ setIsLlmConfiguredMod(
           <span style={{ fontWeight: 800, fontSize: 18, color: "#0f172a" }}>Quality Gates</span>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 14 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14 }}>
           {/* 1. SonarQube */}
           <div
             style={{
@@ -927,8 +927,8 @@ setIsLlmConfiguredMod(
               gap: 12,
               padding: "14px 18px",
               borderRadius: 12,
-              border: `2px solid ${runSonar && isSonarAvailable ? "#22c55e" : "#e2e8f0"}`,
-              background: runSonar && isSonarAvailable ? "#f0fdf4" : (isSonarAvailable ? "#fff" : "#f8fafc"),
+              border: `2px solid ${runSonar && isSonarAvailable ? "#2563eb" : "#e2e8f0"}`,
+              background: runSonar && isSonarAvailable ? "#eff6ff" : (isSonarAvailable ? "#fff" : "#f8fafc"),
               cursor: isSonarAvailable ? "pointer" : "not-allowed",
               transition: "all 0.15s ease",
               minHeight: 88,
@@ -946,12 +946,12 @@ setIsLlmConfiguredMod(
                 e.stopPropagation();
                 if (isSonarAvailable) setRunSonar(e.target.checked);
               }}
-              style={{ width: 18, height: 18, accentColor: "#22c55e", cursor: isSonarAvailable ? "pointer" : "not-allowed", flexShrink: 0 }}
+              style={{ width: 18, height: 18, accentColor: "#2563eb", cursor: isSonarAvailable ? "pointer" : "not-allowed", flexShrink: 0 }}
             />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a", display: "flex", alignItems: "center", gap: 8 }}>
-                <FaSearch style={{ fontSize: 12, color: runSonar && isSonarAvailable ? "#166534" : "#64748b", flexShrink: 0 }} />
-                <span>SonarQube</span>
+                <FaSearch style={{ fontSize: 12, color: runSonar && isSonarAvailable ? "#2563eb" : "#64748b", flexShrink: 0 }} />
+                <span style={{ whiteSpace: "nowrap" }}>SonarQube</span>
               </div>
               <div style={{ fontSize: 12, color: "#64748b", marginTop: 2, lineHeight: 1.3 }}>
                 {getSonarSubtitle()}
@@ -962,10 +962,10 @@ setIsLlmConfiguredMod(
                 marginLeft: "auto",
                 fontSize: 10,
                 fontWeight: 700,
-                padding: "3px 10px",
+                padding: "3px 8px",
                 borderRadius: 6,
-                background: runSonar && isSonarAvailable ? "#dcfce7" : "#f1f5f9",
-                color: runSonar && isSonarAvailable ? "#166534" : "#64748b",
+                background: runSonar && isSonarAvailable ? "#dbeafe" : "#f1f5f9",
+                color: runSonar && isSonarAvailable ? "#1e40af" : "#64748b",
                 flexShrink: 0,
               }}
             >
@@ -981,8 +981,8 @@ setIsLlmConfiguredMod(
               gap: 12,
               padding: "14px 18px",
               borderRadius: 12,
-              border: `2px solid ${runFossa && isFossaAvailable ? "#22c55e" : "#e2e8f0"}`,
-              background: runFossa && isFossaAvailable ? "#f0fdf4" : (isFossaAvailable ? "#fff" : "#f8fafc"),
+              border: `2px solid ${runFossa && isFossaAvailable ? "#2563eb" : "#e2e8f0"}`,
+              background: runFossa && isFossaAvailable ? "#eff6ff" : (isFossaAvailable ? "#fff" : "#f8fafc"),
               cursor: isFossaAvailable ? "pointer" : "not-allowed",
               transition: "all 0.15s ease",
               minHeight: 88,
@@ -1000,12 +1000,12 @@ setIsLlmConfiguredMod(
                 e.stopPropagation();
                 if (isFossaAvailable) setRunFossa(e.target.checked);
               }}
-              style={{ width: 18, height: 18, accentColor: "#22c55e", cursor: isFossaAvailable ? "pointer" : "not-allowed", flexShrink: 0 }}
+              style={{ width: 18, height: 18, accentColor: "#2563eb", cursor: isFossaAvailable ? "pointer" : "not-allowed", flexShrink: 0 }}
             />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a", display: "flex", alignItems: "center", gap: 8 }}>
-                <FaShieldAlt style={{ fontSize: 12, color: runFossa && isFossaAvailable ? "#166534" : "#64748b", flexShrink: 0 }} />
-                <span>FOSSA</span>
+                <FaShieldAlt style={{ fontSize: 12, color: runFossa && isFossaAvailable ? "#2563eb" : "#64748b", flexShrink: 0 }} />
+                <span style={{ whiteSpace: "nowrap" }}>FOSSA</span>
               </div>
               <div style={{ fontSize: 12, color: "#64748b", marginTop: 2, lineHeight: 1.3 }}>
                 {getFossaSubtitle()}
@@ -1016,10 +1016,10 @@ setIsLlmConfiguredMod(
                 marginLeft: "auto",
                 fontSize: 10,
                 fontWeight: 700,
-                padding: "3px 10px",
+                padding: "3px 8px",
                 borderRadius: 6,
-                background: runFossa && isFossaAvailable ? "#dcfce7" : "#f1f5f9",
-                color: runFossa && isFossaAvailable ? "#166534" : "#64748b",
+                background: runFossa && isFossaAvailable ? "#dbeafe" : "#f1f5f9",
+                color: runFossa && isFossaAvailable ? "#1e40af" : "#64748b",
                 flexShrink: 0,
               }}
             >
@@ -1029,23 +1029,25 @@ setIsLlmConfiguredMod(
 
           <label style={{
             display: "flex", alignItems: "center", gap: 12, padding: "14px 18px", borderRadius: 12,
-            border: `2px solid ${runCycode && isCycodeAvailable ? "#6366f1" : "#e2e8f0"}`,
-            background: runCycode && isCycodeAvailable ? "#eef2ff" : "#f8fafc",
+            border: `2px solid ${runCycode && isCycodeAvailable ? "#2563eb" : "#e2e8f0"}`,
+            background: runCycode && isCycodeAvailable ? "#eff6ff" : "#f8fafc",
             cursor: isCycodeAvailable ? "pointer" : "not-allowed", minHeight: 88,
             opacity: isCycodeAvailable ? 1 : 0.6,
           }}>
             <input type="checkbox" aria-label="Run Cycode security scans"
               checked={runCycode && isCycodeAvailable} disabled={!isCycodeAvailable}
               onChange={(event) => setRunCycode(event.target.checked)}
-              style={{ width: 18, height: 18, accentColor: "#6366f1", flexShrink: 0 }} />
+              style={{ width: 18, height: 18, accentColor: "#2563eb", flexShrink: 0 }} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a", display: "flex", alignItems: "center", gap: 8 }}>
-                <FaShieldAlt aria-hidden="true" /><span>Cycode</span>
+                <FaShieldAlt aria-hidden="true" style={{ color: runCycode && isCycodeAvailable ? "#2563eb" : "#64748b" }} />
+                <span style={{ whiteSpace: "nowrap" }}>Cycode</span>
               </div>
               <div style={{ fontSize: 12, color: "#64748b", marginTop: 2, lineHeight: 1.3 }}>{cycodeSubtitle}</div>
             </div>
             <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 6,
-              color: "#4338ca", background: "#e0e7ff", flexShrink: 0 }}>
+              color: runCycode && isCycodeAvailable ? "#1e40af" : "#64748b",
+              background: runCycode && isCycodeAvailable ? "#dbeafe" : "#f1f5f9", flexShrink: 0 }}>
               {runCycode && isCycodeAvailable ? "ENABLED" : "OPTIONAL"}
             </span>
           </label>
@@ -1058,8 +1060,8 @@ setIsLlmConfiguredMod(
               gap: 12,
               padding: "14px 18px",
               borderRadius: 12,
-              border: `2px solid ${runTests && isTestsAvailable ? "#22c55e" : "#e2e8f0"}`,
-              background: runTests && isTestsAvailable ? "#f0fdf4" : (isTestsAvailable ? "#fff" : "#f8fafc"),
+              border: `2px solid ${runTests && isTestsAvailable ? "#2563eb" : "#e2e8f0"}`,
+              background: runTests && isTestsAvailable ? "#eff6ff" : (isTestsAvailable ? "#fff" : "#f8fafc"),
               cursor: isTestsAvailable ? "pointer" : "not-allowed",
               transition: "all 0.15s ease",
               minHeight: 88,
@@ -1077,12 +1079,12 @@ setIsLlmConfiguredMod(
                 e.stopPropagation();
                 if (isTestsAvailable) setRunTests(e.target.checked);
               }}
-              style={{ width: 18, height: 18, accentColor: "#22c55e", cursor: isTestsAvailable ? "pointer" : "not-allowed", flexShrink: 0 }}
+              style={{ width: 18, height: 18, accentColor: "#2563eb", cursor: isTestsAvailable ? "pointer" : "not-allowed", flexShrink: 0 }}
             />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a", display: "flex", alignItems: "center", gap: 8 }}>
-                <FaFileAlt style={{ fontSize: 12, color: runTests && isTestsAvailable ? "#166534" : "#64748b", flexShrink: 0 }} />
-                <span>Run Unit Test Suite</span>
+                <FaFileAlt style={{ fontSize: 12, color: runTests && isTestsAvailable ? "#2563eb" : "#64748b", flexShrink: 0 }} />
+                <span style={{ whiteSpace: "nowrap" }}>Run Unit Test Suite</span>
               </div>
               <div style={{ fontSize: 12, color: "#64748b", marginTop: 2, lineHeight: 1.3 }}>
                 {getTestsSubtitle()}
@@ -1093,10 +1095,10 @@ setIsLlmConfiguredMod(
                 marginLeft: "auto",
                 fontSize: 10,
                 fontWeight: 700,
-                padding: "3px 10px",
+                padding: "3px 8px",
                 borderRadius: 6,
-                background: runTests && isTestsAvailable ? "#dcfce7" : "#f1f5f9",
-                color: runTests && isTestsAvailable ? "#166534" : "#64748b",
+                background: runTests && isTestsAvailable ? "#dbeafe" : "#f1f5f9",
+                color: runTests && isTestsAvailable ? "#1e40af" : "#64748b",
                 flexShrink: 0,
               }}
             >
@@ -1112,8 +1114,8 @@ setIsLlmConfiguredMod(
               gap: 12,
               padding: "14px 18px",
               borderRadius: 12,
-              border: `2px solid ${runFunctionalTests ? "#6366f1" : "#e2e8f0"}`,
-              background: runFunctionalTests ? "#eef2ff" : "#f8fafc",
+              border: `2px solid ${runFunctionalTests ? "#2563eb" : "#e2e8f0"}`,
+              background: runFunctionalTests ? "#eff6ff" : "#f8fafc",
               cursor: "pointer",
               transition: "all 0.15s ease",
               minHeight: 88,
@@ -1127,12 +1129,12 @@ setIsLlmConfiguredMod(
                 e.stopPropagation();
                 setRunFunctionalTests(e.target.checked);
               }}
-              style={{ width: 18, height: 18, accentColor: "#6366f1", cursor: "pointer", flexShrink: 0 }}
+              style={{ width: 18, height: 18, accentColor: "#2563eb", cursor: "pointer", flexShrink: 0 }}
             />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a", display: "flex", alignItems: "center", gap: 8 }}>
-                <FaFlask style={{ fontSize: 12, color: runFunctionalTests ? "#4338ca" : "#64748b", flexShrink: 0 }} />
-                <span>Functional Testing</span>
+                <FaFlask style={{ fontSize: 12, color: runFunctionalTests ? "#2563eb" : "#64748b", flexShrink: 0 }} />
+                <span style={{ whiteSpace: "nowrap" }}>Functional Testing</span>
               </div>
               <div style={{ fontSize: 12, color: "#64748b", marginTop: 2, lineHeight: 1.3 }}>
                 {runFunctionalTests
@@ -1145,14 +1147,14 @@ setIsLlmConfiguredMod(
                 marginLeft: "auto",
                 fontSize: 10,
                 fontWeight: 700,
-                padding: "3px 10px",
+                padding: "3px 8px",
                 borderRadius: 6,
-                background: runFunctionalTests ? "#e0e7ff" : "#f1f5f9",
-                color: runFunctionalTests ? "#4338ca" : "#64748b",
+                background: runFunctionalTests ? "#dbeafe" : "#f1f5f9",
+                color: runFunctionalTests ? "#1e40af" : "#64748b",
                 flexShrink: 0,
               }}
             >
-              {runFunctionalTests ? "ENABLED" : "DISABLED"}
+              {runFunctionalTests ? "RECOMMENDED" : "OPTIONAL"}
             </span>
           </div>
         </div>
@@ -1414,8 +1416,7 @@ setIsLlmConfiguredMod(
 
       </div>
 
-      <div style={styles.btnRow} className="modernization-nav-btn-row">
-        <button style={styles.secondaryBtn} onClick={onBack}>{renderBackButtonLabel()}</button>
+      <div style={{ ...styles.btnRow, justifyContent: "flex-end" }} className="modernization-nav-btn-row">
         <button
           style={{ ...styles.primaryBtn, opacity: loading ? 0.5 : 1 }}
           onClick={handleStartMigrationClick}
