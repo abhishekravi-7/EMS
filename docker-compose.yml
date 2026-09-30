@@ -5,7 +5,7 @@ services:
       context: ./APEX-Backend
       dockerfile: Dockerfile
     ports:
-      - "8000:8000"
+      - "8001:8000"
     env_file:
       - ./APEX-Backend/.env
     volumes:
@@ -21,9 +21,9 @@ services:
       context: ./APEX-Frontend
       dockerfile: Dockerfile
     ports:
-      - "5173:80"
+      - "5174:80"
     environment:
-      - VITE_API_URL=http://localhost:8000
+      - VITE_API_URL=http://localhost:8001
       - VITE_TOKEN_TRACING_DASHBOARD_URL=http://localhost:8765/
     depends_on:
       - backend
@@ -47,7 +47,7 @@ services:
       - POSTGRES_PASSWORD=apex_pass
       - POSTGRES_DB=java_apex_db
     ports:
-      - "5432:5432"
+      - "5433:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U apex_user -d java_apex_db"]
       interval: 5s

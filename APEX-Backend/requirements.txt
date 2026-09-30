@@ -23,3 +23,8 @@ motor>=3.3,<4.0
 #   pip install --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt
 #qdrant-client>=1.7,<2.0
 #sentence-transformers>=2.6,<6.0  --uncomment when you use RAG
+
+# --- Added Dependencies ---
+sqlalchemy>=2.0.0
+tree-sitter==0.26.0
+tree-sitter-java==0.23.5

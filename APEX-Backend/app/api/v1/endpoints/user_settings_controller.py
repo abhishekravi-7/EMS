@@ -308,9 +308,23 @@ async def get_user_quality_checks_config(
     current_user: User = Depends(get_current_user),  # noqa: B008
 ):
     """Fetch the Super Admin's quality checks configuration."""
-    from app.api.v1.endpoints.admin_settings_controller import _get_live_env_values
-    env_values = _get_live_env_values()
-    return {"quality_checks_config": env_values.get("QUALITY_CHECKS_CONFIG", "{}")}
+    from app.infrastructure.quality_gates.cycode_config import quality_checks_config
+    from app.infrastructure.persistence.mongodb_system_settings_repository import get_all_settings
+
+    mongo_db = await get_mongodb()
+    system_settings = await get_all_settings(mongo_db) if mongo_db is not None else {}
+
+    def enabled(name: str) -> bool:
+        value = system_settings.get(name)
+        if value is None:
+            value = _get_live_env_values().get(name.upper())
+        return str(value if value is not None else "true").strip().lower() in {"1", "true", "yes", "on"}
+
+    return {
+        "quality_checks_config": quality_checks_config(),
+        "ci_enabled": enabled("ci_enabled"),
+        "cd_enabled": enabled("cd_enabled"),
+    }
 
 @router.post("/user/settings/github/test")
 async def test_user_github_connection(

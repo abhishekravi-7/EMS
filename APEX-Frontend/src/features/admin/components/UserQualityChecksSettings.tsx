@@ -597,7 +597,8 @@ export default function UserQualityChecksSettings({
     </div>
   );
 
-  let renderedPromptInCheck = false;
+
+
   let renderedFunctionalPromptInCheck = false;
 
   if (mode === "testing_only") {
@@ -674,9 +675,6 @@ export default function UserQualityChecksSettings({
         const isFunctionalTestCheck = (check.id || "").toLowerCase().includes("functional") || 
                                       (check.name || "").toLowerCase().includes("functional");
 
-        if (isUnitTestCheck) {
-          renderedPromptInCheck = true;
-        }
         if (isFunctionalTestCheck) {
           renderedFunctionalPromptInCheck = true;
         }

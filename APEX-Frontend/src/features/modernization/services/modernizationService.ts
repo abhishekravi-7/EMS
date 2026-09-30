@@ -75,6 +75,7 @@ export interface MigrationRequest {
   llm_test_provider?: string;
   run_sonar: boolean;
   run_fossa?: boolean;
+  run_cycode?: boolean;
   run_functional_tests?: boolean;
   fix_business_logic: boolean;
   functional_test_method?: string[];
@@ -166,6 +167,7 @@ export interface MigrationConfigPayload {
     runTests: boolean;
     runSonar: boolean;
     runFossa: boolean;
+    runCycode?: boolean;
     fixBusinessLogic: boolean;
     uiFrameworkTarget?: "React" | "Angular";
     uiFrameworkVersion?: string;

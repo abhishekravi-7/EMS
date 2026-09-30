@@ -37,6 +37,7 @@ class MigrationPreviewRequest(BaseModel):
     run_tests: bool = False
     run_sonar: bool = False
     run_fossa: bool = False
+    run_cycode: bool = False
     fix_business_logic: bool = False
 
     model_config = {"extra": "allow"}
