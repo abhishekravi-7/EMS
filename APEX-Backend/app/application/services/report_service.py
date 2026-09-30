@@ -10,12 +10,13 @@ from __future__ import annotations
 
 import threading
 from typing import Any
+from cachetools import LRUCache
 from app.application.services.file_diff_service import FileDiffService
 from app.infrastructure.github.repo_creator import RepoCreator
 from app.infrastructure.workspace.workspace_paths import WorkspacePaths
 
 _diff_service = FileDiffService()
-_RESULT_CACHE: dict[str, tuple[str, dict[str, Any]]] = {}
+_RESULT_CACHE: LRUCache = LRUCache(maxsize=100)
 _RESULT_CACHE_LOCK = threading.Lock()
 
 
