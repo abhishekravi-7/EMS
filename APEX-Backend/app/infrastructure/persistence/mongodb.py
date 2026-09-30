@@ -1,7 +1,14 @@
 import asyncio
 import logging
-from motor.motor_asyncio import AsyncIOMotorClient
-import pymongo
+try:
+    from motor.motor_asyncio import AsyncIOMotorClient
+except ImportError:
+    AsyncIOMotorClient = None  # type: ignore[misc,assignment]
+
+try:
+    import pymongo
+except ImportError:
+    pymongo = None  # type: ignore[misc,assignment]
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)

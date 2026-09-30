@@ -906,67 +906,103 @@ function generatePreviewHtml(rawLines: GeneratedLine[], fileName: string, allFil
     ? angularToHtml(selectedSource)
     : jsxToHtml(selectedSource, primaryFileName);
 
-  if (markup.includes("Modernized Angular view component.") || markup.includes("Modernized view component.") || /CommonHeaderComponent/i.test(markup)) {
+  const isHeaderOrNav = /header|navigation|navbar/i.test(primaryFileName) || /CommonHeaderComponent/i.test(markup);
+  if (isHeaderOrNav || markup.includes("Modernized Angular view component.") || markup.includes("Modernized view component.")) {
+    const isNavigationComponent = /navigation/i.test(primaryFileName);
+    const componentTitle = isNavigationComponent ? "Global Layout Navigation Component" : "Global Layout Header Component";
+    const componentFileLabel = escapeHtml(primaryFileName);
+
     markup = `
-    <header class="common-header bg-white border-bottom shadow-sm px-4 py-3 mb-4 rounded-3">
-      <div class="container-fluid d-flex align-items-center justify-content-between">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm px-4 py-3 mb-4 rounded-3 d-flex align-items-center justify-content-between">
+      <div class="container-fluid d-flex flex-wrap align-items-center justify-content-between p-0">
         <div class="d-flex align-items-center gap-3">
-          <a class="navbar-brand d-flex align-items-center text-primary font-weight-bold mb-0 text-decoration-none" href="/" data-nav="ListTodosComponent.ts">
-            <span class="bg-primary text-white rounded-3 p-2 me-2 d-inline-flex shadow-sm">
+          <a class="navbar-brand d-flex align-items-center text-white fw-bold mb-0 text-decoration-none" href="/" data-nav="ListTodosComponent.tsx">
+            <span class="bg-white text-primary rounded-3 p-2 me-2 d-inline-flex shadow-sm">
               <i class="fa fa-cubes"></i>
             </span>
-            <span class="fs-5 fw-bold text-dark">Todo Management System</span>
+            <span class="fs-5 fw-bold text-white">Todo Management System</span>
           </a>
-          <span class="badge bg-primary text-white px-2 py-1 small rounded-pill">
+          <span class="badge bg-white text-primary px-2 py-1 small rounded-pill fw-bold shadow-sm">
             v2.4 Modernized
           </span>
         </div>
 
-        <div class="d-none d-md-flex align-items-center flex-grow-1 mx-4" style="max-width: 400px;">
-          <div class="input-group">
-            <span class="input-group-text bg-light border-end-0 text-muted"><i class="fa fa-search"></i></span>
-            <input type="text" class="form-control bg-light border-start-0 ps-0" placeholder="Search todos, categories, tasks..." value="Spring Boot" />
-          </div>
-        </div>
+        <ul class="navbar-nav d-flex flex-row align-items-center my-2 my-lg-0 list-unstyled gap-2">
+          <li class="nav-item">
+            <a class="nav-link active bg-white bg-opacity-25 text-white fw-bold px-3 py-1 rounded-2 text-decoration-none" href="#" data-nav="ListTodosComponent.tsx">
+              <i class="fa fa-home me-1"></i>Home
+            </a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link text-white fw-semibold px-3 py-1 rounded-2 text-decoration-none" href="/list-todos.do" data-nav="ListTodosComponent.tsx">
+              <i class="fa fa-list-check me-1"></i>Todos
+            </a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link text-white fw-semibold px-3 py-1 rounded-2 text-decoration-none" href="http://www.in28minutes.com" target="_blank" rel="noopener noreferrer">
+              <i class="fa fa-arrow-up-right-from-square me-1"></i>In28Minutes
+            </a>
+          </li>
+        </ul>
 
         <div class="d-flex align-items-center gap-3">
-          <div class="dropdown">
-            <button class="btn btn-light position-relative p-2 rounded-circle" type="button" title="Notifications">
-              <i class="fa fa-bell text-secondary"></i>
-              <span class="position-absolute top-0 start-100 translate-middle p-1 bg-danger border border-light rounded-circle"></span>
-            </button>
-          </div>
-
-          <div class="d-flex align-items-center gap-2 ps-2 border-start">
-            <div class="avatar bg-primary text-white rounded-circle d-flex align-items-center justify-content-center fw-bold shadow-sm" style="width: 36px; height: 36px;">I</div>
-            <div class="d-none d-sm-block text-start lh-sm">
-              <div class="fw-semibold text-dark small">in28Minutes</div>
-              <small class="text-muted" style="font-size: 11px;">Administrator</small>
+          <div class="d-none d-md-flex align-items-center me-2" style="max-width: 220px;">
+            <div class="input-group input-group-sm">
+              <span class="input-group-text bg-white bg-opacity-10 border-0 text-white"><i class="fa fa-search"></i></span>
+              <input type="text" class="form-control bg-white bg-opacity-10 text-white border-0 ps-0 placeholder-white" placeholder="Search tasks..." value="Spring Boot" />
             </div>
           </div>
+
+          <div class="d-flex align-items-center gap-2 ps-2 border-start border-white border-opacity-25">
+            <div class="avatar bg-white text-primary rounded-circle d-flex align-items-center justify-content-center fw-bold shadow-sm" style="width: 34px; height: 34px;">I</div>
+            <div class="d-none d-sm-block text-start text-white lh-sm">
+              <div class="fw-semibold small">in28Minutes</div>
+              <small class="text-white-50" style="font-size: 11px;">Administrator</small>
+            </div>
+          </div>
+
+          <a class="btn btn-sm btn-light text-primary fw-bold px-3 py-1 rounded-2 ms-2 shadow-sm" href="/logout.do" data-nav="LoginComponent.tsx">
+            <i class="fa fa-sign-out-alt me-1"></i>Logout
+          </a>
         </div>
       </div>
-    </header>
+    </nav>
     <div class="card p-4 shadow-sm bg-white border-0 mt-3">
-      <h5 class="fw-bold text-dark mb-2"><i class="fa fa-info-circle text-primary me-2"></i>Global Layout Header Component</h5>
-      <p class="text-muted mb-0">This modernized view component provides global brand identification, live search input, notification alerts, and active user session profile state for the application.</p>
+      <div class="d-flex align-items-center justify-content-between mb-2">
+        <h5 class="fw-bold text-dark mb-0">
+          <i class="fa fa-compass text-primary me-2"></i>${componentTitle}
+        </h5>
+        <span class="badge bg-primary-subtle text-primary border border-primary-subtle px-2 py-1 small rounded-pill fw-semibold">
+          ${componentFileLabel}
+        </span>
+      </div>
+      <p class="text-muted mb-3">This modernized layout view component provides global brand identification, primary route navigation, live search filtering, and active user session state migrated from legacy JSP/JSF layouts.</p>
+      <div class="d-flex flex-wrap gap-2 pt-2 border-top">
+        <span class="text-muted small fw-semibold align-self-center me-2">Quick Sandbox Navigation:</span>
+        <a href="/list-todos.do" data-nav="ListTodosComponent.tsx" class="btn btn-sm btn-outline-primary fw-semibold">
+          <i class="fa fa-list me-1"></i>Todos View
+        </a>
+        <a href="/add-todo" data-nav="AddTodo.tsx" class="btn btn-sm btn-outline-success fw-semibold">
+          <i class="fa fa-plus-circle me-1"></i>Add Todo View
+        </a>
+        <a href="/logout.do" data-nav="LoginComponent.tsx" class="btn btn-sm btn-outline-secondary fw-semibold">
+          <i class="fa fa-sign-in-alt me-1"></i>Login / Sign In View
+        </a>
+      </div>
     </div>`;
   }
 
   // Dynamically map generic "modern-*" classes (often used in AI-generated React/Angular skeletons) to Bootstrap
   markup = markup
-    .replace(/\bclass(?:Name)?=["']([^"']*\bmodern-nav\b[^"']*)["']/gi, 'class="navbar navbar-expand-lg bg-primary shadow-sm px-4 py-2 mb-4 rounded-3 d-flex align-items-center justify-content-between"')
-    .replace(/\bclass(?:Name)?=["']([^"']*\bmodern-brand\b[^"']*)["']/gi, 'class="navbar-brand fw-bold text-white fs-4 me-4 text-decoration-none"')
-    .replace(/\bclass(?:Name)?=["']([^"']*\bmodern-nav-list\b[^"']*\bmodern-nav-right\b[^"']*)["']/gi, 'class="navbar-nav d-flex flex-row align-items-center ms-auto mb-0 list-unstyled gap-3"')
-    .replace(/\bclass(?:Name)?=["']([^"']*\bmodern-nav-list\b[^"']*)["']/gi, (match, p1) => {
-        if (!p1.includes("modern-nav-right")) return 'class="navbar-nav d-flex flex-row align-items-center me-auto mb-0 list-unstyled gap-3"';
-        return match;
-    })
-    .replace(/<li\b([^>]*)>\s*<a\b([^>]*)>/gi, (match, p1, p2) => {
-        if (markup.includes("modern-nav")) {
-             return `<li class="nav-item"${p1}><a class="nav-link text-white font-weight-bold px-2 text-decoration-none"${p2}>`;
-        }
-        return match;
+    .replace(/\bclass(?:Name)?=["']([^"']*\bmodern-nav-list\b[^"']*\bmodern-nav-right\b[^"']*)["']/gi, 'class="navbar-nav d-flex flex-row align-items-center ms-auto mb-0 list-unstyled gap-2"')
+    .replace(/\bclass(?:Name)?=["']([^"']*\bmodern-nav-list\b[^"']*)["']/gi, 'class="navbar-nav d-flex flex-row align-items-center me-auto mb-0 list-unstyled gap-2"')
+    .replace(/\bclass(?:Name)?=["']([^"']*\bmodern-brand\b[^"']*)["']/gi, 'class="navbar-brand fw-bold text-white fs-4 me-4 text-decoration-none d-flex align-items-center"')
+    .replace(/\bclass(?:Name)?=["']([^"']*\bmodern-nav(?![a-zA-Z0-9_-])\b[^"']*)["']/gi, 'class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm px-4 py-2 mb-4 rounded-3 d-flex align-items-center justify-content-between"')
+    .replace(/<li\b[^>]*\bclass(?:Name)?=["']active["'][^>]*>\s*<a\b([^>]*)>([\s\S]*?)<\/a>\s*<\/li>/gi,
+      '<li class="nav-item"><a class="nav-link active bg-white bg-opacity-25 text-white fw-bold px-3 py-1 rounded-2 text-decoration-none" $1>$2</a></li>')
+    .replace(/<li\b([^>]*)>\s*<a\b([^>]*)>([\s\S]*?)<\/a>\s*<\/li>/gi, (match, liAttrs, aAttrs, content) => {
+      if (aAttrs.includes("nav-link")) return match;
+      return `<li class="nav-item"${liAttrs}><a class="nav-link text-white fw-semibold px-2 text-decoration-none" ${aAttrs}>${content}</a></li>`;
     });
 
   // Shared Legacy UI Modernizations (Applies to both React and Angular)
@@ -1037,6 +1073,24 @@ function generatePreviewHtml(rawLines: GeneratedLine[], fileName: string, allFil
     </footer>`)
     .replace(/(?:\s*\/>){3,}/g, ""); // Clean up multiple stray closing tags in App.tsx
 
+  // Clean duplicate classes created by chained replacements
+  markup = markup.replace(/<([a-z0-9]+)\b([^>]*?)\bclass="([^"]*)"([^>]*?)\bclass="([^"]*)"([^>]*)>/gi, '<$1$2 class="$3 $5"$4$6>');
+
+  if (/footer/i.test(primaryFileName)) {
+    markup += `
+    <div class="card p-4 shadow-sm bg-white border-0 mt-4">
+      <div class="d-flex align-items-center justify-content-between mb-2">
+        <h5 class="fw-bold text-dark mb-0">
+          <i class="fa fa-shoe-prints text-primary me-2"></i>Global Layout Footer Component
+        </h5>
+        <span class="badge bg-primary-subtle text-primary border border-primary-subtle px-2 py-1 small rounded-pill fw-semibold">
+          ${escapeHtml(primaryFileName)}
+        </span>
+      </div>
+      <p class="text-muted mb-0">This modernized view component provides global footer attribution, system release metadata, and real-time backend API connectivity status.</p>
+    </div>`;
+  }
+
   const visibleText = markup
     .replace(/<[^>]*>/g, "")
     .replace(/\s+/g, "")
@@ -1061,6 +1115,68 @@ function generatePreviewHtml(rawLines: GeneratedLine[], fileName: string, allFil
           return altMarkup;
         }
       }
+    }
+
+    // 2. Synthesize Login / Sign In view if component is an auth view or contains credentials state
+    if (
+      /login|signin|auth/i.test(fileName) ||
+      /login|signin|auth/i.test(baseStem) ||
+      (selectedSource.includes("password") && (selectedSource.includes("name") || selectedSource.includes("username") || selectedSource.includes("email")))
+    ) {
+      return `
+      <div class="card shadow-sm border-0 mx-auto my-4" style="max-width: 440px; border-radius: 12px; background: #ffffff;">
+        <div class="card-body p-4">
+          <div class="text-center mb-4">
+            <div class="bg-primary bg-opacity-10 text-primary rounded-circle d-inline-flex p-3 mb-2 shadow-sm">
+              <i class="fa fa-user-lock fa-2x"></i>
+            </div>
+            <h4 class="card-title font-weight-bold text-dark mb-1">Sign In</h4>
+            <p class="text-muted small">Access your modernized enterprise workspace</p>
+          </div>
+          <form action="/login.do" method="post" id="loginForm">
+            <div class="form-group mb-3">
+              <label class="form-label font-weight-bold small text-muted">Username</label>
+              <div class="input-group">
+                <span class="input-group-text bg-light text-muted border-end-0"><i class="fa fa-user"></i></span>
+                <input type="text" name="name" class="form-control border-start-0" placeholder="Enter username" value="in28Minutes" required />
+              </div>
+            </div>
+            <div class="form-group mb-3">
+              <label class="form-label font-weight-bold small text-muted">Password</label>
+              <div class="input-group">
+                <span class="input-group-text bg-light text-muted border-end-0"><i class="fa fa-lock"></i></span>
+                <input type="password" name="password" class="form-control border-start-0" placeholder="Enter password" value="password" required />
+              </div>
+            </div>
+            <button type="submit" class="btn btn-primary w-100 font-weight-bold py-2 shadow-sm">
+              <i class="fa fa-sign-in-alt me-2"></i>Login
+            </button>
+          </form>
+        </div>
+      </div>`;
+    }
+
+    // 3. Synthesize Todo / Task Form view if component is an Add/Edit Todo view
+    if (/add[-_]?todo/i.test(fileName) || /add[-_]?todo/i.test(baseStem)) {
+      return `
+      <div class="card shadow-sm border-0 mx-auto my-4" style="max-width: 520px; border-radius: 12px; background: #ffffff;">
+        <div class="card-body p-4">
+          <h4 class="card-title text-primary font-weight-bold mb-3"><i class="fa fa-plus-circle me-2"></i>Add New Todo</h4>
+          <form action="/add-todo.do" method="post">
+            <div class="form-group mb-3">
+              <label class="form-label font-weight-bold small text-muted">Description</label>
+              <input type="text" name="desc" class="form-control" placeholder="Enter todo description" value="Learn React & Spring Boot" required />
+            </div>
+            <div class="form-group mb-3">
+              <label class="form-label font-weight-bold small text-muted">Target Date</label>
+              <input type="date" name="targetDate" class="form-control" value="2026-10-15" required />
+            </div>
+            <button type="submit" class="btn btn-success font-weight-bold px-4 py-2 shadow-sm">
+              <i class="fa fa-check me-1"></i>Add Todo
+            </button>
+          </form>
+        </div>
+      </div>`;
     }
   }
 
@@ -1230,7 +1346,7 @@ export function FrameworkPageSandbox({
     const markup = generatePreviewHtml(activeCode, activeFileName, allFiles);
     const isAngular = activeFileName.endsWith(".ts") || allFiles.some((f) => f.fileName.endsWith(".ts"));
     const frameworkName = isAngular ? "Angular" : "React";
-    const isNavbar = /navbar|header/i.test(activeFileName);
+    const isNavbar = /navbar|header|navigation/i.test(activeFileName);
     const isFooter = /footer/i.test(activeFileName);
 
     const fullPreview = markup
@@ -1390,6 +1506,64 @@ export function FrameworkPageSandbox({
       overflow-x: auto;
       border-radius: 8px;
       border: 1px solid #e2e8f0;
+    }
+
+    /* Modern Navigation & Layout Bar Styling */
+    .modern-nav, nav[class*="modern-nav"] {
+      display: flex !important;
+      align-items: center !important;
+      justify-content: space-between !important;
+      background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%) !important;
+      padding: 0.75rem 1.5rem !important;
+      border-radius: 10px !important;
+      box-shadow: 0 4px 14px rgba(37, 99, 235, 0.2) !important;
+      margin-bottom: 1.5rem !important;
+    }
+    .modern-brand, a[class*="modern-brand"] {
+      color: #ffffff !important;
+      font-size: 1.25rem !important;
+      font-weight: 700 !important;
+      text-decoration: none !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      gap: 0.5rem !important;
+    }
+    .modern-nav-list, ul[class*="modern-nav-list"] {
+      display: flex !important;
+      flex-direction: row !important;
+      align-items: center !important;
+      list-style: none !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      gap: 0.75rem !important;
+    }
+    .modern-nav-list.modern-nav-right, ul[class*="modern-nav-right"] {
+      margin-left: auto !important;
+    }
+    .modern-nav-list li {
+      list-style: none !important;
+      margin: 0 !important;
+      padding: 0 !important;
+    }
+    .modern-nav-list li a, .modern-nav-list a {
+      color: rgba(255, 255, 255, 0.9) !important;
+      font-weight: 600 !important;
+      font-size: 0.95rem !important;
+      text-decoration: none !important;
+      padding: 0.4rem 0.85rem !important;
+      border-radius: 6px !important;
+      transition: all 0.2s ease !important;
+      display: inline-flex !important;
+      align-items: center !important;
+    }
+    .modern-nav-list li a:hover,
+    .modern-nav-list li.active a,
+    .modern-nav-list li a.active {
+      color: #ffffff !important;
+      background: rgba(255, 255, 255, 0.2) !important;
+    }
+    .placeholder-white::placeholder {
+      color: rgba(255, 255, 255, 0.7) !important;
     }
     ${css}
   </style>

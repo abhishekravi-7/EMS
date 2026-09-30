@@ -286,6 +286,39 @@ export function ResultReportView({
     return mergedEntries;
   }, [migrationJob?.file_diffs, migrationJob?.uiTransformations, loadedFileDiffs]);
 
+  const modifiedFilesBreakdown = React.useMemo(() => {
+    if (!diffData || diffData.length === 0) return "";
+    let javaCount = 0;
+    let jspCount = 0;
+    let xmlCount = 0;
+    let uiCount = 0;
+    let otherCount = 0;
+
+    for (const item of diffData) {
+      const p = (item.relativePath || item.sourceFile || item.file || "").toLowerCase();
+      if (p.endsWith(".java")) {
+        javaCount++;
+      } else if (p.endsWith(".jsp") || p.endsWith(".jspf") || p.endsWith(".jspx") || p.endsWith(".xhtml") || p.endsWith(".jsf")) {
+        jspCount++;
+      } else if (p.endsWith(".xml") || p.endsWith(".gradle") || p.endsWith(".properties") || p.endsWith(".yaml") || p.endsWith(".yml")) {
+        xmlCount++;
+      } else if (p.endsWith(".tsx") || p.endsWith(".jsx") || p.endsWith(".ts") || p.endsWith(".js") || p.endsWith(".css") || p.endsWith(".html") || p.includes("frontend/")) {
+        uiCount++;
+      } else {
+        otherCount++;
+      }
+    }
+
+    const parts: string[] = [];
+    if (javaCount > 0) parts.push(`${javaCount} Java`);
+    if (jspCount > 0) parts.push(`${jspCount} JSP/JSF`);
+    if (uiCount > 0) parts.push(`${uiCount} Modern UI`);
+    if (xmlCount > 0) parts.push(`${xmlCount} Config/XML`);
+    if (otherCount > 0) parts.push(`${otherCount} Other`);
+
+    return parts.join(" · ");
+  }, [diffData]);
+
   const handleSelectFileForDiff = (filePath: string) => {
     const norm = filePath.replace(/\\/g, "/").toLowerCase();
     const base = norm.split("/").pop();
@@ -1318,8 +1351,9 @@ export function ResultReportView({
                 </div>
 
                 {(() => {
-                  // transformations count: prefer diffData length (actual changed files) then fall back to issues_fixed
-                  const transformationsCount = diffData.length > 0 ? diffData.length : (migrationJob.issues_fixed ?? 0);
+                  const transformationsCount =
+                    migrationJob?.transformations_count ??
+                    (migrationJob?.uiTransformations?.length ?? 0);
                   const overviewCards = [
                     {
                       icon: <FaFileAlt />,
@@ -1328,9 +1362,11 @@ export function ResultReportView({
                         ? `${migrationJob.files_modified ?? 0} of ${discoveryTotalFiles} total files`
                         : "Code files updated during migration",
                       value: migrationJob.files_modified ?? 0,
-                      footer: discoveryTotalFiles > 0
-                        ? `${discoveryJavaFiles} Java · ${discoveryJspFiles + discoveryJsfFiles} JSP/JSF · ${discoveryXmlFiles} XML`
-                        : migrationJob.files_modified === 0 ? "No files modified" : `${migrationJob.files_modified} files updated`,
+                      footer: modifiedFilesBreakdown || (
+                        discoveryTotalFiles > 0
+                          ? `${discoveryJavaFiles} Java · ${discoveryJspFiles + discoveryJsfFiles} JSP/JSF · ${discoveryXmlFiles} XML`
+                          : migrationJob.files_modified === 0 ? "No files modified" : `${migrationJob.files_modified} files updated`
+                      ),
                       color: "#2563eb", bg: "#eff6ff", border: "#dbeafe", glow: "rgba(37,99,235,0.05)",
                       category: "files" as const,
                     },

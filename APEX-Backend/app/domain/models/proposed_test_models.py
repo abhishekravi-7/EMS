@@ -77,6 +77,7 @@ class ExecutionEvidence(BaseModel):
     screenshot_available: bool = False
     video_available: bool = False
     trace_url: str | None = None
+    trace_available: bool = False
 
 
 class ExecutionResult(BaseModel):

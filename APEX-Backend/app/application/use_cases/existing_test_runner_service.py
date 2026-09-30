@@ -15,7 +15,10 @@ from collections import deque
 from pathlib import Path
 from typing import Any
 
-import defusedxml.ElementTree as ET
+try:
+    import defusedxml.ElementTree as ET
+except ImportError:
+    import xml.etree.ElementTree as ET
 
 from app.infrastructure.workspace.workspace_paths import WorkspacePaths
 
