@@ -481,98 +481,106 @@ class StartMigrationUseCase:
                             jsf_files.append(Path(root) / f)
 
                 if not jsp_files and not jsf_files:
-                    logger.warning(
-                        "UI modernization requested for job %s, but no JSP/JSF files found in %s",
-                        job_id,
-                        paths.migrated_repo_dir,
-                    )
-                    store.append_logs([
-                        "[UI MIGRATION] UI modernization requested, but no JSP/JSF files found in migrated repository."
-                    ])
-                    self._fail(
-                        store,
-                        job_id,
-                        "UI modernization requested, but no JSP/JSF files were found in the migrated repository.",
-                    )
-                    return
-
-                ui_target = options.get("uiFrameworkTarget") or "React"
-                ui_mode = options.get("uiModMode") or ("JSP -> React" if "react" in str(ui_target).lower() else "JSP -> Angular")
-
-                store.append_logs([
-                    "[UI MIGRATION] Starting UI migration",
-                    f"[UI MIGRATION] Target framework: {ui_target}",
-                    f"[UI MIGRATION] Mode: {ui_mode}",
-                    f"[UI MIGRATION] Found {len(jsp_files)} JSP file(s)",
-                    f"[UI MIGRATION] Found {len(jsf_files)} JSF file(s)",
-                    "[UI MIGRATION] Converting JSP/JSF files...",
-                ])
-
-                try:
-                    ui_handler = self._ui_migration_handler_factory(
-                        migrated_repo_dir=paths.migrated_repo_dir,
-                        target_framework=ui_target,
-                        mode=ui_mode,
-                        ui_mode="preserve",
-                        backend_mode="unchanged",
-                    )
-                    ui_transformations = ui_handler.run()
-
-                    jsp_migrated = sum(
-                        1
-                        for t in ui_transformations
-                        if t.get("category", "").startswith("JSP")
-                        or (t.get("sourceFile") or t.get("file") or "").lower().endswith(jsp_extensions)
-                    )
-                    jsf_migrated = sum(
-                        1
-                        for t in ui_transformations
-                        if t.get("category", "").startswith("JSF")
-                        or (t.get("sourceFile") or t.get("file") or "").lower().endswith(jsf_extensions)
-                    )
-
-                    store.update(
-                        uiTransformations=ui_transformations,
-                        jspFilesMigrated=jsp_migrated if jsp_migrated > 0 else len(jsp_files),
-                        jsfFilesMigrated=jsf_migrated if jsf_migrated > 0 else len(jsf_files),
-                        jspFrontendFramework=ui_target if len(jsp_files) > 0 else None,
-                        jsfFrontendFramework=ui_target if len(jsf_files) > 0 else None,
-                        uiMigrationRequested=True,
-                        uiFrameworkTarget=ui_target,
-                        uiFrameworkVersion=options.get("uiFrameworkVersion"),
-                    )
-
-                    # Re-run change analysis to update modifiedFiles and issuesFixed with UI changes
-                    change_analysis = self._change_analyzer.analyze(
-                        paths.original_repo_dir, paths.migrated_repo_dir
-                    )
-                    files_modified = change_analysis.files_modified_count
-                    issues_fixed_count = (
-                        len(change_analysis.import_changes)
-                        + len(change_analysis.source_changes)
-                        + len(result.dependency_upgrades)
-                        + len(result.rule_executions)
-                        + len(ui_transformations)
-                    )
-                    store.update(
-                        filesModified=files_modified,
-                        modifiedFiles=change_analysis.all_changed_files[:200],
-                        issuesFixed=issues_fixed_count,
-                    )
-
-                    store.append_logs([
-                        f"[UI MIGRATION] UI migration completed ({len(ui_transformations)} file(s) converted to {ui_target})"
-                    ])
                     logger.info(
-                        "UI modernization completed for job %s: %d transformations",
+                        "UI modernization requested for job %s, but no JSP/JSF files were detected. Skipping UI modernization and continuing Java migration.",
                         job_id,
-                        len(ui_transformations),
                     )
-                except Exception as exc:
-                    logger.exception("UI modernization failed for job %s: %s", job_id, exc)
-                    store.append_logs([f"[UI MIGRATION] [ERROR] UI migration failed: {exc}"])
-                    self._fail(store, job_id, f"UI migration failed: {exc}")
-                    return
+                    store.append_logs([
+                        "[UI MIGRATION] UI modernization requested, but no JSP/JSF files were detected. Skipping UI modernization."
+                    ])
+                    store.update(
+                        uiTransformations=[],
+                        jspFilesMigrated=0,
+                        jsfFilesMigrated=0,
+                        uiMigrationRequested=True,
+                        uiMigrationSkipped=True,
+                    )
+                else:
+                    ui_target = options.get("uiFrameworkTarget") or "React"
+                    if options.get("uiModMode"):
+                        ui_mode = options.get("uiModMode")
+                    elif jsp_files and not jsf_files:
+                        ui_mode = "JSP -> React" if "react" in str(ui_target).lower() else "JSP -> Angular"
+                    elif jsf_files and not jsp_files:
+                        ui_mode = "JSF -> React" if "react" in str(ui_target).lower() else "JSF -> Angular"
+                    else:
+                        ui_mode = "JSP -> React" if "react" in str(ui_target).lower() else "JSP -> Angular"
+
+                    store.append_logs([
+                        "[UI MIGRATION] Starting UI migration",
+                        f"[UI MIGRATION] Target framework: {ui_target}",
+                        f"[UI MIGRATION] Mode: {ui_mode}",
+                        f"[UI MIGRATION] Found {len(jsp_files)} JSP file(s)",
+                        f"[UI MIGRATION] Found {len(jsf_files)} JSF file(s)",
+                        "[UI MIGRATION] Converting JSP/JSF files...",
+                    ])
+
+                    try:
+                        ui_handler = self._ui_migration_handler_factory(
+                            migrated_repo_dir=paths.migrated_repo_dir,
+                            target_framework=ui_target,
+                            mode=ui_mode,
+                            ui_mode="preserve",
+                            backend_mode="unchanged",
+                            progress_callback=lambda msg: store.append_logs([msg]),
+                        )
+                        ui_transformations = ui_handler.run()
+
+                        jsp_migrated = sum(
+                            1
+                            for t in ui_transformations
+                            if t.get("category", "").startswith("JSP")
+                            or (t.get("sourceFile") or t.get("file") or "").lower().endswith(jsp_extensions)
+                        )
+                        jsf_migrated = sum(
+                            1
+                            for t in ui_transformations
+                            if t.get("category", "").startswith("JSF")
+                            or (t.get("sourceFile") or t.get("file") or "").lower().endswith(jsf_extensions)
+                        )
+
+                        store.update(
+                            uiTransformations=ui_transformations,
+                            jspFilesMigrated=jsp_migrated if jsp_migrated > 0 else len(jsp_files),
+                            jsfFilesMigrated=jsf_migrated if jsf_migrated > 0 else len(jsf_files),
+                            jspFrontendFramework=ui_target if len(jsp_files) > 0 else None,
+                            jsfFrontendFramework=ui_target if len(jsf_files) > 0 else None,
+                            uiMigrationRequested=True,
+                            uiFrameworkTarget=ui_target,
+                            uiFrameworkVersion=options.get("uiFrameworkVersion"),
+                        )
+
+                        # Re-run change analysis to update modifiedFiles and issuesFixed with UI changes
+                        change_analysis = self._change_analyzer.analyze(
+                            paths.original_repo_dir, paths.migrated_repo_dir
+                        )
+                        files_modified = change_analysis.files_modified_count
+                        issues_fixed_count = (
+                            len(change_analysis.import_changes)
+                            + len(change_analysis.source_changes)
+                            + len(result.dependency_upgrades)
+                            + len(result.rule_executions)
+                            + len(ui_transformations)
+                        )
+                        store.update(
+                            filesModified=files_modified,
+                            modifiedFiles=change_analysis.all_changed_files[:200],
+                            issuesFixed=issues_fixed_count,
+                        )
+
+                        store.append_logs([
+                            f"[UI MIGRATION] UI migration completed ({len(ui_transformations)} file(s) converted to {ui_target})"
+                        ])
+                        logger.info(
+                            "UI modernization completed for job %s: %d transformations",
+                            job_id,
+                            len(ui_transformations),
+                        )
+                    except Exception as exc:
+                        logger.exception("UI modernization failed for job %s: %s", job_id, exc)
+                        store.append_logs([f"[UI MIGRATION] [ERROR] UI migration failed: {exc}"])
+                        self._fail(store, job_id, f"UI migration failed: {exc}")
+                        return
 
             # --- Stage 4: Quality Check (Build, SonarQube, FOSSA, Unit Tests) ---
             progress_service.set_stage(

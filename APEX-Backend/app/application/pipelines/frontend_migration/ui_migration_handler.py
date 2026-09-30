@@ -428,13 +428,16 @@ class UIMigrationHandler:
         target_framework: str,
         mode: str | None = None,
         ui_mode: str = "preserve",
-        backend_mode: str = "unchanged"
+        backend_mode: str = "unchanged",
+        progress_callback: Any | None = None,
+        **kwargs: Any,
     ):
         self.migrated_repo_dir = migrated_repo_dir
         self.target_framework = target_framework
         self.mode = mode
         self.ui_mode = ui_mode
         self.backend_mode = backend_mode
+        self.progress_callback = progress_callback
         self.llm = ChatLLM()
         self._cached_design_system: str | None = None
 
@@ -785,11 +788,23 @@ class UIMigrationHandler:
         logger.info(f"Starting dynamic UI modernization for {len(files_to_process)} files targeting {self.target_framework}.")
 
         transformations: list[dict] = []
-        for fp in files_to_process:
+        total_files = len(files_to_process)
+        for idx, fp in enumerate(files_to_process, 1):
+            if self.progress_callback:
+                try:
+                    self.progress_callback(f"[UI MIGRATION] Modernizing file ({idx}/{total_files}): {fp.name}...")
+                except Exception:
+                    pass
             try:
                 res = await self._process_file(fp, frontend_base, backend_context_files, ui_plan)
                 if res and isinstance(res, dict):
                     transformations.append(res)
+                    if self.progress_callback:
+                        try:
+                            target_disp = res.get("targetSourceFile") or res.get("target_source_file") or "component"
+                            self.progress_callback(f"[UI MIGRATION] Converted ({idx}/{total_files}): {fp.name} -> {target_disp}")
+                        except Exception:
+                            pass
             except Exception as exc:
                 logger.error(f"Error modernizing file {fp.name}: {exc}")
             await asyncio.sleep(0.05)
@@ -867,13 +882,15 @@ class UIMigrationHandler:
         # 1. Dynamically extract source context
         file_facts = extract_source_facts(file_path, source_code)
         filtered_backend_context = self._filter_backend_context_for_file(backend_context_files, file_facts)
-        augmented_context = f"{filtered_backend_context}\n\nUI FOLDER STRUCTURE GUIDE:\n{ui_plan}"
+        ui_plan_snippet = ui_plan[:1000] if len(ui_plan) > 1000 else ui_plan
+        augmented_context = f"{filtered_backend_context}\n\nUI FOLDER STRUCTURE GUIDE:\n{ui_plan_snippet}"
 
-        # 2. Build structured prompt
+        # 2. Build structured prompt (cap source code to avoid HTTP 413 payload limits)
+        source_code_for_prompt = source_code if len(source_code) <= 10000 else source_code[:10000] + "\n<!-- [truncated for token limit] -->"
         design_system = self._detect_frontend_design_system()
         prompt = build_ui_modernization_prompt(
             source_file_path=str(file_path.relative_to(self.migrated_repo_dir)).replace("\\", "/"),
-            source_code=source_code,
+            source_code=source_code_for_prompt,
             target_framework=self.target_framework,
             backend_context=augmented_context,
             source_facts=file_facts.to_prompt_summary(),
@@ -887,14 +904,20 @@ class UIMigrationHandler:
         for attempt in range(1, max_attempts + 1):
             full_response = ""
             try:
-                async for chunk in self.llm.stream_chat(
-                    system_prompt=UI_MODERNIZATION_SYSTEM_PROMPT,
-                    user_prompt=prompt,
-                    endpoint="ui_modernization",
-                    first_token_timeout=15.0,
-                    max_tokens=2048,
-                ):
-                    full_response += chunk
+                async def _stream_with_timeout():
+                    res = ""
+                    async for chunk in self.llm.stream_chat(
+                        system_prompt=UI_MODERNIZATION_SYSTEM_PROMPT,
+                        user_prompt=prompt,
+                        endpoint="ui_modernization",
+                        first_token_timeout=12.0,
+                        max_tokens=2048,
+                    ):
+                        res += chunk
+                    return res
+
+                # Enforce max 35s per file to never hang or stall on slow CPU Ollama models
+                full_response = await asyncio.wait_for(_stream_with_timeout(), timeout=35.0)
 
                 extracted_files = self._extract_files(full_response)
                 if not extracted_files:
