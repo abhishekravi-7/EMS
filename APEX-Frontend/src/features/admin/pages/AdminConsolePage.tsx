@@ -103,8 +103,17 @@ export default function AdminConsolePage() {
 
   const [showSecrets, setShowSecrets] = useState<{ [key: string]: boolean }>({});
   const [testingSonar, setTestingSonar] = useState(false);
- 
   const [testingFossa, setTestingFossa] = useState(false);
+
+  // Quality Gate SonarQube & FOSSA validation states
+  const [sonarValidationState, setSonarValidationState] = useState<"idle" | "validating" | "valid" | "invalid">("idle");
+  const [sonarValidationMessage, setSonarValidationMessage] = useState<string>("");
+  const sonarLastValidatedRef = React.useRef<string>("");
+
+  const [fossaValidationState, setFossaValidationState] = useState<"idle" | "validating" | "valid" | "invalid">("idle");
+  const [fossaValidationMessage, setFossaValidationMessage] = useState<string>("");
+  const fossaLastValidatedRef = React.useRef<string>("");
+
   const [availableRepos, setAvailableRepos] = useState<GithubRepo[]>([]);
   const [availableBranches, setAvailableBranches] = useState<GithubBranch[]>([]);
 
@@ -163,6 +172,28 @@ export default function AdminConsolePage() {
   };
 
   const handleUserQualityCheckChange = (field: string, val: any) => {
+    if (
+      field === "sonarqube_url" ||
+      field === "sonarqube_token" ||
+      field === "auth_token" ||
+      field === "sonarqube_project_key" ||
+      field === "project_key" ||
+      field === "sonarqube_org" ||
+      field === "sonar_organization"
+    ) {
+      if (sonarValidationState !== "idle") {
+        setSonarValidationState("idle");
+        setSonarValidationMessage("");
+      }
+      sonarLastValidatedRef.current = "";
+    } else if (field === "fossa_api_key" || field === "api_key") {
+      if (fossaValidationState !== "idle") {
+        setFossaValidationState("idle");
+        setFossaValidationMessage("");
+      }
+      fossaLastValidatedRef.current = "";
+    }
+
     setUserSettings(prev => ({
       ...prev,
       quality_checks_values: {
@@ -251,122 +282,216 @@ export default function AdminConsolePage() {
     }
   };
 
-  const handleTestSonarqube = async () => {
-    try {
-      const url = userSettings.quality_checks_values?.sonarqube_url || "https://sonarcloud.io";
-      const token = userSettings.quality_checks_values?.sonarqube_token || "";
-      if (!token) {
-        showToast("error", "Please enter a SonarQube Auth Token before testing.");
-        return;
+  const validateSonarqube = async (manual: boolean = false) => {
+    const url = (
+      userSettings.quality_checks_values?.sonarqube_url ||
+      userSettings.quality_checks_values?.url ||
+      ""
+    ).trim();
+
+    const token = (
+      userSettings.quality_checks_values?.sonarqube_token ||
+      userSettings.quality_checks_values?.auth_token ||
+      userSettings.quality_checks_values?.token ||
+      ""
+    ).trim();
+
+    const projectKey = (
+      userSettings.quality_checks_values?.sonarqube_project_key ||
+      userSettings.quality_checks_values?.project_key ||
+      ""
+    ).trim();
+
+    const org = (
+      userSettings.quality_checks_values?.sonarqube_org ||
+      userSettings.quality_checks_values?.sonar_organization ||
+      userSettings.quality_checks_values?.org ||
+      ""
+    ).trim();
+
+    const isComplete = Boolean(url && token && org);
+
+    if (!isComplete) {
+      if (manual) {
+        showToast("error", "Please enter SonarQube URL, Auth Token, and Organization before testing.");
       }
+      setSonarValidationState("idle");
+      setSonarValidationMessage("");
+      sonarLastValidatedRef.current = "";
+      return;
+    }
+
+    const payloadKey = `${url}|${token}|${projectKey}|${org}`;
+    if (!manual && sonarLastValidatedRef.current === payloadKey) {
+      return;
+    }
+
+    setSonarValidationState("validating");
+    setSonarValidationMessage("");
+
+    try {
       const res = await testUserSonarqubeConnection({
         url,
         token,
-        project_key: userSettings.quality_checks_values?.sonarqube_project_key,
-        org: userSettings.quality_checks_values?.sonarqube_org,
+        project_key: projectKey,
+        org,
       });
-      showToast("success", res.message || "SonarQube Connection Successful!");
+      sonarLastValidatedRef.current = payloadKey;
+      setSonarValidationState("valid");
+      setSonarValidationMessage(res.message || "Configuration Valid");
+      if (manual) {
+        showToast("success", res.message || "SonarQube Connection Successful!");
+      }
     } catch (err: any) {
-      showToast("error", err.message || "Failed to test SonarQube connection.");
+      sonarLastValidatedRef.current = payloadKey;
+      setSonarValidationState("invalid");
+      setSonarValidationMessage(err.message || "Failed to connect to SonarQube.");
+      if (manual) {
+        showToast("error", err.message || "Failed to test SonarQube connection.");
+      }
     }
   };
 
-  const handleTestFossa = async () => {
-    try {
-      const apiKey = userSettings.quality_checks_values?.fossa_api_key || "";
-      if (!apiKey) {
+  const validateFossa = async (manual: boolean = false) => {
+    const apiKey = (
+      userSettings.quality_checks_values?.fossa_api_key ||
+      userSettings.quality_checks_values?.api_key ||
+      ""
+    ).trim();
+
+    if (!apiKey) {
+      if (manual) {
         showToast("error", "Please enter a FOSSA API Key before testing.");
-        return;
       }
+      setFossaValidationState("idle");
+      setFossaValidationMessage("");
+      fossaLastValidatedRef.current = "";
+      return;
+    }
+
+    if (!manual && fossaLastValidatedRef.current === apiKey) {
+      return;
+    }
+
+    setFossaValidationState("validating");
+    setFossaValidationMessage("");
+
+    try {
       const res = await testUserFossaConnection({ api_key: apiKey });
-      showToast("success", res.message || "FOSSA Connection Successful!");
+      fossaLastValidatedRef.current = apiKey;
+      setFossaValidationState("valid");
+      setFossaValidationMessage(res.message || "Configuration Valid");
+      if (manual) {
+        showToast("success", res.message || "FOSSA Connection Successful!");
+      }
     } catch (err: any) {
-      showToast("error", err.message || "Failed to test FOSSA connection.");
+      fossaLastValidatedRef.current = apiKey;
+      setFossaValidationState("invalid");
+      setFossaValidationMessage(err.message || "Failed to connect to FOSSA.");
+      if (manual) {
+        showToast("error", err.message || "Failed to test FOSSA connection.");
+      }
     }
   };
-const handleTestSonarConnection = async () => {
- 
-    setTestingSonar(true);
- 
-    try {
- 
-      await updateUserSettings(
- 
-        userSettings.github_config,
- 
-        userSettings.quality_checks_values,
- 
-        userSettings.test_cases_values,
- 
-        userSettings.llm_values
- 
-      );
- 
-      const res = await testUserSonarConnection({
- 
-        sonarqube_url: userSettings.quality_checks_values?.sonarqube_url,
- 
-        auth_token: userSettings.quality_checks_values?.auth_token,
- 
-        project_key: userSettings.quality_checks_values?.project_key,
- 
-        sonar_organization: userSettings.quality_checks_values?.sonar_organization,
- 
-      });
- 
-      showToast("success", res.message || "SonarQube connection successful.");
- 
-    } catch (err: any) {
- 
-      showToast("error", err.message || "Failed to connect to SonarQube.");
- 
-    } finally {
- 
-      setTestingSonar(false);
- 
+
+  const handleTestSonarqube = () => validateSonarqube(true);
+  const handleTestFossa = () => validateFossa(true);
+  const handleTestSonarConnection = () => validateSonarqube(true);
+  const handleTestFossaConnection = () => validateFossa(true);
+
+  // Automatic validation for SonarQube when on quality_gate tab
+  useEffect(() => {
+    if (activeUserTab !== "quality_gate" || isLoading) return;
+
+    const url = (
+      userSettings.quality_checks_values?.sonarqube_url ||
+      userSettings.quality_checks_values?.url ||
+      ""
+    ).trim();
+
+    const token = (
+      userSettings.quality_checks_values?.sonarqube_token ||
+      userSettings.quality_checks_values?.auth_token ||
+      userSettings.quality_checks_values?.token ||
+      ""
+    ).trim();
+
+    const projectKey = (
+      userSettings.quality_checks_values?.sonarqube_project_key ||
+      userSettings.quality_checks_values?.project_key ||
+      ""
+    ).trim();
+
+    const org = (
+      userSettings.quality_checks_values?.sonarqube_org ||
+      userSettings.quality_checks_values?.sonar_organization ||
+      userSettings.quality_checks_values?.org ||
+      ""
+    ).trim();
+
+    const isComplete = Boolean(url && token && org);
+
+    if (!isComplete) {
+      setSonarValidationState("idle");
+      setSonarValidationMessage("");
+      sonarLastValidatedRef.current = "";
+      return;
     }
- 
-  };
- 
- 
- 
-  const handleTestFossaConnection = async () => {
- 
-    setTestingFossa(true);
- 
-    try {
- 
-      await updateUserSettings(
- 
-        userSettings.github_config,
- 
-        userSettings.quality_checks_values,
- 
-        userSettings.test_cases_values,
- 
-        userSettings.llm_values
- 
-      );
- 
-      const res = await testUserFossaConnection({
- 
-        fossa_api_key: userSettings.quality_checks_values?.fossa_api_key,
- 
-      });
- 
-      showToast("success", res.message || "FOSSA connection successful.");
- 
-    } catch (err: any) {
- 
-      showToast("error", err.message || "Failed to connect to FOSSA.");
- 
-    } finally {
- 
-      setTestingFossa(false);
- 
+
+    const payloadKey = `${url}|${token}|${projectKey}|${org}`;
+    if (sonarLastValidatedRef.current === payloadKey) {
+      return;
     }
- 
-  };
+
+    const timer = setTimeout(() => {
+      validateSonarqube(false);
+    }, 700);
+
+    return () => clearTimeout(timer);
+  }, [
+    activeUserTab,
+    isLoading,
+    userSettings.quality_checks_values?.sonarqube_url,
+    userSettings.quality_checks_values?.sonarqube_token,
+    userSettings.quality_checks_values?.auth_token,
+    userSettings.quality_checks_values?.sonarqube_project_key,
+    userSettings.quality_checks_values?.project_key,
+    userSettings.quality_checks_values?.sonarqube_org,
+    userSettings.quality_checks_values?.sonar_organization,
+  ]);
+
+  // Automatic validation for FOSSA when on quality_gate tab
+  useEffect(() => {
+    if (activeUserTab !== "quality_gate" || isLoading) return;
+
+    const apiKey = (
+      userSettings.quality_checks_values?.fossa_api_key ||
+      userSettings.quality_checks_values?.api_key ||
+      ""
+    ).trim();
+
+    if (!apiKey) {
+      setFossaValidationState("idle");
+      setFossaValidationMessage("");
+      fossaLastValidatedRef.current = "";
+      return;
+    }
+
+    if (fossaLastValidatedRef.current === apiKey) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      validateFossa(false);
+    }, 700);
+
+    return () => clearTimeout(timer);
+  }, [
+    activeUserTab,
+    isLoading,
+    userSettings.quality_checks_values?.fossa_api_key,
+    userSettings.quality_checks_values?.api_key,
+  ]);
  
   const renderContent = () => {
     if (isLoading) {
@@ -967,9 +1092,81 @@ const handleTestSonarConnection = async () => {
 
           <div className="grid-2">
             {/* SonarQube Card */}
-            <div className="settings-card">
-              <div className="settings-toggle-title" style={{ marginBottom: "6px" }}>
-                <FaShieldAlt /> SonarQube
+            <div
+              className="settings-card"
+              style={{
+                border: sonarValidationState === "valid"
+                  ? "1px solid #86efac"
+                  : sonarValidationState === "invalid"
+                  ? "1px solid #fca5a5"
+                  : "1px solid #e2e8f0",
+                backgroundColor: sonarValidationState === "valid"
+                  ? "#f0fdf4"
+                  : "#ffffff",
+                boxShadow: sonarValidationState === "valid"
+                  ? "0 0 0 1px #86efac, 0 4px 12px rgba(34, 197, 94, 0.08)"
+                  : "0 1px 3px rgba(0,0,0,0.02)",
+                transition: "all 0.3s ease",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                <div className="settings-toggle-title" style={{ margin: 0 }}>
+                  <FaShieldAlt style={{ color: sonarValidationState === "valid" ? "#16a34a" : "#2563eb" }} /> SonarQube
+                </div>
+                {sonarValidationState === "valid" && (
+                  <span
+                    style={{
+                      padding: "3px 10px",
+                      borderRadius: "12px",
+                      fontSize: "11px",
+                      fontWeight: 700,
+                      backgroundColor: "#dcfce7",
+                      color: "#166534",
+                      border: "1px solid #86efac",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "5px",
+                    }}
+                  >
+                    <FaCheckCircle style={{ color: "#16a34a", fontSize: "11px" }} /> Connected
+                  </span>
+                )}
+                {sonarValidationState === "validating" && (
+                  <span
+                    style={{
+                      padding: "3px 10px",
+                      borderRadius: "12px",
+                      fontSize: "11px",
+                      fontWeight: 700,
+                      backgroundColor: "#eff6ff",
+                      color: "#1d4ed8",
+                      border: "1px solid #bfdbfe",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "5px",
+                    }}
+                  >
+                    <FaSpinner className="animate-spin" style={{ color: "#2563eb", fontSize: "11px" }} /> Validating...
+                  </span>
+                )}
+                {sonarValidationState === "invalid" && (
+                  <span
+                    style={{
+                      padding: "3px 10px",
+                      borderRadius: "12px",
+                      fontSize: "11px",
+                      fontWeight: 700,
+                      backgroundColor: "#fef2f2",
+                      color: "#991b1b",
+                      border: "1px solid #fca5a5",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "5px",
+                    }}
+                  >
+                    <FaTimesCircle style={{ color: "#dc2626", fontSize: "11px" }} /> Invalid
+                  </span>
+                )}
               </div>
               <p className="settings-card-subtitle" style={{ marginBottom: "16px" }}>Static code analysis to detect bugs and vulnerabilities.</p>
               
@@ -981,6 +1178,7 @@ const handleTestSonarConnection = async () => {
                     className="settings-input"
                     value={currentUserStg.quality_checks_values?.sonarqube_url || "https://sonarcloud.io"}
                     onChange={e => handleUserQualityCheckChange("sonarqube_url", e.target.value)}
+                    placeholder="https://sonarcloud.io"
                   />
                 </div>
                 <div>
@@ -999,13 +1197,13 @@ const handleTestSonarConnection = async () => {
                   </div>
                 </div>
                 <div>
-                  <label className="settings-label">PROJECT KEY</label>
+                  <label className="settings-label">PROJECT KEY <span style={{ textTransform: "none", fontSize: "11px", color: "#64748b", fontWeight: "normal" }}>(Optional)</span></label>
                   <input
                     type="text"
                     className="settings-input"
                     value={currentUserStg.quality_checks_values?.sonarqube_project_key || ""}
                     onChange={e => handleUserQualityCheckChange("sonarqube_project_key", e.target.value)}
-                    placeholder="Enter project key"
+                    placeholder="Enter project key (optional)"
                   />
                 </div>
                 <div>
@@ -1020,15 +1218,157 @@ const handleTestSonarConnection = async () => {
                 </div>
               </div>
 
-              <button className="settings-action-btn" style={{ width: "100%" }} onClick={handleTestSonarqube}>
-                <FaPlug /> Test Connection
-              </button>
+              {sonarValidationState === "valid" && (
+                <div
+                  style={{
+                    marginTop: "16px",
+                    padding: "14px 16px",
+                    borderRadius: "10px",
+                    background: "#f0fdf4",
+                    border: "1px solid #86efac",
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: "10px",
+                  }}
+                >
+                  <FaCheckCircle style={{ color: "#16a34a", fontSize: "16px", marginTop: "2px", flexShrink: 0 }} />
+                  <div>
+                    <div style={{ fontSize: "13px", fontWeight: 700, color: "#166534" }}>
+                      SonarQube Connected
+                    </div>
+                    <div style={{ fontSize: "12px", color: "#15803d", marginTop: "2px" }}>
+                      Configuration is valid
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {sonarValidationState === "validating" && (
+                <div
+                  style={{
+                    marginTop: "16px",
+                    padding: "14px 16px",
+                    borderRadius: "10px",
+                    background: "#eff6ff",
+                    border: "1px solid #bfdbfe",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "10px",
+                  }}
+                >
+                  <FaSpinner className="animate-spin" style={{ color: "#2563eb", fontSize: "15px", flexShrink: 0 }} />
+                  <div style={{ fontSize: "13px", fontWeight: 600, color: "#1d4ed8" }}>
+                    Validating SonarQube configuration...
+                  </div>
+                </div>
+              )}
+
+              {sonarValidationState === "invalid" && (
+                <div
+                  style={{
+                    marginTop: "16px",
+                    padding: "14px 16px",
+                    borderRadius: "10px",
+                    background: "#fef2f2",
+                    border: "1px solid #fca5a5",
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: "10px",
+                  }}
+                >
+                  <FaTimesCircle style={{ color: "#dc2626", fontSize: "16px", marginTop: "2px", flexShrink: 0 }} />
+                  <div>
+                    <div style={{ fontSize: "13px", fontWeight: 700, color: "#991b1b" }}>
+                      Invalid SonarQube configuration
+                    </div>
+                    {sonarValidationMessage && (
+                      <div style={{ fontSize: "12px", color: "#b91c1c", marginTop: "2px" }}>
+                        {sonarValidationMessage}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* FOSSA Card */}
-            <div className="settings-card">
-              <div className="settings-toggle-title" style={{ marginBottom: "6px" }}>
-                <FaShieldAlt /> FOSSA
+            <div
+              className="settings-card"
+              style={{
+                border: fossaValidationState === "valid"
+                  ? "1px solid #86efac"
+                  : fossaValidationState === "invalid"
+                  ? "1px solid #fca5a5"
+                  : "1px solid #e2e8f0",
+                backgroundColor: fossaValidationState === "valid"
+                  ? "#f0fdf4"
+                  : "#ffffff",
+                boxShadow: fossaValidationState === "valid"
+                  ? "0 0 0 1px #86efac, 0 4px 12px rgba(34, 197, 94, 0.08)"
+                  : "0 1px 3px rgba(0,0,0,0.02)",
+                transition: "all 0.3s ease",
+                display: "flex",
+                flexDirection: "column",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                <div className="settings-toggle-title" style={{ margin: 0 }}>
+                  <FaShieldAlt style={{ color: fossaValidationState === "valid" ? "#16a34a" : "#2563eb" }} /> FOSSA
+                </div>
+                {fossaValidationState === "valid" && (
+                  <span
+                    style={{
+                      padding: "3px 10px",
+                      borderRadius: "12px",
+                      fontSize: "11px",
+                      fontWeight: 700,
+                      backgroundColor: "#dcfce7",
+                      color: "#166534",
+                      border: "1px solid #86efac",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "5px",
+                    }}
+                  >
+                    <FaCheckCircle style={{ color: "#16a34a", fontSize: "11px" }} /> Connected
+                  </span>
+                )}
+                {fossaValidationState === "validating" && (
+                  <span
+                    style={{
+                      padding: "3px 10px",
+                      borderRadius: "12px",
+                      fontSize: "11px",
+                      fontWeight: 700,
+                      backgroundColor: "#eff6ff",
+                      color: "#1d4ed8",
+                      border: "1px solid #bfdbfe",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "5px",
+                    }}
+                  >
+                    <FaSpinner className="animate-spin" style={{ color: "#2563eb", fontSize: "11px" }} /> Validating...
+                  </span>
+                )}
+                {fossaValidationState === "invalid" && (
+                  <span
+                    style={{
+                      padding: "3px 10px",
+                      borderRadius: "12px",
+                      fontSize: "11px",
+                      fontWeight: 700,
+                      backgroundColor: "#fef2f2",
+                      color: "#991b1b",
+                      border: "1px solid #fca5a5",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "5px",
+                    }}
+                  >
+                    <FaTimesCircle style={{ color: "#dc2626", fontSize: "11px" }} /> Invalid
+                  </span>
+                )}
               </div>
               <p className="settings-card-subtitle" style={{ marginBottom: "16px" }}>Open source license compliance and dependency scanning.</p>
 
@@ -1048,9 +1388,77 @@ const handleTestSonarConnection = async () => {
                 </div>
               </div>
 
-              <button className="settings-action-btn" style={{ width: "100%", marginTop: "auto" }} onClick={handleTestFossa}>
-                <FaPlug /> Test Connection
-              </button>
+              {fossaValidationState === "valid" && (
+                <div
+                  style={{
+                    marginTop: "auto",
+                    padding: "14px 16px",
+                    borderRadius: "10px",
+                    background: "#f0fdf4",
+                    border: "1px solid #86efac",
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: "10px",
+                  }}
+                >
+                  <FaCheckCircle style={{ color: "#16a34a", fontSize: "16px", marginTop: "2px", flexShrink: 0 }} />
+                  <div>
+                    <div style={{ fontSize: "13px", fontWeight: 700, color: "#166534" }}>
+                      FOSSA Connected
+                    </div>
+                    <div style={{ fontSize: "12px", color: "#15803d", marginTop: "2px" }}>
+                      Configuration is valid
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {fossaValidationState === "validating" && (
+                <div
+                  style={{
+                    marginTop: "auto",
+                    padding: "14px 16px",
+                    borderRadius: "10px",
+                    background: "#eff6ff",
+                    border: "1px solid #bfdbfe",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "10px",
+                  }}
+                >
+                  <FaSpinner className="animate-spin" style={{ color: "#2563eb", fontSize: "15px", flexShrink: 0 }} />
+                  <div style={{ fontSize: "13px", fontWeight: 600, color: "#1d4ed8" }}>
+                    Validating FOSSA API key...
+                  </div>
+                </div>
+              )}
+
+              {fossaValidationState === "invalid" && (
+                <div
+                  style={{
+                    marginTop: "auto",
+                    padding: "14px 16px",
+                    borderRadius: "10px",
+                    background: "#fef2f2",
+                    border: "1px solid #fca5a5",
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: "10px",
+                  }}
+                >
+                  <FaTimesCircle style={{ color: "#dc2626", fontSize: "16px", marginTop: "2px", flexShrink: 0 }} />
+                  <div>
+                    <div style={{ fontSize: "13px", fontWeight: 700, color: "#991b1b" }}>
+                      Invalid FOSSA API key
+                    </div>
+                    {fossaValidationMessage && (
+                      <div style={{ fontSize: "12px", color: "#b91c1c", marginTop: "2px" }}>
+                        {fossaValidationMessage}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* CI Card */}

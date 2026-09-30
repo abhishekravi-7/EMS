@@ -327,19 +327,6 @@ export default function UserQualityChecksSettings({
     setShowSecrets((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const handleToggleFeature = (featureKey: string) => {
-    onChange((prev) => {
-      const currentVal = prev.quality_checks_values?.[featureKey] ?? true;
-      return {
-        ...prev,
-        quality_checks_values: {
-          ...(prev.quality_checks_values || {}),
-          [featureKey]: !currentVal
-        }
-      };
-    });
-  };
-
   if (isLoading) {
     return (
       <div className="admin-loading-state">
@@ -622,15 +609,8 @@ export default function UserQualityChecksSettings({
               <FaShieldAlt style={{ color: "#2563eb", marginRight: "8px" }} />
               JUnit Unit Testing
             </div>
-            <div className="switch-wrap">
-              <label className="switch-ios">
-                <input type="checkbox" checked={settings.quality_checks_values?.junit_testing_enabled ?? true} onChange={() => handleToggleFeature("junit_testing_enabled")} />
-                <span className="slider-ios"></span>
-              </label>
-              <span className="switch-label">Enabled</span>
-            </div>
           </div>
-          <p className="settings-toggle-desc" style={{ marginBottom: "16px" }}>Enable or disable JUnit test generation and execution during migration.</p>
+          <p className="settings-toggle-desc" style={{ marginBottom: "16px" }}>Configure JUnit test focus, predefined coverage prompts, and custom instructions for AI test generation.</p>
           {renderPromptSection()}
         </div>
         
@@ -640,15 +620,8 @@ export default function UserQualityChecksSettings({
               <FaShieldAlt style={{ color: "#2563eb", marginRight: "8px" }} />
               Functional Testing
             </div>
-            <div className="switch-wrap">
-              <label className="switch-ios">
-                <input type="checkbox" checked={settings.quality_checks_values?.functional_testing_enabled ?? true} onChange={() => handleToggleFeature("functional_testing_enabled")} />
-                <span className="slider-ios"></span>
-              </label>
-              <span className="switch-label">Enabled</span>
-            </div>
           </div>
-          <p className="settings-toggle-desc" style={{ marginBottom: "16px" }}>Enable or disable end-to-end functional UI testing frameworks (Playwright, Cypress, Selenium).</p>
+          <p className="settings-toggle-desc" style={{ marginBottom: "16px" }}>Configure functional testing focus, scenario suggestions, and custom instructions for automated test generation.</p>
           {renderFunctionalPromptSection()}
         </div>
       
@@ -657,13 +630,6 @@ export default function UserQualityChecksSettings({
             <div className="settings-toggle-title">
               <FaFlask style={{ color: "#2563eb", marginRight: "8px" }} />
               E2E Framework Selection
-            </div>
-            <div className="switch-wrap">
-              <label className="switch-ios">
-                <input type="checkbox" checked={settings.quality_checks_values?.e2e_framework_enabled ?? true} onChange={() => handleToggleFeature("e2e_framework_enabled")} />
-                <span className="slider-ios"></span>
-              </label>
-              <span className="switch-label">Enabled</span>
             </div>
           </div>
           <p className="settings-toggle-desc" style={{ marginBottom: "16px" }}>
