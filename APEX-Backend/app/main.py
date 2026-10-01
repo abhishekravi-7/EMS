@@ -11,7 +11,6 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from app.shared.frontend_static import FrontendStaticFiles
 
 # LLM Token Tracing
 import token_tracing as tt
@@ -150,21 +149,7 @@ app.include_router(llm_monitoring_router, prefix="/api")
 app.include_router(utility_router, prefix="/api")
 
 
-def _mount_frontend_bundle() -> None:
-    """Serve the built SPA when the frontend bundle is present."""
-    frontend_dist = Path(__file__).resolve().parents[1] / "frontend-dist"
-    if not frontend_dist.is_dir():
-        logger.info("Frontend bundle not found at %s; API-only mode.", frontend_dist)
-        return
-
-    app.mount("/", FrontendStaticFiles(directory=frontend_dist, html=True), name="frontend")
-
-
 @app.get("/health", tags=["health"])
 async def health() -> dict[str, str]:
     """Simple liveness probe."""
     return {"status": "ok", "service": settings.app_name}
-
-
-# Register API and health routes before the catch-all frontend mount.
-_mount_frontend_bundle()
