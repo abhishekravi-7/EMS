@@ -356,3 +356,199 @@ export function classifyTestType(t: {
 
   return "Unit";
 }
+
+/**
+ * Dynamically derives the displayed Testing Types summary string
+ * based on the active test filter mode and the actual tests in the filtered collection.
+ */
+export function deriveTestingTypes(
+  tests: Array<{
+    framework?: string;
+    engine?: string;
+    test_type?: string;
+    testType?: string;
+    type?: string;
+    category?: string;
+    suite?: string;
+    classname?: string;
+    file?: string;
+    test_name?: string;
+    name?: string;
+    title?: string;
+  }>,
+  filterMode: "unit" | "functional" | "all" = "all",
+  fallbackFramework?: string
+): string {
+  if (!tests || tests.length === 0) {
+    if (filterMode === "unit") {
+      if (fallbackFramework) {
+        const parts = fallbackFramework
+          .split(",")
+          .map((s) => s.trim())
+          .filter((p) => {
+            const u = p.toUpperCase();
+            return u.includes("JUNIT") || u.includes("TESTNG");
+          });
+        if (parts.length > 0) return parts.join(", ");
+      }
+      return "JUnit";
+    }
+    if (filterMode === "functional") {
+      if (fallbackFramework) {
+        const parts = fallbackFramework
+          .split(",")
+          .map((s) => s.trim())
+          .filter((p) => {
+            const u = p.toUpperCase();
+            return !u.includes("JUNIT") && !u.includes("TESTNG") && u !== "UNKNOWN";
+          });
+        if (parts.length > 0) return parts.join(", ");
+      }
+      return "Playwright";
+    }
+    return fallbackFramework || "JUnit";
+  }
+
+  const unitFrameworks = new Set<string>();
+  const functionalFrameworks = new Set<string>();
+
+  tests.forEach((t) => {
+    const category = classifyTestType(t);
+    const rawFw = String(t.framework || "").trim();
+    const engine = String(t.engine || "").toLowerCase();
+    const rawType = String(
+      t.test_type || t.testType || t.type || t.category || ""
+    ).toUpperCase();
+    const suite = String(t.suite || t.classname || t.file || "").toUpperCase();
+
+    if (category === "Unit") {
+      let foundUnit = false;
+      if (rawFw) {
+        const parts = rawFw.split(",").map((s) => s.trim());
+        parts.forEach((p) => {
+          const pUpper = p.toUpperCase();
+          if (pUpper.includes("JUNIT") || pUpper.includes("TESTNG")) {
+            unitFrameworks.add(p);
+            foundUnit = true;
+          }
+        });
+      }
+      if (engine.includes("jupiter")) {
+        unitFrameworks.add("JUnit 5");
+        foundUnit = true;
+      } else if (engine.includes("vintage")) {
+        unitFrameworks.add("JUnit 4");
+        foundUnit = true;
+      }
+      if (!foundUnit) {
+        unitFrameworks.add("JUnit");
+      }
+    } else {
+      let foundFunctional = false;
+      if (rawFw) {
+        const parts = rawFw.split(",").map((s) => s.trim());
+        parts.forEach((p) => {
+          const pUpper = p.toUpperCase();
+          // Never include Unit frameworks in functional testing
+          if (pUpper.includes("JUNIT") || pUpper.includes("TESTNG") || pUpper === "UNKNOWN") {
+            return;
+          }
+          if (pUpper.includes("PLAYWRIGHT")) {
+            functionalFrameworks.add("Playwright");
+            foundFunctional = true;
+          } else if (pUpper.includes("CYPRESS")) {
+            functionalFrameworks.add("Cypress");
+            foundFunctional = true;
+          } else if (pUpper.includes("SELENIUM")) {
+            functionalFrameworks.add("Selenium");
+            foundFunctional = true;
+          } else if (
+            pUpper.includes("REST_ASSURED") ||
+            pUpper.includes("RESTASSURED") ||
+            pUpper.includes("REST-ASSURED")
+          ) {
+            functionalFrameworks.add("REST-assured");
+            foundFunctional = true;
+          } else if (pUpper.includes("SUPERTEST")) {
+            functionalFrameworks.add("Supertest");
+            foundFunctional = true;
+          } else if (p) {
+            functionalFrameworks.add(p);
+            foundFunctional = true;
+          }
+        });
+      }
+
+      if (category === "UI") {
+        if (!foundFunctional) {
+          if (suite.includes("CYPRESS") || rawType.includes("CYPRESS")) {
+            functionalFrameworks.add("Cypress");
+          } else if (suite.includes("SELENIUM") || rawType.includes("SELENIUM")) {
+            functionalFrameworks.add("Selenium");
+          } else {
+            functionalFrameworks.add("Playwright");
+          }
+        }
+      } else if (category === "API") {
+        if (!foundFunctional) {
+          if (
+            suite.includes("RESTASSURED") ||
+            suite.includes("REST_ASSURED") ||
+            rawType.includes("REST_ASSURED")
+          ) {
+            functionalFrameworks.add("REST-assured");
+          } else {
+            functionalFrameworks.add("API");
+          }
+        }
+      }
+    }
+  });
+
+  if (filterMode === "unit") {
+    if (unitFrameworks.size === 0) {
+      if (fallbackFramework) {
+        const parts = fallbackFramework
+          .split(",")
+          .map((s) => s.trim())
+          .filter((p) => {
+            const u = p.toUpperCase();
+            return u.includes("JUNIT") || u.includes("TESTNG");
+          });
+        if (parts.length > 0) return parts.join(", ");
+      }
+      return "JUnit";
+    }
+    return Array.from(unitFrameworks).join(", ");
+  }
+
+  if (filterMode === "functional") {
+    if (functionalFrameworks.size === 0) {
+      if (fallbackFramework) {
+        const parts = fallbackFramework
+          .split(",")
+          .map((s) => s.trim())
+          .filter((p) => {
+            const u = p.toUpperCase();
+            return !u.includes("JUNIT") && !u.includes("TESTNG") && u !== "UNKNOWN";
+          });
+        if (parts.length > 0) return parts.join(", ");
+      }
+      return "Playwright";
+    }
+    return Array.from(functionalFrameworks).join(", ");
+  }
+
+  // filterMode === "all"
+  const allList: string[] = [];
+  functionalFrameworks.forEach((f) => allList.push(f));
+  unitFrameworks.forEach((u) => {
+    if (!allList.includes(u)) allList.push(u);
+  });
+
+  if (allList.length > 0) {
+    return allList.join(", ");
+  }
+
+  return fallbackFramework || "JUnit";
+}

@@ -271,7 +271,7 @@ class StartMigrationUseCase:
             else (
                 bool(request["runSonar"])
                 if "runSonar" in request
-                else bool(options.get("runSonar") if "runSonar" in options else options.get("run_sonar", True))
+                else bool(options.get("runSonar") if "runSonar" in options else options.get("run_sonar", False))
             )
         )
         run_fossa = (
@@ -280,7 +280,7 @@ class StartMigrationUseCase:
             else (
                 bool(request["runFossa"])
                 if "runFossa" in request
-                else bool(options.get("runFossa") if "runFossa" in options else options.get("run_fossa", True))
+                else bool(options.get("runFossa") if "runFossa" in options else options.get("run_fossa", False))
             )
         )
         run_cycode = (

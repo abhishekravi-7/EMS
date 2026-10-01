@@ -1863,6 +1863,8 @@ export function ResultReportView({
                    <div style={{ flex: 1 }}>
                      <MigrationFossaSection
                         styles={{...styles, reportSection: { padding: 0, border: 'none', background: 'transparent', boxShadow: 'none' }}}
+                        migrationJob={migrationJob}
+                        runFossa={Boolean(migrationJob.run_fossa ?? migrationJob.runFossa ?? runFossa)}
                         fossaLicenseIssueCount={migrationJob.fossa_license_issues ?? (migrationJob.fossa_report as any)?.license_issues ?? (migrationJob as any)?.license_issues}
                         fossaVulnerabilityTotal={migrationJob.fossa_vulnerabilities ?? (migrationJob.fossa_report as any)?.vulnerabilities ?? (migrationJob.fossa_report as any)?.vulnerability_count}
                         fossaOutdatedCount={migrationJob.fossa_outdated_dependencies ?? (migrationJob.fossa_report as any)?.outdated_dependencies ?? (migrationJob as any)?.outdated_packages}

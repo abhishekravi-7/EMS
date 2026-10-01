@@ -949,7 +949,7 @@ export function MigrationSonarSection({
             SonarQube
           </h3>
           <span style={{ padding: "6px 16px", borderRadius: 20, background: "#f1f5f9", color: "#475569", fontSize: 12, fontWeight: 700, border: "1px solid #e2e8f0" }}>
-            NOT EXECUTED
+            NOT SELECTED
           </span>
         </div>
         <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: "28px 24px", textAlign: "center" }}>
@@ -957,10 +957,10 @@ export function MigrationSonarSection({
             <FaShieldAlt />
           </div>
           <div style={{ fontSize: 15, fontWeight: 700, color: "#334155", marginBottom: 6 }}>
-            SonarQube analysis was not selected or executed for this migration.
+            Not Selected
           </div>
           <div style={{ fontSize: 13, color: "#64748b", maxWidth: 520, margin: "0 auto" }}>
-            Code quality gate, security inspection, and test coverage analysis were not enabled during the migration configuration.
+            This scan was not enabled for this migration.
           </div>
         </div>
       </div>
@@ -984,6 +984,21 @@ export function MigrationSonarSection({
   const vulnCount = sonarReport?.vulnerabilities || 0;
   const codeSmellsCount = sonarReport?.code_smells || 0;
   const hotspotsCount = sonarReport?.security_hotspots || 0;
+
+  const rawSonarUrl =
+    migrationJob?.sonar_analysis_url ||
+    (migrationJob?.sonar_report as any)?.analysis_url ||
+    (migrationJob?.sonar_report as any)?.dashboard_url ||
+    (migrationJob as any)?.sonar_project_url;
+
+  const projectKey =
+    migrationJob?.sonar_project_key ||
+    (migrationJob?.sonar_report as any)?.project_key ||
+    (migrationJob as any)?.project_key;
+
+  const effectiveSonarUrl =
+    rawSonarUrl ||
+    (projectKey ? `https://sonarcloud.io/project/overview?id=${encodeURIComponent(projectKey)}` : null);
 
   return (
     <div style={{ ...styles.reportSection, background: "#ffffff", border: "1px solid #eef2f6", borderRadius: 16, padding: "32px 40px", boxShadow: "0 4px 20px rgba(0,0,0,0.03)" }}>
@@ -1011,7 +1026,33 @@ export function MigrationSonarSection({
               <span style={{ padding: "6px 16px", borderRadius: 20, background: "#f1f5f9", color: "#475569", fontSize: 12, fontWeight: 700, border: "1px solid #e2e8f0" }}>Scan Mode: {migrationJob?.sonar_scan_mode || "missing_cli"}</span>
               <span style={{ padding: "6px 16px", borderRadius: 20, background: "#fff7ed", color: "#c2410c", fontSize: 12, fontWeight: 700, border: "1px solid #ffedd5" }}>Result Recorded</span>
            </div>
-           <div style={{ display: "flex", gap: 12 }}>
+           <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+              {effectiveSonarUrl && (
+                <a
+                  href={effectiveSonarUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    background: "#eff6ff",
+                    border: "1px solid #bfdbfe",
+                    padding: "8px 16px",
+                    borderRadius: 8,
+                    fontSize: 13,
+                    fontWeight: 700,
+                    color: "#2563eb",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 8,
+                    textDecoration: "none",
+                    cursor: "pointer",
+                    transition: "all 0.2s ease",
+                  }}
+                  title="Open project in SonarQube / SonarCloud dashboard"
+                >
+                  <span>View in SonarQube Dashboard</span>
+                  <FaExternalLinkAlt size={11} />
+                </a>
+              )}
               <button style={{ background: "#fff", border: "1px solid #cbd5e1", padding: "8px 16px", borderRadius: 8, fontSize: 13, fontWeight: 700, color: "#334155", display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}><FaDownload size={12}/> Export CSV</button>
               <button style={{ background: "#fff", border: "1px solid #cbd5e1", padding: "8px 16px", borderRadius: 8, fontSize: 13, fontWeight: 700, color: "#334155", display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}><FaDownload size={12}/> Export JSON</button>
            </div>
@@ -1087,6 +1128,8 @@ export function MigrationSonarSection({
 
 interface MigrationFossaSectionProps {
   styles?: StyleMap;
+  migrationJob?: MigrationResult;
+  runFossa?: boolean;
   fossaLicenseIssueCount?: number | null;
   fossaVulnerabilityTotal?: number | null;
   fossaOutdatedCount?: number | null;
@@ -1100,6 +1143,8 @@ interface MigrationFossaSectionProps {
 }
 
 export function MigrationFossaSection({
+  migrationJob,
+  runFossa,
   fossaLicenseIssueCount,
   fossaVulnerabilityTotal,
   fossaOutdatedCount,
@@ -1111,87 +1156,232 @@ export function MigrationFossaSection({
   fossaAnalysisUrl,
   fossaRealScan,
 }: MigrationFossaSectionProps) {
-  const scanMode = (fossaScanMode || "").toLowerCase();
-  const policyStatus = (fossaPolicyStatus || "UNAVAILABLE").toUpperCase();
-  const isAvailable = (policyStatus === "PASSED" || policyStatus === "OK" || policyStatus === "FAILED") && fossaRealScan;
+  const isExecuted = Boolean(migrationJob?.run_fossa ?? migrationJob?.runFossa ?? runFossa);
 
-  let warningText: string | null = null;
-  if (scanMode === "missing_token") {
-    warningText = fossaErrorMessage || "FOSSA API key not configured. Set FOSSA_API_KEY in .env to enable scans.";
-  } else if (scanMode === "missing_cli") {
-    warningText = fossaErrorMessage || "FOSSA CLI (fossa) was not found on PATH or known locations.";
-  } else if (scanMode === "missing_maven") {
-    warningText = fossaErrorMessage || "Maven executable was not found or could not be launched for FOSSA analysis.";
-  } else if (scanMode === "analysis_failed") {
-    warningText = fossaErrorMessage || "FOSSA analysis failed during CLI execution.";
-  } else if (scanMode === "test_failed" || scanMode === "test_cli_error") {
-    warningText = fossaErrorMessage || "FOSSA policy test command encountered an error.";
-  } else if (fossaErrorMessage && !isAvailable && policyStatus === "UNAVAILABLE") {
-    warningText = fossaErrorMessage;
-  } else if (!isAvailable && !fossaRealScan && policyStatus === "UNAVAILABLE") {
-    warningText = "FOSSA quality gate was not executed or is unavailable for this run.";
+  if (!isExecuted) {
+    return (
+      <div style={{ padding: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
+          <h3 style={{ fontSize: 18, fontWeight: 800, color: "#0f172a", margin: 0, display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{ background: "#64748b", color: "#fff", width: 28, height: 28, borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>
+              <FaShieldAlt />
+            </div>
+            FOSSA License & Dependency Scan
+          </h3>
+          <span
+            style={{
+              padding: "4px 12px",
+              borderRadius: 20,
+              background: "#f1f5f9",
+              color: "#475569",
+              fontSize: 12,
+              fontWeight: 700,
+              border: "1px solid #e2e8f0",
+            }}
+          >
+            NOT SELECTED
+          </span>
+        </div>
+        <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: "24px 20px", textAlign: "center" }}>
+          <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 40, height: 40, borderRadius: "50%", background: "#f1f5f9", color: "#64748b", marginBottom: 10, fontSize: 18 }}>
+            <FaShieldAlt />
+          </div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#334155", marginBottom: 4 }}>
+            Not Selected
+          </div>
+          <div style={{ fontSize: 12, color: "#64748b", maxWidth: 420, margin: "0 auto" }}>
+            This scan was not enabled for this migration.
+          </div>
+        </div>
+      </div>
+    );
   }
 
-  const isPassed = policyStatus === "PASSED" || policyStatus === "OK";
-  const isFailed = policyStatus === "FAILED" || policyStatus === "VIOLATIONS";
-  const statusLabel = isPassed ? "PASSED" : isFailed ? "FAILED" : "UNAVAILABLE";
-  const badgeColor = isPassed ? "#15803d" : isFailed ? "#b91c1c" : "#c2410c";
-  const badgeBg = isPassed ? "#f0fdf4" : isFailed ? "#fef2f2" : "#fff7ed";
-  const badgeBorder = isPassed ? "#bbf7d0" : isFailed ? "#fecaca" : "#ffedd5";
+  const scanMode = (fossaScanMode || "").toLowerCase();
+  const rawPolicy = (fossaPolicyStatus || "").trim().toUpperCase();
+  const isPassed = rawPolicy === "PASSED" || rawPolicy === "OK";
+  const isFailed = rawPolicy === "FAILED" || rawPolicy === "VIOLATIONS";
+  const isNotRun = rawPolicy === "NOT_RUN" || rawPolicy === "NOT RUN" || scanMode === "skipped";
+
+  const statusLabel = isPassed ? "PASSED" : isFailed ? "FAILED" : isNotRun ? "NOT RUN" : "UNAVAILABLE";
+  const badgeColor = isPassed ? "#15803d" : isFailed ? "#b91c1c" : isNotRun ? "#475569" : "#c2410c";
+  const badgeBg = isPassed ? "#f0fdf4" : isFailed ? "#fef2f2" : isNotRun ? "#f1f5f9" : "#fff7ed";
+  const badgeBorder = isPassed ? "#bbf7d0" : isFailed ? "#fecaca" : isNotRun ? "#e2e8f0" : "#ffedd5";
+
+  const scanStatusLabel = fossaRealScan
+    ? "COMPLETED"
+    : scanMode === "missing_cli"
+    ? "UNAVAILABLE"
+    : scanMode === "missing_token"
+    ? "UNCONFIGURED"
+    : scanMode === "analysis_failed" || scanMode === "error"
+    ? "FAILED"
+    : isNotRun
+    ? "NOT RUN"
+    : "COMPLETED";
+
+  let noticeText: string | null = null;
+  let noticeType: "warning" | "error" | "info" = "warning";
+
+  if (scanMode === "missing_token") {
+    noticeText = fossaErrorMessage || "FOSSA API key not configured. Set FOSSA_API_KEY in .env or Quality Gate settings to enable scans.";
+    noticeType = "warning";
+  } else if (scanMode === "missing_cli") {
+    noticeText = fossaErrorMessage || "FOSSA CLI (fossa) was not found on PATH or known locations.";
+    noticeType = "warning";
+  } else if (scanMode === "missing_maven") {
+    noticeText = fossaErrorMessage || "Maven executable was not found or could not be launched for FOSSA analysis.";
+    noticeType = "error";
+  } else if (scanMode === "analysis_failed") {
+    noticeText = fossaErrorMessage || "FOSSA analysis failed during CLI execution.";
+    noticeType = "error";
+  } else if (scanMode === "test_failed" || scanMode === "test_cli_error") {
+    noticeText = fossaErrorMessage || "FOSSA policy test command encountered an error.";
+    noticeType = "error";
+  } else if (isFailed && fossaErrorMessage) {
+    noticeText = fossaErrorMessage;
+    noticeType = "error";
+  } else if (!isPassed && !isFailed && fossaErrorMessage) {
+    noticeText = fossaErrorMessage;
+    noticeType = "warning";
+  }
 
   const renderValue = (val: number | null | undefined) => {
     if (val !== null && val !== undefined) {
       return val;
     }
-    return isAvailable ? 0 : "—";
+    return "—";
   };
 
   const totalDeps = renderValue(fossaTotalDependencies);
- 
   const totalLics = renderValue(fossaTotalLicenses);
- 
   const licIssues = renderValue(fossaLicenseIssueCount);
   const vulns = renderValue(fossaVulnerabilityTotal);
   const outdated = renderValue(fossaOutdatedCount);
 
   return (
     <div style={{ padding: 0 }}>
-       <h3 style={{ fontSize: 18, fontWeight: 800, color: "#0f172a", marginBottom: 20, display: "flex", alignItems: "center", gap: 12 }}>
-        <div style={{ background: "#2563eb", color: "#fff", width: 28, height: 28, borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>
-          <FaShieldAlt />
-        </div>
-        FOSSA License & Dependency Scan
-      </h3>
-
-      <div style={{ background: "#fff7ed", border: "1px solid #fdba74", color: "#9a3412", borderRadius: 12, padding: "12px 16px", marginBottom: 20, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, fontSize: 13, fontWeight: 600 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <FaExclamationTriangle style={{ color: "#f59e0b", fontSize: 16 }} />
-          <span>FOSSA CLI (fossa) was not found in PATH or known locations.</span>
-        </div>
-        <button style={{ background: "none", border: "none", color: "#2563eb", fontSize: 12, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
-          <FaRedo /> Re-scan
-        </button>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
+        <h3 style={{ fontSize: 18, fontWeight: 800, color: "#0f172a", margin: 0, display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ background: "#2563eb", color: "#fff", width: 28, height: 28, borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>
+            <FaShieldAlt />
+          </div>
+          FOSSA License & Dependency Scan
+        </h3>
+        <span
+          style={{
+            padding: "4px 12px",
+            borderRadius: 20,
+            background: "#f1f5f9",
+            color: "#475569",
+            fontSize: 12,
+            fontWeight: 700,
+            border: "1px solid #e2e8f0",
+          }}
+        >
+          Scan Status: {scanStatusLabel}
+        </span>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+      {noticeText && (
+        <div
+          style={{
+            background: noticeType === "error" ? "#fef2f2" : "#fff7ed",
+            border: `1px solid ${noticeType === "error" ? "#fca5a5" : "#fdba74"}`,
+            color: noticeType === "error" ? "#991b1b" : "#9a3412",
+            borderRadius: 12,
+            padding: "12px 16px",
+            marginBottom: 16,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+            fontSize: 13,
+            fontWeight: 600,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            {noticeType === "error" ? (
+              <FaTimesCircle style={{ color: "#dc2626", fontSize: 16, flexShrink: 0 }} />
+            ) : (
+              <FaExclamationTriangle style={{ color: "#f59e0b", fontSize: 16, flexShrink: 0 }} />
+            )}
+            <span>{noticeText}</span>
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: fossaAnalysisUrl ? 16 : 0 }}>
         <div style={{ background: "#f8fafc", border: "1px solid #eef2f6", borderRadius: 12, padding: "12px", textAlign: "center" }}>
-          <div style={{ background: "#fff7ed", color: "#c2410c", padding: "2px 8px", borderRadius: 6, fontSize: 11, fontWeight: 800, border: "1px solid #ffedd5", marginBottom: 4, display: "inline-block" }}>UNAVAILABLE</div>
+          <div
+            style={{
+              background: badgeBg,
+              color: badgeColor,
+              padding: "2px 8px",
+              borderRadius: 6,
+              fontSize: 11,
+              fontWeight: 800,
+              border: `1px solid ${badgeBorder}`,
+              marginBottom: 4,
+              display: "inline-block",
+            }}
+          >
+            {statusLabel}
+          </div>
           <div style={{ fontSize: 11, fontWeight: 600, color: "#64748b", textTransform: "uppercase" }}>Policy Status</div>
         </div>
         {[
           { label: "Dependencies", value: totalDeps, color: "#2563eb" },
- 
           { label: "Licenses", value: totalLics, color: "#0891b2" },
-          { label: "License Issues", value: licIssues, color: typeof licIssues === "number" && licIssues > 0 ? "#ef4444" : "#10b981" },
-          { label: "Vulnerabilities", value: vulns, color: typeof vulns === "number" && vulns > 0 ? "#ef4444" : "#10b981" },
-          { label: "Outdated Packages", value: outdated, color: typeof outdated === "number" && outdated > 0 ? "#f59e0b" : "#10b981" }
+          {
+            label: "License Issues",
+            value: licIssues,
+            color: typeof licIssues === "number" && licIssues > 0 ? "#ef4444" : "#10b981",
+          },
+          {
+            label: "Vulnerabilities",
+            value: vulns,
+            color: typeof vulns === "number" && vulns > 0 ? "#ef4444" : "#10b981",
+          },
+          {
+            label: "Outdated Packages",
+            value: outdated,
+            color: typeof outdated === "number" && outdated > 0 ? "#f59e0b" : "#10b981",
+          },
         ].map((card, idx) => (
           <div key={idx} style={{ background: "#f8fafc", border: "1px solid #eef2f6", borderRadius: 12, padding: "12px", textAlign: "center" }}>
-            <div style={{ fontSize: 20, fontWeight: 800, color: "#10b981" }}>{card.value}</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: card.color }}>{card.value}</div>
             <div style={{ fontSize: 11, fontWeight: 600, color: "#64748b", textTransform: "uppercase" }}>{card.label}</div>
           </div>
         ))}
       </div>
+
+      {fossaAnalysisUrl && (
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
+          <a
+            href={fossaAnalysisUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              fontSize: 13,
+              fontWeight: 700,
+              color: "#2563eb",
+              textDecoration: "none",
+              padding: "8px 16px",
+              borderRadius: 8,
+              background: "#eff6ff",
+              border: "1px solid #bfdbfe",
+              transition: "all 0.2s ease",
+            }}
+          >
+            <span>View in FOSSA Dashboard</span>
+            <FaExternalLinkAlt size={11} />
+          </a>
+        </div>
+      )}
     </div>
   );
 }

@@ -158,6 +158,7 @@ class Settings(BaseSettings):
     # Dynamic settings are now fetched from MongoDB (User Settings) during migration.
 
     # Internal prefixes and CLI command names used by runners:
+    sonarqube_host_url: str = Field(default="https://sonarcloud.io", validation_alias=AliasChoices("SONAR_HOST_URL", "SONARQUBE_HOST_URL", "sonarqube_host_url", "sonarqube_url"))
     sonarqube_project_key_prefix: str = "java-apex"
     sonarqube_scanner_command: str = "sonar-scanner"
     cycode_cli_command: str = "cycode"

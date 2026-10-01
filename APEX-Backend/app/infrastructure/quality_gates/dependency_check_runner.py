@@ -74,8 +74,14 @@ class DependencyCheckRunner:
 
         cli = self._resolve_command(settings.fossa_cli_command)
         if not cli:
-            logger.info("[FOSSA] FOSSA CLI not found in PATH — running built-in dependency analysis fallback")
-            return self._fallback_scan(Path(project_dir).resolve(), project_name or Path(project_dir).name)
+            logger.info("[FOSSA] FOSSA CLI (fossa) not found on PATH or configured location.")
+            return FossaScanResult(
+                policy_status="UNAVAILABLE",
+                scan_mode="missing_cli",
+                real_scan=False,
+                error_message="FOSSA CLI (fossa) was not found on PATH. Install FOSSA CLI or set FOSSA_CLI_COMMAND.",
+                log_lines=["FOSSA skipped: FOSSA CLI not found on PATH or configured location."],
+            )
 
         fossa_version = self._get_fossa_version(cli)
         logger.info("[FOSSA] Executable path: %s (version: %s)", cli, fossa_version or "unknown")

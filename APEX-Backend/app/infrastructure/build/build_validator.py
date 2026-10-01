@@ -7,7 +7,7 @@ Read-only with respect to source; it only produces build output (target/, build/
 from __future__ import annotations
 
 import logging
-import os
+
 from pathlib import Path
 
 from app.core.config import settings
@@ -71,21 +71,19 @@ class BuildValidator:
 
     # -- Maven --------------------------------------------------------------- #
 
-    @staticmethod
-    def _resolve_maven(project_dir: Path) -> str | None:
-        wrapper = project_dir / ("mvnw.cmd" if os.name == "nt" else "mvnw")
-        if wrapper.is_file():
-            return str(wrapper)
-        return resolve_executable("mvn")
-
     def _run_maven(self, project_dir: Path, target_major: int | None) -> BuildResult:
-        mvn = self._resolve_maven(project_dir)
+        mvn = resolve_executable("mvn")
         if not mvn:
-            return BuildResult(success=False, tool="maven",
-                               error_lines=["Maven (mvn or wrapper) was not found."])
+            return BuildResult(
+                success=False,
+                tool="maven",
+                error_lines=["Maven (mvn) was not found on PATH."],
+            )
         command = [mvn, *settings.build_maven_args_list]
         result = run_command(
-            command, cwd=project_dir, timeout=settings.build_timeout_seconds,
+            command,
+            cwd=project_dir,
+            timeout=settings.build_timeout_seconds,
             env=build_tool_env(target_major),
         )
         parsed = parse_build_output(result.stdout, result.stderr)
