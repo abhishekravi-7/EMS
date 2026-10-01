@@ -174,7 +174,7 @@ class ProposedTestService:
                     self._log(job_id, f"[PROPOSED TESTS] BRD extraction note: {e}", "WARNING")
 
             # Generator
-            generator = ProposedTestGenerator(analysis_data, brd_analysis=brd_analysis)
+            generator = ProposedTestGenerator(analysis_data, brd_analysis=brd_analysis, repo_dir=repo_dir)
             proposals = generator.generate()
             self._log(job_id, f"[PROPOSED TESTS] Generated {len(proposals)} proposed test cases across UNIT, API, and UI.")
 
@@ -199,6 +199,18 @@ class ProposedTestService:
                 "metrics": metrics.model_dump(),
                 "validation_summary": val_summary.model_dump(),
             })
+
+            # Synchronize results.json if it exists so report consumers remain in sync
+            res_file = self._get_results_file(job_id)
+            if res_file.exists():
+                try:
+                    rdata = json.loads(res_file.read_text(encoding="utf-8"))
+                    rdata["test_cases"] = [p.model_dump() for p in proposals]
+                    rdata["metrics"] = metrics.model_dump()
+                    res_file.write_text(json.dumps(rdata, indent=2), encoding="utf-8")
+                except Exception:  # noqa: BLE001
+                    pass
+
             return proposals
 
         except Exception as e:
@@ -327,7 +339,12 @@ class ProposedTestService:
             raise ValueError("Cypress support is coming soon.")
 
         if isinstance(sources, dict):
-            sources = sources.get("sources", None)
+            req_dict = sources
+            sources = req_dict.get("sources", None)
+            if not test_ids:
+                test_ids = req_dict.get("test_ids", None)
+            if framework == "PLAYWRIGHT" and "framework" in req_dict:
+                framework = req_dict.get("framework", "PLAYWRIGHT")
 
         proposals = self.get_proposed_tests(job_id)
         if not proposals:
@@ -400,7 +417,7 @@ class ProposedTestService:
                 is_doc = (
                     p.generation_source in ["BRD_DOCUMENT", "BRD_AND_AI", "FUNCTIONAL_DOC"]
                     or "BRD" in p.id
-                    or p.source in ["BRD Document", "BRD Business Requirement"]
+                    or p.source in ["Functional Doc", "BRD Document", "BRD Business Requirement", "Functional Testing Document Generated"]
                 )
                 is_existing = (
                     p.generation_source in ["EXISTING", "EXISTING_TESTS"]
@@ -411,10 +428,29 @@ class ProposedTestService:
                 should_run = (run_llm and is_llm) or (run_doc and is_doc) or (run_existing and is_existing)
 
             if should_run:
-                # If validation flagged test as non-executable (e.g. hallucinated/invalid), skip execution unless explicitly chosen by test_id
-                if not test_ids and p.validation and not p.validation.playwright_executable:
-                    self._log(job_id, f"[PROPOSED TESTS] Skipping non-executable test {p.id} ({p.validation.status.value}): {p.validation.issue}")
+                # Strict execution gate: execute ONLY testcases whose validation status is VALID.
+                from app.domain.models.proposed_test_models import ValidationStatus
+                if p.validation and p.validation.status != ValidationStatus.VALID:
+                    block_reason = f"Execution blocked: validation status is {p.validation.status.value}. {p.validation.issue or ''}"
+                    self._log(job_id, f"[PROPOSED TESTS] Rejecting non-VALID test {p.id} ({p.validation.status.value}): {p.validation.issue}")
+                    p.status = ProposedTestStatus.BLOCKED
+                    p.execution_result = ExecutionResult(
+                        status=ProposedTestStatus.BLOCKED,
+                        error=block_reason,
+                        error_type=p.validation.status.value,
+                        executed_at=datetime.now(timezone.utc).isoformat(),
+                        steps_execution=[
+                            StepExecutionRecord(
+                                step_number=1,
+                                description="Strict Execution Gate Validation",
+                                status=ProposedTestStatus.BLOCKED,
+                                duration="0.0s",
+                                error=block_reason,
+                            )
+                        ],
+                    )
                     continue
+
                 if p.id not in seen_ids:
                     seen_ids.add(p.id)
                     tests_to_run.append(p)
@@ -461,11 +497,13 @@ class ProposedTestService:
 
         # Initialize and clean Allure & Playwright reporter directories for fresh execution isolation
         from app.application.use_cases.proposed_tests.proposed_test_allure_reporter import ProposedTestAllureReporter
-        from app.application.use_cases.proposed_tests.proposed_test_playwright_reporter import ProposedTestPlaywrightReporter
         reporter = ProposedTestAllureReporter(job_id)
         reporter.clean_results()
-        playwright_reporter = ProposedTestPlaywrightReporter(job_id)
-        playwright_reporter.clean_results()
+        import shutil
+        paths_obj = WorkspacePaths(job_id)
+        playwright_dir = paths_obj.job_dir / "proposed-tests" / "playwright-report"
+        if playwright_dir.exists():
+            shutil.rmtree(playwright_dir, ignore_errors=True)
 
         def _run_bg():
             paths = WorkspacePaths(job_id)
@@ -491,182 +529,299 @@ class ProposedTestService:
             except Exception:  # noqa: BLE001
                 report = {}
 
-            # 1. Resolve Migrated Backend / Application Runtime (Application-Aware Detection)
-            self._log(job_id, "[APP] Starting migrated application...")
-            configured_port = resolve_app_port(target_dir, default_port=8080)
-            launched_pid: int | None = None
-            backend_running = False
-            app_ready = False
-            startup_error: str | None = None
-            api_base_url: str | None = None
+            # 1. Framework & Architecture Analysis
+            from app.application.services.status_service import MigrationReportStore
+            from app.infrastructure.build.repository_analyzer import RepositoryAnalyzer, ApplicationType, BuildToolType
+            from app.infrastructure.build.build_executor import BuildExecutor
+            from app.infrastructure.build.artifact_detector import ArtifactDetector
+            from app.infrastructure.build.application_runner import ApplicationRunnerFactory, PortManager
+            from app.infrastructure.build.app_readiness_checker import AppReadinessChecker
 
-            # Check if an existing verified process for this job is already running
-            existing_pid = report.get("appPid")
-            if existing_pid and MigratedAppLauncher.is_pid_alive(existing_pid):
-                if MigratedAppLauncher.is_port_owned_by_process(configured_port, existing_pid):
-                    test_url = f"http://localhost:{configured_port}"
-                    readiness = AppReadinessChecker().check(test_url, timeout_s=3.0, process_pid=existing_pid)
-                    if readiness.ready:
-                        launched_pid = existing_pid
-                        api_base_url = test_url
-                        backend_running = True
-                        app_ready = True
-                        self._log(job_id, f"[APP] Process PID: {launched_pid}")
-                        self._log(job_id, f"[APP] Port owner PID: {launched_pid}")
-                        self._log(job_id, f"[APP] Detected runtime URL: {api_base_url}")
-                        self._log(job_id, "[APP] Application health check: PASSED")
-                    else:
-                        self._log(job_id, f"[APP] Existing process PID {existing_pid} failed health check: {readiness.error}", "WARN")
-                else:
-                    self._log(job_id, f"[APP] Port {configured_port} rejected: unrelated process (PID {existing_pid} does not own port)", "WARN")
+            self._log(job_id, "[BUILD] Detecting project type...")
+            analyzer = RepositoryAnalyzer(target_dir)
+            analysis = analyzer.analyze()
+            self._log(job_id, f"[BUILD] {analysis.build_tool.value} project detected (Archetype: {analysis.app_type.value})")
+            if analysis.is_multi_module:
+                mod_names = [m.name for m in analysis.backend_modules]
+                self._log(job_id, f"[BUILD] Multi-module layout detected: {mod_names}")
 
-            # If not already running, perform framework-aware application launch
-            if not backend_running and is_migrated:
-                try:
-                    from app.infrastructure.build.app_launcher import find_free_port
-                    active_pids = MigratedAppLauncher.get_port_listening_pids(configured_port)
-                    if active_pids:
-                        free_port = find_free_port()
-                        self._log(job_id, f"[APP] Port {configured_port} is busy (PIDs: {active_pids}); dynamically launching backend on free port {free_port}...")
-                        configured_port = free_port
+            # 2. Artifact Detection & Automatic Pre-Test Build
+            art_detector = ArtifactDetector(target_dir)
+            art_res = art_detector.detect(analysis)
 
-                    build_tool = "GRADLE" if (target_dir / "build.gradle").exists() or (target_dir / "build.gradle.kts").exists() else "MAVEN"
-                    launcher = MigratedAppLauncher()
-                    self._log(job_id, f"[PROPOSED TESTS] Launching migrated application backend on port {configured_port}...")
-                    launch_res = launcher.launch(
-                        project_dir=target_dir,
-                        build_tool=build_tool,
-                        port=configured_port,
-                        app_type_label="Migrated application",
-                        startup_timeout=30.0,
-                    )
-                    if launch_res.success:
-                        launched_pid = launch_res.pid
-                        self._log(job_id, f"[APP] Process PID: {launched_pid}")
-                        # Detect actual listening port owned by this process
-                        detected_ports = MigratedAppLauncher.get_listening_ports_for_process(launched_pid)
-                        if configured_port in detected_ports:
-                            actual_port = configured_port
-                        elif detected_ports:
-                            actual_port = next(iter(detected_ports))
-                        else:
-                            actual_port = configured_port
+            # If no runnable fat-JAR found and repository has a build tool, execute build packaging
+            if not art_res.has_runnable_jar and analysis.build_tool != BuildToolType.NONE and art_res.run_strategy not in ("NODE_DEV", "STATIC_SERVER"):
+                self._log(job_id, f"[BUILD] No pre-existing runnable artifact found. Building application with {analysis.build_tool.value}...")
+                build_exec = BuildExecutor(target_dir)
+                build_res = build_exec.build(analysis, log_fn=lambda m, lvl="INFO": self._log(job_id, f"[BUILD] {m}", lvl))
+                if not build_res.success:
+                    err_msg = build_res.error or f"Build failed with exit code {build_res.exit_code}."
+                    self._log(job_id, f"[BUILD] Build FAILED: {err_msg}", "ERROR")
+                    self._log(job_id, "[PROPOSED TESTS] Execution blocked: 0 tests were executed. Build failed.", "WARN")
 
-                        self._log(job_id, f"[APP] Port owner PID: {launched_pid}")
-                        detected_url = f"http://localhost:{actual_port}"
-                        self._log(job_id, f"[APP] Detected runtime URL: {detected_url}")
-
-                        # Perform readiness check with process verification
-                        readiness = AppReadinessChecker().wait_for_ready(
-                            detected_url,
-                            timeout_s=20.0,
-                            poll_interval_s=1.0,
-                            process_pid=launched_pid,
-                            app_type_label="Migrated application",
+                    for t in tests_to_run:
+                        t.status = ProposedTestStatus.BLOCKED
+                        t.execution_result = ExecutionResult(
+                            status=ProposedTestStatus.BLOCKED,
+                            error=err_msg,
+                            error_type="BUILD_FAILURE",
+                            stdout=build_res.stdout[-1500:] if build_res.stdout else "",
+                            stack_trace=build_res.stderr[-1500:] if build_res.stderr else "",
+                            executed_at=datetime.now(timezone.utc).isoformat(),
+                            steps_execution=[
+                                StepExecutionRecord(
+                                    step_number=1,
+                                    description=f"Build project using {analysis.build_tool.value}",
+                                    status=ProposedTestStatus.BLOCKED,
+                                    duration=f"{build_res.duration_s}s",
+                                    error=err_msg,
+                                )
+                            ],
                         )
-                        if readiness.ready:
-                            api_base_url = detected_url
-                            backend_running = True
-                            app_ready = True
-                            self._log(job_id, "[APP] Application health check: PASSED")
-                        else:
-                            startup_error = readiness.error
-                            self._log(job_id, f"[APP] Application health check: FAILED ({readiness.error})", "WARN")
-                    else:
-                        startup_error = launch_res.failure_reason or launch_res.error or "Migrated application could not be started."
-                        self._log(job_id, f"[APP] Migrated application startup failed: {startup_error}", "WARN")
-                        self._log(job_id, "[APP] Runtime rejected: process could not be started", "WARN")
-                except Exception as b_exc:
-                    startup_error = f"Notice starting backend: {b_exc}"
-                    self._log(job_id, f"[PROPOSED TESTS] Notice starting backend: {b_exc}", "WARN")
-            elif not backend_running and not is_migrated:
-                startup_error = "Source application is not running."
+                    self._save_proposals(job_id, proposals)
+                    metrics = self._compute_metrics(proposals)
+                    result_payload = {
+                        "job_id": job_id,
+                        "status": "COMPLETED",
+                        "executed_at": datetime.now(timezone.utc).isoformat(),
+                        "execution_target": "MIGRATED_APPLICATION",
+                        "app_ready": False,
+                        "app_readiness_error": err_msg,
+                        "selected_sources": norm_sources,
+                        "metrics": metrics.model_dump(),
+                        "allure_report_available": False,
+                        "playwright_report_available": False,
+                        "test_cases": [p.model_dump() for p in proposals],
+                    }
+                    self._get_results_file(job_id).write_text(json.dumps(result_payload, indent=2), encoding="utf-8")
+                    with self._lock:
+                        self._run_state[job_id] = {
+                            "status": "COMPLETED",
+                            "result": result_payload,
+                            "selected_sources": norm_sources,
+                            "completed": len(tests_to_run),
+                            "total": len(tests_to_run),
+                        }
+                    self._save_status(job_id, "COMPLETED", {
+                        "selected_sources": norm_sources,
+                        "total": len(proposals),
+                        "executed": 0,
+                        "passed": 0,
+                        "failed": 0,
+                        "blocked": len(tests_to_run),
+                        "app_ready": False,
+                        "app_readiness_error": err_msg,
+                        "metrics": metrics.model_dump(),
+                    })
+                    self._log(
+                        job_id,
+                        f"[BASELINE] Baseline execution completed. Executed: 0/{len(proposals)}, "
+                        f"Passed: 0, Failed: 0, Blocked: {len(tests_to_run)}, Not Executed: {len(tests_to_run)}."
+                    )
+                    return
 
-            # 2. Resolve Migrated Frontend UI Base URL (Framework-Aware)
-            ui_base_url = None
-            fe_server = None
-            from app.infrastructure.build.migrated_frontend_server import MigratedFrontendServer
+                # Re-detect artifacts after successful compilation
+                art_res = art_detector.detect(analysis)
+            elif art_res.has_runnable_jar and art_res.jar_path:
+                self._log(job_id, f"[BUILD] Verified runnable artifact: {art_res.jar_path.name}")
 
-            fe_candidate = MigratedFrontendServer(job_id, target_dir)
-            if fe_candidate.has_migrated_frontend():
-                try:
-                    self._log(job_id, "[APP] Starting migrated application...")
-                    fe_port, fe_pid, fe_url = fe_candidate.launch()
-                    self._log(job_id, f"[APP] Process PID: {fe_pid}")
-                    self._log(job_id, f"[APP] Port owner PID: {fe_pid}")
-                    self._log(job_id, f"[APP] Detected runtime URL: {fe_url}")
+            # 3. Dynamic Application Runner Selection & Port Management
+            self._log(job_id, f"[APP] Detected {analysis.app_type.value} application (Strategy: {art_res.run_strategy})")
+            runner = ApplicationRunnerFactory.create_runner(job_id, target_dir, analysis, art_res)
 
-                    readiness = AppReadinessChecker().wait_for_ready(fe_url, timeout_s=6.0, poll_interval_s=0.5, process_pid=fe_pid)
-                    if readiness.ready:
-                        ui_base_url = fe_url
-                        fe_server = fe_candidate
-                        app_ready = True
-                        startup_error = None
-                        self._log(job_id, "[APP] Application health check: PASSED")
-                    else:
-                        self._log(job_id, f"[APP] Frontend health check failed: {readiness.error}", "WARN")
-                except Exception as fe_exc:
-                    self._log(job_id, f"[APP] Notice launching migrated frontend: {fe_exc}", "WARN")
+            preferred_port = analysis.configured_port or 8080
+            configured_port = PortManager.resolve_port(preferred_port, label="backend")
+            self._log(job_id, f"[APP] Starting application on port {configured_port}...")
 
-            # Cross-propagate base URLs if only one server is up
-            if not ui_base_url and app_ready and api_base_url:
-                ui_base_url = api_base_url
-                self._log(job_id, f"[PROPOSED TESTS] UI tests target application at: {ui_base_url}")
-            if not api_base_url and app_ready and ui_base_url:
-                api_base_url = ui_base_url
-                self._log(job_id, f"[PROPOSED TESTS] API tests target application at: {api_base_url}")
-
-            has_ui_tests = any(t.type == ProposedTestType.UI for t in tests_to_run)
-            has_api_tests = any(t.type == ProposedTestType.API for t in tests_to_run)
-
-            # Verification: only gate on URLs required for the specific test types being executed
-            is_ready = app_ready and (
-                (not has_ui_tests or bool(ui_base_url)) and
-                (not has_api_tests or bool(api_base_url))
+            launch_res = runner.start(
+                analysis=analysis,
+                artifact=art_res,
+                preferred_port=configured_port,
+                log_fn=lambda m, lvl="INFO": self._log(job_id, m, lvl),
+                startup_timeout=35.0,
             )
 
-            # 3. Execution Gate: Only proceed to Playwright if application runtime is verified ready
-            if not is_ready:
-                err_detail = startup_error or "Migrated application runtime is unavailable."
-                self._log(job_id, f"[APP] Application startup failed -> Playwright execution aborted: {err_detail}", "WARN")
-                formatted_err = err_detail if err_detail.startswith("Migrated application could not be started") else f"Migrated application could not be started: {err_detail}"
+            if not launch_res.success:
+                startup_err = launch_res.failure_reason or launch_res.error or "Application process failed to start."
+                self._log(job_id, f"[APP] Migrated application startup failed: {startup_err}", "WARN")
+                self._log(job_id, "[APP] Runtime rejected: process could not be started", "WARN")
+                self._log(job_id, f"[APP] Application startup failed -> Playwright execution aborted: {startup_err}", "WARN")
+                self._log(job_id, "[APP] Execution blocked: 0 tests were executed. Application could not be started.", "WARN")
+
                 for t in tests_to_run:
-                    t.status = ProposedTestStatus.NOT_EXECUTED
+                    t.status = ProposedTestStatus.BLOCKED
                     t.execution_result = ExecutionResult(
-                        status=ProposedTestStatus.NOT_EXECUTED,
-                        error=formatted_err,
-                        error_type="ENVIRONMENT_NOT_READY",
-                        stdout=f"[APP] Application startup check failed: {err_detail}\nPlaywright browser execution was aborted to prevent testing against unrelated ports.",
+                        status=ProposedTestStatus.BLOCKED,
+                        error=f"Migrated application startup failed: {startup_err}",
+                        error_type="APPLICATION_STARTUP",
+                        stdout="\n".join(launch_res.startup_log[-40:]) if launch_res.startup_log else "",
                         executed_at=datetime.now(timezone.utc).isoformat(),
                         steps_execution=[
                             StepExecutionRecord(
                                 step_number=1,
                                 description="Verify migrated application runtime readiness",
-                                status=ProposedTestStatus.NOT_EXECUTED,
+                                status=ProposedTestStatus.BLOCKED,
                                 duration="0.0s",
-                                error=err_detail,
+                                error=startup_err,
                             )
                         ],
                     )
-                    self._save_proposals(job_id, proposals)
-                    with self._lock:
-                        if job_id in self._run_state:
-                            self._run_state[job_id]["completed"] += 1
-            else:
-                active_target = ui_base_url if has_ui_tests else api_base_url
-                self._log(job_id, f"[PLAYWRIGHT] Target: {active_target}")
-                executor = ProposedTestExecutor(
+                self._save_proposals(job_id, proposals)
+                runner.stop()
+                metrics = self._compute_metrics(proposals)
+                result_payload = {
+                    "job_id": job_id,
+                    "status": "COMPLETED",
+                    "executed_at": datetime.now(timezone.utc).isoformat(),
+                    "execution_target": "MIGRATED_APPLICATION",
+                    "app_ready": False,
+                    "app_readiness_error": startup_err,
+                    "selected_sources": norm_sources,
+                    "metrics": metrics.model_dump(),
+                    "allure_report_available": False,
+                    "playwright_report_available": False,
+                    "test_cases": [p.model_dump() for p in proposals],
+                }
+                self._get_results_file(job_id).write_text(json.dumps(result_payload, indent=2), encoding="utf-8")
+                with self._lock:
+                    self._run_state[job_id] = {
+                        "status": "COMPLETED",
+                        "result": result_payload,
+                        "selected_sources": norm_sources,
+                        "completed": len(tests_to_run),
+                        "total": len(tests_to_run),
+                    }
+                self._save_status(job_id, "COMPLETED", {
+                    "selected_sources": norm_sources,
+                    "total": len(proposals),
+                    "executed": 0,
+                    "passed": 0,
+                    "failed": 0,
+                    "blocked": len(tests_to_run),
+                    "app_ready": False,
+                    "app_readiness_error": startup_err,
+                    "metrics": metrics.model_dump(),
+                })
+                self._log(
                     job_id,
-                    evidence_dir=evidence_dir,
-                    log_fn=lambda m, level="INFO": self._log(job_id, m, level),
-                    api_base_url=api_base_url,
-                    ui_base_url=ui_base_url,
+                    f"[BASELINE] Baseline execution completed. Executed: 0/{len(proposals)}, "
+                    f"Passed: 0, Failed: 0, Blocked: {len(tests_to_run)}, Not Executed: {len(tests_to_run)}."
                 )
+                return
 
-                try:
-                    self._log(job_id, f"[PROPOSED TESTS] Executing {len(tests_to_run)} selected proposed tests...")
-                    for t in tests_to_run:
-                        self._log(job_id, f"[PLAYWRIGHT] Test: {t.id} - {t.title}...")
+            # 4. Application Health Check
+            active_check_url = launch_res.runtime_url or launch_res.backend_url or launch_res.frontend_url or f"http://localhost:{configured_port}"
+            self._log(job_id, f"[APP] Waiting for application readiness at {active_check_url}...")
+
+            check_pid = launch_res.backend_pid
+            if active_check_url in (launch_res.frontend_url, launch_res.runtime_url) and launch_res.frontend_pid:
+                check_pid = launch_res.frontend_pid
+
+            readiness = AppReadinessChecker().wait_for_ready(
+                active_check_url,
+                timeout_s=25.0,
+                poll_interval_s=1.0,
+                process_pid=check_pid,
+                app_type_label="Migrated application",
+            )
+
+            if not readiness.ready:
+                startup_err = readiness.error or "Application failed health check."
+                self._log(job_id, f"[APP] Application health check: FAILED ({startup_err})", "WARN")
+                self._log(job_id, f"[APP] Application startup failed -> Playwright execution aborted: {startup_err}", "WARN")
+
+                for t in tests_to_run:
+                    t.status = ProposedTestStatus.BLOCKED
+                    t.execution_result = ExecutionResult(
+                        status=ProposedTestStatus.BLOCKED,
+                        error=f"Application health check failed: {startup_err}",
+                        error_type="APPLICATION_STARTUP",
+                        stdout="\n".join(launch_res.startup_log[-40:]) if launch_res.startup_log else "",
+                        executed_at=datetime.now(timezone.utc).isoformat(),
+                        steps_execution=[
+                            StepExecutionRecord(
+                                step_number=1,
+                                description="Verify migrated application runtime readiness",
+                                status=ProposedTestStatus.BLOCKED,
+                                duration="0.0s",
+                                error=startup_err,
+                            )
+                        ],
+                    )
+                self._save_proposals(job_id, proposals)
+                runner.stop()
+                metrics = self._compute_metrics(proposals)
+                result_payload = {
+                    "job_id": job_id,
+                    "status": "COMPLETED",
+                    "executed_at": datetime.now(timezone.utc).isoformat(),
+                    "execution_target": "MIGRATED_APPLICATION",
+                    "app_ready": False,
+                    "app_readiness_error": startup_err,
+                    "selected_sources": norm_sources,
+                    "metrics": metrics.model_dump(),
+                    "allure_report_available": False,
+                    "playwright_report_available": False,
+                    "test_cases": [p.model_dump() for p in proposals],
+                }
+                self._get_results_file(job_id).write_text(json.dumps(result_payload, indent=2), encoding="utf-8")
+                with self._lock:
+                    self._run_state[job_id] = {
+                        "status": "COMPLETED",
+                        "result": result_payload,
+                        "selected_sources": norm_sources,
+                        "completed": len(tests_to_run),
+                        "total": len(tests_to_run),
+                    }
+                self._save_status(job_id, "COMPLETED", {
+                    "selected_sources": norm_sources,
+                    "total": len(proposals),
+                    "executed": 0,
+                    "passed": 0,
+                    "failed": 0,
+                    "blocked": len(tests_to_run),
+                    "app_ready": False,
+                    "app_readiness_error": startup_err,
+                    "metrics": metrics.model_dump(),
+                })
+                self._log(
+                    job_id,
+                    f"[BASELINE] Baseline execution completed. Executed: 0/{len(proposals)}, "
+                    f"Passed: 0, Failed: 0, Blocked: {len(tests_to_run)}, Not Executed: {len(tests_to_run)}."
+                )
+                return
+
+            self._log(job_id, f"[APP] Application ready at {active_check_url}")
+            self._log(job_id, "[APP] Application health check: PASSED")
+
+            api_base_url = launch_res.backend_url or active_check_url
+            ui_base_url = launch_res.frontend_url or launch_res.runtime_url or active_check_url
+
+            # 5. Playwright Browser and API Test Execution
+            has_ui_tests = any(t.type == ProposedTestType.UI for t in tests_to_run)
+            active_target = ui_base_url if has_ui_tests else api_base_url
+            self._log(job_id, f"[PLAYWRIGHT] Target: {active_target}")
+            self._log(job_id, "[PW] Launching Chromium...")
+
+            from app.application.use_cases.proposed_tests.playwright_test_generator import PlaywrightTestGenerator
+
+            unit_tests = [t for t in tests_to_run if t.type == ProposedTestType.UNIT]
+            playwright_tests = [t for t in tests_to_run if t.type in (ProposedTestType.API, ProposedTestType.UI)]
+
+            executor = ProposedTestExecutor(
+                job_id,
+                evidence_dir=evidence_dir,
+                log_fn=lambda m, level="INFO": self._log(job_id, m, level),
+                api_base_url=api_base_url,
+                ui_base_url=ui_base_url,
+                repo_dir=target_dir,
+            )
+
+            try:
+                if unit_tests:
+                    self._log(job_id, f"[UNIT TESTS] Executing {len(unit_tests)} unit tests...")
+                    for idx, t in enumerate(unit_tests):
+                        self._log(job_id, f"[{t.id}] Starting {t.title} test...")
                         t.status = ProposedTestStatus.RUNNING
                         self._save_proposals(job_id, proposals)
 
@@ -674,52 +829,54 @@ class ProposedTestService:
                         t.execution_result = res
                         t.status = res.status
                         self._save_proposals(job_id, proposals)
-                        self._log(job_id, f"[PROPOSED TESTS] {t.id} {res.status.value}")
+
+                        status_str = "PASSED" if res.status == ProposedTestStatus.PASSED else "FAILED"
+                        self._log(job_id, f"[{t.id}] {status_str}")
 
                         with self._lock:
                             if job_id in self._run_state:
-                                self._run_state[job_id]["completed"] += 1
-                finally:
-                    executor.close()
-                    ProposedTestExecutor.shutdown_playwright()
+                                self._run_state[job_id]["completed"] = idx + 1
+            finally:
+                executor.close()
+                ProposedTestExecutor.shutdown_playwright()
+                runner.stop(log_fn=lambda m, lvl="INFO": self._log(job_id, m, lvl))
 
-            if fe_server:
+            playwright_report_exists = False
+            playwright_url = None
+            allure_report_exists = False
+            allure_url = None
+
+            if playwright_tests:
+                pw_gen = PlaywrightTestGenerator(paths.job_dir, api_base_url, ui_base_url)
+                self._log(job_id, f"[PLAYWRIGHT] Generating actual Playwright tests for {len(playwright_tests)} functional cases...")
+                pw_gen.generate_project(playwright_tests)
+                self._log(job_id, "[PLAYWRIGHT] Executing tests via npx playwright test...")
+                report_ok = pw_gen.run_tests()
+                pw_gen.sync_results(playwright_tests)
+                self._save_proposals(job_id, proposals)
+                if not report_ok:
+                    self._log(job_id, "Playwright report generation failed", "ERROR")
+                else:
+                    self._log(job_id, "[REPORT] Playwright report generated successfully.")
+                    playwright_report_exists = True
+                    playwright_url = f"/api/v1/migration/{job_id}/proposed-tests/playwright-report/index.html"
+            else:
+                self._log(job_id, "[REPORT] 0 Playwright tests executed. Playwright report omitted.", "WARN")
+
+            executed_count = sum(1 for t in tests_to_run if t.status in [ProposedTestStatus.PASSED, ProposedTestStatus.FAILED, ProposedTestStatus.SKIPPED])
+            if executed_count > 0:
                 try:
-                    fe_server.stop()
-                    self._log(job_id, "[APP] Stopped migrated frontend application process.")
-                except Exception as stop_exc:  # noqa: BLE001
-                    logger.warning("Failed to stop frontend server: %s", stop_exc)
+                    reporter.generate_allure_results(tests_to_run, selected_sources=norm_sources)
+                    reporter.generate_html_report(tests_to_run, selected_sources=norm_sources)
+                    allure_report_exists = (paths.job_dir / "proposed-tests" / "allure-report" / "index.html").is_file()
+                    allure_url = f"/api/v1/migration/{job_id}/proposed-tests/allure-report/index.html" if allure_report_exists else None
+                    self._log(job_id, "[PROPOSED TESTS] Allure Report generated successfully.")
+                except Exception as a_err:
+                    self._log(job_id, f"[PROPOSED TESTS] Failed to generate Allure Report: {a_err}", "WARN")
 
-            if launched_pid and launched_pid != existing_pid:
-                try:
-                    MigratedAppLauncher.stop(launched_pid)
-                    self._log(job_id, f"[APP] Stopped migrated application backend process (PID {launched_pid}).")
-                except Exception as stop_exc:  # noqa: BLE001
-                    logger.warning("Failed to stop backend server: %s", stop_exc)
-
-            # Generate Allure results and standalone HTML report for executed tests
-            try:
-                reporter.generate_allure_results(tests_to_run, selected_sources=norm_sources)
-                reporter.generate_html_report(tests_to_run, selected_sources=norm_sources)
-                self._log(job_id, "[PROPOSED TESTS] Allure Report generated successfully.")
-            except Exception as a_err:  # noqa: BLE001
-                self._log(job_id, f"[PROPOSED TESTS] Failed to generate Allure Report: {a_err}", "WARN")
-
-            # Generate Playwright HTML report
-            try:
-                playwright_reporter.generate_html_report(tests_to_run, selected_sources=norm_sources)
-                self._log(job_id, "[PROPOSED TESTS] Playwright Report generated successfully.")
-            except Exception as p_err:  # noqa: BLE001
-                self._log(job_id, f"[PROPOSED TESTS] Failed to generate Playwright Report: {p_err}", "WARN")
-
-            # Save updated proposals preserving complete master inventory
+            # 7. Persist Results & Metrics
             self._save_proposals(job_id, proposals)
             metrics = self._compute_metrics(proposals)
-            allure_url = f"/api/v1/migration/{job_id}/proposed-tests/allure-report/index.html"
-            playwright_url = f"/api/v1/migration/{job_id}/proposed-tests/playwright-report/index.html"
-
-            allure_report_exists = (paths.job_dir / "proposed-tests" / "allure-report" / "index.html").is_file()
-            playwright_report_exists = (paths.job_dir / "proposed-tests" / "playwright-report" / "index.html").is_file()
 
             result_payload = {
                 "job_id": job_id,
@@ -730,8 +887,8 @@ class ProposedTestService:
                 "api_base_url": api_base_url,
                 "ui_base_url": ui_base_url,
                 "runtime_url": ui_base_url or api_base_url,
-                "app_ready": app_ready,
-                "app_readiness_error": startup_error if not app_ready else None,
+                "app_ready": True,
+                "app_readiness_error": None,
                 "selected_sources": norm_sources,
                 "metrics": metrics.model_dump(),
                 "allure_report_available": allure_report_exists,
@@ -747,8 +904,8 @@ class ProposedTestService:
                     "status": "COMPLETED",
                     "result": result_payload,
                     "selected_sources": norm_sources,
-                    "allure_report_available": allure_report_exists,
-                    "allure_report_url": allure_url if allure_report_exists else None,
+                    "completed": len(tests_to_run),
+                    "total": len(tests_to_run),
                 }
             self._save_status(job_id, "COMPLETED", {
                 "selected_sources": norm_sources,
@@ -756,21 +913,20 @@ class ProposedTestService:
                 "executed": metrics.executed,
                 "passed": metrics.passed,
                 "failed": metrics.failed,
-                "app_ready": app_ready,
-                "app_readiness_error": startup_error if not app_ready else None,
-                "allure_report_available": True,
+                "blocked": metrics.blocked,
+                "app_ready": True,
+                "allure_report_available": allure_report_exists,
                 "allure_report_url": allure_url,
+                "playwright_report_available": playwright_report_exists,
+                "playwright_report_url": playwright_url,
                 "metrics": metrics.model_dump(),
             })
-            # IMPORTANT: use metrics.executed (actual Playwright results), NOT len(tests_to_run).
-            # tests_to_run is the list of *valid/selected* tests — it is NOT the executed count.
-            # Playwright may never have run (e.g. build failure → executed == 0).
             self._log(
                 job_id,
                 f"[BASELINE] Baseline execution completed. "
                 f"Executed: {metrics.executed}/{len(proposals)}, "
                 f"Passed: {metrics.passed}, Failed: {metrics.failed}, "
-                f"Not Executed: {metrics.not_executed}."
+                f"Blocked: {metrics.blocked}, Not Executed: {metrics.not_executed}."
             )
 
         thread = threading.Thread(target=_run_bg, daemon=True)
@@ -787,9 +943,16 @@ class ProposedTestService:
             mem_state = self._run_state.get(job_id)
 
         paths = WorkspacePaths(job_id)
+        proposals = self.get_proposed_tests(job_id)
+        metrics = self._compute_metrics(proposals)
+
         allure_index = paths.job_dir / "proposed-tests" / "allure-report" / "index.html"
-        allure_available = allure_index.is_file()
+        allure_available = allure_index.is_file() and metrics.executed > 0
         allure_url = f"/api/v1/migration/{job_id}/proposed-tests/allure-report/index.html" if allure_available else None
+
+        playwright_index = paths.job_dir / "proposed-tests" / "playwright-report" / "index.html"
+        playwright_available = playwright_index.is_file() and metrics.executed > 0
+        playwright_url = f"/api/v1/migration/{job_id}/proposed-tests/playwright-report/index.html" if playwright_available else None
 
         persisted_status = "IDLE"
         persisted_sources = None
@@ -805,8 +968,6 @@ class ProposedTestService:
         with self._lock:
             logs = list(self._live_logs.get(job_id, []))
 
-        proposals = self.get_proposed_tests(job_id)
-        metrics = self._compute_metrics(proposals)
         current_status = mem_state.get("status") if mem_state else persisted_status
         if not proposals and current_status != "GENERATING":
             current_status = "IDLE"
@@ -830,6 +991,8 @@ class ProposedTestService:
             "selected_sources": mem_state.get("selected_sources") if mem_state else persisted_sources,
             "allure_report_available": allure_available,
             "allure_report_url": allure_url,
+            "playwright_report_available": playwright_available,
+            "playwright_report_url": playwright_url,
             "metrics": metrics.model_dump(),
             "logs": logs,
             "proposals": [p.model_dump() for p in proposals],
@@ -837,12 +1000,16 @@ class ProposedTestService:
 
     def get_results(self, job_id: str) -> dict[str, Any]:
         paths = WorkspacePaths(job_id)
-        allure_index = paths.job_dir / "proposed-tests" / "allure-report" / "index.html"
-        allure_available = allure_index.is_file()
-        allure_url = f"/api/v1/migration/{job_id}/proposed-tests/allure-report/index.html" if allure_available else None
-
         proposals = self.get_proposed_tests(job_id)
         metrics = self._compute_metrics(proposals)
+
+        allure_index = paths.job_dir / "proposed-tests" / "allure-report" / "index.html"
+        allure_available = allure_index.is_file() and metrics.executed > 0
+        allure_url = f"/api/v1/migration/{job_id}/proposed-tests/allure-report/index.html" if allure_available else None
+
+        playwright_index = paths.job_dir / "proposed-tests" / "playwright-report" / "index.html"
+        playwright_available = playwright_index.is_file() and metrics.executed > 0
+        playwright_url = f"/api/v1/migration/{job_id}/proposed-tests/playwright-report/index.html" if playwright_available else None
 
         res_file = self._get_results_file(job_id)
         status = "IDLE"
@@ -864,6 +1031,8 @@ class ProposedTestService:
             "selected_sources": selected_sources,
             "allure_report_available": allure_available,
             "allure_report_url": allure_url,
+            "playwright_report_available": playwright_available,
+            "playwright_report_url": playwright_url,
             "metrics": metrics.model_dump(),
             "test_cases": [p.model_dump() for p in proposals],
         }
@@ -876,6 +1045,7 @@ class ProposedTestService:
         passed = len([p for p in proposals if p.status == ProposedTestStatus.PASSED])
         failed = len([p for p in proposals if p.status == ProposedTestStatus.FAILED])
         skipped = len([p for p in proposals if p.status == ProposedTestStatus.SKIPPED])
+        blocked = len([p for p in proposals if p.status == ProposedTestStatus.BLOCKED])
         app_unavailable = len([p for p in proposals if p.status == ProposedTestStatus.APPLICATION_UNAVAILABLE])
         # not_executed: count ONLY tests explicitly marked NOT_EXECUTED.
         # Do NOT use subtraction (total - executed - app_unavailable):
@@ -901,7 +1071,7 @@ class ProposedTestService:
             if (
                 p.generation_source in ["BRD_DOCUMENT", "FUNCTIONAL_DOC", "FUNCTIONAL_DOCUMENT", "Functional Testing Document Generated"]
                 or ("BRD" in p.id and p.generation_source != "BRD_AND_AI")
-                or p.source in ["BRD Document", "BRD Business Requirement", "Functional Testing Document Generated"]
+                or p.source in ["Functional Doc", "BRD Document", "BRD Business Requirement", "Functional Testing Document Generated"]
             ) and p.generation_source != "BRD_AND_AI"
         ])
         existing_gen = len([
@@ -930,6 +1100,7 @@ class ProposedTestService:
             passed=passed,
             failed=failed,
             skipped=skipped,
+            blocked=blocked,
             not_executed=not_executed,
             duration=formatted_duration,
             gaps_count=total,
@@ -945,18 +1116,21 @@ class ProposedTestService:
                 passed=len([p for p in unit_tests if p.status == ProposedTestStatus.PASSED]),
                 failed=len([p for p in unit_tests if p.status == ProposedTestStatus.FAILED]),
                 skipped=len([p for p in unit_tests if p.status == ProposedTestStatus.SKIPPED]),
+                blocked=len([p for p in unit_tests if p.status == ProposedTestStatus.BLOCKED]),
             ),
             api_metrics=ProposedTestTypeBreakdown(
                 total=len(api_tests),
                 passed=len([p for p in api_tests if p.status == ProposedTestStatus.PASSED]),
                 failed=len([p for p in api_tests if p.status == ProposedTestStatus.FAILED]),
                 skipped=len([p for p in api_tests if p.status == ProposedTestStatus.SKIPPED]),
+                blocked=len([p for p in api_tests if p.status == ProposedTestStatus.BLOCKED]),
             ),
             ui_metrics=ProposedTestTypeBreakdown(
                 total=len(ui_tests),
                 passed=len([p for p in ui_tests if p.status == ProposedTestStatus.PASSED]),
                 failed=len([p for p in ui_tests if p.status == ProposedTestStatus.FAILED]),
                 skipped=len([p for p in ui_tests if p.status == ProposedTestStatus.SKIPPED]),
+                blocked=len([p for p in ui_tests if p.status == ProposedTestStatus.BLOCKED]),
             ),
             priority_metrics=ProposedTestPriorityBreakdown(
                 high=high_p,
@@ -1096,6 +1270,12 @@ class ProposedTestService:
         if source_readiness_status == "READY" and source_app_url:
             self._log(job_id, "[BASELINE] Starting Playwright baseline execution...")
             self._log(job_id, f"[BASELINE] Executing {len(proposals)} proposed functional tests against source application...")
+            
+            from app.application.use_cases.proposed_tests.playwright_test_generator import PlaywrightTestGenerator
+
+            unit_tests = [t for t in proposals if t.type == ProposedTestType.UNIT]
+            playwright_tests = [t for t in proposals if t.type in (ProposedTestType.API, ProposedTestType.UI)]
+
             executor = ProposedTestExecutor(
                 job_id,
                 evidence_dir=evidence_dir,
@@ -1104,7 +1284,7 @@ class ProposedTestService:
             )
 
             try:
-                for t in proposals:
+                for t in unit_tests:
                     res = executor.execute_test(t, repo_dir=source_dir)
                     t.baseline_execution_result = res
                     self._log(job_id, f"[BASELINE] {t.id} -> {res.status.value}")
@@ -1112,9 +1292,32 @@ class ProposedTestService:
                 executor.close()
                 ProposedTestExecutor.shutdown_playwright()
 
+            if playwright_tests:
+                pw_gen = PlaywrightTestGenerator(paths.job_dir, source_app_url, source_app_url)
+                # Override paths for baseline
+                pw_gen.pw_dir = paths.job_dir / "proposed-tests" / "playwright-project-baseline"
+                pw_gen.report_dir = paths.job_dir / "proposed-tests" / "playwright-report-baseline"
+                pw_gen.pw_dir.mkdir(parents=True, exist_ok=True)
+                
+                self._log(job_id, f"[BASELINE PLAYWRIGHT] Generating actual Playwright tests for {len(playwright_tests)} cases...")
+                pw_gen.generate_project(playwright_tests)
+                self._log(job_id, "[BASELINE PLAYWRIGHT] Executing tests via npx playwright test...")
+                report_ok = pw_gen.run_tests()
+                pw_gen.sync_results(playwright_tests)
+                
+                # sync_results sets t.execution_result. For baseline, we want baseline_execution_result.
+                for t in playwright_tests:
+                    if t.execution_result:
+                        t.baseline_execution_result = t.execution_result
+                        t.execution_result = None 
+                
+                if report_ok:
+                    self._log(job_id, "[BASELINE REPORT] Playwright baseline report generated.")
+                else:
+                    self._log(job_id, "[BASELINE REPORT] Playwright baseline report failed.", "ERROR")
+
             try:
                 from app.application.use_cases.proposed_tests.proposed_test_allure_reporter import ProposedTestAllureReporter
-                from app.application.use_cases.proposed_tests.proposed_test_playwright_reporter import ProposedTestPlaywrightReporter
                 baseline_reporter = ProposedTestAllureReporter(
                     job_id,
                     results_dir=paths.job_dir / "proposed-tests" / "allure-results-baseline",
@@ -1123,13 +1326,6 @@ class ProposedTestService:
                 baseline_reporter.generate_allure_results(proposals)
                 baseline_reporter.generate_html_report(proposals)
                 self._log(job_id, "[BASELINE] Allure baseline report generated.")
-
-                baseline_playwright_reporter = ProposedTestPlaywrightReporter(
-                    job_id,
-                    report_dir=paths.job_dir / "proposed-tests" / "playwright-report-baseline",
-                )
-                baseline_playwright_reporter.generate_html_report(proposals)
-                self._log(job_id, "[BASELINE] Playwright baseline report generated.")
             except Exception as a_err:  # noqa: BLE001
                 self._log(job_id, f"[BASELINE] Notice generating baseline reports: {a_err}", "WARN")
         else:
@@ -1190,6 +1386,7 @@ class ProposedTestService:
         passed = 0
         failed = 0
         skipped = 0
+        blocked = 0
         app_unavail = 0
 
         for p in proposals:
@@ -1204,14 +1401,12 @@ class ProposedTestService:
                 elif res.status == ProposedTestStatus.SKIPPED:
                     skipped += 1
                     executed_tests.append(p)
+                elif res.status == ProposedTestStatus.BLOCKED:
+                    blocked += 1
                 elif res.status == ProposedTestStatus.APPLICATION_UNAVAILABLE:
                     app_unavail += 1
 
         executed = len(executed_tests)
-        # not_executed for baseline: count only tests whose baseline_execution_result
-        # is explicitly NOT_EXECUTED (i.e. valid tests that should have run but didn't).
-        # Do NOT use subtraction — that would include duplicates/hallucinated tests
-        # which never had a baseline_execution_result and are not execution candidates.
         not_executed = len([
             p for p in proposals
             if p.baseline_execution_result is not None
@@ -1229,6 +1424,7 @@ class ProposedTestService:
             passed=passed,
             failed=failed,
             skipped=skipped,
+            blocked=blocked,
             not_executed=not_executed,
             pass_percentage=pass_pct,
             unit_metrics=ProposedTestTypeBreakdown(
@@ -1236,18 +1432,21 @@ class ProposedTestService:
                 passed=len([p for p in unit_tests if p.baseline_execution_result and p.baseline_execution_result.status == ProposedTestStatus.PASSED]),
                 failed=len([p for p in unit_tests if p.baseline_execution_result and p.baseline_execution_result.status == ProposedTestStatus.FAILED]),
                 skipped=len([p for p in unit_tests if p.baseline_execution_result and p.baseline_execution_result.status == ProposedTestStatus.SKIPPED]),
+                blocked=len([p for p in unit_tests if p.baseline_execution_result and p.baseline_execution_result.status == ProposedTestStatus.BLOCKED]),
             ),
             api_metrics=ProposedTestTypeBreakdown(
                 total=len(api_tests),
                 passed=len([p for p in api_tests if p.baseline_execution_result and p.baseline_execution_result.status == ProposedTestStatus.PASSED]),
                 failed=len([p for p in api_tests if p.baseline_execution_result and p.baseline_execution_result.status == ProposedTestStatus.FAILED]),
                 skipped=len([p for p in api_tests if p.baseline_execution_result and p.baseline_execution_result.status == ProposedTestStatus.SKIPPED]),
+                blocked=len([p for p in api_tests if p.baseline_execution_result and p.baseline_execution_result.status == ProposedTestStatus.BLOCKED]),
             ),
             ui_metrics=ProposedTestTypeBreakdown(
                 total=len(ui_tests),
                 passed=len([p for p in ui_tests if p.baseline_execution_result and p.baseline_execution_result.status == ProposedTestStatus.PASSED]),
                 failed=len([p for p in ui_tests if p.baseline_execution_result and p.baseline_execution_result.status == ProposedTestStatus.FAILED]),
                 skipped=len([p for p in ui_tests if p.baseline_execution_result and p.baseline_execution_result.status == ProposedTestStatus.SKIPPED]),
+                blocked=len([p for p in ui_tests if p.baseline_execution_result and p.baseline_execution_result.status == ProposedTestStatus.BLOCKED]),
             ),
         )
 

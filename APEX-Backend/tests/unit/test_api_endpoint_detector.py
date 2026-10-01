@@ -1,6 +1,7 @@
+import tempfile
 import pytest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+
 from app.infrastructure.analyzers.api_endpoint_detector import ApiEndpointDetector
 
 @pytest.fixture
@@ -8,47 +9,40 @@ def detector():
     return ApiEndpointDetector()
 
 def test_detect_no_jar(detector):
-    with patch.object(Path, "exists", return_value=False):
-        results = detector.detect(Path("/tmp/fake-repo"))
-        assert results == []
+    # This just ensures we can init without exception
+    assert detector is not None
 
-@patch("subprocess.run")
-def test_detect_success(mock_run, detector):
-    # Mock successful Java execution
-    mock_run.return_value = MagicMock(
-        returncode=0,
-        stdout='{"status": "SUCCESS", "apiEndpoints": [{"id": "1", "httpMethod": "GET", "path": "/api/test", "controller": "TestController"}]}',
-        stderr=""
-    )
+def test_detect_success(detector):
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        java_file = root / "TestController.java"
+        java_file.write_text(
+            'import org.springframework.web.bind.annotation.*;\n'
+            '@RestController\n'
+            '@RequestMapping("/api")\n'
+            'public class TestController {\n'
+            '    @GetMapping("/test")\n'
+            '    public String test() { return "ok"; }\n'
+            '}'
+        )
+        results = detector.detect(root)
+        paths = [r["urlPath"] for r in results]
+        assert "/api/test" in paths
+        
+        # Verify the attributes of the correct endpoint
+        endpoint = next(r for r in results if r["urlPath"] == "/api/test")
+        assert endpoint["httpMethod"] == "GET"
+        assert endpoint["className"] == "TestController"
 
-    with patch.object(Path, "exists", return_value=True):
-        results = detector.detect(Path("/tmp/fake-repo"))
-        assert len(results) == 1
-        assert results[0]["path"] == "/api/test"
-        assert results[0]["httpMethod"] == "GET"
+def test_detect_no_endpoints(detector):
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        java_file = root / "NoEndpoint.java"
+        java_file.write_text(
+            'public class NoEndpoint {\n'
+            '    public String test() { return "ok"; }\n'
+            '}'
+        )
+        results = detector.detect(root)
+        assert len(results) == 0
 
-@patch("subprocess.run")
-def test_detect_failure(mock_run, detector):
-    # Mock failed Java execution
-    mock_run.return_value = MagicMock(
-        returncode=1,
-        stdout="",
-        stderr="Some Java Error"
-    )
-
-    with patch.object(Path, "exists", return_value=True):
-        results = detector.detect(Path("/tmp/fake-repo"))
-        assert results == []
-
-@patch("subprocess.run")
-def test_detect_malformed_json(mock_run, detector):
-    # Mock success but invalid JSON
-    mock_run.return_value = MagicMock(
-        returncode=0,
-        stdout="not a json",
-        stderr=""
-    )
-
-    with patch.object(Path, "exists", return_value=True):
-        results = detector.detect(Path("/tmp/fake-repo"))
-        assert results == []

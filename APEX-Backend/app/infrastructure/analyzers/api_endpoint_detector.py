@@ -46,7 +46,7 @@ class ApiEndpointDetector:
 
                 # Class-level base path
                 class_path = ""
-                class_match = re.search(r'@(?:RequestMap|Path|ControllerMap)\s*\((?:value\s*=\s*)?["\']([^"\']+)["\']', content)
+                class_match = re.search(r'@(?:RequestMapping|Path|ControllerMap)\s*\((?:value\s*=\s*)?["\']([^"\']+)["\']', content)
                 if class_match:
                     class_path = class_match.group(1).rstrip("/")
 

@@ -849,6 +849,22 @@ export async function downloadProposedTestReport(jobId: string): Promise<Blob> {
   );
 }
 
+// Download the full Playwright / functional test suite HTML report
+export async function downloadProposedTestHtmlReport(jobId: string): Promise<Blob> {
+  return requestBlob(
+    `/v1/migration/${encodeURIComponent(jobId)}/proposed-tests/report/download-html`,
+    "Failed to download proposed tests HTML report."
+  );
+}
+
+// Download a single test case standalone HTML report
+export async function downloadTestCaseHtmlReport(jobId: string, testId: string): Promise<Blob> {
+  return requestBlob(
+    `/v1/migration/${encodeURIComponent(jobId)}/proposed-tests/${encodeURIComponent(testId)}/report/download-html`,
+    `Failed to download HTML report for test ${testId}.`
+  );
+}
+
 export interface ReportDetailItem {
   [key: string]: any;
 }

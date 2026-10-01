@@ -202,6 +202,27 @@ async def download_proposed_test_report_endpoint(
     )
 
 
+@router.get("/{job_id}/proposed-tests/report/download-html")
+async def download_proposed_test_html_report_endpoint(
+    job_id: str,
+    current_user: User = Depends(get_current_user),  # noqa: B008
+):
+    """Downloads the full functional test suite HTML report (Playwright HTML Report)."""
+    await verify_job_ownership(job_id, current_user)
+    paths = WorkspacePaths(job_id)
+    report_file = paths.job_dir / "proposed-tests" / "playwright-report" / "index.html"
+
+    if not report_file.is_file():
+        raise HTTPException(status_code=404, detail="Playwright HTML report is not available. Playwright report generation failed.")
+
+    content = report_file.read_text(encoding="utf-8")
+    return Response(
+        content=content,
+        media_type="text/html",
+        headers={"Content-Disposition": f'attachment; filename="playwright-functional-report-{job_id}.html"'},
+    )
+
+
 @router.post("/{job_id}/proposed-tests/bulk-status")
 async def bulk_status_update_endpoint(
     job_id: str,
@@ -271,13 +292,23 @@ async def get_proposed_test_evidence_endpoint(
     if filename.endswith(".svg"):
         return Response(content=evidence_file.read_bytes(), media_type="image/svg+xml")
     if filename.endswith(".png"):
-        return FileResponse(str(evidence_file), media_type="image/png")
+        return FileResponse(
+            str(evidence_file),
+            media_type="image/png",
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
     if filename.endswith((".webm", ".mp4")):
         return FileResponse(
             str(evidence_file),
             media_type="video/webm",
             headers={
-                "Cache-Control": "no-cache, must-revalidate",
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0",
                 "Accept-Ranges": "bytes",
             },
         )
@@ -397,6 +428,9 @@ async def get_proposed_test_report_endpoint(
         "has_artifacts": has_artifacts,
         "report_available": is_executed or has_artifacts,
     })
+
+
+
 
 
 @router.get("/{job_id}/proposed-tests/{report_type}")

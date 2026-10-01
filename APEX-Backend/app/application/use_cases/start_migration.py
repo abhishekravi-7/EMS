@@ -748,11 +748,13 @@ class StartMigrationUseCase:
                     test_exec_error = None
                     test_result = None
 
-                    loop = asyncio.new_event_loop()
+                    import concurrent.futures
                     try:
-                        test_result = loop.run_until_complete(
-                            asyncio.wait_for(unit_test_use_case.execute_project_suite(req, db=None), timeout=float(UNIT_TEST_SUITE_TIMEOUT_SECONDS))
-                        )
+                        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                            test_result = executor.submit(
+                                asyncio.run,
+                                asyncio.wait_for(unit_test_use_case.execute_project_suite(req, db=None), timeout=float(UNIT_TEST_SUITE_TIMEOUT_SECONDS))
+                            ).result()
                     except asyncio.TimeoutError:
                         test_timed_out = True
                         test_exec_error = f"Test suite execution timed out after {UNIT_TEST_SUITE_TIMEOUT_SECONDS} seconds"
@@ -762,8 +764,6 @@ class StartMigrationUseCase:
                         test_exec_error = str(suite_err)
                         logger.warning(f"[JUnit] Test suite execution notice: {suite_err}")
                         store.append_logs([f"[JUnit] Test suite execution notice: {suite_err}"])
-                    finally:
-                        loop.close()
 
                     # Fallback recovery on timeout or unexpected interruption — do NOT replace real results with empty mock objects
                     mig_repo = paths.migrated_repo_dir

@@ -9,10 +9,12 @@ export type ProposedTestStatus =
   | "APPROVED"
   | "REJECTED"
   | "READY"
+  | "QUEUED"
   | "RUNNING"
   | "PASSED"
   | "FAILED"
   | "SKIPPED"
+  | "BLOCKED"
   | "NOT_EXECUTED"
   | "APPLICATION_UNAVAILABLE";
 
@@ -112,6 +114,7 @@ export interface ProposedTestTypeBreakdown {
   passed: number;
   failed: number;
   skipped: number;
+  blocked?: number;
 }
 
 export interface ProposedTestPriorityBreakdown {
@@ -128,6 +131,7 @@ export interface ProposedTestMetrics {
   passed: number;
   failed: number;
   skipped: number;
+  blocked?: number;
   not_executed: number;
   gaps_count?: number;
   ai_generated_count?: number;

@@ -36,7 +36,8 @@ def mock_user():
 @pytest.fixture
 def client(mock_user):
     app.dependency_overrides[get_current_user] = lambda: mock_user
-    yield TestClient(app)
+    with TestClient(app) as c:
+        yield c
     app.dependency_overrides.clear()
 
 

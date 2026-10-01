@@ -20,16 +20,16 @@ def mock_user():
 @pytest.fixture
 def client(mock_user):
     app.dependency_overrides[get_current_user] = lambda: mock_user
-    yield TestClient(app)
+    with TestClient(app) as c:
+        yield c
     app.dependency_overrides.clear()
 
 def test_recent_repositories_unauthenticated():
-    unauth_client = TestClient(app)
-    response = unauth_client.get("/api/v1/connect/recent-repositories")
-    assert response.status_code == 401
+    with TestClient(app) as unauth_client:
+        response = unauth_client.get("/api/v1/connect/recent-repositories")
+        assert response.status_code == 401
 
-@pytest.mark.asyncio
-async def test_recent_repositories_owner_and_components_all_states(client, mock_user):
+def test_recent_repositories_owner_and_components_all_states(client, mock_user):
     docs = [
         {
             "job_id": "job_completed_zero",
@@ -167,8 +167,7 @@ async def test_recent_repositories_owner_and_components_all_states(client, mock_
     assert by_id["job_unsupported"]["status"] == "Analyzed"
 
 
-@pytest.mark.asyncio
-async def test_connect_repository_success_persists_owner_in_mongodb(client, mock_user):
+def test_connect_repository_success_persists_owner_in_mongodb(client, mock_user):
     from app.application.pipelines.connect_pipeline import ConnectResult
 
     mock_db = MagicMock()

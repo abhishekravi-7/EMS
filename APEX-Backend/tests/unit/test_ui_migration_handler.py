@@ -3,12 +3,15 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
+import unittest
 
 from app.application.pipelines.frontend_migration.ui_migration_handler import UIMigrationHandler
 
 
 class UIMigrationHandlerTests(unittest.TestCase):
     def setUp(self):
+        import tempfile, shutil
+        from pathlib import Path
         self.temp_dir = tempfile.mkdtemp()
         self.repo_dir = Path(self.temp_dir)
 
@@ -46,6 +49,7 @@ class UIMigrationHandlerTests(unittest.TestCase):
         )
 
     def tearDown(self):
+        import shutil
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def test_transpile_to_react_rule_based(self):
@@ -103,7 +107,11 @@ class UIMigrationHandlerTests(unittest.TestCase):
         mock_stream.side_effect = mock_generator
 
         handler = UIMigrationHandler(self.repo_dir, "React")
-        transformations = handler.run()
+        
+        import asyncio
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            transformations = pool.submit(asyncio.run, handler._run_async()).result()
 
         self.assertGreaterEqual(len(transformations), 1)
         t = transformations[0]
@@ -135,7 +143,11 @@ class UIMigrationHandlerTests(unittest.TestCase):
         mock_stream.side_effect = mock_generator
 
         handler = UIMigrationHandler(self.repo_dir, "Angular")
-        transformations = handler.run()
+        
+        import asyncio
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            transformations = pool.submit(asyncio.run, handler._run_async()).result()
 
         self.assertGreaterEqual(len(transformations), 1)
         t = transformations[0]

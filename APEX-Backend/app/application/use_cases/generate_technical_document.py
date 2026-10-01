@@ -2281,14 +2281,10 @@ class GenerateTechnicalDocumentUseCase:
                     chunks.append(delta)
                 return "".join(chunks)
 
+            import concurrent.futures
             try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    import nest_asyncio
-                    nest_asyncio.apply()
-                    raw_resp = loop.run_until_complete(asyncio.wait_for(_collect(), timeout=15.0))
-                else:
-                    raw_resp = asyncio.run(asyncio.wait_for(_collect(), timeout=15.0))
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    raw_resp = executor.submit(asyncio.run, asyncio.wait_for(_collect(), timeout=15.0)).result()
             except Exception:
                 raw_resp = ""
 
@@ -2468,14 +2464,10 @@ class GenerateTechnicalDocumentUseCase:
                 chunks.append(delta)
             return "".join(chunks)
 
+        import concurrent.futures
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                import nest_asyncio
-                nest_asyncio.apply()
-                response_text = loop.run_until_complete(asyncio.wait_for(_collect(), timeout=15.0))
-            else:
-                response_text = asyncio.run(asyncio.wait_for(_collect(), timeout=15.0))
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                response_text = executor.submit(asyncio.run, asyncio.wait_for(_collect(), timeout=15.0)).result()
         except Exception:
             response_text = ""
 

@@ -25,10 +25,12 @@ class ProposedTestStatus(str, Enum):
     APPROVED = "APPROVED"
     REJECTED = "REJECTED"
     READY = "READY"
+    QUEUED = "QUEUED"
     RUNNING = "RUNNING"
     PASSED = "PASSED"
     FAILED = "FAILED"
     SKIPPED = "SKIPPED"
+    BLOCKED = "BLOCKED"
     NOT_EXECUTED = "NOT_EXECUTED"
     APPLICATION_UNAVAILABLE = "APPLICATION_UNAVAILABLE"  # App not reachable — NOT a functional failure
 
@@ -63,7 +65,7 @@ class UnitTestSpec(BaseModel):
 
 class UiTestSpec(BaseModel):
     target_route: str = "/"
-    input_fields: list[dict[str, str]] = Field(default_factory=list)
+    input_fields: list[dict[str, Any]] = Field(default_factory=list)
     actions: list[str] = Field(default_factory=list)
     expected_elements: list[str] = Field(default_factory=list)
     selectors: dict[str, str] = Field(default_factory=dict)
@@ -104,11 +106,33 @@ class ExecutionResult(BaseModel):
 
 class ValidationStatus(str, Enum):
     VALID = "VALID"
-    PARTIALLY_VALID = "PARTIALLY_VALID"
+    REVIEW_REQUIRED = "REVIEW_REQUIRED"
+    BLOCKED_DEPENDENCY = "BLOCKED_DEPENDENCY"
+    BLOCKED_AUTHENTICATION = "BLOCKED_AUTHENTICATION"
     INVALID = "INVALID"
+    PARTIALLY_VALID = "PARTIALLY_VALID"
     HALLUCINATED = "HALLUCINATED"
     DUPLICATE = "DUPLICATE"
     UNSUPPORTED = "UNSUPPORTED"
+
+
+class TestCaseMetadata(BaseModel):
+    __test__ = False
+    test_id: str
+    endpoint: str | None = None
+    method: str | None = None
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    expected_status: int | None = None
+    expected_status_source: str | None = None
+    authentication_required: bool = False
+    authentication_source: str | None = None
+    selector: str | None = None
+    selector_source: str | None = None
+    parameter_sources: dict[str, str] = Field(default_factory=dict)
+    evidence: list[str] = Field(default_factory=list)
+    dependencies: list[str] = Field(default_factory=list)
+    confidence: float = 1.0
+    validation_status: ValidationStatus = ValidationStatus.VALID
 
 
 class ProposedTestValidationResult(BaseModel):
@@ -117,11 +141,15 @@ class ProposedTestValidationResult(BaseModel):
     issue: str | None = None
     playwright_executable: bool = True
     functional_area: str = "General"
+    metadata: TestCaseMetadata | None = None
 
 
 class ValidationSummary(BaseModel):
     total_llm_generated: int = 0
     valid: int = 0
+    review_required: int = 0
+    blocked_dependency: int = 0
+    blocked_authentication: int = 0
     partially_valid: int = 0
     invalid: int = 0
     hallucinated: int = 0
@@ -150,6 +178,9 @@ class ProposedTestCase(BaseModel):
     execution_result: ExecutionResult | None = None
     baseline_execution_result: ExecutionResult | None = None
     validation: ProposedTestValidationResult | None = None
+    metadata: TestCaseMetadata | None = None
+    document_id: str | None = None
+    source_reference: str | None = None
 
 
 class ProposedTestTypeBreakdown(BaseModel):
@@ -157,6 +188,7 @@ class ProposedTestTypeBreakdown(BaseModel):
     passed: int = 0
     failed: int = 0
     skipped: int = 0
+    blocked: int = 0
 
 
 class ProposedTestPriorityBreakdown(BaseModel):
@@ -173,6 +205,7 @@ class ProposedTestMetrics(BaseModel):
     passed: int = 0
     failed: int = 0
     skipped: int = 0
+    blocked: int = 0
     not_executed: int = 0
     gaps_count: int = 0
     ai_generated_count: int = 0

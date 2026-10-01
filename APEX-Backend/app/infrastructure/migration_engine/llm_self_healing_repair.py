@@ -122,16 +122,9 @@ class LlmSelfHealingRepair:
                 chunks.append(delta)
             return "".join(chunks)
 
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # Avoid nested event loop conflicts if called from within async runner
-                import nest_asyncio  # type: ignore # noqa: PGO003
-                nest_asyncio.apply()
-                return loop.run_until_complete(_collect())
-            return loop.run_until_complete(_collect())
-        except RuntimeError:
-            return asyncio.run(_collect())
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            return executor.submit(asyncio.run, _collect()).result()
 
     @staticmethod
     def _extract_failing_files(project_dir: Path, error_lines: List[str], max_files: int = 3) -> List[Path]:
