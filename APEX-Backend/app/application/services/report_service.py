@@ -687,105 +687,24 @@ def _get_enriched_test_pipeline(report: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _get_enriched_sonar_report(report: dict[str, Any]) -> dict[str, Any]:
+def _get_enriched_sonar_report(report: dict[str, Any]) -> dict[str, Any] | None:
+    run_sonar = bool(report.get("run_sonar", report.get("runSonar", False)))
+    if not run_sonar:
+        return None
     existing = report.get("sonar_report")
-    if existing and isinstance(existing, dict) and existing.get("quality_gate"):
+    if existing and isinstance(existing, dict):
         return existing
-
-    job_id = report.get("jobId", "apex_project")
-    return {
-        "project_key": job_id,
-        "quality_gate": "PASSED",
-        "metrics": {
-            "bugs": 0,
-            "vulnerabilities": 0,
-            "code_smells": 4,
-            "coverage": 87.5,
-            "duplications": 0.0,
-            "security_hotspots": 0,
-        },
-        "bugs": 0,
-        "vulnerabilities": 0,
-        "code_smells": 4,
-        "coverage": 87.5,
-        "duplications": 0.0,
-        "security_hotspots": 0,
-        "scan_mode": "MAVEN_PLUGIN",
-        "real_scan": True,
-        "all_issues": [
-            {
-                "id": "sonar-issue-1",
-                "key": "sonar-issue-1",
-                "rule": "java:S1118",
-                "message": "Utility classes should not have public constructors",
-                "severity": "MINOR",
-                "type": "CODE_SMELL",
-                "file": "src/main/java/com/apex/utils/StringHelpers.java",
-                "line": 14,
-                "status": "OPEN",
-            },
-            {
-                "id": "sonar-issue-2",
-                "key": "sonar-issue-2",
-                "rule": "java:S1481",
-                "message": "Unused local variables should be removed",
-                "severity": "MINOR",
-                "type": "CODE_SMELL",
-                "file": "src/main/java/com/apex/service/UserService.java",
-                "line": 42,
-                "status": "OPEN",
-            },
-        ],
-        "bug_details": [],
-        "vulnerability_details": [],
-        "code_smell_details": [
-            {
-                "id": "sonar-issue-1",
-                "key": "sonar-issue-1",
-                "rule": "java:S1118",
-                "message": "Utility classes should not have public constructors",
-                "severity": "MINOR",
-                "type": "CODE_SMELL",
-                "file": "src/main/java/com/apex/utils/StringHelpers.java",
-                "line": 14,
-                "status": "OPEN",
-            },
-            {
-                "id": "sonar-issue-2",
-                "key": "sonar-issue-2",
-                "rule": "java:S1481",
-                "message": "Unused local variables should be removed",
-                "severity": "MINOR",
-                "type": "CODE_SMELL",
-                "file": "src/main/java/com/apex/service/UserService.java",
-                "line": 42,
-                "status": "OPEN",
-            },
-        ],
-    }
+    return None
 
 
-def _get_enriched_fossa_report(report: dict[str, Any]) -> dict[str, Any]:
+def _get_enriched_fossa_report(report: dict[str, Any]) -> dict[str, Any] | None:
+    run_fossa = bool(report.get("run_fossa", report.get("runFossa", False)))
+    if not run_fossa:
+        return None
     existing = report.get("fossa_report")
-    if existing and isinstance(existing, dict) and existing.get("policy_status"):
+    if existing and isinstance(existing, dict):
         return existing
-
-    job_id = report.get("jobId", "apex_project")
-    dep_count = max(int(report.get("dependencyCount") or 0), 30)
-    return {
-        "project_name": job_id,
-        "policy_status": "PASSED",
-        "compliance_status": "PASSED",
-        "total_dependencies": dep_count,
-        "license_issues": 0,
-        "denied_license_issues": 0,
-        "flagged_license_issues": 0,
-        "vulnerabilities": 0,
-        "outdated_dependencies": 0,
-        "scan_mode": "LOCAL_FALLBACK_SCAN",
-        "real_scan": True,
-        "issues": [],
-    }
+    return None
 
 
 def _analysis(report: dict[str, Any]) -> dict[str, Any]:
@@ -794,6 +713,10 @@ def _analysis(report: dict[str, Any]) -> dict[str, Any]:
     for key in values:
         if key in report and report.get(key) is not None:
             values[key] = report.get(key)
+
+    run_sonar = bool(report.get("run_sonar", report.get("runSonar", False)))
+    run_fossa = bool(report.get("run_fossa", report.get("runFossa", False)))
+    run_tests = bool(report.get("run_tests", report.get("runTests", False)))
 
     # Provide measured values for test execution metrics strictly from actual execution records
     test_pipe = report.get("test_pipeline") or _get_enriched_test_pipeline(report)
@@ -818,27 +741,36 @@ def _analysis(report: dict[str, Any]) -> dict[str, Any]:
             values["tests_passed"] = 0
             values["tests_failed"] = 0
 
-    if not values.get("sonar_quality_gate") or values.get("sonar_quality_gate") in ("UNAVAILABLE", "FAILED") or not report.get("sonar_report"):
-        values["sonar_quality_gate"] = "PASSED"
-        values["sonar_bugs"] = values.get("sonar_bugs") or 0
-        values["sonar_vulnerabilities"] = values.get("sonar_vulnerabilities") or 0
-        values["sonar_code_smells"] = values.get("sonar_code_smells") or 4
-        values["sonar_coverage"] = values.get("sonar_coverage") or 87.5
-        values["sonar_duplications"] = values.get("sonar_duplications") or 0.0
-        values["sonar_security_hotspots"] = values.get("sonar_security_hotspots") or 0
-        values["sonar_scan_mode"] = values.get("sonar_scan_mode") or "MAVEN_PLUGIN"
-        values["sonar_real_scan"] = True
+    if not run_sonar:
+        values["sonar_quality_gate"] = None
+        values["sonar_bugs"] = 0
+        values["sonar_vulnerabilities"] = 0
+        values["sonar_code_smells"] = 0
+        values["sonar_coverage"] = 0
+        values["sonar_duplications"] = 0
+        values["sonar_security_hotspots"] = 0
+        values["sonar_scan_mode"] = None
+        values["sonar_real_scan"] = False
+        values["sonar_analysis_url"] = None
+        values["sonar_error_message"] = None
 
-    if not values.get("fossa_policy_status") or values.get("fossa_policy_status") in ("UNAVAILABLE", "cli_failed"):
-        values["fossa_policy_status"] = "PASSED"
-        values["fossa_total_dependencies"] = max(values.get("fossa_total_dependencies") or 0, report.get("dependencyCount") or 30)
-        values["fossa_license_issues"] = 0
-        values["fossa_denied_license_issues"] = 0
-        values["fossa_flagged_license_issues"] = 0
-        values["fossa_vulnerabilities"] = 0
-        values["fossa_outdated_dependencies"] = 0
-        values["fossa_scan_mode"] = values.get("fossa_scan_mode") or "LOCAL_FALLBACK_SCAN"
-        values["fossa_real_scan"] = True
+    if not run_fossa:
+        values["fossa_policy_status"] = None
+        values["fossa_total_dependencies"] = None
+        values["fossa__total_license"] = None
+        values["fossa_license_issues"] = None
+        values["fossa_denied_license_issues"] = None
+        values["fossa_flagged_license_issues"] = None
+        values["fossa_vulnerabilities"] = None
+        values["fossa_outdated_dependencies"] = None
+        values["fossa_scan_mode"] = None
+        values["fossa_real_scan"] = False
+        values["fossa_analysis_url"] = None
+        values["fossa_project_url"] = None
+        values["fossa_project_locator"] = None
+        values["fossa_revision"] = None
+        values["fossa_api_status"] = None
+        values["fossa_error_message"] = None
 
     return values
 
@@ -848,7 +780,10 @@ def build_summary(report: dict[str, Any]) -> dict[str, Any]:
     core = _core(report)
     log_lines = _extract_logs(report)
     issues = _build_issues(report)
-    test_pipe = _get_enriched_test_pipeline(report)
+    run_tests = bool(report.get("run_tests", report.get("runTests", False)))
+    run_sonar = bool(report.get("run_sonar", report.get("runSonar", False)))
+    run_fossa = bool(report.get("run_fossa", report.get("runFossa", False)))
+    test_pipe = _get_enriched_test_pipeline(report) if run_tests else None
     sonar_report = _get_enriched_sonar_report(report)
     fossa_report = _get_enriched_fossa_report(report)
     return {
@@ -861,15 +796,15 @@ def build_summary(report: dict[str, Any]) -> dict[str, Any]:
         "issue_count": len(issues),
         "log_entry_count": len(log_lines),
         "file_diff_count": core["files_modified"],
-        "has_test_pipeline": True,
-        "has_sonar_report": True,
-        "has_fossa_report": True,
+        "has_test_pipeline": bool(run_tests and test_pipe),
+        "has_sonar_report": bool(run_sonar and sonar_report),
+        "has_fossa_report": bool(run_fossa and fossa_report),
         "sonar_report": sonar_report,
         "fossa_report": fossa_report,
         "test_pipeline": test_pipe,
-        "test_execution": test_pipe.get("test_execution"),
-        "test_cases": test_pipe.get("test_cases"),
-        "coverage": test_pipe.get("coverage"),
+        "test_execution": test_pipe.get("test_execution") if test_pipe else None,
+        "test_cases": test_pipe.get("test_cases") if test_pipe else None,
+        "coverage": test_pipe.get("coverage") if test_pipe else None,
         "has_testcase_doc": False,
         "has_clone_path": True,
         "modified_files": report.get("modifiedFiles") or [],
@@ -883,65 +818,40 @@ def build_result(report: dict[str, Any]) -> dict[str, Any]:
     log_lines = _extract_logs(report)
     job_id = report.get("jobId", "")
     issues = _build_issues(report)
-    run_tests = report.get("runTests") if report.get("runTests") is not None else report.get("run_tests", True)
-    run_sonar = report.get("runSonar") if report.get("runSonar") is not None else report.get("run_sonar", True)
-    run_fossa = report.get("runFossa") if report.get("runFossa") is not None else report.get("run_fossa", True)
+    run_tests = bool(report.get("run_tests", report.get("runTests", False)))
+    run_sonar = bool(report.get("run_sonar", report.get("runSonar", False)))
+    run_fossa = bool(report.get("run_fossa", report.get("runFossa", False)))
     file_diffs = _diff_service.get_changed_files_summary(job_id, report) if job_id else []
 
     # Update files_modified if diffs discovered additional files
     if file_diffs and core["files_modified"] < len(file_diffs):
         core["files_modified"] = len(file_diffs)
-    fossa_rep = report.get("fossa_report") or {}
- 
-    status = report.get("fossa_policy_status") or fossa_rep.get("policy_status")
- 
-    deps = report.get("fossa_total_dependencies") if report.get("fossa_total_dependencies") is not None else fossa_rep.get("total_dependencies")
- 
-    lics = report.get("fossa_total_licenses") if report.get("fossa_total_licenses") is not None else (fossa_rep.get("total_licenses") or fossa_rep.get("license_count") or fossa_rep.get("licenses"))
- 
-    lic_issues = report.get("fossa_license_issues") if report.get("fossa_license_issues") is not None else fossa_rep.get("license_issues")
- 
-    vulns = report.get("fossa_vulnerabilities") if report.get("fossa_vulnerabilities") is not None else (fossa_rep.get("vulnerabilities") or fossa_rep.get("vulnerability_count"))
- 
-    outdated = report.get("fossa_outdated_dependencies") if report.get("fossa_outdated_dependencies") is not None else (fossa_rep.get("outdated_dependencies") or fossa_rep.get("outdated_packages"))
- 
-    proj_url = report.get("fossa_analysis_url") or report.get("fossa_project_url") or fossa_rep.get("analysis_url") or fossa_rep.get("project_url")
- 
-    proj_locator = report.get("fossa_project_locator") or fossa_rep.get("project_locator")
- 
-    rev = report.get("fossa_revision") or fossa_rep.get("revision")
- 
- 
- 
-    fossa_normalized = {
- 
-        "status": status,
- 
-        "dependencies": deps,
- 
-        "licenses": lics,
- 
-        "license_issues": lic_issues,
- 
-        "vulnerabilities": vulns,
- 
-        "outdated_packages": outdated,
- 
-        "project_url": proj_url,
- 
-        "project_locator": proj_locator,
- 
-        "revision": rev,
- 
-    }
- 
- 
- 
-    merged_fossa_report = {**fossa_rep, **fossa_normalized} if fossa_rep else (fossa_normalized if run_fossa else None)
 
-    test_pipeline = _get_enriched_test_pipeline(report)
-    sonar_report = _get_enriched_sonar_report(report)
-    fossa_report = _get_enriched_fossa_report(report)
+    fossa_rep = (report.get("fossa_report") or {}) if run_fossa else {}
+    status = (report.get("fossa_policy_status") or fossa_rep.get("policy_status")) if run_fossa else None
+    deps = (report.get("fossa_total_dependencies") if report.get("fossa_total_dependencies") is not None else fossa_rep.get("total_dependencies")) if run_fossa else None
+    lics = (report.get("fossa_total_licenses") if report.get("fossa_total_licenses") is not None else (fossa_rep.get("total_licenses") or fossa_rep.get("license_count") or fossa_rep.get("licenses"))) if run_fossa else None
+    lic_issues = (report.get("fossa_license_issues") if report.get("fossa_license_issues") is not None else fossa_rep.get("license_issues")) if run_fossa else None
+    vulns = (report.get("fossa_vulnerabilities") if report.get("fossa_vulnerabilities") is not None else (fossa_rep.get("vulnerabilities") or fossa_rep.get("vulnerability_count"))) if run_fossa else None
+    outdated = (report.get("fossa_outdated_dependencies") if report.get("fossa_outdated_dependencies") is not None else (fossa_rep.get("outdated_dependencies") or fossa_rep.get("outdated_packages"))) if run_fossa else None
+    proj_url = (report.get("fossa_analysis_url") or report.get("fossa_project_url") or fossa_rep.get("analysis_url") or fossa_rep.get("project_url")) if run_fossa else None
+    proj_locator = (report.get("fossa_project_locator") or fossa_rep.get("project_locator")) if run_fossa else None
+    rev = (report.get("fossa_revision") or fossa_rep.get("revision")) if run_fossa else None
+
+    fossa_normalized = {
+        "status": status,
+        "dependencies": deps,
+        "licenses": lics,
+        "license_issues": lic_issues,
+        "vulnerabilities": vulns,
+        "outdated_packages": outdated,
+        "project_url": proj_url,
+        "project_locator": proj_locator,
+        "revision": rev,
+    } if run_fossa else None
+
+    merged_fossa_report = {**fossa_rep, **(fossa_normalized or {})} if (run_fossa and fossa_rep) else (fossa_normalized if (run_fossa and status) else None)
+
     default_insights = [
         "Unit test suite execution completed.",
         "Validated target Java runtime and dependency compatibility.",
@@ -962,13 +872,9 @@ def build_result(report: dict[str, Any]) -> dict[str, Any]:
         "issues": issues,
         "test_insights": (report.get("test_insights") or default_insights) if run_tests else [],
         "test_summary": report.get("test_summary") if run_tests else None,
- 
         "test_llm_model": report.get("test_llm_model") if run_tests else None,
- 
         "sonar_report": report.get("sonar_report") if run_sonar else None,
- 
         "fossa": fossa_normalized if run_fossa else None,
- 
         "fossa_report": merged_fossa_report if run_fossa else None,
         "test_pipeline": test_pipe,
         "test_execution": test_exec,

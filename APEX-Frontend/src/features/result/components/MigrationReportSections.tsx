@@ -949,7 +949,7 @@ export function MigrationSonarSection({
             SonarQube
           </h3>
           <span style={{ padding: "6px 16px", borderRadius: 20, background: "#f1f5f9", color: "#475569", fontSize: 12, fontWeight: 700, border: "1px solid #e2e8f0" }}>
-            NOT EXECUTED
+            NOT SELECTED
           </span>
         </div>
         <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: "28px 24px", textAlign: "center" }}>
@@ -957,10 +957,10 @@ export function MigrationSonarSection({
             <FaShieldAlt />
           </div>
           <div style={{ fontSize: 15, fontWeight: 700, color: "#334155", marginBottom: 6 }}>
-            SonarQube analysis was not selected or executed for this migration.
+            Not Selected
           </div>
           <div style={{ fontSize: 13, color: "#64748b", maxWidth: 520, margin: "0 auto" }}>
-            Code quality gate, security inspection, and test coverage analysis were not enabled during the migration configuration.
+            This scan was not enabled for this migration.
           </div>
         </div>
       </div>
@@ -1128,6 +1128,8 @@ export function MigrationSonarSection({
 
 interface MigrationFossaSectionProps {
   styles?: StyleMap;
+  migrationJob?: MigrationResult;
+  runFossa?: boolean;
   fossaLicenseIssueCount?: number | null;
   fossaVulnerabilityTotal?: number | null;
   fossaOutdatedCount?: number | null;
@@ -1141,6 +1143,8 @@ interface MigrationFossaSectionProps {
 }
 
 export function MigrationFossaSection({
+  migrationJob,
+  runFossa,
   fossaLicenseIssueCount,
   fossaVulnerabilityTotal,
   fossaOutdatedCount,
@@ -1152,6 +1156,47 @@ export function MigrationFossaSection({
   fossaAnalysisUrl,
   fossaRealScan,
 }: MigrationFossaSectionProps) {
+  const isExecuted = Boolean(migrationJob?.run_fossa ?? migrationJob?.runFossa ?? runFossa);
+
+  if (!isExecuted) {
+    return (
+      <div style={{ padding: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
+          <h3 style={{ fontSize: 18, fontWeight: 800, color: "#0f172a", margin: 0, display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{ background: "#64748b", color: "#fff", width: 28, height: 28, borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>
+              <FaShieldAlt />
+            </div>
+            FOSSA License & Dependency Scan
+          </h3>
+          <span
+            style={{
+              padding: "4px 12px",
+              borderRadius: 20,
+              background: "#f1f5f9",
+              color: "#475569",
+              fontSize: 12,
+              fontWeight: 700,
+              border: "1px solid #e2e8f0",
+            }}
+          >
+            NOT SELECTED
+          </span>
+        </div>
+        <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: "24px 20px", textAlign: "center" }}>
+          <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 40, height: 40, borderRadius: "50%", background: "#f1f5f9", color: "#64748b", marginBottom: 10, fontSize: 18 }}>
+            <FaShieldAlt />
+          </div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#334155", marginBottom: 4 }}>
+            Not Selected
+          </div>
+          <div style={{ fontSize: 12, color: "#64748b", maxWidth: 420, margin: "0 auto" }}>
+            This scan was not enabled for this migration.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const scanMode = (fossaScanMode || "").toLowerCase();
   const rawPolicy = (fossaPolicyStatus || "").trim().toUpperCase();
   const isPassed = rawPolicy === "PASSED" || rawPolicy === "OK";

@@ -97,18 +97,30 @@ class StaticAnalysisRunner:
                 log_lines=["SonarQube skipped: Token is not configured in user settings or .env."],
             )
 
+        sonar_org = (
+            qc_config.get("sonar_organization")
+            or qc_config.get("organization")
+            or qc_config.get("sonar_org")
+            or qc_config.get("sonarOrg")
+            or ""
+        ).strip()
         proj_key_val = (
             qc_config.get("project_key")
             or qc_config.get("sonar_project_key")
             or qc_config.get("projectKey")
             or ""
-        )
+        ).strip()
+        project_key = proj_key_val or (f"{sonar_org}_{project_name or job_id}" if sonar_org else (project_name or job_id))
+
         # SonarQube host URL is fixed to https://sonarcloud.io for all users
         host_url = (getattr(settings, "sonarqube_host_url", None) or "https://sonarcloud.io").strip().rstrip("/")
         if not host_url.startswith(("http://", "https://")):
             host_url = f"https://{host_url}"
 
-        analysis_url = f"{host_url}/dashboard?id={urllib.parse.quote(project_key)}"
+        if "sonarcloud.io" in host_url:
+            analysis_url = f"https://sonarcloud.io/project/overview?id={urllib.parse.quote(project_key)}"
+        else:
+            analysis_url = f"{host_url}/dashboard?id={urllib.parse.quote(project_key)}"
         display_name = project_name or project_dir.name
 
         # Log pre-flight context
