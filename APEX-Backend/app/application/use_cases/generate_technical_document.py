@@ -241,7 +241,7 @@ class GenerateTechnicalDocumentUseCase:
             tables.append(
                 {
                     "model": entity.class_name,
-                    "table": entity.table_name,
+                    "table": getattr(entity, "table_name", getattr(entity, "table", entity.class_name)),
                     "fields": entity.fields,
                     "file": entity.relative_path,
                     "line_start": entity.line_start,

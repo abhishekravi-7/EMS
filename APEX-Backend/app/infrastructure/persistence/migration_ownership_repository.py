@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.infrastructure.persistence.models import MigrationJobOwner
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("connect")
 
 
 def record_job_owner(db: Session | None, *, job_id: str, user_id: int | str) -> None:
