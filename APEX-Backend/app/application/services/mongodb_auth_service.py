@@ -179,9 +179,19 @@ class MongoDBAuthService:
 
         return new_access, new_refresh
 
-    async def logout(self, refresh_token: str):
+    async def logout(self, refresh_token: str) -> dict | None:
+        user = None
+        try:
+            raw_user_id = security.decode_token(refresh_token, "refresh")
+            user = await mongodb_user_repository.get_user_by_id(self._db, str(raw_user_id))
+            if not user:
+                user = await mongodb_user_repository.get_user_by_email(self._db, str(raw_user_id))
+        except Exception:
+            user = None
+
         token_hash = security.hash_refresh_token(refresh_token)
         await self._db.auth_sessions.delete_one({"token_hash": token_hash})
+        return user
 
     async def get_user_from_access_token(self, token: str) -> dict:
         try:
