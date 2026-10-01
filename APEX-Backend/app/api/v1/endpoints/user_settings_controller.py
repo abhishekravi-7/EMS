@@ -340,6 +340,11 @@ async def get_user_quality_checks_config(
     mongo_db = await get_mongodb()
     system_settings = await get_all_settings(mongo_db) if mongo_db is not None else {}
 
+    raw_qc = system_settings.get("quality_checks_config")
+    if not raw_qc:
+        from app.api.v1.endpoints.admin_settings_controller import _get_live_env_values
+        raw_qc = _get_live_env_values().get("QUALITY_CHECKS_CONFIG")
+
     def enabled(name: str) -> bool:
         value = system_settings.get(name)
         if value is None:
@@ -347,7 +352,7 @@ async def get_user_quality_checks_config(
         return str(value if value is not None else "true").strip().lower() in {"1", "true", "yes", "on"}
 
     return {
-        "quality_checks_config": quality_checks_config(),
+        "quality_checks_config": quality_checks_config(raw_qc),
         "ci_enabled": enabled("ci_enabled"),
         "cd_enabled": enabled("cd_enabled"),
     }
