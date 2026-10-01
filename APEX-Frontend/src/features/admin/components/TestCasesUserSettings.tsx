@@ -58,18 +58,8 @@ export function TestCasesUserSettings({ settings, onChange, adminSettings }: Tes
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "24px", marginTop: "16px" }}>
-      <div>
-        <h3 className="card-heading-modern">
-          <FaShieldAlt style={{ color: "#2563eb", marginRight: "8px" }} />
-          Test Cases Configuration
-        </h3>
-        <p style={{ color: "#64748b", fontSize: "0.875rem", marginTop: "4px" }}>
-          Configure end-to-end framework URLs (Playwright, Cypress, Selenium) for UI testing.
-        </p>
-      </div>
-
-      <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
 
 
         {playwrightEnabled && (

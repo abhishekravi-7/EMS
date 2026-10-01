@@ -35,134 +35,112 @@ export function TestCasesAdminSettings({ settings, onChange }: TestCasesAdminSet
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "24px", marginTop: "16px" }}>
-      <div>
-        <h3 className="card-heading-modern">
-          <FaShieldAlt style={{ color: "#2563eb", marginRight: "8px" }} />
-          Test Cases Configuration
-        </h3>
-      </div>
-
+    <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
       <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
         {/* Playwright Enable Toggle */}
-        <div>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+        <div className="settings-toggle-card">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
             <div>
-              <h4 style={{ margin: 0, fontSize: "1.1rem", color: "#1e293b", fontWeight: 600 }}>Enable Playwright</h4>
-              <p style={{ margin: "4px 0 0", fontSize: "0.875rem", color: "#64748b" }}>
+              <h4 style={{ margin: 0, fontSize: "15px", color: "#0f172a", fontWeight: 700 }}>Enable Playwright</h4>
+              <p style={{ margin: "4px 0 0", fontSize: "13px", color: "#64748b" }}>
                 Allow users to configure and run Playwright tests against their application.
               </p>
             </div>
-            <div className="switch-row-modern" style={{ marginTop: 0 }}>
-              <label className="switch-modern">
+            <div className="switch-wrap">
+              <label className="switch-ios">
                 <input
                   type="checkbox"
                   checked={playwrightEnabled}
                   onChange={(e) => onChange("test_cases_playwright_enabled", e.target.checked)}
                 />
-                <span className="slider-modern"></span>
+                <span className="slider-ios"></span>
               </label>
-              <span className="switch-label-modern" style={{ minWidth: "100px" }}>
-                {playwrightEnabled ? "Enabled" : "Disabled"}
-              </span>
+              <span className="switch-label">{playwrightEnabled ? "Enabled" : "Disabled"}</span>
             </div>
           </div>
 
           {/* Playwright Command Config */}
-          <div style={{ pointerEvents: playwrightEnabled ? "auto" : "none", opacity: playwrightEnabled ? 1 : 0.6 }}>
-            <label style={{ display: "block", marginBottom: "8px", fontSize: "0.9rem", color: "#334155", fontWeight: 500 }}>
-              Playwright Test Command
-            </label>
+          <div style={{ pointerEvents: playwrightEnabled ? "auto" : "none", opacity: playwrightEnabled ? 1 : 0.6, marginTop: "8px" }}>
+            <label className="settings-label">Playwright Test Command</label>
             <input
               type="text"
-              className="input-modern"
+              className="settings-input"
               value={playwrightCommand}
               onChange={(e) => onChange("test_cases_playwright_command", e.target.value)}
               disabled={!playwrightEnabled}
               placeholder="npx playwright test"
-              style={{ width: "100%", maxWidth: "400px" }}
             />
           </div>
         </div>
 
         {/* Cypress Enable Toggle */}
-        <div>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+        <div className="settings-toggle-card">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
             <div>
-              <h4 style={{ margin: 0, fontSize: "1.1rem", color: "#1e293b", fontWeight: 600 }}>Enable Cypress</h4>
-              <p style={{ margin: "4px 0 0", fontSize: "0.875rem", color: "#64748b" }}>
+              <h4 style={{ margin: 0, fontSize: "15px", color: "#0f172a", fontWeight: 700 }}>Enable Cypress</h4>
+              <p style={{ margin: "4px 0 0", fontSize: "13px", color: "#64748b" }}>
                 Allow users to configure and run Cypress tests against their application.
               </p>
             </div>
-            <div className="switch-row-modern" style={{ marginTop: 0 }}>
-              <label className="switch-modern">
+            <div className="switch-wrap">
+              <label className="switch-ios">
                 <input
                   type="checkbox"
                   checked={cypressEnabled}
                   onChange={(e) => onChange("test_cases_cypress_enabled", e.target.checked)}
                 />
-                <span className="slider-modern"></span>
+                <span className="slider-ios"></span>
               </label>
-              <span className="switch-label-modern" style={{ minWidth: "100px" }}>
-                {cypressEnabled ? "Enabled" : "Disabled"}
-              </span>
+              <span className="switch-label">{cypressEnabled ? "Enabled" : "Disabled"}</span>
             </div>
           </div>
 
           {/* Cypress Command Config */}
-          <div style={{ pointerEvents: cypressEnabled ? "auto" : "none", opacity: cypressEnabled ? 1 : 0.6 }}>
-            <label style={{ display: "block", marginBottom: "8px", fontSize: "0.9rem", color: "#334155", fontWeight: 500 }}>
-              Cypress Test Command
-            </label>
+          <div style={{ pointerEvents: cypressEnabled ? "auto" : "none", opacity: cypressEnabled ? 1 : 0.6, marginTop: "8px" }}>
+            <label className="settings-label">Cypress Test Command</label>
             <input
               type="text"
-              className="input-modern"
+              className="settings-input"
               value={cypressCommand}
               onChange={(e) => onChange("test_cases_cypress_command", e.target.value)}
               disabled={!cypressEnabled}
               placeholder="npx cypress run"
-              style={{ width: "100%", maxWidth: "400px" }}
             />
           </div>
         </div>
 
         {/* Selenium Enable Toggle */}
-        <div>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+        <div className="settings-toggle-card">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
             <div>
-              <h4 style={{ margin: 0, fontSize: "1.1rem", color: "#1e293b", fontWeight: 600 }}>Enable Selenium</h4>
-              <p style={{ margin: "4px 0 0", fontSize: "0.875rem", color: "#64748b" }}>
+              <h4 style={{ margin: 0, fontSize: "15px", color: "#0f172a", fontWeight: 700 }}>Enable Selenium</h4>
+              <p style={{ margin: "4px 0 0", fontSize: "13px", color: "#64748b" }}>
                 Allow users to configure and run Selenium tests against their application.
               </p>
             </div>
-            <div className="switch-row-modern" style={{ marginTop: 0 }}>
-              <label className="switch-modern">
+            <div className="switch-wrap">
+              <label className="switch-ios">
                 <input
                   type="checkbox"
                   checked={seleniumEnabled}
                   onChange={(e) => onChange("test_cases_selenium_enabled", e.target.checked)}
                 />
-                <span className="slider-modern"></span>
+                <span className="slider-ios"></span>
               </label>
-              <span className="switch-label-modern" style={{ minWidth: "100px" }}>
-                {seleniumEnabled ? "Enabled" : "Disabled"}
-              </span>
+              <span className="switch-label">{seleniumEnabled ? "Enabled" : "Disabled"}</span>
             </div>
           </div>
 
           {/* Selenium Command Config */}
-          <div style={{ pointerEvents: seleniumEnabled ? "auto" : "none", opacity: seleniumEnabled ? 1 : 0.6 }}>
-            <label style={{ display: "block", marginBottom: "8px", fontSize: "0.9rem", color: "#334155", fontWeight: 500 }}>
-              Selenium Test Command
-            </label>
+          <div style={{ pointerEvents: seleniumEnabled ? "auto" : "none", opacity: seleniumEnabled ? 1 : 0.6, marginTop: "8px" }}>
+            <label className="settings-label">Selenium Test Command</label>
             <input
               type="text"
-              className="input-modern"
+              className="settings-input"
               value={seleniumCommand}
               onChange={(e) => onChange("test_cases_selenium_command", e.target.value)}
               disabled={!seleniumEnabled}
               placeholder="pytest"
-              style={{ width: "100%", maxWidth: "400px" }}
             />
           </div>
         </div>
@@ -194,12 +172,12 @@ export function TestCasesAdminSettings({ settings, onChange }: TestCasesAdminSet
           </div>
         )}
 
-        <div style={{ display: "flex", gap: "12px", marginTop: "16px", justifyContent: "flex-end" }}>
+        <div style={{ display: "flex", gap: "12px", marginTop: "12px", justifyContent: "flex-end" }}>
           <button
-            className="deploy-btn-modern"
+            className="settings-action-btn"
             onClick={handleTestConnection}
             disabled={testing || !playwrightEnabled}
-            style={{ display: "flex", alignItems: "center", gap: "8px" }}
+            style={{ width: "auto", display: "inline-flex", alignItems: "center", gap: "8px" }}
           >
             {testing ? <FaSpinner className="animate-spin" /> : <FaPlay />}
             Test Configuration
