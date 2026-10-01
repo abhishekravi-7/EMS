@@ -7,11 +7,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
-from sqlalchemy.orm import Session
-
-from app.api.deps import get_current_user, verify_job_ownership
-from app.infrastructure.persistence.database import get_db, get_db_optional
-from app.infrastructure.persistence.models import User
+from app.api.deps import User, get_current_user, verify_job_ownership
 from app.infrastructure.workspace.workspace_paths import WorkspacePaths
 
 logger = logging.getLogger(__name__)
@@ -137,7 +133,6 @@ def _range_stream_video(file_path: Path, request: Request, media_type: str = "vi
 async def serve_ui_test_screenshot(
     job_id: str,
     test_id: str,
-    db: Session = Depends(get_db)  # noqa: B008
 ):
     """Serve the screenshot image for a specific UI test case."""
     paths = WorkspacePaths(job_id)
@@ -251,7 +246,6 @@ async def serve_ui_test_video(
     job_id: str,
     test_id: str,
     request: Request,
-    db: Session = Depends(get_db)  # noqa: B008
 ):
     """Stream the video recording for a specific UI test case with range request support."""
     paths = WorkspacePaths(job_id)
@@ -344,19 +338,18 @@ async def serve_individual_test_report(
     job_id: str,
     test_id: str,
     current_user: User = Depends(get_current_user),  # noqa: B008
-    db: Session = Depends(get_db)  # noqa: B008
 ):
     """Download individual test report JSON / metadata."""
-    await verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(job_id, current_user)
     paths = WorkspacePaths(job_id)
     evidence_dir = paths.reports_dir / "test-evidence"
-    
+
     clean_test_id = test_id.replace("\\", "/").strip("/")
     json_path = evidence_dir / "ui" / clean_test_id / "result.json"
     if json_path.is_file():
         safe_file = _safe_resolve(evidence_dir, str(json_path.relative_to(evidence_dir)))
         return FileResponse(str(safe_file), media_type="application/json", filename=f"{clean_test_id}_report.json")
-    
+
     # Generate on-the-fly report data
     report_data = {
         "jobId": job_id,
@@ -372,17 +365,16 @@ async def serve_individual_test_logs(
     job_id: str,
     test_id: str,
     current_user: User = Depends(get_current_user),  # noqa: B008
-    db: Session | None = Depends(get_db_optional)  # noqa: B008
 ):
     """Download test execution logs."""
-    await verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(job_id, current_user)
     from app.application.use_cases.existing_test_runner_service import existing_test_runner_service
-    
+
     clean_test_id = urllib.parse.unquote(test_id).replace("\\", "/")
     logger.info("[LOG DOWNLOAD] execution_id=%s test_id=%s", job_id, clean_test_id)
     status_data = await asyncio.to_thread(existing_test_runner_service.get_status, job_id)
     logs = await asyncio.to_thread(existing_test_runner_service.get_logs, job_id)
-    
+
     # Match test from results if available
     test_results = status_data.get("result", {}).get("test_results", [])
     matched_test = None
@@ -391,7 +383,7 @@ async def serve_individual_test_logs(
         if t_id == clean_test_id or t.get("test_name") == clean_test_id or t.get("name") == clean_test_id:
             matched_test = t
             break
-            
+
     header_lines = [
         f"Execution ID: {job_id}",
         "",
@@ -404,7 +396,7 @@ async def serve_individual_test_logs(
         header_lines.append(f"Duration: {matched_test.get('duration')}")
     if matched_test and matched_test.get("file"):
         header_lines.append(f"Source File: {matched_test.get('file')}")
-        
+
     header_lines.extend([
         "",
         "=" * 80,
@@ -412,7 +404,7 @@ async def serve_individual_test_logs(
         "=" * 80,
         "",
     ])
-    
+
     log_source = "existing_test_runner_service"
     log_exists = bool(logs) or bool(matched_test and (matched_test.get("stdout") or matched_test.get("stderr")))
     log_size = len(logs) if logs else (1 if (matched_test and (matched_test.get("stdout") or matched_test.get("stderr"))) else 0)
@@ -422,7 +414,7 @@ async def serve_individual_test_logs(
         log_exists,
         log_size
     )
-    
+
     body_content = ""
     if matched_test:
         if matched_test.get("error"):
@@ -441,7 +433,7 @@ async def serve_individual_test_logs(
         content = "\n".join(header_lines) + body_content.strip() + "\n"
     else:
         content = "\n".join(header_lines) + "No execution logs recorded.\n"
-        
+
     logger.info("[LOG DOWNLOAD] download successful execution_id=%s test_id=%s size=%d bytes", job_id, test_id, len(content))
     safe_filename = test_id.replace("/", "_").replace("\\", "_").replace("#", "_")
     return PlainTextResponse(
@@ -456,13 +448,12 @@ async def serve_individual_test_logs(
 async def download_full_test_report(
     job_id: str,
     current_user: User = Depends(get_current_user),  # noqa: B008
-    db: Session = Depends(get_db)  # noqa: B008
 ):
     """Download full test report HTML or JSON summary."""
-    await verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(job_id, current_user)
     from app.application.use_cases.existing_test_runner_service import existing_test_runner_service
     status_data = existing_test_runner_service.get_status(job_id)
-    
+
     html_content = f"""<!DOCTYPE html>
 <html>
 <head>
@@ -513,7 +504,6 @@ async def serve_existing_test_report_file(
     job_id: str,
     file_path: str = "",
     current_user: User = Depends(get_current_user),  # noqa: B008
-    db: Session = Depends(get_db)  # noqa: B008
 ):
     """
     Serves report files for a job from multiple possible base directories.
@@ -524,7 +514,7 @@ async def serve_existing_test_report_file(
     This ensures both Playwright and JUnit/Surefire reports are accessible
     regardless of which ran first or whether test-evidence/ exists.
     """
-    await verify_job_ownership(db, job_id, current_user)
+    await verify_job_ownership(job_id, current_user)
 
     paths = WorkspacePaths(job_id)
 
@@ -555,4 +545,3 @@ async def serve_existing_test_report_file(
         status_code=404,
         detail=f"File '{file_path}' not found for job '{job_id}'"
     )
-

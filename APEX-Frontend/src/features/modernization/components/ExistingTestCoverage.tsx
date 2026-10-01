@@ -8,9 +8,8 @@ import {
   FaLayerGroup,
   FaCode,
   FaCog,
-  FaPen,
 } from "react-icons/fa";
-import { classifyTestType, type TestResult, type TestSelectionItem } from "../services/existingTestService";
+import { classifyTestType, deriveTestingTypes, type TestResult, type TestSelectionItem } from "../services/existingTestService";
 import { getBrdMetadata, getBrdDocumentBlob } from "@/features/discovery/services/discoveryService";
 
 interface MetricCardProps {
@@ -87,6 +86,8 @@ function MetricCard({ label, value, color, bgColor, icon }: MetricCardProps) {
 
 interface ExistingTestCoverageProps {
   jobId?: string;
+  title?: string;
+  filterMode?: "all" | "unit" | "functional";
   metrics?: {
     total?: number;
     executed?: number;
@@ -115,6 +116,8 @@ interface ExistingTestCoverageProps {
 
 export function ExistingTestCoverage({
   jobId,
+  title,
+  filterMode = "all",
   metrics = {},
   discoveredTests = [],
   testResults = [],
@@ -176,7 +179,13 @@ export function ExistingTestCoverage({
   }, [testResults, discoveredTests]);
 
   const total = allTests.length || (metrics.total ?? 0);
-  const frameworkName = frameworkInfo?.detected_framework || metrics.type || "JUnit";
+  const frameworkName = useMemo(() => {
+    return deriveTestingTypes(
+      allTests,
+      filterMode,
+      frameworkInfo?.detected_framework || metrics.type
+    );
+  }, [allTests, filterMode, frameworkInfo?.detected_framework, metrics.type]);
 
   // Dynamic test-type counts calculated directly from actual discovered existing test cases
   const { apiCount, uiCount, unitCount } = useMemo(() => {
@@ -198,6 +207,9 @@ export function ExistingTestCoverage({
     return { apiCount: api, uiCount: ui, unitCount: unit };
   }, [allTests]);
 
+  const headerTitle = title || (filterMode === "unit" ? "Existing Unit Tests" : filterMode === "functional" ? "Existing Functional Tests" : "Existing Tests");
+  const iconColor = filterMode === "functional" ? "#6366f1" : "#2563eb";
+
   return (
     <div
       style={{
@@ -211,78 +223,68 @@ export function ExistingTestCoverage({
       }}
     >
       {/* Header section */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 20,
-          flexWrap: "wrap",
-          gap: 16,
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <FaPen style={{ fontSize: 16, color: "#2563eb" }} />
-          <span
-            style={{
-              fontWeight: 900,
-              fontSize: 16,
-              color: "#0f172a",
-            }}
-          >
-            Existing Tests
-          </span>
+      {(hasDocument || onOpenReport) && (
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "flex-end",
+            alignItems: "center",
+            marginBottom: 20,
+            flexWrap: "wrap",
+            gap: 16,
+          }}
+        >
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            {hasDocument && (
+              <button
+                type="button"
+                onClick={() => void handleViewDocument()}
+                disabled={isViewingDocument}
+                style={{
+                  padding: "8px 16px",
+                  background: "#ffffff",
+                  color: "#7c3aed",
+                  border: "1px solid #ddd6fe",
+                  borderRadius: 8,
+                  fontWeight: 700,
+                  fontSize: 12,
+                  cursor: isViewingDocument ? "wait" : "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  transition: "all 0.15s ease",
+                }}
+                title="View Functional Testing Document"
+                aria-label="View Functional Testing Document"
+              >
+                {isViewingDocument ? (
+                  <FaSpinner className="animate-spin" size={12} />
+                ) : (
+                  <FaFileAlt size={12} style={{ color: "#7c3aed" }} />
+                )}
+                <span>View Document</span>
+              </button>
+            )}
+            {onOpenReport && (
+              <button
+                onClick={onOpenReport}
+                style={{
+                  padding: "8px 16px",
+                  background: "#ffffff",
+                  color: "#2563eb",
+                  border: "1px solid #bfdbfe",
+                  borderRadius: 8,
+                  fontWeight: 700,
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+              >
+                Open Report
+              </button>
+            )}
+          </div>
         </div>
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          {hasDocument && (
-            <button
-              type="button"
-              onClick={() => void handleViewDocument()}
-              disabled={isViewingDocument}
-              style={{
-                padding: "8px 16px",
-                background: "#ffffff",
-                color: "#7c3aed",
-                border: "1px solid #ddd6fe",
-                borderRadius: 8,
-                fontWeight: 700,
-                fontSize: 12,
-                cursor: isViewingDocument ? "wait" : "pointer",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-                transition: "all 0.15s ease",
-              }}
-              title="View Functional Testing Document"
-              aria-label="View Functional Testing Document"
-            >
-              {isViewingDocument ? (
-                <FaSpinner className="animate-spin" size={12} />
-              ) : (
-                <FaFileAlt size={12} style={{ color: "#7c3aed" }} />
-              )}
-              <span>View Document</span>
-            </button>
-          )}
-          {onOpenReport && (
-            <button
-              onClick={onOpenReport}
-              style={{
-                padding: "8px 16px",
-                background: "#ffffff",
-                color: "#2563eb",
-                border: "1px solid #bfdbfe",
-                borderRadius: 8,
-                fontWeight: 700,
-                fontSize: 12,
-                cursor: "pointer",
-              }}
-            >
-              Open Report
-            </button>
-          )}
-        </div>
-      </div>
+      )}
 
       {docError && (
         <div
@@ -300,50 +302,119 @@ export function ExistingTestCoverage({
         </div>
       )}
 
-      {/* Grid containing Total Tests, Testing Types, API Tests, UI Tests, and Unit Tests */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(5, 1fr)",
-          gap: 16,
-        }}
-      >
-        <MetricCard
-          label="Total Tests"
-          value={total}
-          color="#2563eb"
-          bgColor="rgba(37, 99, 235, 0.05)"
-          icon={<FaLayerGroup />}
-        />
-        <MetricCard
-          label="Testing Types"
-          value={frameworkName}
-          color="#d97706"
-          bgColor="rgba(217, 119, 6, 0.05)"
-          icon={<FaCode />}
-        />
-        <MetricCard
-          label="API Tests"
-          value={apiCount}
-          color="#0284c7"
-          bgColor="rgba(2, 132, 199, 0.05)"
-          icon={<FaFlask />}
-        />
-        <MetricCard
-          label="UI Tests"
-          value={uiCount}
-          color="#7c3aed"
-          bgColor="rgba(124, 58, 237, 0.05)"
-          icon={<FaDesktop />}
-        />
-        <MetricCard
-          label="Unit Tests"
-          value={unitCount}
-          color="#059669"
-          bgColor="rgba(5, 150, 105, 0.05)"
-          icon={<FaCog />}
-        />
-      </div>
+      {/* Grid containing metrics corresponding to the selected mode */}
+      {filterMode === "unit" ? (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+            gap: 16,
+          }}
+        >
+          <MetricCard
+            label="Total Unit Tests"
+            value={unitCount}
+            color="#2563eb"
+            bgColor="rgba(37, 99, 235, 0.05)"
+            icon={<FaLayerGroup />}
+          />
+          <MetricCard
+            label="Testing Types"
+            value={frameworkName}
+            color="#d97706"
+            bgColor="rgba(217, 119, 6, 0.05)"
+            icon={<FaCode />}
+          />
+          <MetricCard
+            label="Unit Tests"
+            value={unitCount}
+            color="#059669"
+            bgColor="rgba(5, 150, 105, 0.05)"
+            icon={<FaCog />}
+          />
+        </div>
+      ) : filterMode === "functional" ? (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+            gap: 16,
+          }}
+        >
+          <MetricCard
+            label="Total Functional Tests"
+            value={apiCount + uiCount}
+            color="#6366f1"
+            bgColor="rgba(99, 102, 241, 0.05)"
+            icon={<FaLayerGroup />}
+          />
+          <MetricCard
+            label="Testing Types"
+            value={frameworkName}
+            color="#d97706"
+            bgColor="rgba(217, 119, 6, 0.05)"
+            icon={<FaCode />}
+          />
+          <MetricCard
+            label="API Tests"
+            value={apiCount}
+            color="#0284c7"
+            bgColor="rgba(2, 132, 199, 0.05)"
+            icon={<FaFlask />}
+          />
+          <MetricCard
+            label="UI Tests"
+            value={uiCount}
+            color="#7c3aed"
+            bgColor="rgba(124, 58, 237, 0.05)"
+            icon={<FaDesktop />}
+          />
+        </div>
+      ) : (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+            gap: 16,
+          }}
+        >
+          <MetricCard
+            label="Total Tests"
+            value={total}
+            color="#2563eb"
+            bgColor="rgba(37, 99, 235, 0.05)"
+            icon={<FaLayerGroup />}
+          />
+          <MetricCard
+            label="Testing Types"
+            value={frameworkName}
+            color="#d97706"
+            bgColor="rgba(217, 119, 6, 0.05)"
+            icon={<FaCode />}
+          />
+          <MetricCard
+            label="API Tests"
+            value={apiCount}
+            color="#0284c7"
+            bgColor="rgba(2, 132, 199, 0.05)"
+            icon={<FaFlask />}
+          />
+          <MetricCard
+            label="UI Tests"
+            value={uiCount}
+            color="#7c3aed"
+            bgColor="rgba(124, 58, 237, 0.05)"
+            icon={<FaDesktop />}
+          />
+          <MetricCard
+            label="Unit Tests"
+            value={unitCount}
+            color="#059669"
+            bgColor="rgba(5, 150, 105, 0.05)"
+            icon={<FaCog />}
+          />
+        </div>
+      )}
     </div>
   );
 }

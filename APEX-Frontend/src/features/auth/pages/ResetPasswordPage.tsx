@@ -28,7 +28,7 @@ const ResetPasswordPage: React.FC = () => {
       setStatus("error");
       return;
     }
-    
+
     setStatus("loading");
     setErrorMsg("");
 

@@ -1021,7 +1021,7 @@ export function DiscoveryBrdUploadCard({
         </button>
         <button
           style={styles.primaryBtn}
-          disabled={status !== "FILE_SELECTED" || status === "UPLOADING"}
+          disabled={status !== "FILE_SELECTED"}
           onClick={onUpload}
         >
           Upload

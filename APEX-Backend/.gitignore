@@ -25,3 +25,8 @@ APEX-Backend/storage/vector-store/.lock
 
 # Runtime vector store
 storage/vector-store/
+
+# Local databases & logs
+*.db
+storage/*.db
+logs/

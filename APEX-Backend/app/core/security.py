@@ -148,8 +148,8 @@ def hash_refresh_token(raw_token: str) -> str:
 _OAUTH_STATE_TOKEN_TYPE = "oauth_state"  # nosec B105
 
 
-def create_oauth_state_token(provider: str) -> str:
-    """Build a short-lived, self-verifying `state` value for an OAuth login.
+def create_oauth_state_token(provider: str, intent: str = "signin") -> str:
+    """Build a short-lived, self-verifying `state` value for an OAuth login or signup.
 
     Sent as the `state` query parameter to Google/GitHub and echoed straight
     back to our callback — signing it here (instead of using a server-side
@@ -158,9 +158,11 @@ def create_oauth_state_token(provider: str) -> str:
     last `settings.oauth_state_expire_seconds`, without persisting anything.
     """
     now = datetime.now(timezone.utc)
+    clean_intent = "signup" if intent == "signup" else "signin"
     payload: dict[str, Any] = {
         "type": _OAUTH_STATE_TOKEN_TYPE,
         "provider": provider,
+        "intent": clean_intent,
         "nonce": secrets.token_urlsafe(16),
         "iat": now,
         "exp": now + timedelta(seconds=settings.oauth_state_expire_seconds),
@@ -168,8 +170,8 @@ def create_oauth_state_token(provider: str) -> str:
     return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
-def decode_oauth_state_token(token: str, expected_provider: str) -> None:
-    """Validate an OAuth `state` value. Raises InvalidTokenError if it is
+def decode_oauth_state_token(token: str, expected_provider: str) -> dict[str, Any]:
+    """Validate an OAuth `state` value and return its payload. Raises InvalidTokenError if it is
     missing, unsigned, expired, or was issued for a different provider."""
     try:
         payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
@@ -180,6 +182,8 @@ def decode_oauth_state_token(token: str, expected_provider: str) -> None:
 
     if payload.get("type") != _OAUTH_STATE_TOKEN_TYPE or payload.get("provider") != expected_provider:
         raise InvalidTokenError("OAuth state is invalid.")
+
+    return payload
 
 
 def generate_pkce_pair() -> tuple[str, str]:

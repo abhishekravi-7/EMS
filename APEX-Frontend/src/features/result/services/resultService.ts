@@ -72,6 +72,36 @@ export interface SonarReport {
   [key: string]: unknown;
 }
 
+export interface PromptComplianceItem {
+  prompt_id: string;
+  prompt_name: string;
+  expected_scenarios: string[];
+  covered_scenarios: string[];
+  uncovered_scenarios: string[];
+  generated_test_methods: string[];
+  passed_count: number;
+  failed_count: number;
+  execution_status: "PASSED" | "PARTIAL" | "FAILED" | "NOT_RUN" | string;
+  jacoco_gaps_addressed: string[];
+  compliance_percentage: number;
+  recommendations: string[];
+  inspected_features?: Record<string, unknown>;
+}
+
+export interface PromptComplianceReport {
+  overall_compliance_percentage: number;
+  total_prompts_evaluated: number;
+  passed_prompts_count: number;
+  failed_prompts_count: number;
+  compliance_items: PromptComplianceItem[];
+  evaluation_summary: string;
+  total_test_methods_inspected: number;
+  total_assertions_inspected: number;
+  total_exceptions_verified: number;
+  total_boundary_inputs_tested: number;
+  total_mocks_verified: number;
+}
+
 export interface FossaVulnerabilityDetail {
   id: string;
   title: string;
@@ -91,15 +121,23 @@ export interface FossaScanResult {
   details_available?: boolean;
   permission_limited?: boolean;
   compliance_status?: string | null;
+  policy_status?: string | null;
+  status?: string | null;
   total_dependencies?: number | null;
+  dependencies?: Array<Record<string, unknown>> | number;
+  total_licenses?: number | null;
+  license_count?: number | null;
   issue_count?: number | null;
   license_issues?: number | null;
-  licenses?: Record<string, number>;
+  licenses?: Record<string, number> | number;
   vulnerabilities?: Record<string, number> | number | null;
   vulnerability_details?: FossaVulnerabilityDetail[];
-  dependencies?: Array<Record<string, unknown>>;
   outdated_dependencies?: number | null;
+  outdated_packages?: number | null;
   analysis_url?: string | null;
+  project_url?: string | null;
+  project_locator?: string | null;
+  revision?: string | null;
   error_message?: string | null;
   enrichment_error_message?: string | null;
   raw_summary?: string | null;
@@ -174,6 +212,8 @@ export interface MigrationStageInfo {
 }
 
 export interface MigrationResult {
+  run_cycode?: boolean;
+  cycode_report?: CycodeReport | null;
   job_id: string;
   status: string;
   source_repo: string;
@@ -199,6 +239,15 @@ export interface MigrationResult {
   sonar_vulnerabilities: number;
   sonar_code_smells: number;
   sonar_coverage: number;
+  run_tests?: boolean;
+  runTests?: boolean;
+  run_sonar?: boolean;
+  runSonar?: boolean;
+  run_fossa?: boolean;
+  runFossa?: boolean;
+  run_functional_tests?: boolean;
+  runFunctionalTests?: boolean;
+  progress?: number;
   sonar_duplications?: number;
   sonar_security_hotspots?: number;
   sonar_scan_mode?: string | null;
@@ -221,7 +270,6 @@ export interface MigrationResult {
     existing_tests_detected?: number;
     existing_test_files?: string[];
     migrated_test_files?: string[];
-    generated_test_files: string[];
     test_summary_metrics?: Record<string, unknown> | null;
     runner: Record<string, unknown>;
     functional_testing?: FunctionalTesting | null;
@@ -229,26 +277,79 @@ export interface MigrationResult {
     migration_patch_path?: string | null;
     deepeval_result?: Record<string, unknown> | null;
     garak_result?: Record<string, unknown> | null;
-    coverage_result?: Record<string, unknown> | null;
+    coverage_result?: {
+      available?: boolean;
+      line_coverage_pct?: number;
+      line_coverage?: number;
+      branch_coverage_pct?: number;
+      instruction_coverage_pct?: number;
+      original?: {
+        available?: boolean;
+        line_coverage_pct?: number;
+        branch_coverage_pct?: number;
+        instruction_coverage_pct?: number;
+        report_path?: string | null;
+      } | null;
+      final?: {
+        available?: boolean;
+        line_coverage_pct?: number;
+        branch_coverage_pct?: number;
+        instruction_coverage_pct?: number;
+        report_path?: string | null;
+      } | null;
+      improvement?: {
+        line_coverage_pp?: number;
+        branch_coverage_pp?: number;
+        text?: string;
+        branch_text?: string;
+      } | null;
+    } | null;
+    generated_test_files?: Array<{
+      source_class: string;
+      test_class: string;
+      path: string;
+      generator: string;
+      status: string;
+      test_method_count: number;
+      test_methods?: string[];
+    }> | string[];
+    generated_test_execution?: {
+      generated_test_methods?: number;
+      executed_generated_test_methods?: number;
+      passed_generated_test_methods?: number;
+      failed_generated_test_methods?: number;
+      skipped_generated_test_methods?: number;
+    } | null;
+    prompt_compliance?: PromptComplianceReport | null;
     executed_test_details?: Array<{
       test_class?: string;
       test_method?: string;
       status?: string;
       duration?: string | null;
+      execution_time_seconds?: number;
+      error_message?: string | null;
     }>;
   } | null;
   functional_pipeline?: FunctionalTesting | null;
   // FOSSA scan results (optional)
   fossa_policy_status?: string | null;
   fossa_total_dependencies?: number;
+  fossa_total_licenses?:number;
   fossa_license_issues?: number;
   fossa_vulnerabilities?: number;
   fossa_outdated_dependencies?: number;
   fossa_scan_mode?: string | null;
   fossa_real_scan?: boolean;
   fossa_analysis_url?: string | null;
+  fossa_project_url?: string | null;
+ 
+  fossa_project_locator?: string | null;
+ 
+  fossa_revision?: string | null;
+ 
   fossa_error_message?: string | null;
   fossa_report?: FossaScanResult | null;
+  fossa?: any;
   error_message: string | null;
   migration_log: string[];
   file_diffs?: PreviewFileDiff[];
@@ -258,6 +359,7 @@ export interface MigrationResult {
   errors_fixed: number;
   warnings_fixed: number;
   dependency_count?: number;
+  uiTransformations?: any[];
   // --- migration engine report fields (recipe selection, dependency/import changes) ---
   recipes_executed?: string[];
   recipe_selection_reasons?: string[];
@@ -298,9 +400,31 @@ export interface MigrationResult {
   spring_conversion_requested?: boolean;
   spring_conversion_supported?: boolean | null;
   spring_conversion_note?: string | null;
+  framework_migrations?: Array<{
+    source_framework: string;
+    target_framework?: string;
+    files_migrated: number;
+  }>;
+}
+
+export interface CycodeReport {
+  execution_status: string;
+  gate_status: string;
+  error_message?: string | null;
+  scanned_at?: string;
+  scans: Array<{
+    scan_type: string;
+    gate_status: string;
+    execution_status: string;
+    finding_count: number | null;
+    error_message?: string | null;
+    findings: Array<{ severity: string; file: string; rule: string }>;
+  }>;
 }
 
 export interface MigrationJobSummary {
+  run_cycode?: boolean;
+  cycode_report?: CycodeReport | null;
   job_id: string;
   status: string;
   source_repo: string;
@@ -318,6 +442,7 @@ export interface MigrationJobSummary {
   stages?: MigrationStageInfo[];
   files_modified: number;
   issues_fixed: number;
+  transformations_count?: number;
   api_endpoints_validated: number;
   api_endpoints_working: number;
   tests_run: number;
@@ -337,12 +462,18 @@ export interface MigrationJobSummary {
   sonar_report?: SonarReport | null;
   fossa_policy_status?: string | null;
   fossa_total_dependencies?: number;
+  fossa_total_licenses?: number;
   fossa_license_issues?: number;
   fossa_vulnerabilities?: number;
   fossa_outdated_dependencies?: number;
   fossa_scan_mode?: string | null;
   fossa_real_scan?: boolean;
   fossa_analysis_url?: string | null;
+  fossa_project_url?: string | null;
+ 
+  fossa_project_locator?: string | null;
+ 
+  fossa_revision?: string | null;
   fossa_error_message?: string | null;
   fossa_report?: FossaScanResult | null;
   error_message: string | null;
@@ -378,6 +509,14 @@ export interface MigrationJobSummary {
   spring_conversion_requested?: boolean;
   spring_conversion_supported?: boolean | null;
   spring_conversion_note?: string | null;
+  framework_migrations?: Array<{
+    source_framework: string;
+    target_framework?: string;
+    files_migrated: number;
+  }>;
+  modified_files?: string[];
+  uiTransformations?: any[];
+  run_functional_tests?: boolean;
 }
 
 // Start migration
@@ -462,8 +601,9 @@ export async function downloadTestcaseReport(jobId: string): Promise<Blob> {
   return requestBlob(`/v1/migration/${jobId}/testcase-report`, "Failed to download testcase report");
 }
 
-export async function downloadUnitTestReport(jobId: string): Promise<Blob> {
-  return requestBlob(`/v1/migration/${jobId}/unit-test-report`, "Failed to download unit test report");
+export async function downloadUnitTestReport(jobId: string, format: string = "html"): Promise<Blob> {
+  const path = format === "csv" ? `/v1/migration/${jobId}/unit-test-report-csv` : `/v1/migration/${jobId}/unit-test-report`;
+  return requestBlob(path, "Failed to download unit test report");
 }
 
 export async function downloadSonarReportPdf(jobId: string): Promise<Blob> {
@@ -708,3 +848,27 @@ export async function downloadProposedTestReport(jobId: string): Promise<Blob> {
     "Failed to download proposed tests report."
   );
 }
+
+export interface ReportDetailItem {
+  [key: string]: any;
+}
+
+export interface ReportDetailsResponse {
+  migration_id: string;
+  type: "files" | "issues" | "dependencies" | "vulnerabilities" | "transformations";
+  total: number;
+  items: ReportDetailItem[];
+}
+
+// Fetch underlying records for a summary card category (files, issues, dependencies, vulnerabilities, transformations)
+export async function getMigrationReportDetails(
+  jobId: string,
+  type: string
+): Promise<ReportDetailsResponse> {
+  return requestJson<ReportDetailsResponse>(
+    `/v1/migration/${jobId}/report/details`,
+    "Failed to get migration report details",
+    { query: { type } }
+  );
+}
+

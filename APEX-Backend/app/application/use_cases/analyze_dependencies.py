@@ -7,13 +7,29 @@ categories, contextual explanations, and actionable migration recommendations.
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import json
 import logging
+from pathlib import Path
 from typing import Any
+try:
+    from cachetools import LRUCache
+except ImportError:
+    class LRUCache(dict):  # type: ignore[no-redef]
+        def __init__(self, maxsize: int = 128) -> None:
+            super().__init__()
+            self.maxsize = maxsize
+
+        def __setitem__(self, key: Any, value: Any) -> None:
+            if len(self) >= self.maxsize and key not in self:
+                oldest = next(iter(self))
+                del self[oldest]
+            super().__setitem__(key, value)
 
 from sqlalchemy.orm import Session
 
-from app.core.context import user_id_ctx
+from app.core.context import user_id_ctx, llm_values_ctx
 from app.core.exceptions import LLMResponseInvalidError
 from app.infrastructure.llm.chat_llm import ChatLLM
 from app.infrastructure.llm.huggingface_client import HuggingFaceClient
@@ -31,6 +47,29 @@ from app.schemas.dependency_analysis_schema import (
 )
 
 logger = logging.getLogger(__name__)
+
+_CACHE_DIR = Path(".cache/dependency_analysis")
+_memory_cache: LRUCache = LRUCache(maxsize=100)
+_in_flight_locks: dict[tuple[int, str], asyncio.Lock] = {}
+
+
+def _get_flight_lock(fp: str) -> asyncio.Lock:
+    loop = asyncio.get_running_loop()
+    key = (id(loop), fp)
+    if key not in _in_flight_locks:
+        _in_flight_locks[key] = asyncio.Lock()
+    return _in_flight_locks[key]
+
+
+def compute_analysis_fingerprint(request: DependencyAnalysisRequest) -> str:
+    deps = sorted(
+        [
+            f"{d.group_id or ''}:{d.artifact_id or ''}:{d.current_version or d.resolved_version or ''}:{d.scope or ''}"
+            for d in (request.dependencies or [])
+        ]
+    )
+    raw = f"{request.source_java_version}:{request.target_java_version}:{str(request.build_tool or '').upper()}:{','.join(deps)}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 # Allowed standard risk levels and categories
 ALLOWED_RISK_LEVELS = {"CRITICAL", "HIGH", "MEDIUM", "LOW"}
@@ -196,9 +235,32 @@ class AnalyzeDependenciesUseCase:
                 provider_used="heuristic",
             )
 
+        fp = compute_analysis_fingerprint(request)
+        if fp in _memory_cache:
+            return _memory_cache[fp]
+
+        flight_lock = _get_flight_lock(fp)
+        async with flight_lock:
+            if fp in _memory_cache:
+                return _memory_cache[fp]
+
+            result = await self._execute_internal(request, input_deps, db, current_user)
+            _memory_cache[fp] = result
+            return result
+
+    async def _execute_internal(
+        self,
+        request: DependencyAnalysisRequest,
+        input_deps: list[DependencyItemInput],
+        db: Session | None = None,
+        current_user: User | None = None,
+    ) -> DependencyAnalysisResponse:
         user_token = None
+        llm_token = None
         if current_user:
             user_token = user_id_ctx.set(current_user.id)
+            if getattr(current_user, "llm_values", None):
+                llm_token = llm_values_ctx.set(current_user.llm_values)
 
         try:
             # Batch dependencies in chunks of up to 30 to comfortably fit context window
@@ -236,7 +298,7 @@ class AnalyzeDependenciesUseCase:
 
                 try:
                     logger.info("[DependencyAnalysis] Attempting Hugging Face (primary)")
-                    raw_json = await self._llm.chat_json(DEPENDENCY_ANALYSIS_SYSTEM_PROMPT, user_prompt, max_tokens=3000)
+                    raw_json = await self._llm.chat_json(DEPENDENCY_ANALYSIS_SYSTEM_PROMPT, user_prompt)
                     providers_used.add("huggingface")
                 except Exception as exc:  # noqa: BLE001
                     logger.warning(
@@ -248,7 +310,6 @@ class AnalyzeDependenciesUseCase:
                         system_prompt=DEPENDENCY_ANALYSIS_SYSTEM_PROMPT,
                         user_prompt=user_prompt,
                         endpoint="dependency_analysis_fallback",
-                        max_tokens=3000,
                     ):
                         response_text += chunk
                     raw_json = self._extract_json(response_text)
@@ -364,6 +425,8 @@ class AnalyzeDependenciesUseCase:
         finally:
             if user_token:
                 user_id_ctx.reset(user_token)
+            if llm_token:
+                llm_values_ctx.reset(llm_token)
 
     @staticmethod
     def _extract_json(content: str) -> dict:

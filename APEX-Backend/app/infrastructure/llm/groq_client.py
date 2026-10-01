@@ -10,27 +10,14 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import threading
 from collections.abc import AsyncIterator
 
 import httpx
 
-from app.core.config import settings
+from app.core.config import Settings, settings
 from app.core.exceptions import ChatLLMNotConfiguredError, ChatLLMServiceError
 
 logger = logging.getLogger(__name__)
-
-_shared_client = None
-_client_lock = threading.Lock()
-
-def _get_client():
-    global _shared_client
-    if _shared_client is None:
-        with _client_lock:
-            if _shared_client is None:
-                _shared_client = httpx.AsyncClient(timeout=settings.chat_llm_request_timeout_seconds)
-    return _shared_client
-
 
 class GroqPermanentError(ChatLLMServiceError):
     """Groq failed with an error that will NOT be fixed by retrying or falling back to Ollama.
@@ -53,49 +40,119 @@ class GroqClient:
         model: str | None = None,
         timeout: float | None = None,
     ) -> None:
+        self._api_key_overridden = api_key is not None
+        self._model_overridden = model is not None
         self._api_key = (api_key if api_key is not None else settings.groq_api_key).strip()
         self._base_url = (base_url or settings.groq_base_url).rstrip("/")
         self._model = model or settings.groq_model
         self._timeout = timeout or settings.chat_llm_request_timeout_seconds
         self.last_usage: tuple[int, int, int, int] | None = None
 
+    def _get_effective_credentials(self) -> tuple[str, str]:
+        from app.core.context import llm_values_ctx
+        ctx_vals = llm_values_ctx.get() or {}
+        api_key = self._api_key or ctx_vals.get("groq_api_key") or settings.groq_api_key or ""
+        model = self._model or ctx_vals.get("groq_model") or settings.groq_model or "openai/gpt-oss-20b"
+        return api_key.strip(), model.strip()
+
     @property
     def is_configured(self) -> bool:
-        return bool(self._api_key)
+        api_key, _ = self._get_effective_credentials()
+        return bool(api_key)
+
+    def _refresh_runtime_config(self) -> bool:
+        """Reload provider values so rotated env/.env credentials take effect."""
+        refreshed = Settings()
+        changed = False
+        if not self._api_key_overridden:
+            new_api_key = refreshed.groq_api_key.strip()
+            changed = changed or new_api_key != self._api_key
+            self._api_key = new_api_key
+        if not self._model_overridden:
+            new_model = refreshed.groq_model.strip()
+            changed = changed or new_model != self._model
+            self._model = new_model
+        return changed
+
+    async def _discover_model(self, client: httpx.AsyncClient, exclude_models: set[str] | None = None) -> bool:
+        """Select an active chat model from Groq's catalog, avoiding excluded/rate-limited models."""
+        excluded_models = exclude_models or set()
+        if self._api_key_overridden and self._model_overridden and not excluded_models:
+            return False
+        api_key, _ = self._get_effective_credentials()
+        try:
+            response = await client.get(
+                f"{self._base_url}/models",
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
+            if response.status_code != 200:
+                return False
+            models = response.json().get("data", [])
+            candidates = [
+                item.get("id")
+                for item in models
+                if item.get("id") and item.get("active", True) and item.get("id") not in excluded_models
+            ]
+            excluded_terms = ("guard", "safeguard", "whisper", "orpheus")
+            chat_candidates = [
+                model for model in candidates
+                if not any(term in model.lower() for term in excluded_terms)
+            ]
+            preferred = (
+                next((m for m in chat_candidates if m.startswith("openai/gpt-oss-20b")), None)
+                or next((m for m in chat_candidates if m.startswith("openai/gpt-oss-")), None)
+                or next((m for m in chat_candidates if m.startswith("llama-3.3-70b")), None)
+                or next((m for m in chat_candidates if m.startswith("llama-3.1-8b")), None)
+                or next((m for m in chat_candidates if m.startswith("qwen-2.5")), None)
+                or next((m for m in chat_candidates if m.startswith("mixtral")), None)
+                or next(iter(chat_candidates), None)
+            )
+            if preferred and preferred != self._model:
+                logger.warning("[GROQ] Model %s rate limited or unavailable; switching model to %s", self._model, preferred)
+                self._model = preferred
+                return True
+        except (httpx.HTTPError, ValueError, TypeError, AttributeError) as exc:
+            logger.warning("[GROQ] Could not refresh model catalog: %s", type(exc).__name__)
+        return False
 
     async def stream_chat(self, system_prompt: str, user_prompt: str, max_tokens: int | None = None) -> AsyncIterator[str]:
         """Yield answer text deltas from Groq. Raises on config/transport errors."""
-        if not self._api_key:
+        api_key, effective_model = self._get_effective_credentials()
+        if not api_key:
             raise ChatLLMNotConfiguredError()
 
         self.last_usage = None
         payload = {
-            "model": self._model,
+            "model": effective_model,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            "temperature": 0.2,
+            "temperature": settings.chat_llm_temperature,
+            "max_tokens": max_tokens if max_tokens is not None else settings.chat_llm_max_tokens,
             "stream": True,
             "stream_options": {"include_usage": True},
         }
-        if max_tokens:
-            payload["max_tokens"] = max_tokens
         headers = {
-            "Authorization": f"Bearer {self._api_key}",
+            "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
 
-        max_retries = 3
-        client = _get_client()
-        for attempt in range(max_retries):
-            try:
-                async with client.stream(
-                    "POST",
-                    f"{self._base_url}/chat/completions",
-                    headers=headers,
-                    json=payload,
-                ) as response:
+        max_retries = 5
+        rate_limited_models: set[str] = set()
+
+        # Keep the transport inside the current event loop. A module-global
+        # AsyncClient can retain a closed loop when callers use asyncio.run().
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            for attempt in range(max_retries):
+                emitted_any = False
+                try:
+                    async with client.stream(
+                        "POST",
+                        f"{self._base_url}/chat/completions",
+                        headers=headers,
+                        json=payload,
+                    ) as response:
                         if response.status_code != 200:
                             await response.aread()
                             body_preview = (response.text or "")[:300]
@@ -105,21 +162,69 @@ class GroqClient:
                                 self._model,
                                 body_preview,
                             )
-                            # 429 = rate limit → retry with backoff
-                            if response.status_code == 429 and attempt < max_retries - 1:
-                                if "tokens per minute" in body_preview.lower():
-                                    raise GroqPermanentError(f"Groq token rate limit reached: {body_preview[:120]}")
-                                retry_after = int(response.headers.get("Retry-After", 2 ** attempt))
-                                logger.warning(
-                                    "[GROQ] Rate limited (429). Retrying in %ss (attempt %s/%s)",
-                                    retry_after,
-                                    attempt + 1,
-                                    max_retries,
-                                )
-                                await asyncio.sleep(retry_after)
-                                continue
-                            # 401/403/400 = permanent config error → do NOT fall back to Ollama
-                            if response.status_code in (400, 401, 403):
+                            # 429 = rate limit → switch model if daily limit, or retry with backoff
+                            if response.status_code == 429:
+                                import re
+                                limit_match = re.search(r"Limit\s+(\d+),\s*Requested\s+(\d+)", body_preview, re.IGNORECASE)
+                                if limit_match and "reduce max_tokens" in body_preview.lower():
+                                    enforced_limit = int(limit_match.group(1))
+                                    safe_tokens = max(128, enforced_limit - 50)
+                                    logger.warning(
+                                        "[GROQ] Output token limit hit for model %s (Limit: %s, Requested: %s). Auto-reducing max_tokens to %s and retrying immediately.",
+                                        self._model,
+                                        enforced_limit,
+                                        limit_match.group(2),
+                                        safe_tokens,
+                                    )
+                                    payload["max_tokens"] = safe_tokens
+                                    continue
+
+                                wait_match = re.search(r"try again in (\d+(?:\.\d+)?)s", body_preview, re.IGNORECASE)
+                                if wait_match:
+                                    retry_after = int(float(wait_match.group(1))) + 1
+                                else:
+                                    retry_header = response.headers.get("Retry-After")
+                                    if retry_header and retry_header.isdigit():
+                                        retry_after = int(retry_header)
+                                    else:
+                                        retry_after = 2 ** attempt
+
+                                if retry_after > 30:
+                                    rate_limited_models.add(self._model)
+                                    logger.warning(
+                                        "[GROQ] Daily or long rate limit (%ss) hit for model %s. Attempting model failover.",
+                                        retry_after,
+                                        self._model,
+                                    )
+                                    model_switched = await self._discover_model(client, exclude_models=rate_limited_models)
+                                    if model_switched:
+                                        payload["model"] = self._model
+                                        logger.info("[GROQ] Retrying request with fallback model %s", self._model)
+                                        continue
+                                    raise ChatLLMServiceError(f"Groq rate limit exceeded on model {self._model} ({body_preview[:120]}).")
+                                if attempt < max_retries - 1:
+                                    logger.warning(
+                                        "[GROQ] Rate limited (429). Retrying in %ss (attempt %s/%s)",
+                                        retry_after,
+                                        attempt + 1,
+                                        max_retries,
+                                    )
+                                    await asyncio.sleep(retry_after)
+                                    continue
+                            # Refresh credentials/model once before treating configuration
+                            # errors as permanent. This supports secret rotation without a
+                            # process restart and avoids retrying the same bad request.
+                            if response.status_code in (400, 401, 403, 404):
+                                config_changed = self._refresh_runtime_config()
+                                if response.status_code == 404:
+                                    config_changed = await self._discover_model(client) or config_changed
+                                if config_changed:
+                                    logger.info("[GROQ] Runtime configuration refreshed; retrying request")
+                                    continue
+                                if response.status_code == 404:
+                                    raise ChatLLMServiceError(
+                                        f"Groq model '{self._model}' is unavailable and no replacement was found."
+                                    )
                                 raise GroqPermanentError(
                                     f"Groq API error ({response.status_code}): {body_preview[:120]}. "
                                     "Please check your LLM_2 API key and model name in .env."
@@ -132,19 +237,30 @@ class GroqClient:
                             if usage:
                                 self.last_usage = usage
                             if delta:
+                                emitted_any = True
                                 yield delta
-                # Successful response, exit retry loop
-                return
-            except (GroqPermanentError, ChatLLMNotConfiguredError):
-                raise  # permanent errors must not be swallowed or retried
-            except httpx.HTTPError as exc:
-                logger.error(
-                    "[GROQ] Connection failed | URL: %s | Model: %s | Cause: %s",
-                    self._base_url,
-                    self._model,
-                    type(exc).__name__,
-                )
-                raise ChatLLMServiceError("Groq API could not be reached.") from exc
+                    # Successful response, exit retry loop
+                    return
+                except (GroqPermanentError, ChatLLMNotConfiguredError):
+                    raise  # permanent errors must not be swallowed or retried
+                except (httpx.TimeoutException, httpx.ConnectError, httpx.HTTPError) as exc:
+                    logger.error(
+                        "[GROQ] Connection failed | URL: %s | Model: %s | Cause: %s",
+                        self._base_url,
+                        self._model,
+                        type(exc).__name__,
+                    )
+                    if not emitted_any and attempt < max_retries - 1:
+                        delay = min(2 ** attempt, 4)
+                        logger.warning(
+                            "[GROQ] Transient transport failure; retrying in %ss (attempt %s/%s)",
+                            delay,
+                            attempt + 1,
+                            max_retries,
+                        )
+                        await asyncio.sleep(delay)
+                        continue
+                    raise ChatLLMServiceError("Groq API could not be reached.") from exc
         raise ChatLLMServiceError("Groq API request failed after retries.")
 
 

@@ -20,7 +20,8 @@ export interface RepoFile {
 }
 
 export interface UserResponse {
-  id: string;
+  id: number | string;
+  userId?: number | string;
   fullName: string;
   email: string;
   role: string;
@@ -67,6 +68,46 @@ export interface SpringBootConversionEligibility {
   eligibilityReason: string;
 }
 
+export interface FrameworkRecommendationItem {
+  framework: "React" | "Angular" | string;
+  targetVersion: string;
+  availableVersions?: string[];
+  compatibility: string;
+  architecture?: string;
+  routing?: string;
+  isRecommended: boolean;
+  reasons: string[];
+  constraints: string[];
+  currentVersion?: string | null;
+}
+
+export interface FrameworkRecommendations {
+  react?: FrameworkRecommendationItem;
+  angular?: FrameworkRecommendationItem;
+}
+
+export interface ViewTechnologyIndicator {
+  id: string;
+  label: string;
+  detected: boolean;
+  variant?: "green" | "blue" | "gray" | string;
+}
+
+export interface ViewTechnologyData {
+  jspDetected: boolean;
+  jspFileCount: number;
+  jsfDetected: boolean;
+  jsfFileCount: number;
+  hasJspViews: boolean;
+  hasJspTags: boolean;
+  hasJstl: boolean;
+  hasJsfXhtml: boolean;
+  hasManagedBeans: boolean;
+  hasExpressionLanguage: boolean;
+  indicators: ViewTechnologyIndicator[];
+  summaryMessage: string;
+}
+
 export interface RepoAnalysis {
   name: string;
   full_name: string;
@@ -87,6 +128,7 @@ export interface RepoAnalysis {
   jsf_files?: string[];
   jsp_count?: number;
   jsf_count?: number;
+  view_technologies?: ViewTechnologyData;
   detected_frameworks?: DetectedFramework[];
   frameworks?: string[];
   spring_boot_version?: string | null;
@@ -136,6 +178,8 @@ export interface RepoAnalysis {
   microservice_eligibility?: MicroserviceEligibilityResult;
   // backend-provided Spring -> Spring Boot conversion eligibility (Discovery stage)
   spring_boot_eligibility?: SpringBootConversionEligibility;
+  // backend-provided dynamic framework target version recommendations
+  framework_recommendations?: FrameworkRecommendations;
   discovery_stages?: Record<string, any>;
   services?: Array<Record<string, unknown>>;
   classes?: Array<Record<string, unknown>>;

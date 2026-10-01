@@ -1,14 +1,15 @@
 import { API_BASE_URL } from "@/services/config/env";
-
+ 
 export type ApiQueryValue = string | number | boolean | null | undefined;
-
+ 
 export interface ApiRequestOptions extends Omit<RequestInit, "body" | "headers"> {
   baseUrl?: string;
   query?: Record<string, ApiQueryValue>;
   body?: BodyInit | object | null;
   headers?: HeadersInit;
+  _isRetry?: boolean;
 }
-
+ 
 /**
  * Build an Authorization header carrying a GitHub PAT, or an empty object when
  * no token is provided. Sending the token as a header (never in the URL query
@@ -18,12 +19,12 @@ export function authHeader(token?: string | null): Record<string, string> {
   const trimmed = token?.trim();
   return trimmed ? { Authorization: `Bearer ${trimmed}` } : {};
 }
-
+ 
 export class ApiError extends Error {
   status: number;
   code?: string;
   detail?: unknown;
-
+ 
   constructor(message: string, status: number, code?: string, detail?: unknown) {
     super(message);
     this.name = "ApiError";
@@ -32,7 +33,7 @@ export class ApiError extends Error {
     this.detail = detail;
   }
 }
-
+ 
 function getErrorMessage(detail: unknown, fallbackMessage = "Request failed"): string {
   if (typeof detail === "string" && detail.trim()) {
     return detail;
@@ -58,24 +59,26 @@ function getErrorMessage(detail: unknown, fallbackMessage = "Request failed"): s
   }
   return fallbackMessage;
 }
-
+ 
 async function parseJsonResponse<T>(response: Response, fallbackMessage: string): Promise<T> {
   const contentType = response.headers.get("content-type") || "";
   const bodyText = await response.text();
-
+ 
   if (!contentType.includes("application/json")) {
     if (bodyText.trim().startsWith("<!doctype") || bodyText.trim().startsWith("<html")) {
       throw new Error(`API routing error: expected JSON from ${response.url} but received HTML. Check VITE_API_URL or backend routing.`);
     }
     throw new Error(fallbackMessage);
   }
-
+ 
   const data = JSON.parse(bodyText);
   if (!response.ok) {
     const detail = data?.detail;
     const errorMessage = typeof data?.error === "string" && data.error.trim()
       ? data.error
-      : getErrorMessage(detail, fallbackMessage);
+      : typeof data?.message === "string" && data.message.trim()
+        ? data.message
+        : getErrorMessage(detail, fallbackMessage);
     const errorCode =
       detail && typeof detail === "object" && !Array.isArray(detail)
         ? (detail as Record<string, unknown>).code
@@ -87,18 +90,18 @@ async function parseJsonResponse<T>(response: Response, fallbackMessage: string)
       detail,
     );
   }
-
+ 
   return data as T;
 }
-
+ 
 export async function readErrorDetail(response: Response): Promise<string | undefined> {
   const text = await response
     .clone()
     .text()
     .catch(() => "");
-
+ 
   if (!text) return undefined;
-
+ 
   try {
     const json = JSON.parse(text);
     if (typeof json === "string") return json;
@@ -107,9 +110,9 @@ export async function readErrorDetail(response: Response): Promise<string | unde
     return text;
   }
 }
-
+ 
 export const ABSOLUTE_URL_PATTERN = /^https?:\/\//i;
-
+ 
 export function buildApiUrl(
   path: string,
   query: Record<string, ApiQueryValue> = {},
@@ -120,17 +123,17 @@ export function buildApiUrl(
   const url = ABSOLUTE_URL_PATTERN.test(path)
     ? new URL(path)
     : new URL(normalizedPath, `${normalizedBaseUrl}/`);
-
+ 
   Object.entries(query).forEach(([key, value]) => {
     if (value === undefined || value === null) {
       return;
     }
     url.searchParams.set(key, String(value));
   });
-
+ 
   return url.toString();
 }
-
+ 
 function isBodyInitLike(body: NonNullable<ApiRequestOptions["body"]>): body is BodyInit {
   return (
     typeof body === "string" ||
@@ -141,7 +144,7 @@ function isBodyInitLike(body: NonNullable<ApiRequestOptions["body"]>): body is B
     ArrayBuffer.isView(body)
   );
 }
-
+ 
 function buildRequestInit(options: Omit<ApiRequestOptions, "baseUrl" | "query">): RequestInit {
   const { body, headers, ...init } = options;
   const requestHeaders = new Headers(headers);
@@ -152,52 +155,170 @@ function buildRequestInit(options: Omit<ApiRequestOptions, "baseUrl" | "query">)
   // (5173 vs 8000) and for many deployments. Every request through this
   // shared client sends cookies unless a caller explicitly overrides this.
   const base: RequestInit = { credentials: "include", ...init, headers: requestHeaders };
-
+ 
   if (body == null) {
     return base;
   }
-
+ 
   if (isBodyInitLike(body)) {
     return { ...base, body };
   }
-
+ 
   if (!requestHeaders.has("Content-Type")) {
     requestHeaders.set("Content-Type", "application/json");
   }
-
+ 
   return {
     ...base,
     body: JSON.stringify(body),
   };
 }
-
+ 
+/**
+ * Authentication endpoints where automatic 401 token refresh should NOT be attempted.
+ */
+export function isAuthEndpoint(path: string): boolean {
+  const normalized = path.toLowerCase();
+  return (
+    normalized.includes("/auth/login") ||
+    normalized.includes("/auth/refresh") ||
+    normalized.includes("/auth/logout") ||
+    normalized.includes("/auth/signup") ||
+    normalized.includes("/auth/verify") ||
+    normalized.includes("/auth/forgot-password") ||
+    normalized.includes("/auth/reset-password") ||
+    normalized.includes("/auth/google") ||
+    normalized.includes("/auth/github")
+  );
+}
+ 
+let activeRefreshPromise: Promise<boolean> | null = null;
+let isSessionExpiredNotified = false;
+ 
+/**
+ * Broadcast a session-expired event across the application and reset after cooldown.
+ */
+export function notifySessionExpired(): void {
+  if (typeof window === "undefined") return;
+  if (isSessionExpiredNotified) return;
+  isSessionExpiredNotified = true;
+ 
+  setTimeout(() => {
+    isSessionExpiredNotified = false;
+  }, 3000);
+ 
+  window.dispatchEvent(new CustomEvent("javaapex:session-expired"));
+}
+ 
+/**
+ * Execute a single POST /api/v1/auth/refresh (or /api/auth/refresh) call using credentials: "include".
+ * Uses fetch directly so this request never goes through the 401 retry interceptor.
+ */
+async function executeTokenRefresh(): Promise<boolean> {
+  try {
+    console.log("[AUTH] Access token expired, attempting refresh");
+ 
+    let refreshUrl = buildApiUrl("/v1/auth/refresh");
+    let response = await fetch(refreshUrl, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        Accept: "application/json",
+      },
+    });
+ 
+    if (response.status === 404) {
+      refreshUrl = buildApiUrl("/auth/refresh");
+      response = await fetch(refreshUrl, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          Accept: "application/json",
+        },
+      });
+    }
+ 
+    if (response.ok) {
+      console.log("[AUTH] Token refresh successful, retrying request");
+      return true;
+    }
+ 
+    console.warn(`[AUTH] Token refresh failed with status ${response.status}, session expired`);
+    return false;
+  } catch (error) {
+    console.error("[AUTH] Token refresh network/unexpected error:", error);
+    return false;
+  }
+}
+ 
+/**
+ * Shared token refresh lock to coalesce concurrent 401 requests into a single refresh call.
+ */
+export function refreshAuthSession(): Promise<boolean> {
+  if (!activeRefreshPromise) {
+    activeRefreshPromise = executeTokenRefresh().finally(() => {
+      activeRefreshPromise = null;
+    });
+  }
+  return activeRefreshPromise;
+}
+ 
 export async function performRequest(path: string, options: ApiRequestOptions = {}): Promise<Response> {
   const { baseUrl, query, ...requestInit } = options;
   const init = buildRequestInit(requestInit);
-
-  return fetch(buildApiUrl(path, query, baseUrl), init);
+ 
+  const response = await fetch(buildApiUrl(path, query, baseUrl), init);
+ 
+  if (response.status === 401 && !options._isRetry && !isAuthEndpoint(path)) {
+    const refreshSuccess = await refreshAuthSession();
+ 
+    if (refreshSuccess) {
+      return performRequest(path, { ...options, _isRetry: true });
+    }
+ 
+    notifySessionExpired();
+  }
+ 
+  return response;
 }
-
+ 
 export async function requestJson<T>(
   path: string,
   fallbackMessage: string,
   options: ApiRequestOptions = {}
 ): Promise<T> {
   const response = await performRequest(path, options);
+ 
+  if (response.status === 401 && !isAuthEndpoint(path)) {
+    throw new ApiError(
+      "Your session has expired. Please sign in again.",
+      401,
+      "SESSION_EXPIRED"
+    );
+  }
+ 
   return parseJsonResponse<T>(response, fallbackMessage);
 }
-
+ 
 export async function requestBlob(
   path: string,
   fallbackMessage: string,
   options: ApiRequestOptions = {}
 ): Promise<Blob> {
   const response = await performRequest(path, options);
-
+ 
   if (!response.ok) {
+    if (response.status === 401 && !isAuthEndpoint(path)) {
+      throw new ApiError(
+        "Your session has expired. Please sign in again.",
+        401,
+        "SESSION_EXPIRED"
+      );
+    }
     const detail = await readErrorDetail(response);
     throw new ApiError(detail || fallbackMessage, response.status, undefined, detail);
   }
-
+ 
   return response.blob();
 }
+ 

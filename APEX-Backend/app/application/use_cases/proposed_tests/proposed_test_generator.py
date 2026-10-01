@@ -35,16 +35,80 @@ class ProposedTestGenerator:
     def generate(self) -> list[ProposedTestCase]:
         ai_proposals = self._generate_code_analysis_proposals()
         brd_proposals = self._generate_brd_proposals() if self.brd_analysis and not self.brd_analysis.error else []
+        prompt_proposals = self._generate_prompt_driven_proposals()
 
-        if not brd_proposals:
-            # Fallback if no proposals were discovered anywhere
-            if not ai_proposals:
-                return [self._create_baseline_smoke_test("PTC-001")]
-            return self._reindex_proposals(ai_proposals)
-
-        # Merge & deduplicate AI and BRD test cases (proposed tests only include new AI/BRD tests)
         combined = self._merge_and_deduplicate(ai_proposals, brd_proposals)
+        combined = self._merge_and_deduplicate(combined, prompt_proposals)
+
+        if not combined:
+            return [self._create_baseline_smoke_test("PTC-001")]
+
         return self._reindex_proposals(combined)
+
+    def _generate_prompt_driven_proposals(self) -> list[ProposedTestCase]:
+        suggestions = self.analysis.get("functional_testing_suggestions") or []
+        custom_prompt = self.analysis.get("functional_custom_prompt") or self.analysis.get("functional_testing_prompt") or ""
+        proposals: list[ProposedTestCase] = []
+
+        scenario_map = {
+            "happy-path": ("Happy Path Testing", "Validate positive end-to-end scenarios covering main business workflows and expected outcomes."),
+            "negative-testing": ("Negative & Validation Testing", "Validate negative scenarios with invalid/missing inputs and verify proper error handling."),
+            "edge-case": ("Edge Case Testing", "Validate edge cases for boundary values, empty inputs, null payloads, and maximum thresholds."),
+            "role-permission": ("Role & Permission Testing", "Validate functional test scenarios for user roles, permissions, and authorized access restrictions."),
+            "e2e-workflow": ("End-to-End Workflow Testing", "Validate complete end-to-end functional test scenarios across realistic multi-step business workflows."),
+        }
+
+        counter = 1
+        for sug_id in suggestions:
+            if sug_id in scenario_map:
+                title_prefix, desc_text = scenario_map[sug_id]
+                ptc_id = f"PTC-PRM-{counter:03d}"
+                counter += 1
+                proposals.append(
+                    ProposedTestCase(
+                        id=ptc_id,
+                        title=f"{title_prefix}: Functional execution validation",
+                        description=desc_text,
+                        type=ProposedTestType.API if "negative" in sug_id or "happy" in sug_id else ProposedTestType.UI,
+                        priority=ProposedTestPriority.HIGH,
+                        source="Prompt Scenario",
+                        reason=f"Generated specifically based on user-selected prompt scenario suggestion '{title_prefix}'.",
+                        preconditions=["Migrated application service is running", "Target test database initialized"],
+                        steps=[
+                            f"Initialize test context for prompt scenario: {title_prefix}",
+                            "Execute functional request payload and observe system responses",
+                            "Verify status codes, validation error messages, and state changes",
+                        ],
+                        expected_result=f"Application outcome satisfies '{title_prefix}' prompt requirement",
+                        status=ProposedTestStatus.PROPOSED,
+                        generation_source="Prompt Scenario",
+                    )
+                )
+
+        if custom_prompt and custom_prompt.strip():
+            cp_clean = custom_prompt.strip()
+            ptc_id = f"PTC-PRM-{counter:03d}"
+            proposals.append(
+                ProposedTestCase(
+                    id=ptc_id,
+                    title=f"Custom Functional Prompt: {cp_clean[:55]}...",
+                    description=f"User Custom Prompt Scenario: {cp_clean}",
+                    type=ProposedTestType.API,
+                    priority=ProposedTestPriority.HIGH,
+                    source="Custom Prompt",
+                    reason=f"Generated directly from user custom functional prompt: '{cp_clean}'",
+                    preconditions=["Application service ready"],
+                    steps=[
+                        f"Execute test workflow matching custom prompt criteria: {cp_clean}",
+                        "Inspect response body and database state",
+                    ],
+                    expected_result="Test passes with expected outcomes specified in custom prompt",
+                    status=ProposedTestStatus.PROPOSED,
+                    generation_source="Custom Prompt",
+                )
+            )
+
+        return proposals
 
     def _generate_existing_proposals(self) -> list[ProposedTestCase]:
         existing_list = self.analysis.get("existing_tests", [])

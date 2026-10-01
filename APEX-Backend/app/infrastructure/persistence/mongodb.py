@@ -1,6 +1,14 @@
+import asyncio
 import logging
-from motor.motor_asyncio import AsyncIOMotorClient
-import pymongo
+try:
+    from motor.motor_asyncio import AsyncIOMotorClient
+except ImportError:
+    AsyncIOMotorClient = None  # type: ignore[misc,assignment]
+
+try:
+    import pymongo
+except ImportError:
+    pymongo = None  # type: ignore[misc,assignment]
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -20,31 +28,34 @@ class MongoDBManager:
         try:
             self.client = AsyncIOMotorClient(
                 settings.mongodb_uri,
-                serverSelectionTimeoutMS=5000,
-                connectTimeoutMS=10000,
+                serverSelectionTimeoutMS=3000,
+                connectTimeoutMS=5000,
             )
             self.db = self.client[settings.mongodb_database]
-            # Verify connection
-            await self.client.admin.command("ping")
-            logger.info("MongoDB client initialized and pinged successfully for database: %s", settings.mongodb_database)
-            
-            # Setup sync client for legacy/sync code paths
+
+            # Setup sync client
             self._sync_client = pymongo.MongoClient(
                 settings.mongodb_uri,
-                serverSelectionTimeoutMS=5000
+                serverSelectionTimeoutMS=3000,
+                connectTimeoutMS=5000,
             )
             self._sync_db = self._sync_client[settings.mongodb_database]
 
-            # Setup indexes
+            # Fast ping verification
+            await self.client.admin.command("ping")
+            logger.info("MongoDB client initialized and pinged successfully for database: %s", settings.mongodb_database)
+
+            # Fire index setup as background task so startup isn't blocked
             from app.infrastructure.persistence.mongodb_indexes import setup_mongodb_indexes
-            await setup_mongodb_indexes(self.db)
+            asyncio.create_task(setup_mongodb_indexes(self.db))
         except Exception as e:
             logger.error("Failed to initialize MongoDB client: %s", e)
-            # Do not raise RuntimeError here to avoid crashing the entire server startup.
-            # Downstream logic using MongoDB will handle the missing connection.
 
     def get_sync_db(self):
         return self._sync_db
+
+    def get_async_db(self):
+        return self.db
 
     def close(self):
         if self.client:

@@ -1,18 +1,19 @@
-import { FaCode, FaCogs, FaJava, FaLeaf, FaProjectDiagram, FaCheckCircle, FaTimesCircle, FaBoxOpen, FaLayerGroup, FaCubes, FaWrench, FaCoffee } from "react-icons/fa";
+import { useState, useEffect, useMemo } from "react";
+import { FaCode, FaCogs, FaJava, FaLeaf, FaProjectDiagram, FaCheckCircle, FaTimesCircle, FaBoxOpen, FaLayerGroup, FaCubes, FaWrench, FaCoffee, FaChevronDown, FaChevronUp, FaTimes, FaInfoCircle, FaFile, FaReact, FaAngular } from "react-icons/fa";
 import { wizardStyles as styles } from "@/shared/components/wizard/wizardStyles";
 import {
   renderWizardIconBadge,
-  renderBackButtonLabel,
   renderForwardButtonLabel,
   WizardInfoTooltip,
   WizardOptionCard,
   WizardSectionHeading,
 } from "@/shared/components/wizard";
-import type { RepoAnalysis, RepoInfo, DependencyInfo } from "@/shared/types/domain";
+import type { RepoAnalysis, RepoInfo, DependencyInfo, FrameworkRecommendations } from "@/shared/types/domain";
 import {
   type JavaVersionRecommendationResponse,
   type StrategyPageContext,
   getDefaultRiskExplanation,
+  getFrameworkRecommendations,
 } from "../services/strategyService";
 import type { useStrategyState, JavaVersionOption } from "../hooks/useStrategyState";
 
@@ -58,7 +59,7 @@ interface StrategyStepViewProps {
   riskLevel: string;
   riskExplanation?: string | null;
   riskExplanationLoading?: boolean;
-  stepSummary: string;
+  stepSummary?: string;
   buildToolDisplayLabel: string;
   renderCategorizedDependencies: (dependencies: DependencyInfo[]) => React.ReactNode;
   dependencyAnalysis?: import("../services/strategyService").DependencyAnalysisResponse | null;
@@ -80,6 +81,7 @@ interface StrategyStepViewProps {
   onBack: () => void;
   onContinue: () => void;
   strategyAssistantContext: StrategyPageContext | null;
+  jobId?: string;
 }
 
 export function StrategyStepView({
@@ -91,7 +93,7 @@ export function StrategyStepView({
   riskExplanationLoading: propRiskExplanationLoading,
   dependencyAnalysis: propDependencyAnalysis,
   dependencyAnalysisLoading: propDependencyAnalysisLoading,
-  stepSummary,
+  stepSummary = "",
   buildToolDisplayLabel,
   renderCategorizedDependencies,
   effectiveTargetVersion,
@@ -111,6 +113,7 @@ export function StrategyStepView({
   onBack,
   onContinue,
   strategyAssistantContext: _strategyAssistantContext,
+  jobId,
 }: StrategyStepViewProps) {
 
   const {
@@ -129,6 +132,12 @@ export function StrategyStepView({
     riskExplanation,
     riskExplanationLoading,
     dependencyAnalysis: strategyDependencyAnalysis,
+    uiFrameworkTarget,
+    setUiFrameworkTarget,
+    uiFrameworkVersion,
+    setUiFrameworkVersion,
+    uiModMode,
+    setUiModMode,
   } = strategy;
 
   const effectiveDependencyAnalysis =
@@ -140,8 +149,129 @@ export function StrategyStepView({
       ? propRiskExplanationLoading
       : riskExplanationLoading;
 
+  const isAssessmentLoaded =
+    repoAnalysis !== null &&
+    typeof repoAnalysis.jsp_count === "number" &&
+    typeof repoAnalysis.jsf_count === "number";
+
+  const actualJspCount = isAssessmentLoaded ? repoAnalysis.jsp_count! : 0;
+  const actualJsfCount = isAssessmentLoaded ? repoAnalysis.jsf_count! : 0;
+
+  const hasJsp = isAssessmentLoaded && actualJspCount > 0;
+  const hasJsf = isAssessmentLoaded && actualJsfCount > 0;
+  const isUiModEligible = hasJsp || hasJsf;
+  const uiModStatus: "loading" | "eligible" | "disabled" = !isAssessmentLoaded
+    ? "loading"
+    : isUiModEligible
+      ? "eligible"
+      : "disabled";
+
+  const isModeEnabled = (mode: string) => {
+    if (!isAssessmentLoaded) return false;
+    if (mode.startsWith("JSP")) return hasJsp;
+    if (mode.startsWith("JSF")) return hasJsf;
+    return false;
+  };
+
+  const allJspFiles = repoAnalysis?.jsp_files;
+  const allJsfFiles = repoAnalysis?.jsf_files;
+  const totalViewFiles = (allJspFiles ? allJspFiles.length : 0) + (allJsfFiles ? allJsfFiles.length : 0);
+  const vt = repoAnalysis?.view_technologies;
+  const detectedConstructs = vt ? [
+    { label: "JSP Views", detected: vt.hasJspViews },
+    { label: "JSP Tags", detected: vt.hasJspTags },
+    { label: "JSTL", detected: vt.hasJstl },
+    { label: "JSF XHTML", detected: vt.hasJsfXhtml },
+    { label: "Managed Beans", detected: vt.hasManagedBeans },
+    { label: "Expression Language", detected: vt.hasExpressionLanguage },
+  ].filter((c) => c.detected) : [];
+
+  useEffect(() => {
+    if (!isAssessmentLoaded) return;
+
+    if (!hasJsp && !hasJsf) {
+      if (selectedConversions.includes("ui_modernization")) {
+        setSelectedConversions((prev) => prev.filter((k) => k !== "ui_modernization"));
+      }
+      return;
+    }
+
+    if (hasJsp && !hasJsf) {
+      if (!uiModMode || uiModMode.startsWith("JSF") || !uiModMode.includes(uiFrameworkTarget)) {
+        setUiModMode(`JSP -> ${uiFrameworkTarget}`);
+      }
+    } else if (!hasJsp && hasJsf) {
+      if (!uiModMode || uiModMode.startsWith("JSP") || !uiModMode.includes(uiFrameworkTarget)) {
+        setUiModMode(`JSF -> ${uiFrameworkTarget}`);
+      }
+    } else if (hasJsp && hasJsf) {
+      if (!uiModMode) {
+        setUiModMode(`JSP -> ${uiFrameworkTarget}`);
+      } else if (!uiModMode.includes(uiFrameworkTarget)) {
+        const prefix = uiModMode.startsWith("JSF") ? "JSF" : "JSP";
+        setUiModMode(`${prefix} -> ${uiFrameworkTarget}`);
+      }
+    }
+  }, [
+    isAssessmentLoaded,
+    hasJsp,
+    hasJsf,
+    uiFrameworkTarget,
+    uiModMode,
+    selectedConversions,
+    setSelectedConversions,
+    setUiModMode,
+  ]);
+
   const detectedSourceVersion =
     (repoAnalysis?.java_version || repoAnalysis?.java_version_from_build || selectedSourceVersion).toString().trim();
+
+  const [fetchedRecommendations, setFetchedRecommendations] = useState<FrameworkRecommendations | null>(null);
+  const frameworkRecs: FrameworkRecommendations | undefined = repoAnalysis?.framework_recommendations || (fetchedRecommendations ?? undefined);
+
+  useEffect(() => {
+    if (repoAnalysis?.framework_recommendations) {
+      setFetchedRecommendations(repoAnalysis.framework_recommendations);
+      return;
+    }
+    const targetJobId = jobId || (selectedRepo as any)?.jobId || (repoAnalysis as any)?.jobId;
+    if (isUiModEligible && targetJobId && !fetchedRecommendations) {
+      getFrameworkRecommendations(targetJobId)
+        .then((recs) => {
+          if (recs) setFetchedRecommendations(recs);
+        })
+        .catch((err) => {
+          console.error("Failed to fetch framework recommendations", err);
+        });
+    }
+  }, [repoAnalysis?.framework_recommendations, isUiModEligible, jobId, selectedRepo, repoAnalysis, fetchedRecommendations]);
+
+  const [userReactVersion, setUserReactVersion] = useState<string | null>(null);
+  const [userAngularVersion, setUserAngularVersion] = useState<string | null>(null);
+
+  // Keep uiFrameworkVersion synchronized with the target framework and user selections
+  useEffect(() => {
+    if (!isUiModEligible) return;
+    const defaultReact = frameworkRecs?.react?.targetVersion;
+    const defaultAngular = frameworkRecs?.angular?.targetVersion;
+
+    if (uiFrameworkTarget === "React") {
+      const ver = userReactVersion || defaultReact;
+      if (ver && uiFrameworkVersion !== ver) {
+        setUiFrameworkVersion(ver);
+      }
+    } else {
+      const ver = userAngularVersion || defaultAngular;
+      if (ver && uiFrameworkVersion !== ver) {
+        setUiFrameworkVersion(ver);
+      }
+    }
+  }, [isUiModEligible, uiFrameworkTarget, frameworkRecs, uiFrameworkVersion, setUiFrameworkVersion, userReactVersion, userAngularVersion]);
+
+  const isReactSelected = uiFrameworkTarget === "React";
+  const primaryRec = isReactSelected ? frameworkRecs?.react : frameworkRecs?.angular;
+  const alternativeRec = isReactSelected ? frameworkRecs?.angular : frameworkRecs?.react;
+  const primaryLabel = primaryRec?.isRecommended ? "Recommended Target" : "Selected Target";
 
 
   // Spring -> Spring Boot conversion card: enabled/disabled purely from the
@@ -175,6 +305,10 @@ export function StrategyStepView({
         : springBootPathwayStatus === "upgrade"
           ? "Upgrade Available"
           : "Conversion Available";
+
+  // UI state for JSP/JSF card
+  const [viewFilesOpen, setViewFilesOpen] = useState(false);
+  const [migrationPreviewOpen, setMigrationPreviewOpen] = useState(false);
 
   return (
     <div className="discovery-dashboard-wrapper">
@@ -333,6 +467,43 @@ export function StrategyStepView({
                 </div>
               );
             })()}
+
+            {/* 5. JSP */}
+            {repoAnalysis && (
+              <div
+                className="strat-assessment-card strat-card-jsp"
+                style={{ animationDelay: "0.33s" }}
+              >
+                <div className="strat-assessment-icon-wrap">
+                  <FaCode />
+                </div>
+                <div className="strat-assessment-info">
+                  <div className="strat-assessment-label">JSP</div>
+                  <div className="strat-assessment-value">
+                    {actualJspCount}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 6. JSF */}
+            {repoAnalysis && (
+              <div
+                className="strat-assessment-card strat-card-jsf"
+                style={{ animationDelay: "0.4s" }}
+              >
+                <div className="strat-assessment-icon-wrap">
+                  <FaCode />
+                </div>
+                <div className="strat-assessment-info">
+                  <div className="strat-assessment-label">JSF</div>
+                  <div className="strat-assessment-value">
+                    {actualJsfCount}
+                  </div>
+                </div>
+              </div>
+            )}
+
           </div>
 
           {repoAnalysis.dependencies && repoAnalysis.dependencies.length > 0 && (
@@ -432,22 +603,78 @@ export function StrategyStepView({
                     </span>
                   ) as React.ReactNode,
                 },
-                {
-                  key: "ui_modernization",
-                  title: "JSP/JSF -> Angular/React",
-                  desc: "Modernize legacy JSP/JSF views to Angular or React SPA",
-                  icon: <FaCode />,
-                  color: "#06b6d4",
-                  disabled: true,
-                  badgeLabel: "Coming Soon",
-                  detail: null as React.ReactNode,
-                },
+                (() => {
+                  const isActive = selectedConversions.includes("ui_modernization");
+                  const badgeLabel =
+                    uiModStatus === "loading"
+                      ? "Analyzing..."
+                      : uiModStatus === "disabled"
+                        ? "Not Eligible"
+                        : isActive
+                          ? "Active"
+                          : "Optional";
+
+                  return {
+                    key: "ui_modernization",
+                    title: "JSP/JSF -> Angular/React",
+                    desc: "Modernize legacy JSP/JSF views to Angular or React SPA",
+                    icon: (
+                      <span
+                        style={{
+                          backgroundColor: "#22c55e",
+                          color: "white",
+                          padding: "4px 10px",
+                          borderRadius: 16,
+                          fontSize: 12,
+                          fontWeight: 700,
+                        }}
+                      >
+                        New
+                      </span>
+                    ),
+                    color: uiModStatus === "disabled" || uiModStatus === "loading" ? "#94a3b8" : "#06b6d4",
+                    disabled: uiModStatus === "disabled" || uiModStatus === "loading",
+                    badgeLabel: badgeLabel,
+                    detail: (() => {
+                      if (uiModStatus === "loading") {
+                        return (
+                          <span style={{ fontWeight: 600, color: "#64748b", fontSize: 13 }}>
+                            Analyzing repository for UI modernization...
+                          </span>
+                        );
+                      }
+                      return (
+                        <div style={{ marginTop: 4 }}>
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 12,
+                              fontSize: 13,
+                              fontWeight: 600,
+                              color: uiModStatus === "disabled" ? "#64748b" : isActive ? "#0284c7" : "#475569",
+                            }}
+                          >
+                            <span>JSP: {actualJspCount}</span>
+                            <span>JSF: {actualJsfCount}</span>
+                          </div>
+                          {uiModStatus === "disabled" && (
+                            <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2, fontWeight: 500 }}>
+                              JSP/JSF views were not detected in this repository.
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })(),
+                  };
+                })(),
               ].map((pathway) => {
                 const isActivePathway = selectedConversions.includes(pathway.key);
                 const isDisabledPathway = pathway.disabled;
                 const isSpringBootPathway = pathway.key === "spring_boot";
+                const isUiModPathway = pathway.key === "ui_modernization";
                 const pathwayBadgeLabel =
-                  isSpringBootPathway && !isDisabledPathway && isActivePathway
+                  (isSpringBootPathway || isUiModPathway) && !isDisabledPathway && isActivePathway
                     ? "Active"
                     : pathway.badgeLabel;
                 const pathwayBadgeStyle: React.CSSProperties | undefined =
@@ -455,13 +682,20 @@ export function StrategyStepView({
                     ? isActivePathway
                       ? { backgroundColor: "#22c55e", color: "#ffffff", boxShadow: "none" }
                       : { backgroundColor: "#fef3c7", color: "#92400e", boxShadow: "none" }
-                    : { boxShadow: "none" };
+                    : isUiModPathway && !isDisabledPathway
+                      ? isActivePathway
+                        ? { backgroundColor: "#22c55e", color: "#ffffff", boxShadow: "none" }
+                        : { backgroundColor: "#e0f2fe", color: "#0369a1", boxShadow: "none" }
+                      : { boxShadow: "none" };
 
                 return (
                   <WizardOptionCard
                     key={pathway.key}
                     onClick={() => {
                       if (isDisabledPathway) return;
+                      if (pathway.key === "ui_modernization" && (!isAssessmentLoaded || !isUiModEligible)) {
+                        return;
+                      }
                       if (pathway.key === "java_version") {
                         setSelectedConversions(["java_version"]);
                         return;
@@ -497,6 +731,333 @@ export function StrategyStepView({
               })}
             </div>
           </div>
+
+          {/* JSP/JSF Configuration / Recommendation Section */}
+          {isUiModEligible && selectedConversions.includes("ui_modernization") && (
+            <div
+              style={{
+                background: "#fff",
+                border: "1px solid #dbe3ef",
+                borderRadius: 14,
+                padding: "26px 30px",
+                boxShadow: "0 2px 8px rgba(15, 23, 42, 0.06)",
+                marginBottom: 26,
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  fontSize: 20,
+                  fontWeight: 800,
+                  color: "#0f172a",
+                  marginBottom: 18,
+                }}
+              >
+                <span>JSP/JSF Configuration</span>
+              </div>
+
+              <div style={{ height: 1, background: "#dbe3ef", marginBottom: 18 }} />
+
+              {/* Frontend Conversion Type Label */}
+              <div
+                style={{
+                  fontSize: 13,
+                  fontWeight: 700,
+                  color: "#2563eb",
+                  marginBottom: 10,
+                  letterSpacing: "0.02em",
+                }}
+              >
+                Frontend Conversion Type
+              </div>
+
+              {/* Conversion mode buttons */}
+              <div className="uimod-conv-grid">
+                {["JSP -> React", "JSP -> Angular", "JSF -> React", "JSF -> Angular"].map((mode) => {
+                  const enabled = isModeEnabled(mode);
+                  const isSelected = uiModMode === mode && enabled;
+                  return (
+                      <button
+                        key={mode}
+                        type="button"
+                        disabled={!enabled}
+                        aria-pressed={isSelected}
+                        aria-label={`Select conversion: ${mode}`}
+                        onClick={() => {
+                          if (!enabled) return;
+                          setUiModMode(mode);
+                          setSelectedConversions((prev) =>
+                            prev.includes("ui_modernization") ? prev : [...prev, "ui_modernization"]
+                          );
+                          const targetFw = mode.includes("React") ? "React" : "Angular";
+                          setUiFrameworkTarget(targetFw);
+                          const targetVer = targetFw === "React"
+                            ? (userReactVersion || frameworkRecs?.react?.targetVersion)
+                            : (userAngularVersion || frameworkRecs?.angular?.targetVersion);
+                          if (targetVer) setUiFrameworkVersion(targetVer);
+                        }}
+                        className={`uimod-conv-btn${isSelected ? " is-selected" : ""}${!enabled ? " is-disabled" : ""}`}
+                      >
+                        {mode.includes("React") ? <FaReact size={14} style={{ marginRight: 6, color: isSelected ? "#3b82f6" : undefined }} /> : <FaAngular size={14} style={{ marginRight: 6, color: isSelected ? "#e11d48" : undefined }} />}
+                        {mode}
+                      </button>
+                  );
+                })}
+              </div>
+
+              {/* Detection info row */}
+              <div className="uimod-detect-row" style={{ marginBottom: 14 }}>
+                <FaInfoCircle size={14} style={{ flexShrink: 0, color: "#2563eb" }} />
+                <span style={{ flex: 1 }}>
+                  {actualJspCount} JSP {actualJspCount === 1 ? "file" : "files"} and {actualJsfCount} JSF {actualJsfCount === 1 ? "file" : "files"} detected in this repository.
+                </span>
+                {totalViewFiles > 0 && (
+                  <button
+                    type="button"
+                    className="uimod-viewfiles-btn"
+                    onClick={() => setViewFilesOpen(true)}
+                    aria-label="View detected JSP and JSF files"
+                  >
+                    View Files
+                  </button>
+                )}
+              </div>
+
+              {/* Recommended & Alternative panels */}
+              {frameworkRecs && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
+                  {primaryRec && (
+                    <div className="uimod-rec-panel is-primary">
+                      <div className="uimod-rec-header">
+                        <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                          <FaCheckCircle size={12} color="#16a34a" />
+                          <span className="uimod-rec-eyebrow">{primaryLabel}</span>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                          <span className="uimod-rec-version" style={{ marginRight: 2 }}>{primaryRec.framework}</span>
+                          {primaryRec.availableVersions && primaryRec.availableVersions.length > 1 ? (
+                            <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
+                              <select
+                                className="uimod-version-select"
+                                value={(primaryRec.framework === "React" ? userReactVersion : userAngularVersion) || primaryRec.targetVersion}
+                                onChange={(e) => {
+                                  if (primaryRec.framework === "React") setUserReactVersion(e.target.value);
+                                  else setUserAngularVersion(e.target.value);
+                                }}
+                                aria-label={`Select ${primaryRec.framework} version`}
+                              >
+                                {primaryRec.availableVersions.map(v => (
+                                  <option key={v} value={v}>{v}</option>
+                                ))}
+                              </select>
+                              <FaChevronDown size={8} color="#15803d" style={{ position: "absolute", right: 6, pointerEvents: "none" }} />
+                            </div>
+                          ) : (
+                            <span className="uimod-rec-version">{primaryRec.targetVersion}</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="uimod-rec-compat">{primaryRec.compatibility}</div>
+                      {(primaryRec.architecture || primaryRec.routing) && (
+                        <div style={{ fontSize: 12, color: "#334155", marginTop: 4, marginBottom: 8, fontWeight: 500 }}>
+                          {primaryRec.architecture && <span style={{ marginRight: 12 }}>Architecture: {primaryRec.architecture}</span>}
+                          {primaryRec.routing && <span>Routing: {primaryRec.routing}</span>}
+                        </div>
+                      )}
+                      {primaryRec.reasons && primaryRec.reasons.length > 0 && (
+                        <div className="uimod-rec-badges">
+                          {primaryRec.reasons.map((r, i) => (
+                            <span key={i} className="uimod-badge is-green"><FaCheckCircle size={9} style={{ marginRight: 3 }} />{r}</span>
+                          ))}
+                        </div>
+                      )}
+                      {primaryRec.currentVersion && (
+                        <div className="uimod-rec-current">Current {primaryRec.framework}: {primaryRec.currentVersion}</div>
+                      )}
+                    </div>
+                  )}
+                  {alternativeRec && (
+                    <div className="uimod-rec-panel is-alt">
+                      <div className="uimod-rec-header">
+                        <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                          <span className="uimod-alt-dot">A</span>
+                          <span className="uimod-rec-eyebrow is-alt">Alternative</span>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                          <span className="uimod-rec-version is-alt" style={{ marginRight: 2 }}>{alternativeRec.framework}</span>
+                          {alternativeRec.availableVersions && alternativeRec.availableVersions.length > 1 ? (
+                            <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
+                              <select
+                                className="uimod-version-select is-alt"
+                                value={(alternativeRec.framework === "React" ? userReactVersion : userAngularVersion) || alternativeRec.targetVersion}
+                                onChange={(e) => {
+                                  if (alternativeRec.framework === "React") setUserReactVersion(e.target.value);
+                                  else setUserAngularVersion(e.target.value);
+                                }}
+                                aria-label={`Select ${alternativeRec.framework} version`}
+                              >
+                                {alternativeRec.availableVersions.map(v => (
+                                  <option key={v} value={v}>{v}</option>
+                                ))}
+                              </select>
+                              <FaChevronDown size={8} color="#334155" style={{ position: "absolute", right: 6, pointerEvents: "none" }} />
+                            </div>
+                          ) : (
+                            <span className="uimod-rec-version is-alt">{alternativeRec.targetVersion}</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="uimod-rec-compat is-alt">{alternativeRec.compatibility}</div>
+                      {(alternativeRec.architecture || alternativeRec.routing) && (
+                        <div style={{ fontSize: 12, color: "#334155", marginTop: 4, marginBottom: 8, fontWeight: 500 }}>
+                          {alternativeRec.architecture && <span style={{ marginRight: 12 }}>Architecture: {alternativeRec.architecture}</span>}
+                          {alternativeRec.routing && <span>Routing: {alternativeRec.routing}</span>}
+                        </div>
+                      )}
+                      {alternativeRec.reasons && alternativeRec.reasons.length > 0 && (
+                        <div className="uimod-rec-badges">
+                          {alternativeRec.reasons.map((r, i) => (
+                            <span key={i} className="uimod-badge is-blue"><FaCheckCircle size={9} style={{ marginRight: 3 }} />{r}</span>
+                          ))}
+                        </div>
+                      )}
+                      {alternativeRec.currentVersion && (
+                        <div className="uimod-rec-current is-alt">Current {alternativeRec.framework}: {alternativeRec.currentVersion}</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Migration Preview toggle */}
+              <button
+                type="button"
+                className="uimod-preview-toggle"
+                onClick={() => setMigrationPreviewOpen((p) => !p)}
+                aria-expanded={migrationPreviewOpen}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                  <span>💡</span>
+                  <div style={{ textAlign: "left" }}>
+                    <div style={{ fontWeight: 700, fontSize: 13, color: "#0f172a" }}>Migration Preview &amp; Guidance</div>
+                    <div style={{ fontSize: 11, color: "#64748b" }}>View what will be converted and key considerations</div>
+                  </div>
+                </div>
+                {migrationPreviewOpen ? <FaChevronUp size={11} color="#94a3b8" /> : <FaChevronDown size={11} color="#94a3b8" />}
+              </button>
+
+              {/* Migration Preview body */}
+              {migrationPreviewOpen && (
+                <div className="uimod-preview-body">
+                  {[
+                    { label: "Detected view layer", value: [hasJsp && `JSP (${actualJspCount} files)`, hasJsf && `JSF (${actualJsfCount} files)`].filter(Boolean).join(" + ") || "—" },
+                    { label: "Conversion", value: uiModMode || "Not selected" },
+                    (primaryRec || uiFrameworkVersion) ? { label: "Target", value: `${uiFrameworkTarget} ${uiFrameworkVersion || primaryRec?.targetVersion || ""}`.trim() } : null,
+                  ].filter(Boolean).map((row: any, i) => (
+                    <div key={i} className="uimod-preview-row">
+                      <span className="uimod-preview-label">{row.label}</span>
+                      <span className="uimod-preview-value">{row.value}</span>
+                    </div>
+                  ))}
+                  {detectedConstructs.length > 0 && (
+                    <div style={{ marginTop: 8 }}>
+                      <div className="uimod-preview-label" style={{ marginBottom: 5 }}>Detected constructs</div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                        {detectedConstructs.map((c, i) => (
+                          <span key={i} className="uimod-construct-badge">{c.label}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {primaryRec?.constraints && primaryRec.constraints.length > 0 && (
+                    <div style={{ marginTop: 8 }}>
+                      <div className="uimod-preview-label" style={{ marginBottom: 5 }}>Considerations</div>
+                      {primaryRec.constraints.map((c, i) => (
+                        <div key={i} className="uimod-consideration">
+                          <span style={{ color: "#f59e0b" }}>⚠</span>
+                          <span>{c}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* View Files Modal */}
+              {viewFilesOpen && (
+                <div
+                  className="uimod-modal-overlay"
+                  onClick={() => setViewFilesOpen(false)}
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label="Detected JSP/JSF Files"
+                >
+                  <div className="uimod-modal" onClick={(e) => e.stopPropagation()}>
+                    <div className="uimod-modal-header">
+                      <div>
+                        <div style={{ fontWeight: 800, fontSize: 15, color: "#0f172a" }}>Detected View Files</div>
+                        <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>{totalViewFiles} {totalViewFiles === 1 ? "file" : "files"} found</div>
+                      </div>
+                      <button type="button" className="uimod-modal-close" onClick={() => setViewFilesOpen(false)} aria-label="Close">
+                        <FaTimes size={14} />
+                      </button>
+                    </div>
+                    <div className="uimod-modal-body">
+                      {allJspFiles && allJspFiles.length > 0 && (
+                        <div style={{ marginBottom: 10 }}>
+                          <div className="uimod-files-group-header">
+                            <span className="uimod-files-badge is-jsp">JSP</span>
+                            <span style={{ fontSize: 11, color: "#64748b" }}>{allJspFiles.length} {allJspFiles.length === 1 ? "file" : "files"}</span>
+                          </div>
+                          {allJspFiles.map((f, i) => {
+                            const parts = f.replace(/\\/g, "/").split("/");
+                            const name = parts[parts.length - 1];
+                            const dir = parts.slice(0, -1).join("/");
+                            return (
+                              <div key={i} className="uimod-file-row">
+                                <FaFile size={11} color="#db2777" style={{ flexShrink: 0, marginTop: 2 }} />
+                                <div style={{ minWidth: 0 }}>
+                                  <div style={{ fontWeight: 600, fontSize: 12, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
+                                  {dir && <div style={{ fontSize: 10, color: "#94a3b8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{dir}</div>}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {allJsfFiles && allJsfFiles.length > 0 && (
+                        <div>
+                          <div className="uimod-files-group-header">
+                            <span className="uimod-files-badge is-jsf">JSF</span>
+                            <span style={{ fontSize: 11, color: "#64748b" }}>{allJsfFiles.length} {allJsfFiles.length === 1 ? "file" : "files"}</span>
+                          </div>
+                          {allJsfFiles.map((f, i) => {
+                            const parts = f.replace(/\\/g, "/").split("/");
+                            const name = parts[parts.length - 1];
+                            const dir = parts.slice(0, -1).join("/");
+                            return (
+                              <div key={i} className="uimod-file-row">
+                                <FaFile size={11} color="#7c3aed" style={{ flexShrink: 0, marginTop: 2 }} />
+                                <div style={{ minWidth: 0 }}>
+                                  <div style={{ fontWeight: 600, fontSize: 12, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
+                                  {dir && <div style={{ fontSize: 10, color: "#94a3b8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{dir}</div>}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {totalViewFiles === 0 && (
+                        <div style={{ textAlign: "center", color: "#64748b", fontSize: 13, padding: "20px 0" }}>No view files detected.</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </>
       )}
 
@@ -795,8 +1356,7 @@ export function StrategyStepView({
 
       </div>
 
-      <div style={styles.btnRow} className="strategy-nav-btn-row">
-        <button style={styles.secondaryBtn} onClick={onBack}>{renderBackButtonLabel()}</button>
+      <div style={{ ...styles.btnRow, justifyContent: "flex-end" }} className="strategy-nav-btn-row">
         <button style={styles.primaryBtn} onClick={onContinue}>{renderForwardButtonLabel("Continue to Migration")}</button>
       </div>
     </div>

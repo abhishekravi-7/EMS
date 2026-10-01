@@ -19,6 +19,7 @@ class MigrationStartRequest(BaseModel):
     conversion_types: Optional[list[str]] = None
     proposed_test_sources: Optional[list[str]] = None
     selected_test_sources: Optional[list[str]] = None
+    run_functional_tests: Optional[bool] = True  # If False, proposed test generation is skipped
 
     # Accept (and ignore) any additional legacy fields the frontend sends.
     model_config = {"extra": "allow"}
@@ -36,6 +37,7 @@ class MigrationPreviewRequest(BaseModel):
     run_tests: bool = False
     run_sonar: bool = False
     run_fossa: bool = False
+    run_cycode: bool = False
     fix_business_logic: bool = False
 
     model_config = {"extra": "allow"}

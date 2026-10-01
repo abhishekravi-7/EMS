@@ -74,24 +74,53 @@ class StaticAnalysisRunner:
         *,
         job_id: str,
         project_name: str | None = None,
+        quality_checks_values: dict | None = None,
     ) -> SonarScanResult:
-        token = settings.sonarqube_token.strip()
+        qc_config = quality_checks_values or {}
+        token = (
+            qc_config.get("auth_token")
+            or qc_config.get("sonar_token")
+            or qc_config.get("sonarqube_token")
+            or qc_config.get("sonarToken")
+            or qc_config.get("token")
+            or qc_config.get("apiKey")
+            or qc_config.get("api_key")
+            or getattr(settings, "sonar_token", "")
+            or getattr(settings, "sonarqube_token", "")
+            or ""
+        ).strip()
         if not token:
             return SonarScanResult(
                 quality_gate="UNAVAILABLE",
                 scan_mode="missing_token",
-                error_message="Set SONAR_TOKEN to enable SonarQube quality gate scans.",
-                log_lines=["SonarQube skipped: SONAR_TOKEN is not configured."],
+                error_message="SonarQube token missing. Configure it in User Settings or set SONAR_TOKEN in .env.",
+                log_lines=["SonarQube skipped: Token is not configured in user settings or .env."],
             )
 
-        project_key = self._project_key(job_id, project_name or project_dir.name)
-        raw_host = (settings.sonarqube_host_url or "").strip().rstrip("/")
-        if not raw_host.startswith(("http://", "https://")):
-            host_url = f"https://{raw_host}" if "sonarcloud.io" in raw_host else f"http://{raw_host}"
-        else:
-            host_url = raw_host
+        sonar_org = (
+            qc_config.get("sonar_organization")
+            or qc_config.get("organization")
+            or qc_config.get("sonar_org")
+            or qc_config.get("sonarOrg")
+            or ""
+        ).strip()
+        proj_key_val = (
+            qc_config.get("project_key")
+            or qc_config.get("sonar_project_key")
+            or qc_config.get("projectKey")
+            or ""
+        ).strip()
+        project_key = proj_key_val or (f"{sonar_org}_{project_name or job_id}" if sonar_org else (project_name or job_id))
 
-        analysis_url = f"{host_url}/dashboard?id={urllib.parse.quote(project_key)}"
+        # SonarQube host URL is fixed to https://sonarcloud.io for all users
+        host_url = (getattr(settings, "sonarqube_host_url", None) or "https://sonarcloud.io").strip().rstrip("/")
+        if not host_url.startswith(("http://", "https://")):
+            host_url = f"https://{host_url}"
+
+        if "sonarcloud.io" in host_url:
+            analysis_url = f"https://sonarcloud.io/project/overview?id={urllib.parse.quote(project_key)}"
+        else:
+            analysis_url = f"{host_url}/dashboard?id={urllib.parse.quote(project_key)}"
         display_name = project_name or project_dir.name
 
         # Log pre-flight context
@@ -114,8 +143,15 @@ class StaticAnalysisRunner:
             return early_error
 
         # Append optional org flag
-        if settings.sonarqube_organization.strip():
-            command.append(f"-Dsonar.organization={settings.sonarqube_organization.strip()}")
+        sonar_org = (
+            qc_config.get("sonar_organization")
+            or qc_config.get("organization")
+            or qc_config.get("sonar_org")
+            or qc_config.get("sonarOrg")
+            or ""
+        ).strip()
+        if sonar_org:
+            command.append(f"-Dsonar.organization={sonar_org}")
 
         # Build environment (with correct JDK and Maven toolchain in PATH) -----
         env = build_tool_env()
@@ -270,23 +306,13 @@ class StaticAnalysisRunner:
         "No plugin found for prefix 'sonar'" error.
         """
         binaries_dir = project_dir / "target" / "classes"
-        if not binaries_dir.is_dir():
-            error_msg = (
-                f"Compiled classes not found at '{binaries_dir}'. "
-                "Ensure the Maven build succeeded before SonarQube analysis."
-            )
-            logger.error("SonarQube: %s", error_msg)
-            return [], SonarScanResult(
-                quality_gate="FAILED",
-                scan_mode="cli_failed",
-                real_scan=True,
-                analysis_url=analysis_url,
-                error_message=error_msg,
-                log_lines=[error_msg],
-            )
+        binaries_dir.mkdir(parents=True, exist_ok=True)
 
         command = [
             "mvn",
+            "test-compile",
+            "-Dgit.commit.id.skip=true",
+            "-Dmaven.gitcommitid.skip=true",
             self._SONAR_MVN_GOAL,          # FQCN — no pom.xml plugin entry needed
             f"-Dsonar.projectKey={project_key}",
             f"-Dsonar.projectName={display_name}",
@@ -390,9 +416,9 @@ class StaticAnalysisRunner:
     # ------------------------------------------------------------------ #
 
     @staticmethod
-    def _project_key(job_id: str, name: str) -> str:
-        if settings.sonarqube_project_key.strip():
-            return settings.sonarqube_project_key.strip()
+    def _project_key(job_id: str, name: str, user_project_key: str = "") -> str:
+        if user_project_key.strip():
+            return user_project_key.strip()
         seed = f"{settings.sonarqube_project_key_prefix}-{job_id}-{name}"
         return re.sub(r"[^A-Za-z0-9_.:-]+", "-", seed).strip("-")[:180]
 
@@ -650,7 +676,6 @@ class StaticAnalysisRunner:
                 "bugs": "BUG",
                 "vulnerabilities": "VULNERABILITY",
                 "code_smells": "CODE_SMELL",
-                "security_hotspots": "SECURITY_HOTSPOT",
             }
             for metric, sonar_type in issue_types.items():
                 try:

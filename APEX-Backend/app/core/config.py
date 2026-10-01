@@ -49,8 +49,8 @@ class Settings(BaseSettings):
     # authorized on that org (repo scope, or fine-grained Administration +
     # Contents: write). May be empty until the Start Migration stage is used.
     github_target_token: str = ""
-    # GitHub owner (org/user) that migrated repositories are published under.
-    github_target_owner: str = "JavaAPEX"
+    github_target_owner: str = Field(default="JavaAPEX", alias="GITHUB_TARGET_OWNER")
+    github_default_branch: str = Field(default="main", alias="GITHUB_DEFAULT_BRANCH")
     github_request_timeout_seconds: float = 15.0
 
     # --- Hugging Face LLM (Target Java Version Recommendation) --------------
@@ -58,6 +58,8 @@ class Settings(BaseSettings):
     # LLM_1-authorized chat model can be swapped in without a code change.
     huggingface_api_base_url: str = "https://router.huggingface.co/v1"
     huggingface_model: str = "meta-llama/Llama-3.1-8B-Instruct:novita"
+    huggingface_temperature: float = Field(default=0.1, ge=0.0, le=2.0)
+    huggingface_max_tokens: int = Field(default=512, ge=1)
     # Read from the provider-neutral LLM_1 env var. Leave empty to disable AI
     # recommendations (the endpoint then reports itself as unavailable rather
     # than fabricating a recommendation).
@@ -69,7 +71,7 @@ class Settings(BaseSettings):
     # from the provider-neutral LLM_2 env var; leave empty to disable GROQ and
     # fall straight through to Ollama.
     groq_api_key: str = Field(default="", alias="LLM_2")
-    groq_model: str = "llama-3.3-70b-versatile"
+    groq_model: str = Field(default="openai/gpt-oss-20b", alias="GROQ_MODEL")
     groq_base_url: str = "https://api.groq.com/openai/v1"
     # Fallback LLM: a local Ollama server. Used only when GROQ is unavailable.
     ollama_base_url: str = "http://localhost:11434"
@@ -90,9 +92,10 @@ class Settings(BaseSettings):
     rag_enabled: bool = Field(default=False, alias="ENABLE_RAG")
     # Master switch for database usage. Supports both ENABLE_DATABASE and DATABASE_ENABLED.
     database_enabled: bool = Field(
-        default=True,
+        default=False,
         validation_alias=AliasChoices("ENABLE_DATABASE", "DATABASE_ENABLED", "database_enabled"),
     )
+    database_url: str = Field(default="", alias="DATABASE_URL")
     # Master switch for MongoDB usage.
     mongodb_enabled: bool = Field(default=True, alias="ENABLE_MONGODB")
     mongodb_uri: str = Field(default="", alias="MONGODB_URI")
@@ -103,7 +106,9 @@ class Settings(BaseSettings):
     # Timeout (seconds) for a single chat-LLM request (GROQ or Ollama).
     chat_llm_request_timeout_seconds: float = 60.0
     # Timeout (seconds) to wait for the first token before falling back to next provider.
-    chat_llm_fallback_timeout_seconds: float = 3.0
+    chat_llm_fallback_timeout_seconds: float = 45.0
+    chat_llm_temperature: float = Field(default=0.3, ge=0.0, le=2.0)
+    chat_llm_max_tokens: int = Field(default=800, ge=1)
 
     # --- Git / clone ---------------------------------------------------------
     # Timeout (seconds) for a `git clone` during Discovery.
@@ -111,14 +116,8 @@ class Settings(BaseSettings):
     # Clone only the latest commit to keep the workspace small and fast.
     git_clone_depth: int = 1
 
-    java_migration_engine_jar: Path = Field(
-        default_factory=lambda: WORKSPACE_ROOT / "migration-engine" / "target" / "migration-engine-1.0.0-SNAPSHOT.jar",
-        validation_alias=AliasChoices(
-            "MIGRATION_ENGINE_JAR_PATH",
-            "JAVA_MIGRATION_ENGINE_JAR",
-            "java_migration_engine_jar",
-        ),
-    )
+    # --- Migration engine ---------------------------------------------------
+    java_migration_engine_jar: Path = WORKSPACE_ROOT / "migration-engine" / "target" / "migration-engine-1.0.0-SNAPSHOT.jar"
     migration_recipe_catalog_path: Path = BACKEND_ROOT / "app" / "config" / "migration_pack_catalog.json"
     # Timeout (seconds) for a single migration-engine run.
     migration_timeout_seconds: float = 1800.0
@@ -141,7 +140,7 @@ class Settings(BaseSettings):
     # Some legacy projects keep Groovy/Spock/JUnit test toolchains that are not
     # Java-target compatible after migration; those should not block the basic
     # "does the migrated application package?" validation.
-    build_maven_args: str = "-B,-Dmaven.test.skip=true,package"
+    build_maven_args: str = "-B,-Dmaven.test.skip=true,-Dgit.commit.id.skip=true,-Dmaven.gitcommitid.skip=true,package"
     # Gradle tasks: build but skip tests.
     build_gradle_args: str = "build,-x,test,--no-daemon"
     # Timeout (seconds) for the build.
@@ -156,49 +155,29 @@ class Settings(BaseSettings):
         return [a for a in self.build_gradle_args.split(",") if a]
 
     # --- Quality Gates -------------------------------------------------------
-    # SonarQube/SonarCloud token. Required only when the SonarQube quality gate
-    # card is active.
-    sonarqube_token: str = Field(
-        default="",
-        validation_alias=AliasChoices("SONAR_TOKEN", "SONARQUBE_TOKEN", "sonarqube_token"),
-    )
-    # SonarQube server URL. For SonarCloud use https://sonarcloud.io.
-    sonarqube_host_url: str = Field(
-        default="http://localhost:9000",
-        validation_alias=AliasChoices(
-            "SONAR_HOST_URL",
-            "SONAR_URL",
-            "SONARQUBE_HOST_URL",
-            "SONARQUBE_URL",
-            "sonarqube_host_url",
-        ),
-    )
-    # Optional fixed project key. Leave empty to derive one from the migration job.
-    sonarqube_project_key: str = Field(
-        default="",
-        validation_alias=AliasChoices(
-            "SONAR_PROJECT_KEY",
-            "SONARQUBE_PROJECT_KEY",
-            "sonarqube_project_key",
-        ),
-    )
-    # Required by SonarCloud; leave empty for local SonarQube.
-    sonarqube_organization: str = Field(
-        default="",
-        validation_alias=AliasChoices(
-            "SONAR_ORGANIZATION",
-            "SONARQUBE_ORGANIZATION",
-            "sonarqube_organization",
-        ),
-    )
+    # Dynamic settings are now fetched from MongoDB (User Settings) during migration.
+
+    # Internal prefixes and CLI command names used by runners:
+    sonarqube_host_url: str = Field(default="https://sonarcloud.io", validation_alias=AliasChoices("SONAR_HOST_URL", "SONARQUBE_HOST_URL", "sonarqube_host_url", "sonarqube_url"))
     sonarqube_project_key_prefix: str = "java-apex"
     sonarqube_scanner_command: str = "sonar-scanner"
-
+    cycode_cli_command: str = "cycode"
+    cycode_timeout_seconds: int = 600
+    cycode_api_url: str = Field(default="https://api.cycode.com", validation_alias=AliasChoices("CYCODE_API_URL", "cycode_api_url"))
+    cycode_app_url: str = Field(default="https://app.cycode.com", validation_alias=AliasChoices("CYCODE_APP_URL", "cycode_app_url"))
     # FOSSA API key. Required only when the FOSSA quality gate card is active.
     fossa_api_key: str = Field(default="", alias="FOSSA_API_KEY")
     # Optional custom FOSSA endpoint for self-hosted/enterprise setups.
     fossa_endpoint: str = Field(default="", alias="FOSSA_ENDPOINT")
     fossa_cli_command: str = "fossa"
+
+    # --- Test Cases ----------------------------------------------------------
+    test_cases_playwright_enabled: bool = False
+    test_cases_playwright_command: str = "npx playwright test"
+    test_cases_cypress_enabled: bool = False
+    test_cases_cypress_command: str = "npx cypress run"
+    test_cases_selenium_enabled: bool = False
+    test_cases_selenium_command: str = "pytest"
 
     # --- Storage -------------------------------------------------------------
     # Root folder where per-job artifacts (reports, etc.) are written.
@@ -211,48 +190,7 @@ class Settings(BaseSettings):
     # downloaded once and reused across jobs, instead of every job re-fetching
     # them from services.gradle.org and being exposed to network timeouts.
     gradle_shared_cache_dir: Path = BACKEND_ROOT / "storage" / ".gradle-cache"
-
-    # --- Email / SMTP (Support tickets, best-effort) --------------------------
-    # All blank by default — support ticket submission always succeeds and
-    # persists the ticket even with zero SMTP configuration. Set these env vars
-    # to also send a notification email when a ticket is submitted.
-    smtp_host: str = Field(default="", alias="SMTP_HOST")
-    smtp_port: int = Field(default=587, alias="SMTP_PORT")
-    smtp_username: str = Field(default="", alias="SMTP_USERNAME")
-    smtp_password: str = Field(default="", alias="SMTP_PASSWORD")
-    smtp_use_tls: bool = Field(default=True, alias="SMTP_USE_TLS")
-    smtp_from_address: str = Field(default="", alias="SMTP_FROM_ADDRESS")
     support_notification_recipient: str = Field(default="", alias="SUPPORT_NOTIFICATION_RECIPIENT")
-
-    @property
-    def is_smtp_configured(self) -> bool:
-        return bool(self.smtp_host and self.smtp_from_address and self.support_notification_recipient)
-
-    # --- Database --------------------------------------------------------------
-    # PostgreSQL connection string using the psycopg (v3) driver, e.g.:
-    # postgresql+psycopg://user:password@localhost:5432/java_apex_db
-    database_url: str = ""
-
-    @field_validator("database_url")
-    @classmethod
-    def _normalize_database_url(cls, value: str) -> str:
-        """Force the psycopg (v3) driver onto the connection string.
-
-        Managed PostgreSQL providers hand out `postgresql://...` or
-        `postgres://...`, but SQLAlchemy maps both onto psycopg2 -- which is
-        not installed (requirements.txt pins psycopg v3) -- so `create_engine`
-        fails at import time with a ModuleNotFoundError. Rewriting the scheme
-        here means the URL can be pasted straight from the provider's dashboard
-        without hand-editing it every time the database is recreated.
-        """
-        url = (value or "").strip()
-        for prefix in ("postgresql+psycopg://", "postgresql+psycopg2://"):
-            if url.startswith(prefix):
-                return url
-        for prefix in ("postgresql://", "postgres://"):
-            if url.startswith(prefix):
-                return "postgresql+psycopg://" + url[len(prefix):]
-        return url
 
     # --- Authentication (JWT + cookies) -----------------------------------------
     # HMAC signing secret for access/refresh JWTs. Must be set in .env — the
@@ -298,20 +236,40 @@ class Settings(BaseSettings):
 
 
     # Frontend origin this deployment's auth cookies/CORS trust.
-    frontend_url: str = "http://localhost:5173"
+    frontend_url: str = Field(
+        default="http://localhost:5173",
+        validation_alias=AliasChoices("FRONTEND_URL", "frontend_url"),
+    )
     backend_url: str = Field(default="http://localhost:8000", alias="BACKEND_URL")
 
     # Use True to enforce JWT cookies having Secure flag
     # For local dev without HTTPS, this can be set to False
     environment: str = Field(default="development", alias="ENVIRONMENT")
 
+    # --- SonarQube (Quality Checks) ------------------------------------------
+    sonarqube_host_url: str = Field(default="http://localhost:9000", alias="SONARQUBE_HOST_URL")
+    sonarqube_token: str = ""
+    sonarqube_request_timeout_seconds: float = 30.0
+
+    # --- LLM Settings --------------------------------------------------------
+    llm_enabled: bool = Field(default=True, alias="LLM_ENABLED")
+    llm_features: str = Field(default="EXPLAIN_RESULTS,GENERATE_TESTS,RAG,CODE_ANALYSIS", alias="LLM_FEATURES")
+    llm_models: str = Field(default="Groq,HuggingFace", alias="LLM_MODELS")
+
     # --- SMTP / Email Configuration -------------------------------------------
-    smtp_host: str | None = Field(default=None, alias="SMTP_HOST")
+    smtp_host: str = Field(default="", alias="SMTP_HOST")
     smtp_port: int = Field(default=587, alias="SMTP_PORT")
-    smtp_username: str | None = Field(default=None, alias="SMTP_USERNAME")
-    smtp_password: str | None = Field(default=None, alias="SMTP_PASSWORD")
+    smtp_username: str = Field(default="", alias="SMTP_USERNAME")
+    smtp_password: str = Field(default="", alias="SMTP_PASSWORD")
     smtp_use_tls: bool = Field(default=True, alias="SMTP_USE_TLS")
-    smtp_from_address: str | None = Field(default=None, alias="SMTP_FROM_ADDRESS")
+    smtp_from_address: str = Field(default="", alias="SMTP_FROM_ADDRESS")
+
+    @property
+    def smtp_password_clean(self) -> str:
+        """Return SMTP password with spaces stripped (e.g. for Gmail 16-char app passwords)."""
+        if not self.smtp_password:
+            return ""
+        return self.smtp_password.replace(" ", "").strip()
 
     @property
     def is_smtp_configured(self) -> bool:
@@ -377,15 +335,8 @@ class Settings(BaseSettings):
         nothing secret reaches the startup log.
         """
         missing = []
-        # PostgreSQL is required if database is enabled and it's the active backend
-        if self.database_enabled and self.persistence_backend == "postgres":
-            if not self.database_url:
-                missing.append("DATABASE_URL")
-
-        # MongoDB is required if it's the active provider or backend
-        if self.auth_provider == "mongodb" or self.persistence_backend == "mongodb":
-            if not self.mongodb_uri:
-                missing.append("MONGODB_URI")
+        if not self.mongodb_uri:
+            missing.append("MONGODB_URI")
 
         if not self.jwt_secret_key:
             missing.append("JWT_SECRET_KEY")
@@ -399,15 +350,23 @@ class Settings(BaseSettings):
 
     # --- CORS ----------------------------------------------------------------
     # Comma-separated list of allowed origins for the frontend dev/prod hosts.
-    cors_origins: str = (
-        "http://localhost:5173,http://127.0.0.1:5173,"
-        "http://localhost:3000,http://127.0.0.1:3000,"
-        "http://localhost:8000,http://127.0.0.1:8000"
+    cors_origins: str = Field(
+        default=(
+            "http://localhost:5173,http://127.0.0.1:5173,"
+            "http://localhost:3000,http://127.0.0.1:3000,"
+            "http://localhost:8000,http://127.0.0.1:8000"
+        ),
+        validation_alias=AliasChoices("CORS_ORIGINS", "cors_origins"),
     )
 
     @property
     def cors_origins_list(self) -> list[str]:
-        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+        origins = [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+        if self.frontend_url and self.frontend_url.strip():
+            clean_fe = self.frontend_url.strip().rstrip("/")
+            if clean_fe and clean_fe not in origins:
+                origins.append(clean_fe)
+        return origins
 
 
 @lru_cache

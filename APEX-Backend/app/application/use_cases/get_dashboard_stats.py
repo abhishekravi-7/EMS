@@ -28,14 +28,14 @@ class GetDashboardStatsUseCase:
         project = discovery.get("project", discovery)
         total_files = project.get("totalFileCount", 0)
         java_files = project.get("javaFileCount", 0)
-        
+
         xml_config = 0
         if discovery.get("detectedFiles"):
             df = discovery["detectedFiles"]
             if df.get("pomXml"): xml_config += 1
             if df.get("buildGradle"): xml_config += 1
             if df.get("packageJson"): xml_config += 1
-        
+
         frameworks = project.get("frameworks", [])
         if "spring-boot" in frameworks or "spring-framework" in frameworks:
              xml_config = max(xml_config, 5)
@@ -51,17 +51,17 @@ class GetDashboardStatsUseCase:
 
         # 2. Modernization Analysis
         source_java = project.get("currentJavaVersion", "unknown")
-        
+
         javax_count = 0
         if "javax-ee" in frameworks:
             javax_count = java_files // 10 + 5
-            
+
         old_spring = 0
         if "spring-boot" in frameworks:
             ver = project.get("springBootVersion")
             if ver and str(ver).startswith("2"):
                 old_spring = 1
-                
+
         modernization = ModernizationAnalysis(
             sourceJavaVersion=source_java,
             javaVersionFeatureCount=java_files // 5,

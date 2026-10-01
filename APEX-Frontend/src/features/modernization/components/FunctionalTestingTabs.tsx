@@ -1,7 +1,8 @@
 import React from "react";
-import { FaSpinner } from "react-icons/fa";
+import { FaSpinner, FaVial } from "react-icons/fa";
 
 interface FunctionalTestingTabsProps {
+  title?: string;
   activeTab?: "FUNCTIONAL" | "BUSINESS";
   onTabChange?: (tab: "FUNCTIONAL" | "BUSINESS") => void;
   isRunning?: boolean;
@@ -10,6 +11,7 @@ interface FunctionalTestingTabsProps {
 }
 
 export function FunctionalTestingTabs({
+  title = "Existing Test Cases",
   isRunning = false,
   elapsedTime = 0,
   statusLabel = "Discovered",
@@ -20,24 +22,30 @@ export function FunctionalTestingTabs({
     return `${String(mins).padStart(2, "0")}m ${String(secs).padStart(2, "0")}s`;
   };
 
+  const titleColor = title.toLowerCase().includes("unit")
+    ? "#1e40af"
+    : title.toLowerCase().includes("functional")
+    ? "#4338ca"
+    : "#6d28d9";
+
   return (
     <div
       style={{
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
-        marginBottom: 16,
+        marginBottom: 8,
       }}
     >
       <h3
         style={{
           fontSize: 16,
           fontWeight: 900,
-          color: "#6d28d9",
+          color: titleColor,
           margin: 0,
         }}
       >
-        Existing Test Cases
+        {title}
       </h3>
 
       {isRunning ? (

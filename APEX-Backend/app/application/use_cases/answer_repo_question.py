@@ -14,8 +14,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from fastapi.concurrency import run_in_threadpool
-from sqlalchemy.orm import Session
 
+from app.api.deps import User
 from app.application.services.llm_token_tracing_service import LLMTokenTracingService
 from app.application.use_cases.index_repository import (
     IndexRepositoryUseCase,
@@ -23,7 +23,6 @@ from app.application.use_cases.index_repository import (
 )
 from app.core.exceptions import RepositoryNotIndexedError
 from app.infrastructure.llm.chat_llm import ChatLLM
-from app.infrastructure.persistence.models import User
 from app.infrastructure.rag import prompt_builder, repo_index_locator, retriever
 from app.shared import branding
 
@@ -35,8 +34,8 @@ class PreparedAnswer:
     system_prompt: str
     user_prompt: str
     repository_metadata: dict[str, Any]
-    db: Session  # Database session for token tracing
-    user_id: int | None = None  # User ID for token tracing
+    db: Any = None  # Database session (deprecated/optional)
+    user_id: int | str | None = None  # User ID for token tracing
     job_id: str | None = None  # Job ID for token tracing
     repository_url: str | None = None  # Repository URL for token tracing
     retrieved_chunk_types: list[str] = field(default_factory=list)
@@ -53,8 +52,8 @@ class AnswerRepoQuestionUseCase:
         *,
         question: str,
         repository_url: str | None,
-        db: Session,
         current_user: User,
+        db: Any = None,
         job_id: str | None = None,
         history: list[dict[str, str]] | None = None,
         page_context: dict[str, Any] | None = None,
@@ -72,7 +71,6 @@ class AnswerRepoQuestionUseCase:
 
             tracing_chat = LLMTokenTracingService(
                 chat_llm=ChatLLM(),
-                db=db,
                 user_id=current_user.id,
                 job_id=job_id,
                 repository_url=repo_url,
@@ -103,7 +101,6 @@ class AnswerRepoQuestionUseCase:
             )
             tracing_chat = LLMTokenTracingService(
                 chat_llm=ChatLLM(),
-                db=db,
                 user_id=current_user.id,
                 job_id=job_id,
                 repository_url=repo_url,
@@ -129,7 +126,7 @@ class AnswerRepoQuestionUseCase:
         from app.api.deps import verify_job_ownership
         if job_id:
             try:
-                verify_job_ownership(db, job_id, current_user)
+                verify_job_ownership(job_id, current_user)
             except Exception:
                 pass  # Fall back to page_context if ownership check fails in dev/preview
 
@@ -152,15 +149,14 @@ class AnswerRepoQuestionUseCase:
                         elif repo_url:
                             await run_in_threadpool(self._indexer.index_by_repo_url, repo_url)
                         result = await run_in_threadpool(retriever.retrieve, question, repo_url, job_id)
-                    except Exception:
-                        pass
+                    except (RepositoryNotFoundForIndexingError, Exception) as exc:
+                        logger.warning("On-demand indexing skipped/failed for %s: %s", repo_url or job_id, exc)
 
-                if not result.is_empty:
-                    retrieved_context = result.context
-                    retrieved_chunks = result.chunks
-                    retrieved_types = [str(c.get("chunk_type")) for c in result.chunks]
-            except Exception as e:
-                logger.warning("[AnswerUseCase] RAG retrieval exception: %s", e)
+                retrieved_context = result.context_text
+                retrieved_chunks = result.chunks
+                retrieved_types = [str(c.get("chunk_type")) for c in result.chunks]
+            except Exception as exc:
+                logger.warning("Retriever failed for query '%s': %s", question, exc)
 
         # If no RAG chunks found and no page_context provided, require a repo
         if not retrieved_context and not page_context and not repo_url:
@@ -169,8 +165,6 @@ class AnswerRepoQuestionUseCase:
             )
 
         repository_metadata = _metadata_from(retrieved_chunks, page_context, repo_url)
-
-        prompt_start = time.time()
         user_prompt = prompt_builder.build_user_prompt(
             question=question,
             retrieved_context=retrieved_context,
@@ -178,12 +172,9 @@ class AnswerRepoQuestionUseCase:
             page_context=page_context,
             history=history,
         )
-        logger.info("[AnswerUseCase] Prompt construction completed in %.2fms", (time.time() - prompt_start) * 1000)
-        logger.info("[AnswerUseCase] Total preparation completed in %.2fms", (time.time() - start_time) * 1000)
 
         tracing_chat = LLMTokenTracingService(
             chat_llm=ChatLLM(),
-            db=db,
             user_id=current_user.id,
             job_id=job_id,
             repository_url=repo_url,
@@ -197,8 +188,8 @@ class AnswerRepoQuestionUseCase:
             user_id=current_user.id,
             job_id=job_id,
             repository_url=repo_url,
-            retrieved_chunk_types=[str(c.get("chunk_type")) for c in result.chunks],
-            retrieved_chunks=result.chunks,
+            retrieved_chunk_types=retrieved_types,
+            retrieved_chunks=retrieved_chunks,
             chat=tracing_chat,
         )
 
@@ -222,8 +213,8 @@ class AnswerRepoQuestionUseCase:
         *,
         question: str,
         repository_url: str | None,
-        db: Session,
         current_user: User,
+        db: Any = None,
         job_id: str | None = None,
         history: list[dict[str, str]] | None = None,
         page_context: dict[str, Any] | None = None,
@@ -239,7 +230,7 @@ class AnswerRepoQuestionUseCase:
             page_context=page_context,
         )
         parts = [delta async for delta in self.stream(prepared)]
-        
+
         sources = []
         seen_files = set()
         for hit in getattr(prepared, "retrieved_chunks", []):
@@ -308,4 +299,3 @@ def _metadata_from(
         "java_version": payload.get("java_version"),
         "framework": payload.get("framework") or repo_ctx.get("language"),
     }
-

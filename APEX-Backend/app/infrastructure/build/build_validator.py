@@ -7,6 +7,7 @@ Read-only with respect to source; it only produces build output (target/, build/
 from __future__ import annotations
 
 import logging
+
 from pathlib import Path
 
 from app.core.config import settings
@@ -19,6 +20,7 @@ from app.infrastructure.java_runtime import (
     resolve_gradle_executable,
 )
 from app.shared.command_runner import resolve_executable, run_command
+from app.shared.file_utils import find_shallowest_dir_with
 
 logger = logging.getLogger(__name__)
 
@@ -47,10 +49,23 @@ class BuildValidator:
                     ],
                 )
 
-        if build_tool == "MAVEN":
-            return self._run_maven(project_dir, target_major)
-        if build_tool == "GRADLE":
-            return self._run_gradle(project_dir, target_major)
+        if not project_dir or not project_dir.is_dir():
+            return BuildResult(success=False, tool="none", error_lines=[f"Project directory does not exist: {project_dir}"])
+
+        effective_dir = project_dir
+        tool_upper = (build_tool or "").upper()
+        if tool_upper == "MAVEN":
+            if not (project_dir / "pom.xml").is_file():
+                found_dir = find_shallowest_dir_with(project_dir, ("pom.xml",))
+                if found_dir and (found_dir / "pom.xml").is_file():
+                    effective_dir = found_dir
+            return self._run_maven(effective_dir, target_major)
+        if tool_upper == "GRADLE":
+            if not (project_dir / "build.gradle").is_file() and not (project_dir / "build.gradle.kts").is_file():
+                found_dir = find_shallowest_dir_with(project_dir, ("build.gradle", "build.gradle.kts"))
+                if found_dir:
+                    effective_dir = found_dir
+            return self._run_gradle(effective_dir, target_major)
         return BuildResult(success=True, tool="none", skipped=True,
                            log_lines=[f"Build validation not applicable for {build_tool}."])
 
@@ -59,11 +74,16 @@ class BuildValidator:
     def _run_maven(self, project_dir: Path, target_major: int | None) -> BuildResult:
         mvn = resolve_executable("mvn")
         if not mvn:
-            return BuildResult(success=False, tool="maven",
-                               error_lines=["Maven (mvn) was not found on PATH."])
+            return BuildResult(
+                success=False,
+                tool="maven",
+                error_lines=["Maven (mvn) was not found on PATH."],
+            )
         command = [mvn, *settings.build_maven_args_list]
         result = run_command(
-            command, cwd=project_dir, timeout=settings.build_timeout_seconds,
+            command,
+            cwd=project_dir,
+            timeout=settings.build_timeout_seconds,
             env=build_tool_env(target_major),
         )
         parsed = parse_build_output(result.stdout, result.stderr)

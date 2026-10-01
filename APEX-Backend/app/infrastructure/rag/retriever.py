@@ -51,7 +51,7 @@ def retrieve(question: str, repository_url: str, job_id: str | None = None, top_
 
     repository_url = repo_index_locator.normalize_repository_url(repository_url)
     limit = top_k or settings.rag_top_k
-    
+
     # Embed question and search candidates
     embed_start = time.time()
     query_vector = embedder.embed_query(question)
@@ -73,12 +73,12 @@ def retrieve(question: str, repository_url: str, job_id: str | None = None, top_
     for hit in hits:
         semantic_score = hit.get("_score", 0.0)
         keyword_score = 0.0
-        
+
         text_lower = str(hit.get("text") or "").lower()
         file_path_lower = str(hit.get("file_path") or "").lower()
         class_name_lower = str(hit.get("class_name") or "").lower()
         method_name_lower = str(hit.get("method_name") or "").lower()
-        
+
         for kw in keywords:
             if kw in file_path_lower:
                 keyword_score += 0.5
@@ -88,19 +88,19 @@ def retrieve(question: str, repository_url: str, job_id: str | None = None, top_
                 keyword_score += 0.3
             if kw in text_lower:
                 keyword_score += 0.1
-                
+
         version_pref = None
         if "before" in keywords or "original" in keywords:
             version_pref = "before"
         elif "after" in keywords or "migrated" in keywords or "upgrade" in keywords or "changed" in keywords:
             version_pref = "after"
-            
+
         if version_pref and hit.get("version") == version_pref:
             keyword_score += 0.4
-            
+
         combined_score = semantic_score + keyword_score
         scored_hits.append((combined_score, hit))
-        
+
     scored_hits.sort(key=lambda x: x[0], reverse=True)
     hits = [item[1] for item in scored_hits]
 
@@ -115,7 +115,7 @@ def retrieve(question: str, repository_url: str, job_id: str | None = None, top_
         file_path = hit.get("file_path")
         version_str = f" ({hit.get('version')})" if hit.get("version") else ""
         file_header = f"File: {file_path}{version_str}\n" if file_path else ""
-        
+
         block = f"[{chunk_type}]\n{file_header}{text}"
         if used + len(block) > _CONTEXT_CHAR_BUDGET and parts:
             break

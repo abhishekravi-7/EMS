@@ -12,15 +12,31 @@ import threading
 import time
 from datetime import datetime, timezone
 from typing import Any
+try:
+    from cachetools import LRUCache
+except ImportError:
+    class LRUCache(dict):  # type: ignore[no-redef]
+        def __init__(self, maxsize: int = 128) -> None:
+            super().__init__()
+            self.maxsize = maxsize
 
-from app.infrastructure.persistence.report_repository import load_report_from_db, save_report_to_db
+        def __setitem__(self, key: Any, value: Any) -> None:
+            if len(self) >= self.maxsize and key not in self:
+                oldest = next(iter(self))
+                del self[oldest]
+            super().__setitem__(key, value)
+
+from app.infrastructure.persistence.mongodb_report_repository import (
+    load_report_from_db_sync,
+    save_report_to_db_sync,
+)
 from app.infrastructure.workspace.workspace_paths import WorkspacePaths
 from app.shared import json_utils, migration_log_sanitizer
 
 logger = logging.getLogger(__name__)
 
 # In-memory fallback cache across threads in the same process
-_REPORT_CACHE: dict[str, dict[str, Any]] = {}
+_REPORT_CACHE: LRUCache = LRUCache(maxsize=100)
 _CACHE_LOCK = threading.RLock()
 _LAST_DB_FLUSH: dict[str, float] = {}
 
@@ -45,7 +61,7 @@ class MigrationReportStore:
                 return cached
 
         # 3. Check database (handles multi-container routing & container recreation in DigitalOcean)
-        db_report = load_report_from_db(self._job_id)
+        db_report = load_report_from_db_sync(self._job_id)
         if db_report:
             with _CACHE_LOCK:
                 _REPORT_CACHE[self._job_id] = db_report
@@ -111,16 +127,17 @@ class MigrationReportStore:
         if force_db or is_terminal or (now - last_db) >= 1.5:
             _LAST_DB_FLUSH[self._job_id] = now
             try:
-                save_report_to_db(self._job_id, report)
+                save_report_to_db_sync(self._job_id, report)
             except Exception as db_err:  # noqa: BLE001
                 logger.debug("Non-fatal: failed saving report to db for %s: %s", self._job_id, db_err)
 
     def update(self, **fields: Any) -> dict[str, Any]:
-        report = self.read() or {}
-        report.update(fields)
-        report["updatedAt"] = datetime.now(timezone.utc).isoformat()
-        self.write(report, force_db=("status" in fields or "currentStep" in fields))
-        return report
+        with _CACHE_LOCK:
+            report = self.read() or {}
+            report.update(fields)
+            report["updatedAt"] = datetime.now(timezone.utc).isoformat()
+            self.write(report, force_db=("status" in fields or "currentStep" in fields))
+            return report
 
     def append_logs(self, lines: list[str]) -> None:
         """Persist ``lines`` for this job's log stream."""
@@ -142,4 +159,3 @@ class MigrationReportStore:
         existing = report.get("logLines") or []
         report["logLines"] = existing + [line for line in sanitized if line not in existing]
         self.write(report, force_db=False)
-

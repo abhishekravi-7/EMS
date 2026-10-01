@@ -180,6 +180,40 @@ class PomModernizer:
             content = re.sub(r"<maven\.compiler\.target>.*?</maven\.compiler\.target>", f"<maven.compiler.target>{target_java}</maven.compiler.target>", content)
             logs.append(f"{module_prefix}Updated <maven.compiler.target> property to {target_java}.")
 
+        # 2.1 Modernize Lombok version for Java 17+ and Java 21+ compatibility if present
+        if target_major >= 17:
+            if "<lombok.version>" in content:
+                lombok_match = re.search(r"<lombok\.version>(.*?)</lombok\.version>", content)
+                if lombok_match:
+                    cur_lombok = lombok_match.group(1).strip()
+                    if cur_lombok and cur_lombok != "1.18.36":
+                        content = re.sub(r"<lombok\.version>.*?</lombok\.version>", "<lombok.version>1.18.36</lombok.version>", content)
+                        logs.append(f"{module_prefix}Upgraded <lombok.version> property from {cur_lombok} to 1.18.36 for Java {target_java} compatibility.")
+                        upgrades.append({
+                            "group_id": "org.projectlombok",
+                            "artifact_id": "lombok",
+                            "old_version": cur_lombok,
+                            "new_version": "1.18.36",
+                            "status": "UPGRADED",
+                        })
+            direct_lombok = re.search(r"<groupId>\s*org\.projectlombok\s*</groupId>\s*<artifactId>\s*lombok\s*</artifactId>\s*<version>(.*?)</version>", content, re.DOTALL)
+            if direct_lombok:
+                cur_v = direct_lombok.group(1).strip()
+                if cur_v and not cur_v.startswith("$") and cur_v != "1.18.36":
+                    content = re.sub(
+                        r"(<groupId>\s*org\.projectlombok\s*</groupId>\s*<artifactId>\s*lombok\s*</artifactId>\s*<version>)(.*?)(</version>)",
+                        r"\g<1>1.18.36\g<3>",
+                        content,
+                    )
+                    logs.append(f"{module_prefix}Upgraded org.projectlombok:lombok dependency version from {cur_v} to 1.18.36 for Java {target_java} compatibility.")
+                    upgrades.append({
+                        "group_id": "org.projectlombok",
+                        "artifact_id": "lombok",
+                        "old_version": cur_v,
+                        "new_version": "1.18.36",
+                        "status": "UPGRADED",
+                    })
+
         # 3. Synchronize maven-compiler-plugin configuration (source, target, release)
         if "maven-compiler-plugin" in content:
             def _fix_compiler_plugin(match: re.Match) -> str:

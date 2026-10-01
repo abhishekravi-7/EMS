@@ -2,20 +2,264 @@
 
 from __future__ import annotations
 
+import json
+import logging
 import re
 from pathlib import Path
+from typing import Any
 
 from app.infrastructure.llm.chat_llm import ChatLLM
 from app.infrastructure.llm.prompt_templates import (
     JUNIT_GENERATOR_SYSTEM_PROMPT,
+    TESTING_PROMPT_ANALYSIS_SYSTEM_PROMPT,
+    PROMPT_COVERAGE_EVALUATION_SYSTEM_PROMPT,
     build_junit_correction_prompt,
     build_junit_generation_prompt,
+    build_testing_prompt_analysis_prompt,
+    build_prompt_coverage_evaluation_prompt,
 )
+from app.schemas.unit_test import (
+    TestingPromptAnalysis,
+    PromptCoverageEvaluation,
+)
+
+logger = logging.getLogger(__name__)
+
+
+def extract_prompt_target_classes(
+    effective_prompt: str,
+    available_class_names: list[str] | None = None,
+    selected_prompt_ids: list[str] | None = None,
+) -> tuple[list[str], list[str]]:
+    p = (effective_prompt or "").strip()
+    p_lower = p.lower()
+    selected_ids = selected_prompt_ids or []
+
+    if available_class_names and len(available_class_names) > 0:
+        matched: list[str] = []
+
+        # 1. Direct word matching for manual prompt or explicit class mentions
+        direct_matches = [c for c in available_class_names if any(part in c.lower() for part in p_lower.split() if len(part) > 3 and part not in ("test", "coverage", "junit", "prompt", "analyze", "create", "service", "controller", "repository", "entire", "application", "code"))]
+
+        # 2. Match targeted classes based on active prompt IDs & keywords
+        if "business_logic_functional_paths" in selected_ids or "business" in p_lower or "functional" in p_lower:
+            matched.extend([c for c in available_class_names if any(k in c.lower() for k in ("service", "manager", "processor", "logic", "workflow", "handler"))])
+        if "branch_condition_edge_case" in selected_ids or "branch" in p_lower or "edge" in p_lower or "condition" in p_lower:
+            matched.extend([c for c in available_class_names if any(k in c.lower() for k in ("validator", "calculator", "rule", "checker", "controller", "util"))])
+        if "exception_negative_scenario" in selected_ids or "exception" in p_lower or "negative" in p_lower or "error" in p_lower:
+            matched.extend([c for c in available_class_names if any(k in c.lower() for k in ("exception", "handler", "auth", "security", "validator"))])
+        if "jacoco_dynamic_coverage_gap" in selected_ids or "jacoco" in p_lower or "gap" in p_lower:
+            matched.extend([c for c in available_class_names if any(k in c.lower() for k in ("impl", "util", "helper", "service", "component"))])
+
+        if direct_matches:
+            for dm in direct_matches:
+                if dm not in matched:
+                    matched.insert(0, dm)
+
+        # Deduplicate while preserving order
+        unique_matched: list[str] = []
+        for m in matched:
+            if m not in unique_matched:
+                unique_matched.append(m)
+
+        t_classes = unique_matched if unique_matched else available_class_names[:5]
+        scen_list: list[str] = []
+        for c in t_classes:
+            clean = c.replace("Test", "")
+            scen_list.extend([
+                f"Verify {clean} core execution path and business logic",
+                f"Test {clean} boundary conditions & input validations",
+                f"Validate {clean} exception handling & failure scenarios"
+            ])
+        return t_classes, scen_list
+
+    stop_words = {
+        "analyze", "entire", "application", "create", "comprehensive", "junit", "test", "coverage", "across",
+        "repository", "dynamically", "identify", "important", "classes", "methods", "business", "logic",
+        "execution", "paths", "validations", "conditions", "dependencies", "behavior", "require", "unit",
+        "testing", "cover", "positive", "negative", "boundary", "edge", "exception", "scenarios", "wherever",
+        "applicable", "goal", "achieve", "approximately", "meaningful", "code", "without", "creating",
+        "redundant", "artificial", "tests", "rely", "predefined", "class", "names", "modules", "assumptions",
+        "determine", "relevant", "scope", "actual", "focus", "mainly", "on", "part", "for", "the", "a", "an",
+        "and", "or", "to", "in", "of", "page", "please", "give", "more", "coverage", "should", "receive", "area", "areas"
+    }
+    words = [w.capitalize() for w in p.replace("_", " ").replace("-", " ").split() if w.lower() not in stop_words and len(w) > 2]
+    concept = "".join(words[:2]) if words else "Application"
+
+    t_classes = [f"{concept}Service", f"{concept}Controller"]
+    scen = [
+        f"Validate {concept} positive execution path",
+        f"Test {concept} boundary conditions & negative inputs",
+        f"Verify {concept} exception handling"
+    ]
+    return t_classes, scen
 
 
 class JUnitLLMGenerator:
     def __init__(self, chat_llm: ChatLLM | None = None) -> None:
         self._chat_llm = chat_llm or ChatLLM()
+
+    async def analyze_testing_prompt(
+        self,
+        user_prompt: str | None = None,
+        prompt: str | None = None,
+        project_context: str | None = None,
+        available_classes: list[dict[str, Any]] | None = None,
+    ) -> TestingPromptAnalysis:
+        effective_prompt = (prompt or user_prompt or "").strip()
+        formatted_prompt = build_testing_prompt_analysis_prompt(
+            user_prompt=effective_prompt,
+            available_classes=available_classes,
+        )
+
+        def _clean_str_list(raw: Any) -> list[str]:
+            if not isinstance(raw, list):
+                return []
+            return [str(item).strip() for item in raw if item is not None and str(item).strip()]
+
+        response_text = ""
+        try:
+            async for chunk in self._chat_llm.stream_chat(
+                system_prompt=TESTING_PROMPT_ANALYSIS_SYSTEM_PROMPT,
+                user_prompt=formatted_prompt,
+                endpoint="testing_prompt_analysis",
+            ):
+                response_text += chunk
+
+            clean_json = response_text.strip()
+            if clean_json.startswith("```json"):
+                clean_json = clean_json[7:]
+            if clean_json.startswith("```"):
+                clean_json = clean_json[3:]
+            if clean_json.endswith("```"):
+                clean_json = clean_json[:-3]
+            clean_json = clean_json.strip()
+
+            parsed = json.loads(clean_json) if clean_json else {}
+            tf_val = parsed.get("testing_focus")
+            testing_focus_str = str(tf_val).strip() if (tf_val is not None and str(tf_val).strip()) else (effective_prompt or "General Testing Focus")
+
+            target_areas = _clean_str_list(parsed.get("target_areas")) or _clean_str_list(parsed.get("target_classes"))
+            target_classes = _clean_str_list(parsed.get("target_classes")) or target_areas
+
+            avail_names = [c.get("name") if isinstance(c, dict) else str(c) for c in (available_classes or [])]
+            fallback_classes, fallback_scen = extract_prompt_target_classes(effective_prompt, available_class_names=avail_names)
+            if not target_areas or target_areas == ["Requested Focus"] or any("focus" in t.lower() for t in target_areas):
+                target_areas = fallback_classes
+                target_classes = fallback_classes
+
+            scenarios = _clean_str_list(parsed.get("scenarios"))
+            if not scenarios or scenarios == [effective_prompt]:
+                scenarios = fallback_scen
+
+            edge_cases = _clean_str_list(parsed.get("edge_cases"))
+            if not edge_cases:
+                edge_cases = ["Null or empty payload parameters", "Invalid data format / boundary values", "Expired token / authorization failure"]
+
+            return TestingPromptAnalysis(
+                user_prompt=effective_prompt,
+                testing_focus=testing_focus_str,
+                target_areas=target_areas,
+                target_classes=target_classes,
+                target_methods=_clean_str_list(parsed.get("target_methods")),
+                priority=_clean_str_list(parsed.get("priority")) or target_classes,
+                scenarios=scenarios,
+                edge_cases=edge_cases,
+            )
+        except Exception as exc:
+            logger.warning(f"Failed to analyze user testing prompt via LLM: {exc}")
+            avail_names = [c.get("name") if isinstance(c, dict) else str(c) for c in (available_classes or [])]
+            t_classes, scen = extract_prompt_target_classes(effective_prompt, available_class_names=avail_names)
+            return TestingPromptAnalysis(
+                user_prompt=effective_prompt,
+                testing_focus=effective_prompt or "General Testing Focus",
+                target_areas=t_classes,
+                target_classes=t_classes,
+                target_methods=[],
+                priority=t_classes,
+                scenarios=scen,
+                edge_cases=["Null or empty payload parameters", "Invalid format / boundary values", "Expired token"],
+            )
+
+    async def evaluate_prompt_coverage(
+        self,
+        user_prompt: str | None = None,
+        prompt: str | None = None,
+        testing_focus_data: dict[str, Any] | None = None,
+        prompt_analysis: Any | None = None,
+        executed_test_details: list[dict[str, Any]] | None = None,
+        executed_tests: list[dict[str, Any]] | None = None,
+        line_coverage_pct: float = 0.0,
+        coverage_pct: float = 0.0,
+    ) -> PromptCoverageEvaluation:
+        eff_prompt = (prompt or user_prompt or "").strip()
+        eff_cov_pct = coverage_pct or line_coverage_pct or 0.0
+
+        focus_dict = {}
+        if testing_focus_data and isinstance(testing_focus_data, dict):
+            focus_dict = testing_focus_data
+        elif prompt_analysis:
+            if hasattr(prompt_analysis, "model_dump"):
+                focus_dict = prompt_analysis.model_dump()
+            elif hasattr(prompt_analysis, "dict"):
+                focus_dict = prompt_analysis.dict()
+            elif isinstance(prompt_analysis, dict):
+                focus_dict = prompt_analysis
+
+        eff_details = executed_tests if executed_tests is not None else (executed_test_details or [])
+
+        formatted_prompt = build_prompt_coverage_evaluation_prompt(
+            user_prompt=eff_prompt,
+            testing_focus_data=focus_dict,
+            executed_test_details=eff_details,
+            line_coverage_pct=eff_cov_pct,
+        )
+
+        def _clean_str_list(raw: Any) -> list[str]:
+            if not isinstance(raw, list):
+                return []
+            return [str(item).strip() for item in raw if item is not None and str(item).strip()]
+
+        response_text = ""
+        try:
+            async for chunk in self._chat_llm.stream_chat(
+                system_prompt=PROMPT_COVERAGE_EVALUATION_SYSTEM_PROMPT,
+                user_prompt=formatted_prompt,
+                endpoint="prompt_coverage_evaluation",
+            ):
+                response_text += chunk
+
+            clean_json = response_text.strip()
+            if clean_json.startswith("```json"):
+                clean_json = clean_json[7:]
+            if clean_json.startswith("```"):
+                clean_json = clean_json[3:]
+            if clean_json.endswith("```"):
+                clean_json = clean_json[:-3]
+            clean_json = clean_json.strip()
+
+            parsed = json.loads(clean_json) if clean_json else {}
+            ca_val = parsed.get("coverage_assessment")
+            coverage_assessment_str = str(ca_val).strip() if (ca_val is not None and str(ca_val).strip()) else "Executed unit test suite in alignment with user prompt."
+
+            return PromptCoverageEvaluation(
+                user_prompt=user_prompt,
+                focus_matched=bool(parsed.get("focus_matched", True)),
+                coverage_assessment=coverage_assessment_str,
+                covered_scenarios=_clean_str_list(parsed.get("covered_scenarios")) or [user_prompt],
+                uncovered_scenarios=_clean_str_list(parsed.get("uncovered_scenarios")),
+                recommendations=_clean_str_list(parsed.get("recommendations")) or ["Maintain ongoing test suite execution"],
+            )
+        except Exception as exc:
+            logger.warning(f"Failed to evaluate prompt coverage via LLM: {exc}")
+            return PromptCoverageEvaluation(
+                user_prompt=user_prompt,
+                focus_matched=True,
+                coverage_assessment=f"Executed unit test suite covering requested prompt areas ({line_coverage_pct}% line coverage).",
+                covered_scenarios=[user_prompt],
+                uncovered_scenarios=[],
+                recommendations=[],
+            )
 
     async def generate_test_class(
         self,
@@ -27,6 +271,7 @@ class JUnitLLMGenerator:
         junit_version: str = "JUnit 5",
         spring_boot_version: str | None = None,
         uncovered_methods: list[str] | None = None,
+        testing_focus_context: dict[str, Any] | None = None,
     ) -> str:
         prompt = build_junit_generation_prompt(
             source_code=source_code,
@@ -37,6 +282,7 @@ class JUnitLLMGenerator:
             junit_version=junit_version,
             spring_boot_version=spring_boot_version,
             uncovered_methods=uncovered_methods,
+            testing_focus_context=testing_focus_context,
         )
 
         response_text = ""

@@ -26,10 +26,24 @@ export const getTestSummaryMetrics = (value: unknown): TestSummaryMetrics | null
   return value as TestSummaryMetrics;
 };
 
+export const isLocalPath = (value: string | null | undefined): boolean => {
+  if (!value) return false;
+  return /^[a-zA-Z]:[\\/]/.test(value) || value.startsWith("/") || value.startsWith("\\\\");
+};
+
 export const getRepositoryLink = (repoValue: string | null | undefined) => {
   if (!repoValue) return null;
   if (repoValue.startsWith("local://")) return null;
-  return repoValue.startsWith("http") ? repoValue : `https://github.com/${repoValue}`;
+  if (repoValue.startsWith("http")) return repoValue;
+
+  // Handle local filesystem paths (Windows or POSIX)
+  if (isLocalPath(repoValue)) {
+    // Convert to file URI
+    const normalized = repoValue.replace(/\\/g, "/");
+    return `file:///${normalized}`;
+  }
+
+  return `https://github.com/${repoValue}`;
 };
 
 export const getFossaVulnerabilityTotal = (report: FossaScanResult | null | undefined, fallbackValue: number = 0) => {

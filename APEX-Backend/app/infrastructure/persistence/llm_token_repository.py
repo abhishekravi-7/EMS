@@ -41,7 +41,7 @@ class LLMTokenRepository:
         provider: str | None = None,
     ) -> list[LLMTokenUsage]:
         """Fetch recent token usage records.
-        
+
         Args:
             db: Database session
             limit: Maximum number of records to return
@@ -49,12 +49,12 @@ class LLMTokenRepository:
             provider: Filter by provider ("ollama" or "groq")
         """
         query = db.query(LLMTokenUsage).order_by(desc(LLMTokenUsage.created_at))
-        
+
         if user_id is not None:
             query = query.filter(LLMTokenUsage.user_id == user_id)
         if provider is not None:
             query = query.filter(LLMTokenUsage.provider == provider)
-        
+
         return query.limit(limit).all()
 
     @staticmethod
@@ -64,7 +64,7 @@ class LLMTokenRepository:
         days: int = 7,
     ) -> dict[str, Any]:
         """Get summary statistics for token usage.
-        
+
         Returns statistics including totals for:
         - Total requests
         - Total input/output/total tokens
@@ -75,16 +75,16 @@ class LLMTokenRepository:
         - Total estimated cost
         """
         cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-        
+
         query = db.query(LLMTokenUsage).filter(
             LLMTokenUsage.created_at >= cutoff
         )
-        
+
         if user_id is not None:
             query = query.filter(LLMTokenUsage.user_id == user_id)
-        
+
         records = query.all()
-        
+
         if not records:
             return {
                 "total_requests": 0,
@@ -101,22 +101,22 @@ class LLMTokenRepository:
                 "total_estimated_cost_usd": 0,
                 "period_days": days,
             }
-        
+
         # Calculate statistics
         total_input = sum(r.input_tokens or 0 for r in records)
         total_output = sum(r.output_tokens or 0 for r in records)
         total_tokens = sum(r.total_tokens or 0 for r in records)
-        
+
         ollama_count = sum(1 for r in records if r.provider == "ollama")
         groq_count = sum(1 for r in records if r.provider == "groq")
         successful = sum(1 for r in records if r.status == "success")
         failed = sum(1 for r in records if r.status == "failure")
         fallback_count = sum(1 for r in records if r.fallback_used)
-        
+
         avg_tokens = total_tokens / len(records) if records else 0
         avg_duration = sum(r.duration_ms or 0 for r in records) / len(records) if records else 0
         total_cost = sum(r.estimated_cost_usd or 0 for r in records)
-        
+
         return {
             "total_requests": len(records),
             "total_input_tokens": total_input,
@@ -152,7 +152,7 @@ class LLMTokenRepository:
     ) -> list[dict[str, Any]]:
         """Get token usage statistics grouped by model."""
         cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-        
+
         query = db.query(
             LLMTokenUsage.model,
             func.count(LLMTokenUsage.id).label("request_count"),
@@ -162,14 +162,14 @@ class LLMTokenRepository:
             func.avg(LLMTokenUsage.duration_ms).label("avg_duration_ms"),
             func.sum(LLMTokenUsage.estimated_cost_usd).label("total_cost_usd"),
         ).filter(LLMTokenUsage.created_at >= cutoff)
-        
+
         if user_id is not None:
             query = query.filter(LLMTokenUsage.user_id == user_id)
-        
+
         query = query.group_by(LLMTokenUsage.model).order_by(
             desc(func.sum(LLMTokenUsage.total_tokens))
         )
-        
+
         results = query.all()
         return [
             {
@@ -192,24 +192,24 @@ class LLMTokenRepository:
     ) -> list[dict[str, Any]]:
         """Get token usage statistics grouped by hour."""
         cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
-        
+
         # This is a simplified version — a production version would use
         # database-specific date/time functions for better performance
         query = db.query(LLMTokenUsage).filter(
             LLMTokenUsage.created_at >= cutoff
         )
-        
+
         if user_id is not None:
             query = query.filter(LLMTokenUsage.user_id == user_id)
-        
+
         records = query.order_by(LLMTokenUsage.created_at).all()
-        
+
         # Group by hour
         hourly_stats: dict[str, dict[str, Any]] = {}
         for record in records:
             # Truncate to hour
             hour_key = record.created_at.replace(minute=0, second=0, microsecond=0).isoformat()
-            
+
             if hour_key not in hourly_stats:
                 hourly_stats[hour_key] = {
                     "timestamp": hour_key,
@@ -217,11 +217,11 @@ class LLMTokenRepository:
                     "total_tokens": 0,
                     "total_cost_usd": 0,
                 }
-            
+
             hourly_stats[hour_key]["request_count"] += 1
             hourly_stats[hour_key]["total_tokens"] += record.total_tokens or 0
             hourly_stats[hour_key]["total_cost_usd"] += record.estimated_cost_usd or 0
-        
+
         return sorted(hourly_stats.values(), key=lambda x: x["timestamp"])
 
     @staticmethod
@@ -232,25 +232,25 @@ class LLMTokenRepository:
     ) -> dict[str, Any]:
         """Get statistics about fallback events (Ollama -> Groq)."""
         cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-        
+
         query = db.query(LLMTokenUsage).filter(
             and_(
                 LLMTokenUsage.created_at >= cutoff,
                 LLMTokenUsage.fallback_used == True,  # noqa: E712
             )
         )
-        
+
         if user_id is not None:
             query = query.filter(LLMTokenUsage.user_id == user_id)
-        
+
         fallback_records = query.all()
-        
+
         # Group fallbacks by reason
         fallback_reasons: dict[str, int] = {}
         for record in fallback_records:
             reason = record.fallback_reason or "unknown"
             fallback_reasons[reason] = fallback_reasons.get(reason, 0) + 1
-        
+
         return {
             "total_fallback_events": len(fallback_records),
             "fallback_reasons": fallback_reasons,

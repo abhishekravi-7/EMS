@@ -1,4 +1,5 @@
 import React, { useEffect } from "react";
+import { displayError } from "@/shared/utils/llmError";
 import {
   FaTimes,
   FaLink,
@@ -28,11 +29,11 @@ import { ResultReportView } from "@/features/result/components/ResultReportView"
 import "./MigrationWizardPage.css";
 
 const WIZARD_SIDEBAR_STEPS = [
-   { id: 1, number: 1, title: "Connect", subtitle: "", icon: FaLink },
-    { id: 2, number: 2, title: "Discovery", subtitle: "", icon: FaSearch },
-    { id: 3, number: 3, title: "Strategy", subtitle: "", icon: FaProjectDiagram },
-    { id: 4, number: 4, title: "Migration", subtitle: "", icon: FaRocket },
-    { id: 5, number: 5, title: "Results", subtitle: "", icon: FaChartBar },
+  { id: 1, number: 1, title: "Connect", subtitle: "", icon: FaLink },
+  { id: 2, number: 2, title: "Discovery", subtitle: "", icon: FaSearch },
+  { id: 3, number: 3, title: "Strategy", subtitle: "", icon: FaProjectDiagram },
+  { id: 4, number: 4, title: "Migration", subtitle: "", icon: FaRocket },
+  { id: 5, number: 5, title: "Results", subtitle: "", icon: FaChartBar },
 ];
 
 export default function MigrationWizardPage() {
@@ -108,17 +109,20 @@ export default function MigrationWizardPage() {
     loading,
     handleStartMigration,
     migrationJob,
+    migrationLogs,
     migrationTimerNow,
     animationProgress,
     runFossa,
     runSonar,
     runTests,
+    runFunctionalTests,
     selectedSourceVersion,
     resetWizard,
     resultExecState,
     selectedLLMProvider,
     useLLMTests,
     continueToStrategy,
+    navigateToResults,
     setDiscoveryCompleted,
     setStrategyCompleted,
     maxVisitedIndicatorStep,
@@ -251,7 +255,7 @@ export default function MigrationWizardPage() {
     const outdatedList = allDependencies
       .filter((d) => d.status === "review" || d.status === "outdated" || d.status === "upgrade_needed")
       .map((d) => ({
-        name: d.artifact_id || d.group_id || "dependency",
+        name: d.artifact_id || (d as any).group_id || "dependency",
         currentVersion: d.current_version,
         status: d.status,
       }));
@@ -284,7 +288,7 @@ export default function MigrationWizardPage() {
           selectedRepo?.name ||
           (repoUrl ? (repoUrl || "").split("/").pop()?.replace(/\.git$/i, "") : null) ||
           "essl",
-        repository: repoUrl || selectedRepo?.clone_url || "https://github.com/example/repo",
+        repository: repoUrl || selectedRepo?.url || "https://github.com/example/repo",
         currentJavaVersion: currentJava,
         targetJavaVersion: targetJava,
       },
@@ -319,7 +323,7 @@ export default function MigrationWizardPage() {
       },
       migration: {
         readiness: 78,
-        progress: migrationJob?.progress ?? (step >= 6 ? 100 : step === 5 ? (animationProgress || 65) : 0),
+        progress: migrationJob?.progress_percent ?? migrationJob?.progress ?? (step >= 6 ? 100 : step === 5 ? (animationProgress || 65) : 0),
         currentStage: currentStageName,
         completedSteps: completedStepsList,
         activeStep: activeStepName,
@@ -341,6 +345,7 @@ export default function MigrationWizardPage() {
       strategyContext: nextStrategyContext,
       projectContext: nextProjectContext,
       appContext: nextAppContext,
+      hideChatbot: step === 1,
     });
   }, [repoUrl, strategyAssistantContext, migrationJob, setContext, step, animationProgress, migrationTimerNow]);
 
@@ -371,7 +376,7 @@ export default function MigrationWizardPage() {
       {/* Left Sidebar Step Navigation */}
       <aside className={`wizard-sidebar ${isSidebarExpanded ? "is-expanded" : ""}`}>
         {/* Sidebar header spacer — logo lives in the top app header */}
-               <div className="wizard-sidebar-header" aria-hidden="true" />
+        <div className="wizard-sidebar-header" aria-hidden="true" />
         <div className="wizard-steps-list">
           {WIZARD_SIDEBAR_STEPS.map((s, index) => {
             const isCurrent = activeSidebarStepId === s.id;
@@ -388,7 +393,15 @@ export default function MigrationWizardPage() {
                   className={`wizard-step-item ${isCurrent ? "is-active" : ""} ${isCompleted && !isCurrent ? "is-completed" : ""} ${isAvailable ? "is-available" : ""} ${isLocked ? "is-locked" : ""}`}
                   onClick={() => {
                     if (canClick) {
-                     setStep(s.id === 5 ? 7 : s.id);
+                      if (s.id === 5) {
+                        if (migrationJob?.status === "completed" || step === 7) {
+                          setIsMigrationFinishedState(true);
+                          setStep(7);
+                        }
+                      } else {
+                        setStep(s.id);
+                      }
+                      setStep(s.id === 5 ? 7 : s.id);
                     }
                   }}
                   style={{
@@ -465,7 +478,7 @@ export default function MigrationWizardPage() {
 
       {/* Main Content Area */}
       <main className="wizard-main-content" ref={mainContentRef}>
-        {error && <div style={styles.errorBanner}><span>{error}</span><button style={styles.errorClose} onClick={() => setError("")}><FaTimes /></button></div>}
+        {error && <div style={styles.errorBanner}><span>{displayError(error)}</span><button style={styles.errorClose} onClick={() => setError("")}><FaTimes /></button></div>}
         {step === 1 && (
           <ConnectPage>
             <ConnectStepView
@@ -509,13 +522,7 @@ export default function MigrationWizardPage() {
               technicalSpecificationHelperText={technicalSpecificationHelperText}
               onBack={() => setStep(1)}
               onChooseDifferentRepository={() => {
-                setDiscoveryCompleted(false);
-                setStrategyCompleted(false);
-                setStep(1);
-                setSelectedRepo(null);
-                setRepoAnalysis(null);
-                setRepoUrl("");
-                setError("");
+                resetWizard();
               }}
               onContinueToStrategy={continueToStrategy}
               onError={setError}
@@ -525,6 +532,7 @@ export default function MigrationWizardPage() {
         {step === 3 && (
           <StrategyPage>
             <StrategyStepView
+              jobId={connectState.jobId}
               strategy={strategyState}
               strategyAssistantContext={strategyAssistantContext}
               repoAnalysis={repoAnalysis}
@@ -534,7 +542,7 @@ export default function MigrationWizardPage() {
               riskExplanationLoading={riskExplanationLoading}
               dependencyAnalysis={dependencyAnalysis}
               dependencyAnalysisLoading={dependencyAnalysisLoading}
-              
+
               buildToolDisplayLabel={buildToolDisplayLabel}
               renderCategorizedDependencies={renderCategorizedDependencies}
               effectiveTargetVersion={effectiveTargetVersion}
@@ -594,14 +602,9 @@ export default function MigrationWizardPage() {
               repoAnalysis={repoAnalysis}
               codeChanges={resultExecState.codeChanges}
               fossaResult={resultExecState.fossaResult}
-              onMigrationComplete={() => {
-                setIsMigrationFinishedState(true);
-                setStep(7);
-              }}
-              onViewReport={() => {
-                setIsMigrationFinishedState(true);
-                setStep(7);
-              }}
+              backendLogs={migrationLogs || resultExecState.migrationLogs || migrationJob?.migration_log || []}
+              onMigrationComplete={navigateToResults}
+              onViewReport={navigateToResults}
               onRetry={handleStartMigration}
             />
           </ResultPage>
@@ -615,10 +618,7 @@ export default function MigrationWizardPage() {
                 setError("");
                 resetWizard();
               }}
-              onViewReport={() => {
-                setIsMigrationFinishedState(true);
-                setStep(7);
-              }}
+              onViewReport={navigateToResults}
             />
           </ResultPage>
         )}
@@ -626,8 +626,11 @@ export default function MigrationWizardPage() {
           <ResultPage>
             <ResultReportView
               resultExec={resultExecState}
+              repoAnalysis={repoAnalysis}
               runSonar={runSonar}
               runFossa={runFossa}
+              runTests={runTests}
+              runFunctionalTests={runFunctionalTests}
               selectedLLMProvider={selectedLLMProvider}
               useLLMTests={useLLMTests}
               resetWizard={resetWizard}

@@ -28,6 +28,11 @@ _ANNOTATION_TOKENS = (
     "Entity",
     "Document",
     "Component",
+    "WebServlet",
+    "WebFilter",
+    "WebListener",
+    "ManagedBean",
+    "Named",
 )
 _EXTENDS_RE = re.compile(r"\bextends\s+([\w][\w.]*)\s*(<[^{]*?>)?\s*(?:implements\b|\{)")
 _IMPLEMENTS_RE = re.compile(r"\bimplements\s+([\w,\s.<>]+?)\s*\{")
@@ -57,6 +62,9 @@ class JavaClassInfo:
     implements: list[str] = field(default_factory=list)
     dependencies: set[str] = field(default_factory=set)
     endpoints: list[JavaEndpoint] = field(default_factory=list)
+    declaration_type: str = "class"
+    line_start: int = 1
+    line_end: int = 1
 
 
 class JavaClassScanner:
@@ -119,6 +127,20 @@ class JavaClassScanner:
             for method, _, args in _MAPPING_RE.findall(text):
                 path_match = _QUOTED_RE.search(args)
                 endpoints.append(JavaEndpoint(method=method, path=path_match.group(1) if path_match else ""))
+        elif "WebServlet" in annotations or (extends and extends.endswith("Servlet")) or class_name.endswith("Servlet"):
+            servlet_patterns = re.findall(r'@WebServlet\s*\(([^)]*)\)', text)
+            urls: list[str] = []
+            if servlet_patterns:
+                urls = [p for p in re.findall(r'["\']([^"\']+)["\']', servlet_patterns[0]) if p.startswith("/") or "." in p]
+            if not urls:
+                urls = [f"/{class_name.lower().removesuffix('servlet')}"]
+            has_get = bool(re.search(r'\bdoGet\b', text))
+            has_post = bool(re.search(r'\bdoPost\b', text))
+            for url in urls:
+                if has_get or (not has_get and not has_post):
+                    endpoints.append(JavaEndpoint(method="GET", path=url))
+                if has_post:
+                    endpoints.append(JavaEndpoint(method="POST", path=url))
 
         dependencies = {
             match for match in _FIELD_DEP_RE.findall(text) if match != class_name
@@ -137,6 +159,16 @@ class JavaClassScanner:
         # argument on the `extends` clause, so surface it as a dependency too.
         dependencies.update(arg for arg in extends_generic_args if arg != class_name)
 
+        decl_type = "class"
+        if re.search(rf"\binterface\s+{re.escape(class_name)}\b", text):
+            decl_type = "interface"
+        elif re.search(rf"\benum\s+{re.escape(class_name)}\b", text):
+            decl_type = "enum"
+        elif re.search(rf"\brecord\s+{re.escape(class_name)}\b", text):
+            decl_type = "record"
+
+        line_count = max(1, len(text.splitlines()))
+
         return JavaClassInfo(
             relative_path=relative_path,
             package=package,
@@ -146,4 +178,7 @@ class JavaClassScanner:
             implements=implements,
             dependencies=dependencies,
             endpoints=endpoints,
+            declaration_type=decl_type,
+            line_start=1,
+            line_end=line_count,
         )

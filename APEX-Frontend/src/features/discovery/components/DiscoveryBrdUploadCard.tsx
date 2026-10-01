@@ -297,18 +297,18 @@ export function DiscoveryBrdUploadCard({
           >
             <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
               <div style={{ fontSize: 28, display: "flex", alignItems: "center" }}>
-                {getFileFormatIcon(brdMetadata.file_type)}
+                {getFileFormatIcon(brdMetadata.file_type || "")}
               </div>
               <div>
                 <div style={{ fontSize: 14, fontWeight: 800, color: "#0f172a" }}>
                   {brdMetadata.filename}
                 </div>
                 <div style={{ fontSize: 12, color: "#64748b", marginTop: 2, display: "flex", alignItems: "center", gap: 8 }}>
-                  <span>{formatFileSize(brdMetadata.size_bytes)}</span>
+                  <span>{formatFileSize(brdMetadata.size_bytes ?? brdMetadata.size ?? 0)}</span>
                   <span>•</span>
-                  <span>{brdMetadata.file_type} Document</span>
+                  <span>{brdMetadata.file_type || "BRD"} Document</span>
                   <span>•</span>
-                  <span>Uploaded {new Date(brdMetadata.uploaded_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                  <span>Uploaded {new Date(brdMetadata.uploaded_at || brdMetadata.uploadedAt || Date.now()).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
                 </div>
               </div>
             </div>

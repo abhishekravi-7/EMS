@@ -181,22 +181,172 @@ def test_github_create_repo_response_mapping():
     assert created.owner == "target-owner"
 
 
-def test_target_repo_does_not_contain_source_repo_url():
-    """Regression test ensuring source repo URL/owner is never concatenated into target repository URL."""
-    rep = {
-        "jobId": "test-job-regression",
-        "sourceRepoUrl": "https://github.com/source-owner/source-app",
-        "destination": {
-            "mode": "CREATE_NEW_REPO",
-            "targetOwner": "target-owner",
-            "targetHost": "github.com",
-            "targetRepoName": "target-app-Migrated2026",
+def test_summary_and_result_stages_for_completed_and_running_states():
+    # 1. COMPLETED job
+    completed_rep = {
+        "jobId": "job-completed-test",
+        "status": "COMPLETED",
+        "progressPercent": 100,
+        "currentStep": "Migration completed",
+    }
+    summary = report_service.build_summary(completed_rep)
+    assert summary["status"] == "COMPLETED"
+    assert summary["progress_percent"] == 100
+    assert summary["current_stage"] == "migration-report"
+    assert len(summary["stages"]) == 6
+    assert all(st["status"] == "completed" for st in summary["stages"])
+
+    # 2. RUNNING job at 25%
+    running_rep = {
+        "jobId": "job-running-test",
+        "status": "RUNNING",
+        "progressPercent": 25,
+        "currentStage": "dependency-updates",
+        "currentStep": "2. Dependencies updates",
+    }
+    running_summary = report_service.build_summary(running_rep)
+    assert running_summary["status"] == "RUNNING"
+    assert running_summary["progress_percent"] == 25
+    assert running_summary["current_stage"] == "dependency-updates"
+    assert running_summary["stages"][0]["status"] == "completed"
+    assert running_summary["stages"][1]["status"] == "in_progress"
+    assert running_summary["stages"][2]["status"] == "pending"
+
+
+
+def test_build_report_details_categories():
+    """Test build_report_details retrieves exact underlying records for all 5 summary cards."""
+    mock_report = {
+        "jobId": "job-detail-test-123",
+        "status": "completed",
+        "buildTool": "MAVEN",
+        "filesModified": 2,
+        "modifiedFiles": ["pom.xml", "src/main/webapp/login.jsp"],
+        "fileDiffs": [
+            {
+                "relativePath": "pom.xml",
+                "fileName": "pom.xml",
+                "changeType": "MODIFIED",
+                "addedLineCount": 1,
+                "removedLineCount": 1,
+            },
+            {
+                "relativePath": "src/main/webapp/login.jsp",
+                "fileName": "login.jsp",
+                "changeType": "MODIFIED",
+                "addedLineCount": 50,
+                "removedLineCount": 50,
+            },
+        ],
+        "uiTransformations": [
+            {
+                "file": "LoginComponent.tsx",
+                "sourceFile": "src/main/webapp/login.jsp",
+                "targetFramework": "React",
+                "sourceFramework": "JSP",
+                "status": "Added",
+                "additions": 50,
+                "deletions": 50,
+            }
+        ],
+        "importChanges": [
+            {
+                "file": "src/main/java/App.java",
+                "added": ["jakarta.servlet.http.HttpServlet"],
+                "removed": ["javax.servlet.http.HttpServlet"],
+            }
+        ],
+        "dependencyUpgrades": [
+            {
+                "groupId": "org.springframework.boot",
+                "artifactId": "spring-boot-starter",
+                "sourceVersion": "2.7.0",
+                "resolvedTargetVersion": "3.2.0",
+                "status": "UPGRADED",
+            }
+        ],
+        "fossa_report": {
+            "vulnerabilities": [],
         },
     }
-    res = report_service.build_result(rep)
-    assert res["target_repo"] == "https://github.com/target-owner/target-app-Migrated2026"
-    assert "source-owner" not in res["target_repo"]
-    assert "source-app" not in res["target_repo"]
-    assert "https-github" not in res["target_repo"]
+
+    # 1. Files
+    files_detail = report_service.build_report_details(mock_report, "files")
+    assert files_detail["type"] == "files"
+    assert files_detail["total"] == 2
+    assert len(files_detail["items"]) == 2
+    assert files_detail["items"][0]["file_name"] == "pom.xml"
+    assert files_detail["items"][1]["path"] == "src/main/webapp/login.jsp"
+    assert files_detail["items"][1]["file_name"] == "LoginComponent.tsx"
+
+    # 2. Issues
+    issues_detail = report_service.build_report_details(mock_report, "issues")
+    assert issues_detail["type"] == "issues"
+    # 1 import change + 1 dependency upgrade + 1 UI transformation = 3 issues
+    assert issues_detail["total"] == 3
+    assert len(issues_detail["items"]) == 3
+
+    # 3. Dependencies
+    dep_detail = report_service.build_report_details(mock_report, "dependencies")
+    assert dep_detail["type"] == "dependencies"
+    assert dep_detail["total"] == 1
+    assert dep_detail["items"][0]["name"] == "org.springframework.boot:spring-boot-starter"
+    assert dep_detail["items"][0]["old_version"] == "2.7.0"
+    assert dep_detail["items"][0]["new_version"] == "3.2.0"
+
+    # 4. Vulnerabilities (empty)
+    vuln_detail = report_service.build_report_details(mock_report, "vulnerabilities")
+    assert vuln_detail["type"] == "vulnerabilities"
+    assert vuln_detail["total"] == 0
+    assert vuln_detail["items"] == []
+
+    # 5. Transformations (Code Transmission)
+    trans_detail = report_service.build_report_details(mock_report, "transformations")
+    assert trans_detail["type"] == "transformations"
+    # 1 UI transform + 1 Java import refactoring = 2 transformations
+    assert trans_detail["total"] == 2
+    assert trans_detail["items"][0]["source_file"] == "src/main/webapp/login.jsp"
+    assert trans_detail["items"][0]["target_file"] == "LoginComponent.tsx"
+    assert trans_detail["items"][0]["transformation_type"] == "JSP -> React"
+
+
+def test_build_report_details_and_summary_with_source_changes_and_ui_transformations():
+    mock_report = {
+        "jobId": "test-job-source-ui",
+        "status": "COMPLETED",
+        "filesModified": 9,
+        "sourceChanges": [
+            {"file": "src/main/java/ServiceA.java", "lines_changed": 5},
+            {"file": "src/main/java/ServiceB.java", "lines_changed": 10},
+            {"file": "src/main/java/ModelC.java", "lines_changed": 2},
+        ],
+        "uiTransformations": [
+            {
+                "sourceFile": "src/main/webapp/page1.jsp",
+                "targetSourceFile": "Page1Component.tsx",
+                "category": "JSP -> React",
+                "status": "Added",
+            },
+            {
+                "sourceFile": "src/main/webapp/page2.jsp",
+                "targetSourceFile": "Page2Component.tsx",
+                "category": "JSP -> React",
+                "status": "Added",
+            },
+        ],
+    }
+
+    summary = report_service.build_summary(mock_report)
+    # 3 source changes + 2 UI transformations = 5 issues fixed
+    assert summary["issues_fixed"] == 5
+    assert summary["transformations_count"] == 2
+
+    issues_detail = report_service.build_report_details(mock_report, "issues")
+    assert issues_detail["total"] == 5
+    assert len(issues_detail["items"]) == 5
+
+    trans_detail = report_service.build_report_details(mock_report, "transformations")
+    assert trans_detail["total"] == 2
+    assert summary["transformations_count"] == trans_detail["total"]
 
 

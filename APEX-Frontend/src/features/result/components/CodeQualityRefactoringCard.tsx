@@ -4,6 +4,7 @@ import {
   getFileImprovementSuggestion,
   type FileAnalysisResult
 } from '@/features/result/services/resultService';
+import { formatLlmAwareError } from '@/shared/utils/llmError';
 
 interface CodeQualityRefactoringCardProps {
   javaFiles: string[];
@@ -33,7 +34,7 @@ export default function CodeQualityRefactoringCard({
     results: null,
     llmAvailable: false
   });
-  
+
   const [selectedFile, setSelectedFile] = useState<FileAnalysisResult | null>(null);
   const [showSuggestions, setShowSuggestions] = useState<Record<string, boolean>>({});
   const [improvedCode, setImprovedCode] = useState<Record<string, string>>({});
@@ -42,9 +43,9 @@ export default function CodeQualityRefactoringCard({
   // Trigger analysis when versions change
   const runAnalysis = useCallback(async () => {
     if (!repoUrl || javaFiles.length === 0) return;
-    
+
     setAnalysis(prev => ({ ...prev, loading: true, error: null }));
-    
+
     try {
       const response = await analyzeBusinessLogicWithLLM({
         repo_url: repoUrl,
@@ -53,7 +54,7 @@ export default function CodeQualityRefactoringCard({
         target_java_version: targetVersion,
         java_files: javaFiles.slice(0, 10) // Limit to 10 files
       });
-      
+
       setAnalysis({
         loading: false,
         error: null,
@@ -63,7 +64,7 @@ export default function CodeQualityRefactoringCard({
     } catch (err) {
       setAnalysis({
         loading: false,
-        error: err instanceof Error ? err.message : 'Failed to analyze with LLM',
+        error: formatLlmAwareError(err, 'Failed to analyze with LLM'),
         results: null,
         llmAvailable: false
       });
@@ -84,13 +85,13 @@ export default function CodeQualityRefactoringCard({
   ) => {
     const issueKey = `${fileResult.file_name}-${issue.line_number}`;
     setLoadingSuggestion(issueKey);
-    
+
     try {
       const response = await getFileImprovementSuggestion({
         code_snippet: issue.code_snippet || issue.description,
         issue_description: issue.description
       });
-      
+
       setImprovedCode(prev => ({
         ...prev,
         [issueKey]: response.improved_code
@@ -101,6 +102,7 @@ export default function CodeQualityRefactoringCard({
       }));
     } catch (err) {
       console.error('Failed to get improvement suggestion:', err);
+      alert(formatLlmAwareError(err, 'Failed to get improvement suggestion'));
     } finally {
       setLoadingSuggestion(null);
     }
@@ -241,7 +243,7 @@ export default function CodeQualityRefactoringCard({
             </div>
           </div>
         </div>
-        
+
         {/* Summary Stats */}
         <div style={{ display: 'flex', gap: 16 }}>
           <div style={{ textAlign: 'center' }}>
@@ -299,7 +301,7 @@ export default function CodeQualityRefactoringCard({
                   </div>
                 </div>
               </div>
-              
+
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 {fileResult.issues.length > 0 && (
                   <span style={{
@@ -336,12 +338,12 @@ export default function CodeQualityRefactoringCard({
                     }}>
                       🐛 Issues Found ({fileResult.issues.length})
                     </div>
-                    
+
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                       {fileResult.issues.map((issue, issueIndex) => {
                         const issueKey = `${fileResult.file_name}-${issue.line_number}`;
                         const isShowingSuggestion = showSuggestions[issueKey];
-                        
+
                         return (
                           <div
                             key={issueIndex}
@@ -364,7 +366,7 @@ export default function CodeQualityRefactoringCard({
                               }}>
                                 {issue.severity}
                               </span>
-                              
+
                               <div style={{ flex: 1 }}>
                                 <div style={{ fontSize: 13, fontWeight: 500, color: '#1e293b' }}>
                                   Line {issue.line_number}: {issue.type}
@@ -372,7 +374,7 @@ export default function CodeQualityRefactoringCard({
                                 <div style={{ fontSize: 12, color: '#4b5563', marginTop: 4 }}>
                                   {issue.description}
                                 </div>
-                                
+
                                 {issue.code_snippet && (
                                   <code style={{
                                     display: 'block',
@@ -388,7 +390,7 @@ export default function CodeQualityRefactoringCard({
                                     {issue.code_snippet}
                                   </code>
                                 )}
-                                
+
                                 {issue.suggested_fix && (
                                   <div style={{
                                     marginTop: 8,
@@ -401,7 +403,7 @@ export default function CodeQualityRefactoringCard({
                                     <strong>💡 Suggestion:</strong> {issue.suggested_fix}
                                   </div>
                                 )}
-                                
+
                                 {/* AI Improvement Button */}
                                 <div style={{ marginTop: 10 }}>
                                   <button
@@ -421,7 +423,7 @@ export default function CodeQualityRefactoringCard({
                                     {loadingSuggestion === issueKey ? 'Loading...' : '🤖 Get AI Improvement'}
                                   </button>
                                 </div>
-                                
+
                                 {/* AI Improved Code */}
                                 {isShowingSuggestion && improvedCode[issueKey] && (
                                   <div style={{
@@ -477,7 +479,7 @@ export default function CodeQualityRefactoringCard({
                     }}>
                       📋 Old Patterns Found ({fileResult.old_patterns_found.length})
                     </div>
-                    
+
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                       {fileResult.old_patterns_found.map((pattern, patternIndex) => (
                         <div

@@ -6,13 +6,10 @@ pydantic-settings>=2.1,<3.0
 python-dotenv>=1.0,<2.0
 defusedxml>=0.7.1
 python-multipart>=0.0.9
-# --- Authentication (email/password + JWT cookies) --------------------------
-sqlalchemy>=2.0,<3.0
-psycopg[binary]>=3.1,<4.0
+# --- Authentication & Persistence (MongoDB + JWT cookies) --------------------
 pwdlib[argon2]>=0.2,<1.0
 PyJWT>=2.8,<3.0
 email-validator>=2.1,<3.0
-firebase-admin>=6.5,<7.0
 pymongo>=4.6,<5.0
 motor>=3.3,<4.0
 
@@ -25,3 +22,9 @@ motor>=3.3,<4.0
 #   pip install --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt
 #qdrant-client>=1.7,<2.0
 #sentence-transformers>=2.6,<6.0  --uncomment when you use RAG
+
+# --- Added Dependencies ---
+sqlalchemy>=2.0.0
+tree-sitter==0.26.0
+tree-sitter-java==0.23.5
+cachetools>=5.3.0

@@ -18,9 +18,8 @@ import json
 import logging
 import re
 
-from sqlalchemy.orm import Session
-
-from app.core.context import user_id_ctx
+from app.api.deps import User
+from app.core.context import user_id_ctx, llm_values_ctx
 from app.core.exceptions import (
     InvalidJavaVersionError,
     LLMResponseInvalidError,
@@ -32,7 +31,6 @@ from app.infrastructure.llm.prompt_templates import (
     JAVA_VERSION_RECOMMENDATION_SYSTEM_PROMPT,
     build_java_version_recommendation_prompt,
 )
-from app.infrastructure.persistence.models import User
 from app.schemas.java_version_schema import JavaVersionRecommendationRequest
 
 logger = logging.getLogger(__name__)
@@ -72,7 +70,7 @@ class RecommendJavaVersionUseCase:
     async def execute(
         self,
         request: JavaVersionRecommendationRequest,
-        db: Session | None = None,
+        db: Any = None,
         current_user: User | None = None,
     ) -> dict:
         source_major = _parse_major_version(request.source_java_version)
@@ -91,13 +89,16 @@ class RecommendJavaVersionUseCase:
         )
 
         user_token = None
+        llm_token = None
         if current_user:
             user_token = user_id_ctx.set(current_user.id)
+            if getattr(current_user, "llm_values", None):
+                llm_token = llm_values_ctx.set(current_user.llm_values)
 
         try:
             try:
                 logger.info("[JavaRecommendation] Attempting Hugging Face (primary)")
-                raw = await self._llm.chat_json(system_prompt, user_prompt, max_tokens=1024)
+                raw = await self._llm.chat_json(system_prompt, user_prompt)
                 return self._sanitize(raw, allowed_targets, already_at_latest)
             except (LLMServiceError, Exception) as exc:
                 logger.warning(
@@ -110,7 +111,6 @@ class RecommendJavaVersionUseCase:
                     system_prompt=system_prompt,
                     user_prompt=user_prompt,
                     endpoint="java_version_recommendation_fallback",
-                    max_tokens=1024,
                 ):
                     response_text += chunk
 
@@ -125,26 +125,27 @@ class RecommendJavaVersionUseCase:
         finally:
             if user_token:
                 user_id_ctx.reset(user_token)
+            if llm_token:
+                llm_values_ctx.reset(llm_token)
 
     @staticmethod
-
     def _extract_json(content: str) -> dict:
         text = (content or "").strip()
-        # Some models wrap JSON in ```json ... ``` fences
-        if text.startswith("```"):
-            text = text.strip("`")
-            if text[:4].lower() == "json":
-                text = text[4:]
 
         start = text.find("{")
         end = text.rfind("}")
         if start == -1 or end == -1 or end < start:
             raise LLMResponseInvalidError("Fallback model response did not contain JSON.")
 
+        json_str = text[start : end + 1]
         try:
-            return json.loads(text[start : end + 1])
-        except json.JSONDecodeError as exc:
-            raise LLMResponseInvalidError("Fallback model response was not valid JSON.") from exc
+            return json.loads(json_str, strict=False)
+        except json.JSONDecodeError:
+            cleaned = re.sub(r",\s*([\}\]])", r"\1", json_str)
+            try:
+                return json.loads(cleaned, strict=False)
+            except json.JSONDecodeError as exc:
+                raise LLMResponseInvalidError("Fallback model response was not valid JSON.") from exc
 
     @staticmethod
     def _fallback(source_major: int, allowed_targets: list[str], already_at_latest: bool) -> dict:
@@ -254,4 +255,3 @@ class RecommendJavaVersionUseCase:
             "already_at_latest_supported_version": already_at_latest,
             "raw_recommendation": raw,
         }
-

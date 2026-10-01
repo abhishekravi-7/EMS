@@ -11,11 +11,24 @@ import logging
 import time
 import urllib.parse
 import urllib.request
+try:
+    from cachetools import LRUCache
+except ImportError:
+    class LRUCache(dict):  # type: ignore[no-redef]
+        def __init__(self, maxsize: int = 128) -> None:
+            super().__init__()
+            self.maxsize = maxsize
+
+        def __setitem__(self, key: Any, value: Any) -> None:
+            if len(self) >= self.maxsize and key not in self:
+                oldest = next(iter(self))
+                del self[oldest]
+            super().__setitem__(key, value)
 
 logger = logging.getLogger(__name__)
 
 # In-memory TTL cache: { "groupId:artifactId": (version_string, expiry_timestamp) }
-_VERSION_CACHE: dict[str, tuple[str, float]] = {}
+_VERSION_CACHE: LRUCache = LRUCache(maxsize=1000)
 CACHE_TTL_SECONDS = 3600  # 1 hour cache
 
 # Reliable fallback versions (used if network request fails or times out)

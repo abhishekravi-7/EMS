@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { FaUser, FaEnvelope, FaCheck, FaArrowRight } from "react-icons/fa";
-import { Button } from "@/shared/components/ui";
+import { FaEnvelope, FaArrowRight } from "react-icons/fa";
 import AuthLayout from "../components/AuthLayout";
 import SocialAuthButtons from "../components/SocialAuthButtons";
 import PasswordInput from "../components/PasswordInput";
@@ -11,7 +10,7 @@ import { useAuthForm, type FormErrors } from "../hooks/useAuthForm";
 import { getOAuthErrorMessage } from "../oauthErrorMessages";
 import "../auth.css";
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const EMAIL_PATTERN = /^[a-zA-Z0-9]+(?:[._%+-][a-zA-Z0-9]+)*@[a-zA-Z0-9]+(?:[.-][a-zA-Z0-9]+)*\.[a-zA-Z]{2,}$/;
 const MIN_PASSWORD_LENGTH = 8;
 const MAX_PASSWORD_LENGTH = 128;
 const HAS_UPPERCASE = /[A-Z]/;
@@ -20,7 +19,6 @@ const HAS_DIGIT = /\d/;
 const HAS_SPECIAL_CHARACTER = /[^A-Za-z0-9]/;
 
 interface SignUpValues {
-  fullName: string;
   email: string;
   password: string;
   confirmPassword: string;
@@ -29,14 +27,11 @@ interface SignUpValues {
 function validateSignUp(values: SignUpValues): FormErrors<SignUpValues> {
   const errors: FormErrors<SignUpValues> = {};
 
-  if (!values.fullName.trim()) {
-    errors.fullName = "Full name is required.";
-  }
-
-  if (!values.email.trim()) {
+  const trimmedEmail = values.email.trim();
+  if (!trimmedEmail) {
     errors.email = "Email is required.";
-  } else if (!EMAIL_PATTERN.test(values.email.trim())) {
-    errors.email = "Enter a valid email address.";
+  } else if (!EMAIL_PATTERN.test(trimmedEmail)) {
+    errors.email = "Please enter a valid email address.";
   }
 
   if (!values.password) {
@@ -77,9 +72,8 @@ function getPasswordStrength(password: string): { label: string; score: number; 
 
 const SignUpPage: React.FC = () => {
   const navigate = useNavigate();
-  const { login, isAuthenticated, isAuthLoading } = useAuth();
+  const { isAuthenticated, isAuthLoading } = useAuth();
   const [searchParams] = useSearchParams();
-  const [submitted, setSubmitted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [agreeTerms, setAgreeTerms] = useState(true);
   const [apiError, setApiError] = useState<string | null>(null);
@@ -100,7 +94,7 @@ const SignUpPage: React.FC = () => {
   }, [searchParams, navigate]);
 
   const { values, errors, setField, handleSubmit } = useAuthForm<SignUpValues>({
-    initialValues: { fullName: "", email: "", password: "", confirmPassword: "" },
+    initialValues: { email: "", password: "", confirmPassword: "" },
     validate: validateSignUp,
     onValid: async (formValues) => {
       if (isSubmitting) return;
@@ -113,14 +107,17 @@ const SignUpPage: React.FC = () => {
       setApiError(null);
       setIsSubmitting(true);
       try {
-        const user = await signUp({
-          fullName: formValues.fullName.trim(),
-          email: formValues.email.trim(),
+        const cleanEmail = formValues.email.trim().toLowerCase();
+        sessionStorage.setItem("apex_pending_verification_email", cleanEmail);
+        await signUp({
+          email: cleanEmail,
           password: formValues.password,
           confirmPassword: formValues.confirmPassword,
         });
-        login(user);
-        setSubmitted(true);
+        navigate("/verify-email", {
+          state: { email: cleanEmail },
+          replace: true,
+        });
       } catch (err) {
         const message = err instanceof Error ? err.message : "Sign up failed. Please try again.";
         setApiError(message);
@@ -132,59 +129,6 @@ const SignUpPage: React.FC = () => {
 
   const strength = getPasswordStrength(values.password);
 
-  if (submitted) {
-    return (
-      <AuthLayout mode="signup">
-        <div style={{
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          textAlign: "center",
-          padding: "40px 20px",
-        }}>
-          <div style={{
-            width: "80px",
-            height: "80px",
-            borderRadius: "50%",
-            backgroundColor: "#dcfce7",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            marginBottom: "24px",
-            boxShadow: "0 4px 14px 0 rgba(34, 197, 94, 0.39)",
-          }}>
-            <FaCheck style={{ fontSize: "36px", color: "#16a34a" }} />
-          </div>
-          <h2 style={{
-            fontSize: "26px",
-            fontWeight: "700",
-            color: "#0f172a",
-            marginBottom: "12px",
-            letterSpacing: "-0.5px"
-          }}>Account Created Successfully!</h2>
-          <p style={{
-            fontSize: "15px",
-            color: "#64748b",
-            marginBottom: "32px",
-            maxWidth: "320px",
-            lineHeight: "1.6"
-          }}>
-            Welcome to Java APEX. Your account is ready, you can now sign in to start your migration journey.
-          </p>
-          <button 
-            className="apex-btn-auth-primary"
-            onClick={() => navigate("/signin")}
-            style={{ padding: "14px 32px", width: "100%", maxWidth: "300px" }}
-          >
-            <span>Go to Sign In</span>
-            <FaArrowRight style={{ fontSize: 13 }} />
-          </button>
-        </div>
-      </AuthLayout>
-    );
-  }
-
   return (
     <AuthLayout mode="signup">
       <div className="apex-form-header">
@@ -195,30 +139,6 @@ const SignUpPage: React.FC = () => {
       {apiError && <div className="auth-notice auth-notice--error">{apiError}</div>}
 
       <form className="auth-form" onSubmit={handleSubmit} noValidate>
-        {/* Full Name */}
-        <div className="auth-field">
-          <label className="auth-label" htmlFor="fullName">
-            Full name
-          </label>
-          <div className="auth-input-wrap">
-            <span className="auth-input-left-icon">
-              <FaUser size={14} style={{ color: "#94a3b8" }} />
-            </span>
-            <input
-              id="fullName"
-              name="fullName"
-              type="text"
-              className={`auth-input auth-input--with-icon ${errors.fullName ? "auth-input--error" : ""}`}
-              placeholder="Enter your full name"
-              value={values.fullName}
-              onChange={(e) => setField("fullName", e.target.value)}
-              autoComplete="name"
-              disabled={isSubmitting}
-            />
-          </div>
-          {errors.fullName && <span className="auth-error-text">{errors.fullName}</span>}
-        </div>
-
         {/* Email */}
         <div className="auth-field">
           <label className="auth-label" htmlFor="email">

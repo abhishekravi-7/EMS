@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { MigrationCycodeSection } from "./MigrationCycodeSection";
 import React from "react";
 import {
   FaCheckCircle,
@@ -13,17 +14,24 @@ import {
   FaLayerGroup,
   FaRegCalendarAlt,
   FaGithub,
+  FaCopy,
+  FaCheck,
+  FaExternalLinkAlt,
 } from "react-icons/fa";
 import { wizardStyles as styles } from "@/shared/components/wizard/wizardStyles";
 import { renderWizardIconBadge } from "@/shared/components/wizard";
 import {
   downloadUnitTestReport,
+  getMigrationFileDiff,
   getMigrationLogs,
   rerunMigrationTests,
+  getMigrationReportDetails,
+  type ReportDetailsResponse,
   type SonarIssueDetail,
   type SonarHotspotDetail,
   type SonarReport,
 } from "../services/resultService";
+import { MigrationReportDetailModal } from "./MigrationReportDetailModal";
 import type { DependencyInfo } from "@/shared/types/domain";
 import {
   SONAR_FINDINGS_PAGE_SIZE,
@@ -33,6 +41,8 @@ import {
   getFossaLicenseIssueCount,
   getFossaSeverityCounts,
   getFossaScanModeLabel,
+  getRepositoryLink,
+  isLocalPath,
   formatSonarTimestamp,
   getSonarSeverityColor,
   getSonarStatusColor,
@@ -43,6 +53,7 @@ import {
 } from "../utils/reportFormatting";
 import { getMigrationElapsedSeconds } from "../utils/migrationTiming";
 import type { useMigrationExecution } from "../hooks/useMigrationExecution";
+import { FrameworkPageSandbox } from "./FrameworkPageSandbox";
 
 const MigrationFossaSection = React.lazy(async () => {
   const module = await import("./MigrationReportSections");
@@ -79,8 +90,11 @@ const MigrationProposedTestSection = React.lazy(async () => {
 
 interface ResultReportViewProps {
   resultExec: ReturnType<typeof useMigrationExecution>;
+  repoAnalysis?: any;
   runSonar: boolean;
   runFossa: boolean;
+  runTests?: boolean;
+  runFunctionalTests?: boolean;
   selectedLLMProvider: string;
   useLLMTests: boolean;
   resetWizard: () => void;
@@ -90,14 +104,24 @@ interface ResultReportViewProps {
 
 export function ResultReportView({
   resultExec,
+  repoAnalysis,
   runSonar,
   runFossa,
+  runTests,
+  runFunctionalTests,
   selectedLLMProvider,
   useLLMTests,
   resetWizard,
   onBack,
   onError,
 }: ResultReportViewProps) {
+  // Derive file counts from repoAnalysis using same logic as DiscoveryStepView
+  const discoveryJavaFiles: number = repoAnalysis?.java_file_count ?? repoAnalysis?.java_files?.length ?? 0;
+  const discoveryJspFiles: number = repoAnalysis?.jsp_file_count ?? repoAnalysis?.jsp_count ?? repoAnalysis?.structure?.jsp_count ?? repoAnalysis?.jsp_files?.length ?? 0;
+  const discoveryJsfFiles: number = repoAnalysis?.jsf_file_count ?? repoAnalysis?.jsf_count ?? repoAnalysis?.structure?.jsf_count ?? repoAnalysis?.jsf_files?.length ?? 0;
+  const discoveryXmlFiles: number = repoAnalysis?.config_file_count ?? repoAnalysis?.config_files?.length ?? 0;
+  const discoveryOtherFiles: number = repoAnalysis?.other_file_count ?? repoAnalysis?.other_files?.length ?? 0;
+  const discoveryTotalFiles: number = (repoAnalysis?.total_file_count ?? (discoveryJavaFiles + discoveryXmlFiles + discoveryJspFiles + discoveryJsfFiles + discoveryOtherFiles)) || 0;
   const {
     migrationJob,
     setMigrationJob,
@@ -150,6 +174,14 @@ export function ResultReportView({
   }
 
   const [selectedDiffIndex, setSelectedDiffIndex] = useState<number>(0);
+  const [loadedFileDiffs, setLoadedFileDiffs] = useState<Record<string, {
+    beforeLines: Array<{ num: number; text: string; type: string }>;
+    afterLines: Array<{ num: number; text: string; type: string }>;
+  }>>({});
+  const [fileDiffError, setFileDiffError] = useState<string | null>(null);
+  const [fileDiffLoading, setFileDiffLoading] = useState(false);
+  const [copiedDiffCode, setCopiedDiffCode] = useState(false);
+  const [sandboxEntry, setSandboxEntry] = useState<{ fileName: string; code: Array<{ text: string }>; css: string } | null>(null);
   const [dependencySearchQuery, setDependencySearchQuery] = useState("");
   const [sonarFindingFilter, setSonarFindingFilter] = useState<SonarFindingFilter>("all");
   const [codeSmellSeverityFilter, setCodeSmellSeverityFilter] = useState<CodeSmellSeverityFilter>("all");
@@ -159,6 +191,189 @@ export function ResultReportView({
     code_smells: SONAR_FINDINGS_PAGE_SIZE,
     security_hotspots: SONAR_FINDINGS_PAGE_SIZE,
   });
+
+  // Category Detail Modal State & Client-Side Cache
+  const [detailModalCategory, setDetailModalCategory] = useState<
+    "files" | "issues" | "dependencies" | "vulnerabilities" | "transformations" | null
+  >(null);
+  const [detailModalLoading, setDetailModalLoading] = useState(false);
+  const [detailModalError, setDetailModalError] = useState<string | null>(null);
+  const [reportDetailsCache, setReportDetailsCache] = useState<Record<string, ReportDetailsResponse>>({});
+
+  const handleOpenReportDetails = async (
+    category: "files" | "issues" | "dependencies" | "vulnerabilities" | "transformations"
+  ) => {
+    setDetailModalCategory(category);
+    setDetailModalError(null);
+
+    // If already in client-side cache, reuse immediately with zero network delay
+    if (reportDetailsCache[category]) {
+      return;
+    }
+
+    if (!migrationJob?.job_id) {
+      setDetailModalError("Migration job ID not found.");
+      return;
+    }
+
+    setDetailModalLoading(true);
+    try {
+      const details = await getMigrationReportDetails(migrationJob.job_id, category);
+      setReportDetailsCache((prev) => ({
+        ...prev,
+        [category]: details,
+      }));
+    } catch (err: any) {
+      setDetailModalError(err?.message || "Failed to load migration details.");
+    } finally {
+      setDetailModalLoading(false);
+    }
+  };
+
+  const diffData = React.useMemo(() => {
+    const rawFileDiffs: any[] = migrationJob?.file_diffs ?? [];
+    const javaFileDiffEntries = rawFileDiffs.map((fd: any) => {
+      const changeType: string = (fd.changeType ?? "MODIFIED").toUpperCase();
+      const relativePath = (fd.relativePath ?? fd.fileName ?? "").replace(/\\/g, "/");
+      const loadedDiff = loadedFileDiffs[relativePath];
+      const status: "Modified" | "Added" | "Removed" =
+        changeType === "ADDED" ? "Added" :
+        changeType === "DELETED" ? "Removed" :
+        "Modified";
+      return {
+        file: fd.fileName ?? fd.relativePath ?? "",
+        relativePath,
+        label: fd.label,
+        status,
+        additions: fd.addedLineCount ?? 0,
+        deletions: fd.removedLineCount ?? 0,
+        beforeLines: (loadedDiff?.beforeLines ?? fd.beforeLines ?? []) as Array<{ num: number; text: string; type: string }>,
+        afterLines: (loadedDiff?.afterLines ?? fd.afterLines ?? []) as Array<{ num: number; text: string; type: string }>,
+      };
+    });
+
+    const rawUiTransformations: any[] = migrationJob?.uiTransformations ?? [];
+    const uiDiffEntries = rawUiTransformations.map((t: any) => ({
+      file: t.targetSourceFile ?? t.file ?? "",
+      sourceFile: t.sourceFile ?? t.file ?? "",
+      category: t.category ?? "",
+      icon: t.icon ?? "⚛️",
+      status: (t.status ?? "Added") as "Modified" | "Added" | "Removed",
+      additions: t.additions ?? (t.afterLines?.length ?? 0),
+      deletions: t.deletions ?? 0,
+      beforeLines: (t.beforeLines ?? []) as Array<{ num: number; text: string; type: string }>,
+      afterLines: (t.afterLines ?? []) as Array<{ num: number; text: string; type: string }>,
+    }));
+
+    const mergedEntries: Array<{
+      file: string;
+      status: "Modified" | "Added" | "Removed";
+      additions: number;
+      deletions: number;
+      beforeLines: Array<{ num: number; text: string; type: string }>;
+      afterLines: Array<{ num: number; text: string; type: string }>;
+      [key: string]: any;
+    }> = [];
+    const seenFileKeys = new Set<string>();
+
+    for (const entry of [...javaFileDiffEntries, ...uiDiffEntries]) {
+      const key = (entry.sourceFile || entry.relativePath || entry.file || "").toLowerCase().replace(/\\/g, "/");
+      if (!key || seenFileKeys.has(key)) {
+        continue;
+      }
+      seenFileKeys.add(key);
+      mergedEntries.push(entry);
+    }
+    return mergedEntries;
+  }, [migrationJob?.file_diffs, migrationJob?.uiTransformations, loadedFileDiffs]);
+
+  const modifiedFilesBreakdown = React.useMemo(() => {
+    if (!diffData || diffData.length === 0) return "";
+    let javaCount = 0;
+    let jspCount = 0;
+    let xmlCount = 0;
+    let uiCount = 0;
+    let otherCount = 0;
+
+    for (const item of diffData) {
+      const p = (item.relativePath || item.sourceFile || item.file || "").toLowerCase();
+      if (p.endsWith(".java")) {
+        javaCount++;
+      } else if (p.endsWith(".jsp") || p.endsWith(".jspf") || p.endsWith(".jspx") || p.endsWith(".xhtml") || p.endsWith(".jsf")) {
+        jspCount++;
+      } else if (p.endsWith(".xml") || p.endsWith(".gradle") || p.endsWith(".properties") || p.endsWith(".yaml") || p.endsWith(".yml")) {
+        xmlCount++;
+      } else if (p.endsWith(".tsx") || p.endsWith(".jsx") || p.endsWith(".ts") || p.endsWith(".js") || p.endsWith(".css") || p.endsWith(".html") || p.includes("frontend/")) {
+        uiCount++;
+      } else {
+        otherCount++;
+      }
+    }
+
+    const parts: string[] = [];
+    if (javaCount > 0) parts.push(`${javaCount} Java`);
+    if (jspCount > 0) parts.push(`${jspCount} JSP/JSF`);
+    if (uiCount > 0) parts.push(`${uiCount} Modern UI`);
+    if (xmlCount > 0) parts.push(`${xmlCount} Config/XML`);
+    if (otherCount > 0) parts.push(`${otherCount} Other`);
+
+    return parts.join(" · ");
+  }, [diffData]);
+
+  const handleSelectFileForDiff = (filePath: string) => {
+    const norm = filePath.replace(/\\/g, "/").toLowerCase();
+    const base = norm.split("/").pop();
+    const idx = diffData.findIndex((d) => {
+      const dPath = (d.sourceFile || d.relativePath || d.file || "").replace(/\\/g, "/").toLowerCase();
+      return dPath === norm || (base && dPath.endsWith("/" + base)) || (base && d.file.toLowerCase() === base);
+    });
+    if (idx >= 0) {
+      setSelectedDiffIndex(idx);
+      const item = diffData[idx];
+      if (item && !item.category && item.relativePath) {
+        void loadFileDiff(item.relativePath);
+      }
+      const diffEl = document.getElementById("source-code-transformations-section");
+      if (diffEl) {
+        diffEl.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }
+  };
+
+  const handleCopyDiffCode = async (afterLines: Array<{ text: string }>) => {
+    const code = afterLines
+      .map((line) => line.text.replace(/^[+-]\s*/, ""))
+      .join("\n");
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopiedDiffCode(true);
+      window.setTimeout(() => setCopiedDiffCode(false), 1600);
+    } catch {
+      setCopiedDiffCode(false);
+    }
+  };
+
+  const loadFileDiff = async (path: string) => {
+    const normalizedPath = path.replace(/\\/g, "/");
+    if (!normalizedPath || loadedFileDiffs[normalizedPath] || !migrationJob?.job_id) return;
+
+    setFileDiffLoading(true);
+    setFileDiffError(null);
+    try {
+      const diff = await getMigrationFileDiff(migrationJob.job_id, normalizedPath);
+      setLoadedFileDiffs((previous) => ({
+        ...previous,
+        [normalizedPath]: {
+          beforeLines: diff.beforeLines ?? [],
+          afterLines: diff.afterLines ?? [],
+        },
+      }));
+    } catch {
+      setFileDiffError(`Unable to load the diff for ${normalizedPath}.`);
+    } finally {
+      setFileDiffLoading(false);
+    }
+  };
 
   // Derive stable primitive keys so the effect only fires when the job or
   // sonar data genuinely changes, not on every render due to new object refs.
@@ -199,14 +414,15 @@ export function ResultReportView({
     }
   };
 
-  const handleDownloadUnitTestReport = async () => {
+  const handleDownloadUnitTestReport = async (format: string = "html") => {
     if (!migrationJob) return;
     try {
-      const blob = await downloadUnitTestReport(migrationJob.job_id);
+      const isCsv = format === "csv";
+      const blob = await downloadUnitTestReport(migrationJob.job_id, isCsv ? "csv" : "html");
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `unit-test-report-${migrationJob.job_id}.html`;
+      link.download = `unit-test-report-${migrationJob.job_id}.${isCsv ? "csv" : "html"}`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -214,6 +430,74 @@ export function ResultReportView({
     } catch (err) {
       onError(err instanceof Error ? err.message : "Failed to download unit test report");
     }
+  };
+
+  const handleShowReactUi = (
+    entry: { file?: string; targetSourceFile?: string; afterLines?: Array<{ text: string }> },
+    e?: React.MouseEvent
+  ) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    const rawTarget = entry.targetSourceFile ?? entry.file ?? "MigratedPage.tsx";
+    if (sandboxEntry && sandboxEntry.fileName === rawTarget) {
+      setSandboxEntry(null);
+      return;
+    }
+
+    const allUiFiles = (migrationJob?.uiTransformations ?? []).map((t: any) => ({
+      fileName: t.targetSourceFile ?? t.file ?? "MigratedPage.tsx",
+      code: (t.afterLines ?? []) as Array<{ text: string }>,
+    }));
+
+    let targetFileName = rawTarget;
+    let targetCode = entry.afterLines;
+
+    // If a stylesheet was passed, route to first actual UI component
+    if (rawTarget.toLowerCase().endsWith(".css")) {
+      const firstComponent = allUiFiles.find((f: any) => !f.fileName.toLowerCase().endsWith(".css"));
+      if (firstComponent && firstComponent.code.length > 0) {
+        targetFileName = firstComponent.fileName;
+        targetCode = firstComponent.code;
+      }
+    }
+
+    if (!targetCode?.length) {
+      onError("The selected page has no previewable markup.");
+      return;
+    }
+    const mainEl = document.querySelector(".wizard-main-content");
+    const prevScrollTop = mainEl ? mainEl.scrollTop : 0;
+
+    const cssFromUi = (migrationJob.uiTransformations ?? [])
+      .filter((transformation: any) => String(transformation.targetSourceFile ?? transformation.file ?? "").toLowerCase().endsWith(".css"))
+      .flatMap((transformation: any) => transformation.afterLines ?? [])
+      .map((line: { text?: string }) => line.text ?? "")
+      .join("\n");
+
+    const cssFromDiffs = diffData
+      .filter((f) => String(f.file || "").toLowerCase().endsWith(".css"))
+      .flatMap((f) => f.afterLines ?? [])
+      .map((line: { text?: string }) => line.text ?? "")
+      .join("\n");
+
+    const css = [cssFromUi, cssFromDiffs].filter(Boolean).join("\n");
+
+    setSandboxEntry({
+      fileName: targetFileName,
+      code: targetCode,
+      css,
+    });
+
+    if (mainEl && mainEl.scrollTop !== prevScrollTop) {
+      mainEl.scrollTop = prevScrollTop;
+    }
+    requestAnimationFrame(() => {
+      if (mainEl && mainEl.scrollTop !== prevScrollTop) {
+        mainEl.scrollTop = prevScrollTop;
+      }
+    });
   };
 
   // ── Test summary derivation (from migrationJob only) ──
@@ -227,13 +511,20 @@ export function ResultReportView({
   const totalTestCases = testSummaryMetrics?.total_test_cases ?? (existingTestCases + generatedTestCases);
   const migrationJavaVersion = testSummaryMetrics?.java_migration_version ?? "";
   const coverageResult = migrationJob?.test_pipeline?.coverage_result as
-    | { available?: boolean; line_coverage_pct?: number; line_coverage?: number }
+    | {
+        available?: boolean;
+        line_coverage_pct?: number;
+        line_coverage?: number;
+        original?: { line_coverage_pct?: number };
+        final?: { line_coverage_pct?: number };
+        improvement?: { text?: string };
+      }
     | undefined;
   const jacocoCoverageAvailable = coverageResult?.available;
   const jacocoCoveragePct =
     jacocoCoverageAvailable === false
       ? null
-      : coverageResult?.line_coverage_pct ?? coverageResult?.line_coverage ?? null;
+      : coverageResult?.final?.line_coverage_pct ?? coverageResult?.line_coverage_pct ?? coverageResult?.line_coverage ?? null;
   const testSummaryReportDate = migrationJob?.completed_at
     ? new Date(migrationJob.completed_at).toLocaleDateString()
     : new Date().toLocaleDateString();
@@ -254,9 +545,12 @@ export function ResultReportView({
     { label: "Total Test Cases", value: totalTestCases },
     {
       label: "JaCoCo Coverage",
-      value: typeof jacocoCoveragePct === "number" ? `${jacocoCoveragePct.toFixed(1)}%` : "87.5%",
+      value: typeof jacocoCoveragePct === "number" ? `${jacocoCoveragePct.toFixed(1)}%` : "N/A",
     },
   ];
+
+  // framework_migrations push — executed after reportHeroStats is declared below
+
 
   void testSummaryReportDate;
   void migrationJavaVersion;
@@ -541,10 +835,7 @@ export function ResultReportView({
         : "#ef4444";
   const rawDepList: Array<DependencyInfo | Record<string, unknown>> = (migrationJob?.dependency_upgrades?.length
     ? migrationJob.dependency_upgrades
-    : (migrationJob?.dependencies?.length ? migrationJob.dependencies : [
-      { group_id: "jakarta.persistence", artifact_id: "jakarta.persistence-api", current_version: "2.2.0 (javax)", new_version: "3.1.0 (jakarta)", status: "UPGRADED" },
-      { group_id: "org.junit.jupiter", artifact_id: "junit-jupiter", current_version: "4.12 (JUnit 4)", new_version: "5.10.2 (JUnit 5)", status: "UPGRADED" },
-    ])) as Array<DependencyInfo | Record<string, unknown>>;
+    : (migrationJob?.dependencies?.length ? migrationJob.dependencies : [])) as Array<DependencyInfo | Record<string, unknown>>;
   const detectedDependencyCount = migrationJob?.dependency_count ?? rawDepList.length;
   const dependencyUpdates = rawDepList.map((dep) => {
     const source = dep as Record<string, unknown> & {
@@ -559,13 +850,14 @@ export function ResultReportView({
       sourceVersion?: string | null;
       new_version?: string | null;
       newVersion?: string | null;
+      resolvedTargetVersion?: string | null;
       status?: string | null;
     };
     return {
       group_id: source.group_id || source.groupId || source.coordinate?.split(":")[0] || "dependency",
       artifact_id: source.artifact_id || source.artifactId || source.coordinate?.split(":")[1] || "artifact",
       current_version: source.current_version || source.old_version || source.oldVersion || source.sourceVersion || "managed version",
-      new_version: source.new_version || source.newVersion || source.resolvedTargetVersion || "updated version",
+      new_version: (source.new_version || source.newVersion || (source as any).resolvedTargetVersion || "updated version") as string,
       status: source.status || "UPGRADED",
     };
   });
@@ -617,7 +909,9 @@ export function ResultReportView({
       label: "Files Modified",
       value: String(migrationJob?.files_modified ?? 0),
       accent: "#2563eb",
-      meta: `Java ${migrationJob?.source_java_version ?? "?"} -> Java ${migrationJob?.target_java_version ?? "?"}`,
+      meta: discoveryTotalFiles > 0
+        ? `${migrationJob?.files_modified ?? 0} of ${discoveryTotalFiles} repo files updated`
+        : `Java ${migrationJob?.source_java_version ?? "?"} -> Java ${migrationJob?.target_java_version ?? "?"}`,
       surface: "linear-gradient(180deg, #eef6ff 0%, #e1efff 100%)",
       borderColor: "#c7dcff",
       shadow: "0 16px 30px rgba(37, 99, 235, 0.12)",
@@ -670,6 +964,39 @@ export function ResultReportView({
             : "0 16px 30px rgba(22, 163, 74, 0.10)",
     },
   ];
+
+  // Append framework migration stats (JSP/JSF) after the base array is initialized
+  if (migrationJob?.framework_migrations && migrationJob.framework_migrations.length > 0) {
+    migrationJob.framework_migrations.forEach((fm) => {
+      let filesMigrated = fm.files_migrated;
+      if (migrationJob.uiTransformations && migrationJob.uiTransformations.length > 0) {
+        if (fm.source_framework.toUpperCase() === "JSP") {
+          const jspCount = migrationJob.uiTransformations.filter((t: any) => {
+            const filename = (t.sourceFile || t.file || "").toLowerCase();
+            if (filename) return filename.endsWith(".jsp") || filename.endsWith(".jspf") || filename.endsWith(".jspx");
+            return t.category?.startsWith("JSP");
+          }).length;
+          if (jspCount > 0) filesMigrated = jspCount;
+        } else if (fm.source_framework.toUpperCase() === "JSF") {
+          const jsfCount = migrationJob.uiTransformations.filter((t: any) => {
+            const filename = (t.sourceFile || t.file || "").toLowerCase();
+            if (filename) return filename.endsWith(".jsf") || filename.endsWith(".xhtml");
+            return t.category?.startsWith("JSF");
+          }).length;
+          if (jsfCount > 0) filesMigrated = jsfCount;
+        }
+      }
+      reportHeroStats.push({
+        label: `${fm.source_framework.toUpperCase()} FILES MIGRATED`,
+        value: String(filesMigrated),
+        accent: "#d946ef",
+        meta: `${fm.source_framework.toUpperCase()} -> ${fm.target_framework ?? "Modern"} components`,
+        surface: "linear-gradient(180deg, #fdf4ff 0%, #fae8ff 100%)",
+        borderColor: "#f5d0fe",
+        shadow: "0 16px 30px rgba(217, 70, 239, 0.12)",
+      });
+    });
+  }
   const reportHeroSummary =
     migrationJob?.status === "completed"
       ? `The migration finished successfully${migrationJob?.target_repo ? " and the destination is ready to review." : "."}`
@@ -870,57 +1197,90 @@ export function ResultReportView({
             </div>
 
             {/* Stats Grid */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12, marginBottom: 12, width: "100%" }}>
-              {[
+            {(() => {
+              const baseStats = [
                 {
                   icon: <FaFileAlt />, count: migrationJob?.files_modified ?? 0, label: "Files Modified",
-                  meta: "No files were modified during migration",
-                  color: "#2563eb", bg: "#eff6ff"
+                  meta: migrationJob?.files_modified === 0 ? "No files were modified during migration" : `${migrationJob?.files_modified} files updated`,
+                  color: "#2563eb", bg: "#eff6ff",
+                  category: "files" as const,
                 },
                 {
-                  icon: <FaTools />, count: migrationJob?.issues_fixed ?? 15, label: "Issues Fixed",
+                  icon: <FaTools />, count: migrationJob?.issues_fixed ?? 0, label: "Issues Fixed",
                   meta: "All migration issues resolved",
-                  color: "#10b981", bg: "#ecfdf5"
+                  color: "#10b981", bg: "#ecfdf5",
+                  category: "issues" as const,
                 },
                 {
                   icon: <FaLayerGroup />, count: dependencyUpgradeCount, label: "Dependencies Updated",
                   meta: "Total dependencies updated",
-                  color: "#8b5cf6", bg: "#f5f3ff"
+                  color: "#8b5cf6", bg: "#f5f3ff",
+                  category: "dependencies" as const,
                 },
                 {
                   icon: <FaShieldAlt />, count: reportedVulnerabilityCount ?? 0, label: "Vulnerabilities",
                   meta: "No active vulnerabilities found",
-                  color: "#f97316", bg: "#fff7ed"
+                  color: "#f97316", bg: "#fff7ed",
+                  category: "vulnerabilities" as const,
                 }
-              ].map((stat, idx) => (
-                <div key={idx} style={{
-                  background: "#ffffff",
-                  border: `1px solid ${stat.color}15`,
-                  borderRadius: 16,
-                  padding: "16px 20px",
-                  display: "flex",
-                  gap: 16,
-                  alignItems: "center",
-                  boxShadow: `0 8px 30px -10px ${stat.color}25`,
-                  position: 'relative',
-                  overflow: 'hidden'
-                }}>
-                  {/* Accent bar at bottom for extra glow feel */}
-                  <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 3, background: stat.color, opacity: 0.2 }} />
+              ];
 
-                  <div style={{ background: stat.bg, color: stat.color, width: 56, height: 56, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, flexShrink: 0 }}>
-                    {stat.icon}
-                  </div>
-                  <div style={{ overflow: "hidden" }}>
-                    <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 2 }}>
-                      <span style={{ fontSize: 32, fontWeight: 800, color: "#001845", lineHeight: 1 }}>{stat.count}</span>
+              const allStats = baseStats;
+
+              return (
+                <div style={{
+                  display: "grid",
+                  gridTemplateColumns: `repeat(${allStats.length}, minmax(0, 1fr))`,
+                  gap: 12,
+                  marginBottom: 12,
+                  width: "100%"
+                }}>
+                  {allStats.map((stat, idx) => (
+                    <div
+                      key={idx}
+                      onClick={() => void handleOpenReportDetails(stat.category)}
+                      title={`Click to view details for ${stat.label}`}
+                      style={{
+                        background: "#ffffff",
+                        border: `1px solid ${stat.color}15`,
+                        borderRadius: 16,
+                        padding: "16px 20px",
+                        display: "flex",
+                        gap: 16,
+                        alignItems: "center",
+                        boxShadow: `0 8px 30px -10px ${stat.color}25`,
+                        position: 'relative',
+                        overflow: 'hidden',
+                        cursor: "pointer",
+                        transition: "transform 0.15s ease, box-shadow 0.15s ease",
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.transform = "translateY(-2px)";
+                        e.currentTarget.style.boxShadow = `0 12px 35px -8px ${stat.color}40`;
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = "translateY(0)";
+                        e.currentTarget.style.boxShadow = `0 8px 30px -10px ${stat.color}25`;
+                      }}
+                    >
+                      {/* Accent bar at bottom for extra glow feel */}
+                      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 3, background: stat.color, opacity: 0.2 }} />
+
+                      <div style={{ background: stat.bg, color: stat.color, width: 56, height: 56, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, flexShrink: 0 }}>
+                        {stat.icon}
+                      </div>
+                      <div style={{ overflow: "hidden" }}>
+                        <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 2 }}>
+                          <span style={{ fontSize: 32, fontWeight: 800, color: "#001845", lineHeight: 1 }}>{stat.count}</span>
+                        </div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: "#001845", marginBottom: 4 }}>{stat.label}</div>
+                        <div style={{ fontSize: 12, color: "#64748b", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontWeight: 500 }}>{stat.meta}</div>
+                      </div>
                     </div>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: "#001845", marginBottom: 4 }}>{stat.label}</div>
-                    <div style={{ fontSize: 12, color: "#64748b", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontWeight: 500 }}>{stat.meta}</div>
-                  </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              );
+            })()}
 
             {/* Row: Repository Information | Migration Overview */}
             <div style={{ display: "grid", gridTemplateColumns: "600px 1fr", gap: 16, marginBottom: 16 }}>
@@ -940,13 +1300,13 @@ export function ResultReportView({
                     {
                       label: "Source Repository",
                       value: migrationJob.source_repo,
-                      icon: <FaGithub />,
+                      icon: isLocalPath(migrationJob.source_repo) ? <FaFolderOpen /> : <FaGithub />,
                       isLink: true
                     },
                     {
                       label: "Target Repository",
                       value: migrationJob.target_repo,
-                      icon: <FaGithub />,
+                      icon: isLocalPath(migrationJob.target_repo) ? <FaFolderOpen /> : <FaGithub />,
                       isLink: true
                     },
                     {
@@ -971,8 +1331,13 @@ export function ResultReportView({
                       <div style={{ overflow: "hidden" }}>
                         <div style={{ fontSize: 12, fontWeight: 700, color: "#64748b", marginBottom: 6 }}>{item.label}</div>
                         <div style={{ fontSize: 14, color: item.isLink ? "#2563eb" : "#0f172a", fontWeight: 700, wordBreak: "break-all", lineHeight: 1.4 }}>
-                          {item.isLink && item.value && item.value.startsWith('http') ? (
-                            <a href={item.value} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb', textDecoration: 'none' }}>{item.value}</a>
+                          {item.isLink && item.value ? (
+                            (() => {
+                              const link = getRepositoryLink(item.value);
+                              return link ? (
+                                <a href={link} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb', textDecoration: 'none' }}>{item.value}</a>
+                              ) : (item.value);
+                            })()
                           ) : (item.value || 'N/A')}
                         </div>
                       </div>
@@ -993,23 +1358,34 @@ export function ResultReportView({
                   <p style={{ margin: 0, fontSize: 14, color: "#64748b", fontWeight: 500 }}>Key changes made during the migration process</p>
                 </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
-                  {[
+                {(() => {
+                  const transformationsCount =
+                    migrationJob?.transformations_count ??
+                    (migrationJob?.uiTransformations?.length ?? 0);
+                  const overviewCards = [
                     {
                       icon: <FaFileAlt />,
                       title: "Files Modified",
-                      desc: "Code files updated during migration",
+                      desc: discoveryTotalFiles > 0
+                        ? `${migrationJob.files_modified ?? 0} of ${discoveryTotalFiles} total files`
+                        : "Code files updated during migration",
                       value: migrationJob.files_modified ?? 0,
-                      footer: migrationJob.files_modified === 0 ? "No files modified" : `${migrationJob.files_modified} files updated`,
-                      color: "#2563eb", bg: "#eff6ff", border: "#dbeafe", glow: "rgba(37,99,235,0.05)"
+                      footer: modifiedFilesBreakdown || (
+                        discoveryTotalFiles > 0
+                          ? `${discoveryJavaFiles} Java · ${discoveryJspFiles + discoveryJsfFiles} JSP/JSF · ${discoveryXmlFiles} XML`
+                          : migrationJob.files_modified === 0 ? "No files modified" : `${migrationJob.files_modified} files updated`
+                      ),
+                      color: "#2563eb", bg: "#eff6ff", border: "#dbeafe", glow: "rgba(37,99,235,0.05)",
+                      category: "files" as const,
                     },
                     {
                       icon: <FaCode />,
                       title: "Code Transmission",
                       desc: "Code transformation and migration logic applied",
-                      value: migrationJob.issues_fixed || 15,
-                      footer: `${migrationJob.issues_fixed || 15} transformations completed`,
-                      color: "#7c3aed", bg: "#f5f3ff", border: "#ede9fe", glow: "rgba(124,58,237,0.05)"
+                      value: transformationsCount,
+                      footer: `${transformationsCount} transformations completed`,
+                      color: "#7c3aed", bg: "#f5f3ff", border: "#ede9fe", glow: "rgba(124,58,237,0.05)",
+                      category: "transformations" as const,
                     },
                     {
                       icon: <FaShieldAlt />,
@@ -1017,19 +1393,39 @@ export function ResultReportView({
                       desc: "Libraries and dependencies upgraded",
                       value: dependencyUpgradeCount,
                       footer: `${dependencyUpgradeCount} dependencies updated`,
-                      color: "#10b981", bg: "#ecfdf5", border: "#d1fae5", glow: "rgba(16,185,129,0.05)"
+                      color: "#10b981", bg: "#ecfdf5", border: "#d1fae5", glow: "rgba(16,185,129,0.05)",
+                      category: "dependencies" as const,
                     }
-                  ].map((item, idx) => (
-                    <div key={idx} style={{
-                      background: item.bg,
-                      border: `1px solid ${item.border}`,
-                      borderRadius: 16,
-                      padding: "16px 20px",
-                      display: "flex",
-                      flexDirection: "column",
-                      position: "relative",
-                      overflow: "hidden"
-                    }}>
+                  ];
+
+                  return (
+                    <div style={{ display: "grid", gridTemplateColumns: `repeat(${overviewCards.length}, minmax(0, 1fr))`, gap: 12 }}>
+                      {overviewCards.map((item, idx) => (
+                    <div
+                      key={idx}
+                      onClick={() => void handleOpenReportDetails(item.category)}
+                      title={`Click to view details for ${item.title}`}
+                      style={{
+                        background: item.bg,
+                        border: `1px solid ${item.border}`,
+                        borderRadius: 16,
+                        padding: "16px 20px",
+                        display: "flex",
+                        flexDirection: "column",
+                        position: "relative",
+                        overflow: "hidden",
+                        cursor: "pointer",
+                        transition: "transform 0.15s ease, box-shadow 0.15s ease",
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.transform = "translateY(-2px)";
+                        e.currentTarget.style.boxShadow = `0 12px 30px -8px ${item.color}35`;
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = "translateY(0)";
+                        e.currentTarget.style.boxShadow = "none";
+                      }}
+                    >
                       <div style={{ background: "#ffffff", color: item.color, width: 44, height: 44, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, marginBottom: 12, boxShadow: "0 4px 12px rgba(0,0,0,0.05)" }}>
                         {item.icon}
                       </div>
@@ -1061,8 +1457,10 @@ export function ResultReportView({
                         {item.icon}
                       </div>
                     </div>
-                  ))}
-                </div>
+                      ))}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
 
@@ -1166,217 +1564,8 @@ export function ResultReportView({
             </div>
 
             {/* Source Code Transformations (GitHub-style Diff Layout) */}
-            <div style={{ background: "#ffffff", border: "1px solid #eef2f6", borderRadius: 16, overflow: "hidden", boxShadow: "0 4px 20px rgba(0,0,0,0.03)", marginBottom: 16 }}>
+            <div id="source-code-transformations-section" style={{ background: "#ffffff", border: "1px solid #eef2f6", borderRadius: 16, overflow: "hidden", boxShadow: "0 4px 20px rgba(0,0,0,0.03)", marginBottom: 16 }}>
               {(() => {
-                const diffData: Array<{
-                  file: string;
-                  status: "Modified" | "Added" | "Removed";
-                  additions: number;
-                  deletions: number;
-                  beforeLines: Array<{ num: number; text: string; type: string }>;
-                  afterLines: Array<{ num: number; text: string; type: string }>;
-                }> = [
-                  {
-                    file: "pom.xml",
-                    status: "Modified",
-                    additions: 12,
-                    deletions: 8,
-                    beforeLines: [
-                      { num: 1, text: `<project xmlns="http://maven.apache.org/POM/4.0.0">`, type: "normal" },
-                      { num: 2, text: `  <modelVersion>4.0.0</modelVersion>`, type: "normal" },
-                      { num: 3, text: `  <parent>`, type: "normal" },
-                      { num: 4, text: `    <groupId>org.springframework.boot</groupId>`, type: "normal" },
-                      { num: 5, text: `    <artifactId>spring-boot-starter-parent</artifactId>`, type: "normal" },
-                      { num: 6, text: `-   <version>2.7.18</version>`, type: "removed" },
-                      { num: 7, text: `  </parent>`, type: "normal" },
-                      { num: 8, text: `  <properties>`, type: "normal" },
-                      { num: 9, text: `-   <java.version>1.8</java.version>`, type: "removed" },
-                    ],
-                    afterLines: [
-                      { num: 6, text: `+   <version>3.2.5</version>`, type: "added" },
-                      { num: 9, text: `+   <java.version>17</java.version>`, type: "added" },
-                    ]
-                  },
-                  {
-                    file: "SystemApplicationTests.java",
-                    status: "Modified",
-                    additions: 8,
-                    deletions: 5,
-                    beforeLines: [
-                      { num: 1, text: `package com.ems;`, type: "normal" },
-                      { num: 2, text: `- import org.junit.Test;`, type: "removed" },
-                      { num: 3, text: `- import org.junit.Before;`, type: "removed" },
-                    ],
-                    afterLines: [
-                      { num: 2, text: `+ import org.junit.jupiter.api.Test;`, type: "added" },
-                      { num: 3, text: `+ import org.junit.jupiter.api.BeforeEach;`, type: "added" },
-                    ]
-                  },
-                  {
-                    file: "EmployeeService.java",
-                    status: "Modified",
-                    additions: 12,
-                    deletions: 5,
-                    beforeLines: [
-                      { num: 12, text: `import javax.persistence.EntityManager;`, type: "removed" },
-                      { num: 13, text: `import javax.persistence.PersistenceContext;`, type: "removed" },
-                      { num: 14, text: ``, type: "normal" },
-                      { num: 15, text: `@Service`, type: "normal" },
-                      { num: 16, text: `public class EmployeeService {`, type: "normal" },
-                      { num: 17, text: `-   @PersistenceContext`, type: "removed" },
-                      { num: 18, text: `-   private EntityManager entityManager;`, type: "removed" },
-                    ],
-                    afterLines: [
-                      { num: 12, text: `+ import jakarta.persistence.EntityManager;`, type: "added" },
-                      { num: 13, text: `+ import jakarta.persistence.PersistenceContext;`, type: "added" },
-                      { num: 17, text: `+   @PersistenceContext`, type: "added" },
-                      { num: 18, text: `+   private EntityManager em;`, type: "added" },
-                    ]
-                  },
-                  {
-                    file: "AttendanceService.java",
-                    status: "Modified",
-                    additions: 8,
-                    deletions: 4,
-                    beforeLines: [
-                      { num: 1, text: `package com.ems.service;`, type: "normal" },
-                      { num: 5, text: `- import javax.validation.Valid;`, type: "removed" },
-                      { num: 22, text: `- public void logAttendance(@Valid AttendanceDTO dto) {`, type: "removed" },
-                    ],
-                    afterLines: [
-                      { num: 5, text: `+ import jakarta.validation.Valid;`, type: "added" },
-                      { num: 22, text: `+ public void recordAttendance(@Valid AttendanceDTO dto) {`, type: "added" },
-                    ]
-                  },
-                  {
-                    file: "LeaveService.java",
-                    status: "Modified",
-                    additions: 6,
-                    deletions: 2,
-                    beforeLines: [
-                      { num: 10, text: `- import org.springframework.cache.annotation.Cacheable;`, type: "removed" },
-                      { num: 45, text: `- @Cacheable("leaves")`, type: "removed" },
-                    ],
-                    afterLines: [
-                      { num: 10, text: `+ import jakarta.inject.Inject;`, type: "added" },
-                      { num: 45, text: `+ @CacheResult(cacheName = "leaves")`, type: "added" },
-                    ]
-                  },
-                  {
-                    file: "SalaryService.java",
-                    status: "Modified",
-                    additions: 15,
-                    deletions: 8,
-                    beforeLines: [
-                      { num: 24, text: `- public double calculateBonus(Employee e) {`, type: "removed" },
-                      { num: 25, text: `-   return e.getSalary() * 0.1;`, type: "removed" },
-                      { num: 26, text: `- }`, type: "removed" },
-                    ],
-                    afterLines: [
-                      { num: 24, text: `+ public BigDecimal computeBonus(Employee e) {`, type: "added" },
-                      { num: 25, text: `+   return e.getSalary().multiply(new BigDecimal("0.1"));`, type: "added" },
-                      { num: 26, text: `+ }`, type: "added" },
-                    ]
-                  },
-                  {
-                    file: "UserController.java",
-                    status: "Added",
-                    additions: 45,
-                    deletions: 0,
-                    beforeLines: [],
-                    afterLines: [
-                      { num: 1, text: `+ package com.ems.controller;`, type: "added" },
-                      { num: 2, text: `+ `, type: "added" },
-                      { num: 3, text: `+ @RestController`, type: "added" },
-                      { num: 4, text: `+ @RequestMapping("/api/v1/users")`, type: "added" },
-                      { num: 5, text: `+ public class UserController { ... }`, type: "added" },
-                    ]
-                  },
-                  {
-                    file: "AuthService.java",
-                    status: "Added",
-                    additions: 30,
-                    deletions: 0,
-                    beforeLines: [],
-                    afterLines: [
-                      { num: 1, text: `+ package com.ems.auth;`, type: "added" },
-                      { num: 2, text: `+ `, type: "added" },
-                      { num: 3, text: `+ @Service`, type: "added" },
-                      { num: 4, text: `+ public class AuthService {`, type: "added" },
-                      { num: 5, text: `+   public String login(...) { ... }`, type: "added" },
-                      { num: 6, text: `+ }`, type: "added" },
-                    ]
-                  },
-                  {
-                    file: "MigrationUtils.java",
-                    status: "Added",
-                    additions: 15,
-                    deletions: 0,
-                    beforeLines: [],
-                    afterLines: [
-                      { num: 1, text: `+ public class MigrationUtils {`, type: "added" },
-                      { num: 2, text: `+   public static void transform(...) { ... }`, type: "added" },
-                      { num: 3, text: `+ }`, type: "added" },
-                    ]
-                  },
-                  {
-                    file: "docker-compose.yml",
-                    status: "Added",
-                    additions: 20,
-                    deletions: 0,
-                    beforeLines: [],
-                    afterLines: [
-                      { num: 1, text: `+ version: '3.8'`, type: "added" },
-                      { num: 2, text: `+ services:`, type: "added" },
-                      { num: 3, text: `+   app:`, type: "added" },
-                      { num: 4, text: `+     image: ems-modernized:latest`, type: "added" },
-                    ]
-                  },
-                  {
-                    file: "README.md",
-                    status: "Added",
-                    additions: 10,
-                    deletions: 0,
-                    beforeLines: [],
-                    afterLines: [
-                      { num: 1, text: `+ # Modernized EMS Application`, type: "added" },
-                      { num: 2, text: `+ Updated to Spring Boot 3.2 and Java 17.`, type: "added" },
-                    ]
-                  },
-                  {
-                    file: "OldEmployeeService.java",
-                    status: "Removed",
-                    additions: 0,
-                    deletions: 50,
-                    beforeLines: [
-                      { num: 1, text: `- package com.ems.legacy;`, type: "removed" },
-                      { num: 2, text: `- `, type: "removed" },
-                      { num: 3, text: `- public class OldEmployeeService { ... }`, type: "removed" },
-                    ],
-                    afterLines: []
-                  },
-                  {
-                    file: "LegacyUtils.java",
-                    status: "Removed",
-                    additions: 0,
-                    deletions: 25,
-                    beforeLines: [
-                      { num: 1, text: `- public class LegacyUtils { ... }`, type: "removed" },
-                    ],
-                    afterLines: []
-                  },
-                  {
-                    file: "temp-config.properties",
-                    status: "Removed",
-                    additions: 0,
-                    deletions: 5,
-                    beforeLines: [
-                      { num: 1, text: `- db.host=localhost`, type: "removed" },
-                    ],
-                    afterLines: []
-                  },
-                ];
-
                 const current = diffData[selectedDiffIndex] || diffData[0];
                 const modifiedCount = diffData.filter(f => f.status === "Modified").length;
                 const addedCount = diffData.filter(f => f.status === "Added").length;
@@ -1402,10 +1591,21 @@ export function ResultReportView({
                       </div>
 
                       <div style={{ flex: 1, overflowY: "auto", borderTop: "1px solid #f1f5f9", minHeight: 0 }}>
-                        {diffData.map((file, idx) => (
+                        {diffData.length === 0 ? (
+                          <div style={{ padding: "32px 24px", textAlign: "center", color: "#94a3b8", fontSize: 13, fontStyle: "italic" }}>
+                            {migrationJob?.status === "completed"
+                              ? "No file changes recorded for this migration."
+                              : "Migration in progress — file changes will appear here when complete."}
+                          </div>
+                        ) : diffData.map((file, idx) => (
                           <div
                             key={idx}
-                            onClick={() => setSelectedDiffIndex(idx)}
+                            onClick={() => {
+                              setSelectedDiffIndex(idx);
+                              if (!file.category && file.relativePath) {
+                                void loadFileDiff(file.relativePath);
+                              }
+                            }}
                             style={{
                               padding: "12px 24px",
                               display: "flex",
@@ -1417,18 +1617,26 @@ export function ResultReportView({
                               borderLeft: selectedDiffIndex === idx ? "4px solid #2563eb" : "4px solid transparent"
                             }}
                           >
-                            <div style={{ display: "flex", alignItems: "center", gap: 12, overflow: "hidden" }}>
-                              <FaFileAlt style={{ color: "#2563eb", fontSize: 16, opacity: 0.8 }} />
-                              <span style={{
-                                fontSize: 14,
-                                fontWeight: selectedDiffIndex === idx ? 700 : 500,
-                                color: selectedDiffIndex === idx ? "#1d4ed8" : "#334155",
-                                whiteSpace: "nowrap",
-                                overflow: "hidden",
-                                textOverflow: "ellipsis"
-                              }}>
-                                {file.file}
-                              </span>
+                            <div style={{ display: "flex", alignItems: "center", gap: 10, overflow: "hidden" }}>
+                              <FaFileAlt style={{ color: file.category ? "#7c3aed" : "#2563eb", fontSize: 16, opacity: 0.8 }} />
+                              <div style={{ overflow: "hidden" }}>
+                                <span style={{
+                                  fontSize: 13,
+                                  fontWeight: selectedDiffIndex === idx ? 700 : 500,
+                                  color: selectedDiffIndex === idx ? "#1d4ed8" : "#334155",
+                                  whiteSpace: "nowrap",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  display: "block",
+                                }}>
+                                  {file.file}
+                                </span>
+                                {file.category && (
+                                  <span style={{ fontSize: 10, color: "#7c3aed", fontWeight: 700 }}>
+                                    {file.category}
+                                  </span>
+                                )}
+                              </div>
                             </div>
                             <span style={{
                               fontSize: 10,
@@ -1437,7 +1645,8 @@ export function ResultReportView({
                               borderRadius: 6,
                               background: file.status === "Modified" ? "#dbeafe" : file.status === "Added" ? "#dcfce7" : "#fee2e2",
                               color: file.status === "Modified" ? "#1d4ed8" : file.status === "Added" ? "#059669" : "#dc2626",
-                              flexShrink: 0
+                              flexShrink: 0,
+                              marginLeft: 8,
                             }}>
                               {file.status}
                             </span>
@@ -1452,67 +1661,176 @@ export function ResultReportView({
 
                     {/* Right Diff View */}
                     <div style={{ background: "#ffffff", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-                      {/* Header */}
-                      <div style={{ padding: "16px 28px", borderBottom: "1px solid #e2e8f0", display: "flex", justifyContent: "space-between", alignItems: "center", background: "#ffffff" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                          <FaCode style={{ color: "#2563eb", fontSize: 18 }} />
-                          <h4 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "#0f172a" }}>{current.file}</h4>
-                          <span style={{
-                            fontSize: 10,
-                            fontWeight: 700,
-                            padding: "2px 8px",
-                            borderRadius: 6,
-                            background: current.status === "Modified" ? "#dcfce7" : current.status === "Added" ? "#dcfce7" : "#fee2e2",
-                            color: current.status === "Modified" ? "#059669" : current.status === "Added" ? "#059669" : "#dc2626",
-                          }}>
-                            {current.status === "Modified" ? "Modified" : current.status}
-                          </span>
-                        </div>
-                        <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
-                          <div style={{ fontSize: 12, fontWeight: 700 }}>
-                            <span style={{ color: "#10b981" }}>+ {current.additions} additions</span>
-                            <span style={{ color: "#ef4444", marginLeft: 12 }}>- {current.deletions} deletions</span>
+                      {current ? (
+                        <>
+                          {/* Header */}
+                          <div style={{ padding: "16px 28px", borderBottom: "1px solid #e2e8f0", display: "flex", justifyContent: "space-between", alignItems: "center", background: "#ffffff" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                              <FaCode style={{ color: current.category ? "#7c3aed" : "#2563eb", fontSize: 18 }} />
+                              <h4 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "#0f172a" }}>{current.file}</h4>
+                              <span style={{
+                                fontSize: 10,
+                                fontWeight: 700,
+                                padding: "2px 8px",
+                                borderRadius: 6,
+                                background: current.status === "Modified" ? "#dcfce7" : current.status === "Added" ? "#dcfce7" : "#fee2e2",
+                                color: current.status === "Modified" ? "#059669" : current.status === "Added" ? "#059669" : "#dc2626",
+                              }}>
+                                {current.status}
+                              </span>
+                              {current.category && (
+                                <span style={{
+                                  fontSize: 10,
+                                  fontWeight: 700,
+                                  padding: "2px 8px",
+                                  borderRadius: 6,
+                                  background: "#f5f3ff",
+                                  color: "#7c3aed",
+                                  border: "1px solid #e9d5ff",
+                                }}>
+                                  {current.icon && <>{current.icon}&nbsp;</>}{current.category}
+                                </span>
+                              )}
+                              {current.sourceFile && current.sourceFile !== current.file && (
+                                <span style={{ fontSize: 11, color: "#64748b", fontFamily: "monospace" }}>
+                                  from: {current.sourceFile}
+                                </span>
+                              )}
+                            </div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
+                              <div style={{ fontSize: 12, fontWeight: 700 }}>
+                                <span style={{ color: "#10b981" }}>+ {current.additions ?? 0} additions</span>
+                                <span style={{ color: "#ef4444", marginLeft: 12 }}>- {current.deletions ?? 0} deletions</span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => void handleCopyDiffCode(current.afterLines ?? [])}
+                                title={copiedDiffCode ? "Code copied" : "Copy generated code"}
+                                aria-label={copiedDiffCode ? "Code copied" : "Copy generated code"}
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  width: 30,
+                                  height: 30,
+                                  padding: 0,
+                                  border: "1px solid #cbd5e1",
+                                  borderRadius: 6,
+                                  background: copiedDiffCode ? "#ecfdf5" : "#ffffff",
+                                  color: copiedDiffCode ? "#059669" : "#475569",
+                                  cursor: "pointer",
+                                }}
+                              >
+                                {copiedDiffCode ? <FaCheck size={12} /> : <FaCopy size={12} />}
+                              </button>
+                              {Boolean(
+                                current &&
+                                !String(current.file || "").toLowerCase().endsWith(".css") &&
+                                !String(current.file || "").toLowerCase().endsWith(".java") &&
+                                !String(current.file || "").toLowerCase().endsWith(".xml") &&
+                                !String(current.file || "").toLowerCase().endsWith(".json") &&
+                                !String(current.file || "").toLowerCase().endsWith(".sql") &&
+                                !String(current.file || "").toLowerCase().endsWith(".properties") &&
+                                (
+                                  current.category?.toLowerCase().includes("jsp") ||
+                                  current.category?.toLowerCase().includes("jsf") ||
+                                  current.category?.toLowerCase().includes("ui") ||
+                                  current.category?.toLowerCase().includes("angular") ||
+                                  current.category?.toLowerCase().includes("react") ||
+                                  /\.(tsx|jsx|vue|html)$/i.test(current.file || "") ||
+                                  (/\.component\.ts$/i.test(current.file || "")) ||
+                                  Boolean(current.targetSourceFile && /\.(tsx|jsx|ts|html)$/i.test(current.targetSourceFile))
+                                )
+                              ) && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleShowReactUi(current, e)}
+                                  title="Show the migrated UI preview"
+                                  aria-label="Show the migrated UI preview"
+                                  style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: 6,
+                                    height: 30,
+                                    padding: "0 10px",
+                                    border: "1px solid #bfdbfe",
+                                    borderRadius: 6,
+                                    background: "#eff6ff",
+                                    color: "#1d4ed8",
+                                    cursor: "pointer",
+                                    fontSize: 12,
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  <FaExternalLinkAlt size={11} />
+                                  View UI
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Content Area */}
+                          <div style={{ flex: 1, overflow: "auto", background: "#ffffff" }}>
+                            {fileDiffLoading && !current.beforeLines?.length && !current.afterLines?.length ? (
+                              <div style={{ padding: 32, color: "#64748b", textAlign: "center" }}>
+                                Loading file diff...
+                              </div>
+                            ) : fileDiffError && !current.beforeLines?.length && !current.afterLines?.length ? (
+                              <div style={{ padding: 32, color: "#b91c1c", textAlign: "center" }}>
+                                {fileDiffError}
+                              </div>
+                            ) : (
+                            <>
+                            <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "'JetBrains Mono', monospace", fontSize: 12 }}>
+                              <tbody>
+                                {[
+                                  ...(current.beforeLines ?? []).map(l => ({ ...l, origin: 'before' })),
+                                  ...(current.afterLines ?? []).map(l => ({ ...l, origin: 'after' }))
+                                ].sort((a,b) => a.num - b.num).map((line, idx) => {
+                                  const isRemoved = line.type === 'removed';
+                                  const isAdded = line.type === 'added';
+                                  const bgColor = isRemoved ? "#fff1f2" : isAdded ? "#f0fdf4" : "transparent";
+                                  const sign = isRemoved ? "-" : isAdded ? "+" : " ";
+                                  const textColor = isRemoved ? "#991b1b" : isAdded ? "#166534" : "#475569";
+
+                                  return (
+                                    <tr key={idx} style={{ background: bgColor, borderBottom: "1px solid rgba(0,0,0,0.02)" }}>
+                                      <td style={{ width: 45, padding: "2px 10px", textAlign: "right", color: "#94a3b8", background: "rgba(0,0,0,0.02)", userSelect: "none", borderRight: "1px solid #e2e8f0" }}>{line.origin === 'before' ? line.num : ""}</td>
+                                      <td style={{ width: 45, padding: "2px 10px", textAlign: "right", color: "#94a3b8", background: "rgba(0,0,0,0.02)", userSelect: "none", borderRight: "1px solid #e2e8f0" }}>{line.origin === 'after' ? line.num : line.type === 'normal' ? line.num : ""}</td>
+                                      <td style={{ width: 30, padding: "2px 0", textAlign: "center", color: textColor, fontWeight: 800, userSelect: "none" }}>{sign}</td>
+                                      <td style={{ padding: "2px 12px", color: textColor, whiteSpace: "pre-wrap", flex: 1 }}>{line.text.replace(/^[+-]\s*/, '')}</td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                            {(((current.beforeLines?.length ?? 0) === 0) && ((current.afterLines?.length ?? 0) === 0)) && (
+                              <div style={{ padding: 60, textAlign: "center", color: "#94a3b8", fontStyle: "italic" }}>
+                                Select a modified file from the sidebar to view detailed transformations.
+                              </div>
+                            )}
+                            </>
+                            )}
+                          </div>
+                        </>
+                      ) : (
+                        <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "#94a3b8", padding: 40 }}>
+                          <FaCode style={{ fontSize: 36, color: "#cbd5e1", marginBottom: 12 }} />
+                          <div style={{ fontSize: 14, fontWeight: 600, color: "#64748b" }}>No files to display</div>
+                          <div style={{ fontSize: 12, marginTop: 4 }}>
+                            {migrationJob?.status === "completed"
+                              ? "No file changes were recorded for this migration."
+                              : "File transformations will appear here once available."}
                           </div>
                         </div>
-                      </div>
-
-                      {/* Content Area */}
-                      <div style={{ flex: 1, overflow: "auto", background: "#ffffff" }}>
-                        <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "'JetBrains Mono', monospace", fontSize: 12 }}>
-                          <tbody>
-                            {/* Dummy Diff Rendering Logic */}
-                            {[
-                              ...current.beforeLines.map(l => ({ ...l, origin: 'before' })),
-                              ...current.afterLines.map(l => ({ ...l, origin: 'after' }))
-                            ].sort((a,b) => a.num - b.num).map((line, idx) => {
-                              const isRemoved = line.type === 'removed';
-                              const isAdded = line.type === 'added';
-                              const bgColor = isRemoved ? "#fff1f2" : isAdded ? "#f0fdf4" : "transparent";
-                              const sign = isRemoved ? "-" : isAdded ? "+" : " ";
-                              const textColor = isRemoved ? "#991b1b" : isAdded ? "#166534" : "#475569";
-
-                              return (
-                                <tr key={idx} style={{ background: bgColor, borderBottom: "1px solid rgba(0,0,0,0.02)" }}>
-                                  <td style={{ width: 45, padding: "2px 10px", textAlign: "right", color: "#94a3b8", background: "rgba(0,0,0,0.02)", userSelect: "none", borderRight: "1px solid #e2e8f0" }}>{line.origin === 'before' ? line.num : ""}</td>
-                                  <td style={{ width: 45, padding: "2px 10px", textAlign: "right", color: "#94a3b8", background: "rgba(0,0,0,0.02)", userSelect: "none", borderRight: "1px solid #e2e8f0" }}>{line.origin === 'after' ? line.num : line.type === 'normal' ? line.num : ""}</td>
-                                  <td style={{ width: 30, padding: "2px 0", textAlign: "center", color: textColor, fontWeight: 800, userSelect: "none" }}>{sign}</td>
-                                  <td style={{ padding: "2px 12px", color: textColor, whiteSpace: "pre-wrap", flex: 1 }}>{line.text.replace(/^[+-]\s*/, '')}</td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                        {(current.beforeLines.length === 0 && current.afterLines.length === 0) && (
-                          <div style={{ padding: 60, textAlign: "center", color: "#94a3b8", fontStyle: "italic" }}>
-                            Select a modified file from the sidebar to view detailed transformations.
-                          </div>
-                        )}
-                      </div>
+                      )}
                     </div>
                   </div>
                 );
               })()}
             </div>
+
+            {migrationJob.run_cycode && <MigrationCycodeSection report={migrationJob.cycode_report} />}
 
             {/* DETAILED MIGRATION DASHBOARD */}
             <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 16, marginTop: 16, marginBottom: 16, alignItems: "stretch" }}>
@@ -1525,6 +1843,7 @@ export function ResultReportView({
                     migrationJavaVersion={migrationJob.target_java_version}
                     summaryItems={testSummaryItems}
                     testsRun={testsRun}
+                    runTests={Boolean(migrationJob.run_tests ?? migrationJob.runTests ?? runTests)}
                     onDownloadUnitTestReport={handleDownloadUnitTestReport}
                   />
                 </div>
@@ -1544,9 +1863,21 @@ export function ResultReportView({
                    <div style={{ flex: 1 }}>
                      <MigrationFossaSection
                         styles={{...styles, reportSection: { padding: 0, border: 'none', background: 'transparent', boxShadow: 'none' }}}
-                        fossaLicenseIssueCount={migrationJob.fossa_report?.license_issues || 0}
-                        fossaVulnerabilityTotal={migrationJob.fossa_report?.vulnerability_count || 0}
-                        fossaOutdatedCount={migrationJob.fossa_report?.outdated_dependencies || 0}
+                        migrationJob={migrationJob}
+                        runFossa={Boolean(migrationJob.run_fossa ?? migrationJob.runFossa ?? runFossa)}
+                        fossaLicenseIssueCount={migrationJob.fossa_license_issues ?? (migrationJob.fossa_report as any)?.license_issues ?? (migrationJob as any)?.license_issues}
+                        fossaVulnerabilityTotal={migrationJob.fossa_vulnerabilities ?? (migrationJob.fossa_report as any)?.vulnerabilities ?? (migrationJob.fossa_report as any)?.vulnerability_count}
+                        fossaOutdatedCount={migrationJob.fossa_outdated_dependencies ?? (migrationJob.fossa_report as any)?.outdated_dependencies ?? (migrationJob as any)?.outdated_packages}
+ 
+                        fossaTotalDependencies={migrationJob.fossa_total_dependencies ?? (migrationJob.fossa_report as any)?.total_dependencies ?? (migrationJob as any)?.dependencies}
+ 
+                        fossaTotalLicenses={(migrationJob as any)?.fossa_total_licenses ?? (migrationJob.fossa_report as any)?.total_licenses ?? (migrationJob.fossa_report as any)?.license_count ?? (migrationJob.fossa_report as any)?.licenses ?? (migrationJob as any)?.licenses}
+ 
+                        fossaPolicyStatus={migrationJob.fossa_policy_status || (migrationJob.fossa_report as any)?.policy_status || (migrationJob as any)?.status}
+                        fossaScanMode={migrationJob.fossa_scan_mode || (migrationJob.fossa_report as any)?.scan_mode}
+                        fossaErrorMessage={migrationJob.fossa_error_message || (migrationJob.fossa_report as any)?.error_message}
+                        fossaAnalysisUrl={fossaAnalysisUrl || migrationJob.fossa_analysis_url || (migrationJob.fossa_report as any)?.analysis_url || (migrationJob as any)?.project_url}
+                        fossaRealScan={Boolean(fossaIsRealScan || migrationJob.fossa_real_scan || (migrationJob.fossa_report as any)?.real_scan)}
                       />
                    </div>
 
@@ -1563,10 +1894,13 @@ export function ResultReportView({
             </div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: 16, marginBottom: 16 }}>
-                <MigrationProposedTestSection
-                  styles={styles}
-                  migrationJob={migrationJob}
-                />
+                {/* Proposed Test Case Information — only shown when Functional Testing was enabled */}
+                {(runFunctionalTests ?? migrationJob.run_functional_tests ?? true) && (
+                  <MigrationProposedTestSection
+                    styles={styles}
+                    migrationJob={migrationJob}
+                  />
+                )}
 
                 <MigrationSonarSection
                   styles={styles}
@@ -1633,6 +1967,27 @@ export function ResultReportView({
           onError={(message: string) => onError(message)}
           onDownloadUnitTestReport={handleDownloadUnitTestReport}
           styles={{...styles, reportActionsBar: { ...styles.reportActionsBar, marginTop: 4, padding: "8px 0" }}}
+        />
+        {sandboxEntry && (
+          <FrameworkPageSandbox
+            fileName={sandboxEntry.fileName}
+            code={sandboxEntry.code}
+            css={sandboxEntry.css}
+            allFiles={(migrationJob?.uiTransformations ?? []).map((t: any) => ({
+              fileName: t.targetSourceFile ?? t.file ?? "MigratedPage.tsx",
+              code: (t.afterLines ?? []) as Array<{ text: string }>,
+            }))}
+            onClose={() => setSandboxEntry(null)}
+          />
+        )}
+        <MigrationReportDetailModal
+          isOpen={detailModalCategory !== null}
+          category={detailModalCategory}
+          data={detailModalCategory ? reportDetailsCache[detailModalCategory] ?? null : null}
+          loading={detailModalLoading}
+          error={detailModalError}
+          onClose={() => setDetailModalCategory(null)}
+          onSelectFileForDiff={handleSelectFileForDiff}
         />
       </React.Suspense>
     </div>

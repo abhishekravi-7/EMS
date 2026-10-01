@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
-import { signInWithGoogle, signInWithGithub, resetPassword, signIn } from "../services/authService";
+import { useNavigate, useSearchParams, Link } from "react-router-dom";
+import { signInWithGoogle, signInWithGithub, resetPassword, signIn, resendVerification } from "../services/authService";
 import AuthLayout from "../components/AuthLayout";
 import { useAuth } from "@/shared/context/AuthContext";
-import { FaUser, FaRegEnvelope, FaLock, FaEye, FaEyeSlash, FaGithub } from "react-icons/fa";
+import { FaUser, FaRegEnvelope, FaLock, FaEye, FaEyeSlash, FaGithub, FaCheckCircle, FaExclamationCircle } from "react-icons/fa";
+import { getOAuthErrorMessage } from "../oauthErrorMessages";
 
 const GoogleIcon: React.FC = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" style={{ display: "block" }}>
@@ -145,12 +146,42 @@ const SignInPage: React.FC = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [isUnverifiedEmail, setIsUnverifiedEmail] = useState(false);
+  const [resendStatus, setResendStatus] = useState<"idle" | "sending" | "sent">("idle");
+  const [successNotice, setSuccessNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showForgotModal, setShowForgotModal] = useState(false);
 
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { login, isAuthenticated, isAuthLoading } = useAuth();
+
+  // Handle URL query parameters for OAuth and email verification outcomes
+  useEffect(() => {
+    const verifiedParam = searchParams.get("verified");
+    if (verifiedParam === "true") {
+      setSuccessNotice("Your email has been successfully verified! Please log in.");
+    }
+
+    const verifyErrorParam = searchParams.get("verify_error");
+    if (verifyErrorParam) {
+      setError("Email verification link was invalid or has expired. You can request a new one below.");
+      setIsUnverifiedEmail(true);
+    }
+    const sessionExpiredParam = searchParams.get("session_expired");
+ 
+    if (sessionExpiredParam === "true") {
+ 
+      setError("Your session has expired. Please sign in again.");
+ 
+    }
+
+    const oauthErrorCode = searchParams.get("oauth_error");
+    if (oauthErrorCode) {
+      setError(getOAuthErrorMessage(oauthErrorCode));
+    }
+  }, [searchParams]);
 
   // If already authenticated, redirect to application
   useEffect(() => {
@@ -162,25 +193,59 @@ const SignInPage: React.FC = () => {
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setIsUnverifiedEmail(false);
+    setResendStatus("idle");
+
+    const trimmedEmail = email.trim().toLowerCase();
+    const emailRegex = /^[a-zA-Z0-9]+(?:[._%+-][a-zA-Z0-9]+)*@[a-zA-Z0-9]+(?:[.-][a-zA-Z0-9]+)*\.[a-zA-Z]{2,}$/;
+    if (!trimmedEmail || !emailRegex.test(trimmedEmail)) {
+      setError("Please enter a valid email address.");
+      return;
+    }
+
+    if (!password) {
+      setError("Please enter your password.");
+      return;
+    }
+
     setLoading(true);
 
     try {
-      const user = await signIn({ email, password });
+      const user = await signIn({ email: trimmedEmail, password });
       console.log("[SignIn] Email sign in success:", user.email);
-      login(); // Trigger auth check update in provider
+      login(user);
+      navigate("/connect", { replace: true });
     } catch (err: any) {
       console.error("[SignIn] Email sign in error:", err);
-      setError(err.message);
+      const errMsg = err.message || "Invalid email or password.";
+      if (errMsg.toLowerCase().includes("verify your email") || errMsg.toLowerCase().includes("not verified") || err.status === "EMAIL_NOT_VERIFIED") {
+        const cleanEmail = trimmedEmail.toLowerCase();
+        sessionStorage.setItem("apex_pending_verification_email", cleanEmail);
+        navigate("/verify-email", { state: { email: cleanEmail } });
+        return;
+      }
+      setError(errMsg);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    if (!email.trim()) return;
+    setResendStatus("sending");
+    try {
+      await resendVerification(email.trim().toLowerCase());
+      setResendStatus("sent");
+    } catch (err: any) {
+      console.error("Resend verification error:", err);
+      setError(err.message || "Failed to resend verification code. Please try again.");
     }
   };
 
   const handleGoogleSignIn = async () => {
     setError(null);
     try {
-      await signInWithGoogle();
-      // Redirection happens in service
+      await signInWithGoogle("signin");
     } catch (err: any) {
       console.error("[SignIn] Google sign in error:", err);
       setError(err.message);
@@ -190,8 +255,7 @@ const SignInPage: React.FC = () => {
   const handleGithubSignIn = async () => {
     setError(null);
     try {
-      await signInWithGithub();
-      // Redirection happens in service
+      await signInWithGithub("signin");
     } catch (err: any) {
       console.error("[SignIn] GitHub sign in error:", err);
       setError(err.message);
@@ -220,19 +284,86 @@ const SignInPage: React.FC = () => {
           </p>
         </div>
 
+        {successNotice && (
+          <div
+            style={{
+              padding: "10px 14px",
+              borderRadius: 10,
+              background: "#ECFDF5",
+              border: "1px solid #A7F3D0",
+              color: "#065F46",
+              fontSize: 13,
+              marginBottom: 16,
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+            }}
+          >
+            <FaCheckCircle color="#10B981" size={16} />
+            <span>{successNotice}</span>
+          </div>
+        )}
+
         {error && (
           <div
             style={{
-              padding: "8px 12px",
+              padding: "10px 14px",
               borderRadius: 10,
               background: "#FEF2F2",
               border: "1px solid #FECACA",
               color: "#B91C1C",
-              fontSize: 12,
-              marginBottom: 12,
+              fontSize: 13,
+              marginBottom: 16,
             }}
           >
-            {error}
+            <div>{error}</div>
+            {isUnverifiedEmail && (
+              <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12 }}>
+                {resendStatus === "sent" ? (
+                  <span style={{ color: "#065F46", fontWeight: 600, fontSize: 13 }}>
+                    ✓ Verification code sent successfully.
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleResendVerification}
+                    disabled={resendStatus === "sending"}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "#4F46E5",
+                      fontWeight: 700,
+                      textDecoration: "underline",
+                      cursor: "pointer",
+                      padding: 0,
+                      fontSize: 13,
+                    }}
+                  >
+                    {resendStatus === "sending" ? "Sending..." : "Resend Verification Code"}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() =>
+                    navigate("/verify-email", {
+                      state: { email: email.trim().toLowerCase() },
+                    })
+                  }
+                  style={{
+                    background: "#4F46E5",
+                    border: "none",
+                    color: "#FFFFFF",
+                    fontWeight: 600,
+                    borderRadius: 6,
+                    padding: "4px 10px",
+                    cursor: "pointer",
+                    fontSize: 12,
+                  }}
+                >
+                  Enter Verification Code →
+                </button>
+              </div>
+            )}
           </div>
         )}
 
