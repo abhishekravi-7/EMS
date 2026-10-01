@@ -16,6 +16,7 @@ APEX-Frontend/node_modules/
 APEX-Frontend/dist/
 APEX-Frontend/.vite/
 
+
 **/__pycache__/
 **/*.py[cod]
 **/*.egg-info/
