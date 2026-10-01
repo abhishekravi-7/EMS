@@ -491,12 +491,12 @@ export function buildMigrationState(params: BuildMigrationStateParams): Migratio
         vulnerabilities: sonarVulns,
         codeSmells: sonarSmells,
         qualityGate: migrationJob?.sonar_quality_gate || null,
-        executed: runSonar || Boolean(migrationJob?.sonar_quality_gate || sonarTotalIssues > 0),
+        executed: Boolean(migrationJob?.run_sonar ?? migrationJob?.runSonar ?? runSonar),
       },
       fossa: {
         totalIssues: fossaIssues,
         complianceStatus: fossaResult?.compliance_status || migrationJob?.fossa_policy_status || null,
-        executed: runFossa || Boolean(fossaResult || migrationJob?.fossa_policy_status),
+        executed: Boolean(migrationJob?.run_fossa ?? migrationJob?.runFossa ?? runFossa),
       },
       junit: {
         executed: Boolean(migrationJob?.run_tests ?? migrationJob?.runTests ?? runTests) || hasUnitTestData,

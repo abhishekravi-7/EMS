@@ -36,7 +36,7 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
   useEffect(() => {
     fetchRecentRepositories()
       .then(data => {
-        setRecentRepos(data);
+        setRecentRepos(Array.isArray(data) ? data.slice(0, 5) : []);
         setLoadingRecent(false);
       })
       .catch(err => {
@@ -883,8 +883,8 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
                 </tr>
               </thead>
               <tbody>
-                {recentRepos.map((repo, idx) => (
-                  <tr key={repo.jobId || idx} style={{ borderBottom: idx === recentRepos.length - 1 ? "none" : "1px solid #f1f5f9" }}>
+                {recentRepos.slice(0, 5).map((repo, idx) => (
+                  <tr key={repo.jobId || idx} style={{ borderBottom: idx === Math.min(recentRepos.length, 5) - 1 ? "none" : "1px solid #f1f5f9" }}>
                     <td style={{ padding: "12px 24px", color: "#0f172a", fontWeight: 600, display: "flex", alignItems: "center", gap: "8px" }}>
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "32px", height: "32px", backgroundColor: "#eff6ff", borderRadius: "8px", color: "#3b82f6" }}>
                         <FaFolder size={14} />

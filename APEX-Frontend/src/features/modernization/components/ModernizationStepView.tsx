@@ -7,6 +7,7 @@ import {
   runExistingTests,
   getExistingTestsStatus,
   stopExistingTests,
+  classifyTestType,
   type TestResult,
   type TestSelectionItem,
   type ExistingTestRunResponse,
@@ -1160,13 +1161,15 @@ setIsLlmConfiguredMod(
         </div>
       </div>}
 
-      {/* Existing Test Cases Section (Discovered Only - No Execution) */}
+      {/* Existing Test Cases Section (Discovered Only - Filtered by Quality Gate Selection) */}
       <ExistingTestCasesPanel
         jobId={jobId}
         discoveredTests={discoveredTests}
         framework={existingFramework || "JUnit"}
         isRunning={false}
         isLoading={isLoadingDiscoveredTests}
+        runTests={runTests}
+        runFunctionalTests={runFunctionalTests}
         onSelectTest={(t: TestResult | TestSelectionItem) => {
           setTestDetailReport(buildTestDetailReport(t, "NOT_EXECUTED"));
           setShowTestDetailModal(true);
@@ -1181,7 +1184,13 @@ setIsLlmConfiguredMod(
         <ExistingTestValidationReport
           metrics={existingExecResult.metrics || {}}
           frameworkInfo={existingExecResult.framework_info}
-          testResults={displayTestResults}
+          testResults={
+            runTests && !runFunctionalTests
+              ? displayTestResults.filter((t) => classifyTestType(t) === "Unit")
+              : !runTests && runFunctionalTests
+              ? displayTestResults.filter((t) => classifyTestType(t) === "UI" || classifyTestType(t) === "API")
+              : displayTestResults
+          }
           fileBreakdown={existingExecResult.file_breakdown || []}
           logs={existingLogs}
           onClose={() => setShowValidationReport(false)}
