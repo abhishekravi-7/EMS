@@ -122,6 +122,10 @@ class ProposedTestGenerator:
           - POST with evidence of body-returning handler → 200 or 201 (use 200 default)
           - PUT/PATCH → 200
           - GET → 200
+
+        NOTE: This is a HEURISTIC DEFAULT. When this method is used, callers must
+        mark expected_status_source as 'heuristic-default' so the executor and
+        downstream reporting can distinguish evidence-backed expectations from defaults.
         """
         m = method.upper()
         if m == "DELETE":
@@ -132,6 +136,11 @@ class ProposedTestGenerator:
             # asserting 201 causes false failures when the actual response is 200.
             return 200
         return 200
+
+    @staticmethod
+    def _infer_success_status_source(method: str, ep: dict[str, Any]) -> str:
+        """Returns the source label for the inferred status (always a heuristic when called)."""
+        return "heuristic-default (no explicit @ResponseStatus / ResponseEntity annotation found in controller source)"
 
 
     def _generate_prompt_driven_proposals(self) -> list[ProposedTestCase]:
@@ -313,9 +322,18 @@ class ProposedTestGenerator:
                 if request_body:
                     test_data["request_body"] = request_body
 
-                # ── Grounded expected status and citation source (Fix 6) ─────────────
+                # ── Grounded expected status and citation source (Fix 6 / Gap 2) ──────────
                 expected_status = ep.get("expected_status") or self._infer_success_status(method, ep)
-                expected_status_source = ep.get("expected_status_source") or f"{source_class}: {method} {endpoint} handler declaration"
+                expected_status_source = (
+                    ep.get("expected_status_source")
+                    or (
+                        # Only label as evidence-backed if the endpoint metadata explicitly
+                        # provides a status annotation; otherwise mark as heuristic-default.
+                        f"{source_class}: {method} {endpoint} handler declaration"
+                        if ep.get("expected_status")
+                        else self._infer_success_status_source(method, ep)
+                    )
+                )
 
                 # ── Grounded authentication requirement and citation source (Fix 2, 7) ──
                 auth_req = ep.get("authentication_required", False)

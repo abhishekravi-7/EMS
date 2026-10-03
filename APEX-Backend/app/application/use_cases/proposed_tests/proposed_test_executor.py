@@ -239,6 +239,7 @@ class ProposedTestExecutor:
         api_base_url: str | None = None,
         ui_base_url: str | None = None,
         repo_dir: Path | str | None = None,
+        auth_manager: Any | None = None,
     ) -> None:
         self.job_id = job_id
         self.evidence_dir = Path(evidence_dir)
@@ -251,11 +252,20 @@ class ProposedTestExecutor:
 
         from app.application.use_cases.proposed_tests.authentication_manager import AuthenticationManager
         from app.application.use_cases.proposed_tests.dynamic_data_resolver import DynamicDataResolver
-        self.auth_manager = AuthenticationManager(repo_dir=self.repo_dir, log_fn=self.log_fn)
+        # GAP 4: Accept an externally-shared AuthenticationManager so one instance (and its
+        # _failed_credentials / _active_session caches) is reused for every test in the run.
+        if auth_manager is not None:
+            self.auth_manager = auth_manager
+        else:
+            self.auth_manager = AuthenticationManager(repo_dir=self.repo_dir, log_fn=self.log_fn)
         self.data_resolver = DynamicDataResolver(repo_dir=self.repo_dir, log_fn=self.log_fn)
 
         self._api_context: Any = None
         self._api_context_tid: int | None = None
+
+        # GAP 4: per-run auth telemetry counters (incremented by authenticate_page/preflight)
+        self._auth_flows_triggered: int = 0
+        self._auth_candidates_attempted: int = 0
 
     def _get_playwright(self) -> Any:
         """Returns the Playwright sync runtime bound strictly to the current calling thread."""
@@ -406,15 +416,17 @@ class ProposedTestExecutor:
                 ],
             )
 
-    def _resolve_path_params(self, endpoint: str, test_data: dict[str, Any] | None = None, spec: Any | None = None) -> str:
+    def _resolve_path_params(self, endpoint: str, test_data: dict[str, Any] | None = None, spec: Any | None = None) -> Any:
         """
         Resolves path variables in endpoint URLs dynamically using DynamicDataResolver.
         Extracts variable values from live queries, SQL seeds, test_data, or grounded profiles.
+        Returns the full EndpointResolution so callers can distinguish "resolved" from
+        "could not resolve" instead of silently firing a request at a URL that still
+        contains a literal '{id}' placeholder.
         """
-        res = self.data_resolver.resolve_endpoint(
+        return self.data_resolver.resolve_endpoint(
             endpoint, test_data=test_data, base_url=self.api_base_url
         )
-        return res.endpoint
 
     @staticmethod
     def _sanitize_data(data: Any) -> Any:
@@ -439,13 +451,45 @@ class ProposedTestExecutor:
         method = spec.method.upper() if spec else "GET"
         raw_endpoint = spec.endpoint if spec else "/"
         expected_status = spec.expected_status if spec else 200
+        # GAP 2: record whether expected_status came from explicit controller evidence or a heuristic default.
+        expected_status_source = getattr(spec, "expected_status_source", None) if spec else None
+        if not expected_status_source:
+            expected_status_source = "heuristic-default (no explicit @ResponseStatus / ResponseEntity annotation found)"
+        if expected_status == 200 and "heuristic" in expected_status_source:
+            self.log_fn(
+                f"[GAP2] {test.id}: expected_status=200 is a heuristic default — no explicit status annotation evidence found.",
+                "WARN",
+            )
 
-        # 1. Resolve path parameters before execution
-        resolved_endpoint = self._resolve_path_params(raw_endpoint, test.test_data, spec)
+        # 1. Resolve path parameters before execution (BLOCKED_DEPENDENCY if unresolvable)
+        resolution = self._resolve_path_params(raw_endpoint, test.test_data, spec)
+        if not resolution.is_resolved:
+            block_msg = f"Required path parameter could not be resolved for '{raw_endpoint}': {resolution.issue}"
+            self.log_fn(f"[BLOCKED_DEPENDENCY] {test.id}: {block_msg}", "WARN")
+            return ExecutionResult(
+                status=ProposedTestStatus.BLOCKED,
+                error=block_msg,
+                error_type="BLOCKED_DEPENDENCY",
+                stack_trace=f"DependencyResolutionError: {block_msg}",
+                assertions_passed=0,
+                assertions_failed=0,
+                evidence=ExecutionEvidence(),
+                steps_execution=[
+                    StepExecutionRecord(
+                        step_number=1,
+                        description=f"Resolve runtime path parameter(s) for '{raw_endpoint}'",
+                        status=ProposedTestStatus.BLOCKED,
+                        duration="0.0s",
+                        error=block_msg,
+                    )
+                ],
+            )
+        resolved_endpoint = resolution.endpoint
         full_url = f"{self.api_base_url.rstrip('/')}/{resolved_endpoint.lstrip('/')}"
 
         # 2. Determine actual status (supports explicit mock override or real Playwright APIRequestContext)
         explicit_actual_status = getattr(spec, "actual_status", None) if spec else None
+        # (expected_status_source already logged above; propagated to trace below)
         actual_status = explicit_actual_status
         response_data: Any = None
         response_text: str = ""
@@ -810,9 +854,32 @@ class ProposedTestExecutor:
     def _execute_ui_test(self, test: ProposedTestCase, test_dir: Path, repo_dir: Path | None) -> ExecutionResult:
         spec = test.ui_spec
         raw_route = spec.target_route if spec else "/"
-        target_route = self.data_resolver.resolve_endpoint(
+        # BLOCKED_DEPENDENCY if route path-params are unresolvable
+        route_resolution = self.data_resolver.resolve_endpoint(
             raw_route, test.test_data, base_url=self.ui_base_url
-        ).endpoint
+        )
+        if not route_resolution.is_resolved:
+            block_msg = f"Required path parameter could not be resolved for route '{raw_route}': {route_resolution.issue}"
+            self.log_fn(f"[BLOCKED_DEPENDENCY] {test.id}: {block_msg}", "WARN")
+            return ExecutionResult(
+                status=ProposedTestStatus.BLOCKED,
+                error=block_msg,
+                error_type="BLOCKED_DEPENDENCY",
+                stack_trace=f"DependencyResolutionError: {block_msg}",
+                assertions_passed=0,
+                assertions_failed=0,
+                evidence=ExecutionEvidence(),
+                steps_execution=[
+                    StepExecutionRecord(
+                        step_number=1,
+                        description=f"Resolve runtime path parameter(s) for route '{raw_route}'",
+                        status=ProposedTestStatus.BLOCKED,
+                        duration="0.0s",
+                        error=block_msg,
+                    )
+                ],
+            )
+        target_route = route_resolution.endpoint
         full_url = f"{self.ui_base_url.rstrip('/')}/{target_route.lstrip('/')}"
         self.log_fn(f"[PROPOSED TESTS] [UI] Running Playwright browser test against migrated application at {full_url}")
 
@@ -924,8 +991,8 @@ class ProposedTestExecutor:
             # Playwright tracing retention on failure and pass
             context.tracing.start(screenshots=True, snapshots=True, sources=True)
 
-            # Set authentication in localStorage for migrated React/Angular SPA
-            context.add_init_script("try { localStorage.setItem('isAuthenticated', 'true'); } catch(e) {}")
+            # Phase 1: No authentication bypass. Real authentication is handled by AuthenticationManager.
+            # The application must redirect to its real login page; auth_manager.authenticate_page() handles it.
 
             page = context.new_page()
             video = page.video
@@ -965,11 +1032,35 @@ class ProposedTestExecutor:
 
                 # If redirected to login view on an internal authenticated route, authenticate session dynamically
                 if not is_login_target and not is_auth_test and page.locator("input[type=password]").count() > 0:
+                    # GAP 4: telemetry — count auth flows triggered
+                    self._auth_flows_triggered += 1
+                    cands_before = len([c for c in self.auth_manager.discover_credentials() if (c.username, c.password) not in self.auth_manager._failed_credentials])
                     auth_ok, auth_steps, auth_err = self.auth_manager.authenticate_page(page, target_url=full_url)
+                    self._auth_candidates_attempted += max(0, cands_before - len([c for c in self.auth_manager.discover_credentials() if (c.username, c.password) not in self.auth_manager._failed_credentials]))
                     executed_steps.extend(auth_steps)
                     step_idx = len(executed_steps) + 1
                     if not auth_ok:
-                        raise AssertionError(f"Target route requires authentication, but automated authentication failed: {auth_err}")
+                        # Phase 4: surface as BLOCKED_AUTHENTICATION, not a functional FAILED
+                        block_msg = f"Target route requires authentication, but automated authentication failed: {auth_err}"
+                        self.log_fn(f"[BLOCKED_AUTHENTICATION] {test.id}: {block_msg}", "WARN")
+                        return ExecutionResult(
+                            status=ProposedTestStatus.BLOCKED_AUTHENTICATION,
+                            error=block_msg,
+                            error_type="BLOCKED_AUTHENTICATION",
+                            stack_trace=f"AuthenticationError: {block_msg}",
+                            assertions_passed=0,
+                            assertions_failed=0,
+                            evidence=ExecutionEvidence(),
+                            steps_execution=executed_steps + [
+                                StepExecutionRecord(
+                                    step_number=step_idx,
+                                    description=f"Authenticate session for '{full_url}'",
+                                    status=ProposedTestStatus.BLOCKED_AUTHENTICATION,
+                                    duration="0.0s",
+                                    error=block_msg,
+                                )
+                            ],
+                        )
 
                 t_data = test.test_data or {}
                 ui_view_name = (t_data.get("ui_view") or "").lower()
@@ -1014,14 +1105,75 @@ class ProposedTestExecutor:
                     executed_steps.extend(auth_steps)
                     step_idx = len(executed_steps) + 1
                     if not auth_ok:
-                        raise AssertionError(f"Authentication test failed: {auth_err}")
+                        # Phase 4: auth test failure is BLOCKED_AUTHENTICATION, not a functional FAILED
+                        block_msg = f"Authentication test could not establish session: {auth_err}"
+                        self.log_fn(f"[BLOCKED_AUTHENTICATION] {test.id}: {block_msg}", "WARN")
+                        return ExecutionResult(
+                            status=ProposedTestStatus.BLOCKED_AUTHENTICATION,
+                            error=block_msg,
+                            error_type="BLOCKED_AUTHENTICATION",
+                            stack_trace=f"AuthenticationError: {block_msg}",
+                            assertions_passed=0,
+                            assertions_failed=0,
+                            evidence=ExecutionEvidence(),
+                            steps_execution=executed_steps + [
+                                StepExecutionRecord(
+                                    step_number=step_idx,
+                                    description=f"Verify authentication for '{full_url}'",
+                                    status=ProposedTestStatus.BLOCKED_AUTHENTICATION,
+                                    duration="0.0s",
+                                    error=block_msg,
+                                )
+                            ],
+                        )
 
                 elif is_form_test:
-                    # Find all visible, enabled interactive form controls (scoping to main content to avoid header search controls)
+                    # GAP 1: PRE-FLIGHT SELECTOR CHECK — verify the form actually has interactive elements
+                    # before attempting any interaction, using the existing selector-priority chain.
                     visible_inputs = page.locator("main form input:not([type=hidden]):not([type=submit]):not([type=button]), main form select, main form textarea, .modern-main-content form input:not([type=hidden]):not([type=submit]):not([type=button]), .modern-main-content form select, .modern-main-content form textarea, .card form input:not([type=hidden]):not([type=submit]):not([type=button]), .card form select, .card form textarea")
                     if visible_inputs.count() == 0:
                         visible_inputs = page.locator("form input:not([type=hidden]):not([type=submit]):not([type=button]), form select, form textarea, input.form-control:not([type=hidden]):not([type=submit]), select.form-control, textarea.form-control")
                     input_count = visible_inputs.count()
+
+                    # GAP 1: If spec declares expected input fields, compare to what was actually found
+                    spec_field_count = len(spec.input_fields) if (spec and spec.input_fields) else 0
+                    if input_count == 0:
+                        # No elements found at all — REVIEW_REQUIRED (test assumptions may be wrong)
+                        review_msg = (
+                            f"GAP1: Pre-flight selector check failed for form test '{test.title}': "
+                            f"0 interactive form controls found on '{full_url}'. "
+                            f"Tried selectors: 'main form input', 'form input.form-control', etc. "
+                            f"Test assumptions may be wrong rather than the application being broken."
+                        )
+                        self.log_fn(f"[REVIEW_REQUIRED] {test.id}: {review_msg}", "WARN")
+                        return ExecutionResult(
+                            status=ProposedTestStatus.REVIEW_REQUIRED,
+                            error=review_msg,
+                            error_type="REVIEW_REQUIRED",
+                            stack_trace=f"SelectorPreflightError: {review_msg}",
+                            assertions_passed=0,
+                            assertions_failed=0,
+                            evidence=ExecutionEvidence(),
+                            steps_execution=[
+                                StepExecutionRecord(
+                                    step_number=1,
+                                    description=f"Pre-flight selector check: 0 form inputs found on '{full_url}'",
+                                    status=ProposedTestStatus.REVIEW_REQUIRED,
+                                    duration="0.05s",
+                                    error=review_msg,
+                                )
+                            ],
+                        )
+                    elif spec_field_count > 0 and input_count < spec_field_count:
+                        # Partial match — proceed with what is present but note the shortfall
+                        self.log_fn(
+                            f"[GAP1] {test.id}: Spec expected {spec_field_count} field(s), only {input_count} found on '{full_url}'. "
+                            f"Proceeding with available inputs; shortfall will be noted in result.",
+                            "WARN",
+                        )
+                        steps_log_lines.append(
+                            f"   [GAP1-SHORTFALL] Spec expected {spec_field_count} fields, {input_count} present — partial interaction."
+                        )
 
                     if input_count > 0:
                         for i in range(input_count):
@@ -1159,9 +1311,14 @@ class ProposedTestExecutor:
 
                             page.wait_for_timeout(800)
                             curr_url = page.url.lower()
-                            has_err_view = "error" in curr_url or page.locator(".alert-danger, .error-message").count() > 0
-                            if has_err_view and not ("error" in test.title.lower() or "negative" in test.title.lower()):
-                                err_txt = page.locator(".alert-danger, .error-message").first.inner_text().strip() if page.locator(".alert-danger, .error-message").count() > 0 else f"Form submission resulted in error view: {page.url}"
+                            is_negative_workflow = "error" in test.title.lower() or "negative" in test.title.lower() or "invalid" in test.title.lower()
+                            has_err_view = page.locator(".alert-danger, .error-message, .is-invalid, .field-error").count() > 0
+                            has_err_url = "error" in curr_url
+
+                            if (has_err_view or has_err_url) and not is_negative_workflow:
+                                # GAP 3: explicit error present on a positive test — FAILED
+                                err_el = page.locator(".alert-danger, .error-message, .is-invalid, .field-error").first
+                                err_txt = err_el.inner_text().strip() if err_el.count() > 0 else f"Form submission resulted in error view: {page.url}"
                                 executed_steps.append(
                                     StepExecutionRecord(
                                         step_number=step_idx,
@@ -1173,25 +1330,74 @@ class ProposedTestExecutor:
                                 )
                                 step_idx += 1
                                 raise AssertionError(err_txt)
-                            else:
-                                # Check concrete business outcome: redirect away, alert-success, or table update
-                                url_changed = (page.url.rstrip("/") != full_url.rstrip("/"))
-                                has_success_alert = page.locator(".alert-success, .success, .toast-success, [role=alert]").count() > 0
-                                if not url_changed and not has_success_alert and not ("negative" in test.title.lower() or "error" in test.title.lower()):
-                                    if page.locator("main form, .modern-main-content form, form").count() > 0:
-                                        first_inp = page.locator("form input[type=text], form textarea").first
-                                        if first_inp.count() > 0 and first_inp.input_value():
-                                            raise AssertionError(f"Form submission produced no business effect: URL stayed '{page.url}' without redirect or success confirmation.")
 
+                            elif (has_err_view or has_err_url) and is_negative_workflow:
+                                # GAP 3: negative workflow that explicitly expects rejection — treat error as PASSED
+                                err_el = page.locator(".alert-danger, .error-message, .is-invalid, .field-error").first
+                                rejection_txt = err_el.inner_text().strip() if err_el.count() > 0 else "Validation error as expected"
+                                self.log_fn(f"[GAP3] {test.id}: Negative workflow — rejection confirmed: {rejection_txt}")
                                 executed_steps.append(
                                     StepExecutionRecord(
                                         step_number=step_idx,
-                                        description=f"Verify form submission business transition (current view: '{page.url}')",
+                                        description=f"Verify expected rejection/validation error: '{rejection_txt}'",
                                         status=ProposedTestStatus.PASSED,
                                         duration="0.05s",
                                     )
                                 )
                                 step_idx += 1
+
+                            else:
+                                # GAP 3: Check concrete business-success evidence; never treat silence as success.
+                                url_changed = (page.url.rstrip("/") != full_url.rstrip("/"))
+                                has_success_indicator = (
+                                    page.locator(".alert-success, .success, .toast-success").count() > 0
+                                    or page.locator("[role=alert]").count() > 0
+                                )
+                                has_confirmation_entity = False
+                                try:
+                                    # Check for any newly rendered entity/record (table row or detail element)
+                                    has_confirmation_entity = page.locator("tbody tr, .record-item, .confirmation-panel").count() > 0
+                                except Exception:
+                                    pass
+
+                                has_any_success_evidence = url_changed or has_success_indicator or has_confirmation_entity
+
+                                if not has_any_success_evidence and not is_negative_workflow:
+                                    # GAP 3: No success evidence found — REVIEW_REQUIRED, never silently PASSED
+                                    review_msg = (
+                                        f"GAP3: Form submission produced no verifiable business-success evidence: "
+                                        f"URL stayed '{page.url}', no success banner, no confirmation entity. "
+                                        f"Test is REVIEW_REQUIRED — manual verification needed."
+                                    )
+                                    self.log_fn(f"[REVIEW_REQUIRED] {test.id}: {review_msg}", "WARN")
+                                    executed_steps.append(
+                                        StepExecutionRecord(
+                                            step_number=step_idx,
+                                            description=f"Business-success proof check: no evidence found — REVIEW_REQUIRED",
+                                            status=ProposedTestStatus.BLOCKED,
+                                            duration="0.05s",
+                                            error=review_msg,
+                                        )
+                                    )
+                                    step_idx += 1
+                                    # Surface as REVIEW_REQUIRED by raising so the outer handler returns it
+                                    raise AssertionError(review_msg)
+                                else:
+                                    evidence_type = (
+                                        "URL redirect" if url_changed
+                                        else "success banner" if has_success_indicator
+                                        else "confirmation entity in DOM"
+                                    )
+                                    self.log_fn(f"[GAP3] {test.id}: Business-success evidence confirmed: {evidence_type} at '{page.url}'")
+                                    executed_steps.append(
+                                        StepExecutionRecord(
+                                            step_number=step_idx,
+                                            description=f"Verify form submission business outcome ({evidence_type} at '{page.url}')",
+                                            status=ProposedTestStatus.PASSED,
+                                            duration="0.05s",
+                                        )
+                                    )
+                                    step_idx += 1
 
                 elif is_table_test:
                     # Tabular records and action trigger verification
@@ -1468,6 +1674,16 @@ class ProposedTestExecutor:
         else:
             raw_duration = round(time.time() - browser_test_start, 2)
         exec_duration_str = f"{raw_duration:.2f}s"
+
+        # GAP 4: emit run-level auth telemetry so cache-integrity can be verified
+        if self._auth_flows_triggered > 0:
+            discovered_count = len(self.auth_manager.discover_credentials())
+            self.log_fn(
+                f"[AUTH-TELEMETRY] Run summary — discovered credentials: {discovered_count}, "
+                f"auth flows triggered this call: {self._auth_flows_triggered}, "
+                f"candidate attempts this call: {self._auth_candidates_attempted}. "
+                f"(Attempted > discovered would indicate cache not persisting.)"
+            )
 
         return ExecutionResult(
             status=test_status,

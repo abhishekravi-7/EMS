@@ -83,103 +83,170 @@ class AuthenticationManager:
                 seen.add(key)
                 discovered.append(AuthCredentials(username=u_clean, password=p_clean, source=src, role=role))
 
-        if not self.repo_dir or not self.repo_dir.exists():
+        dirs_to_scan: list[Path] = []
+        if self.repo_dir and self.repo_dir.exists():
+            dirs_to_scan.append(self.repo_dir)
+            orig_candidate = self.repo_dir.parent / "original-repo"
+            if orig_candidate.exists() and orig_candidate not in dirs_to_scan:
+                dirs_to_scan.append(orig_candidate)
+            migr_candidate = self.repo_dir.parent / "migrated-repo"
+            if migr_candidate.exists() and migr_candidate not in dirs_to_scan:
+                dirs_to_scan.append(migr_candidate)
+
+        if not dirs_to_scan:
             self._cached_credentials = []
             return discovered
 
-        # 1. Scan seed SQL files (data.sql, import.sql, seed.sql)
-        for sql_file in self.repo_dir.rglob("*.sql"):
-            if any(k in sql_file.name.lower() for k in ["data", "seed", "import", "test", "schema"]):
-                try:
-                    content = sql_file.read_text(encoding="utf-8", errors="ignore")
-                    # Check comments e.g. "-- Add default user (username: user, password: password)"
-                    comment_matches = re.finditer(
-                        r'(?:--|/\*)\s*(?:username|user):\s*([a-zA-Z0-9_\-\.]+)\s*,\s*(?:password|pass):\s*([^\s,\*]+)',
-                        content,
-                        re.IGNORECASE,
-                    )
-                    for cm in comment_matches:
-                        _add(cm.group(1), cm.group(2), f"SQL comment in {sql_file.name}")
+        for scan_dir in dirs_to_scan:
+            # 1. Scan seed SQL files (data.sql, import.sql, seed.sql)
+            for sql_file in scan_dir.rglob("*.sql"):
+                if any(k in sql_file.name.lower() for k in ["data", "seed", "import", "test", "schema"]):
+                    try:
+                        content = sql_file.read_text(encoding="utf-8", errors="ignore")
+                        # Check comments e.g. "-- Add default user (username: user, password: password)"
+                        comment_matches = re.finditer(
+                            r'(?:--|/\*)\s*(?:username|user):\s*([a-zA-Z0-9_\-\.]+)\s*,\s*(?:password|pass):\s*([^\s,\*]+)',
+                            content,
+                            re.IGNORECASE,
+                        )
+                        for cm in comment_matches:
+                            _add(cm.group(1), cm.group(2), f"SQL comment in {sql_file.name}")
 
-                    # Check raw INSERT queries
-                    ins_matches = re.finditer(
-                        r"insert\s+into\s+users?\s*\([^)]*username[^)]*password[^)]*\)\s*values\s*\(\s*['\"]([^'\"]+)['\"]\s*,\s*['\"]([^'\"]+)['\"]",
-                        content,
-                        re.IGNORECASE,
-                    )
-                    for im in ins_matches:
-                        pwd_candidate = im.group(2)
-                        if not pwd_candidate.startswith("$2a$") and not pwd_candidate.startswith("$2b$"):
-                            _add(im.group(1), pwd_candidate, f"INSERT query in {sql_file.name}")
-                except Exception as e:
-                    logger.debug("Failed reading SQL file %s: %s", sql_file, e)
+                        # Check raw INSERT queries
+                        ins_matches = re.finditer(
+                            r"insert\s+into\s+users?\s*\([^)]*username[^)]*password[^)]*\)\s*values\s*\(\s*['\"]([^'\"]+)['\"]\s*,\s*['\"]([^'\"]+)['\"]",
+                            content,
+                            re.IGNORECASE,
+                        )
+                        for im in ins_matches:
+                            pwd_candidate = im.group(2)
+                            if not pwd_candidate.startswith("$2a$") and not pwd_candidate.startswith("$2b$"):
+                                _add(im.group(1), pwd_candidate, f"INSERT query in {sql_file.name}")
+                    except Exception as e:
+                        logger.debug("Failed reading SQL file %s: %s", sql_file, e)
 
-        # 2. Scan Java login configurations, services, and tests
-        for java_file in self.repo_dir.rglob("*.java"):
-            fname_low = java_file.name.lower()
-            if any(k in fname_low for k in ["login", "security", "user", "auth", "test"]):
-                try:
-                    c = java_file.read_text(encoding="utf-8", errors="ignore")
+            # 2. Scan Java login configurations, services, and tests
+            for java_file in scan_dir.rglob("*.java"):
+                fname_low = java_file.name.lower()
+                if any(k in fname_low for k in ["login", "security", "user", "auth", "test"]):
+                    try:
+                        c = java_file.read_text(encoding="utf-8", errors="ignore")
 
-                    # Pattern: "in28Minutes".equals(user) && "dummy".equals(password)
-                    eq_matches = re.finditer(
-                        r'["\']([^"\']+)["\']\s*\.equals\s*\(\s*(?:user|username)\s*\)\s*&&\s*["\']([^"\']+)["\']\s*\.equals\s*\(\s*(?:password|pass)\s*\)',
-                        c,
-                        re.IGNORECASE,
-                    )
-                    for em in eq_matches:
-                        _add(em.group(1), em.group(2), f"Hardcoded credential check in {java_file.name}")
+                        # Pattern: "in28Minutes".equals(user) && "dummy".equals(password)
+                        eq_matches = re.finditer(
+                            r'["\']([^"\']+)["\']\s*\.equals\s*\(\s*(?:user|username)\s*\)\s*&&\s*["\']([^"\']+)["\']\s*\.equals\s*\(\s*(?:password|pass)\s*\)',
+                            c,
+                            re.IGNORECASE,
+                        )
+                        for em in eq_matches:
+                            _add(em.group(1), em.group(2), f"Hardcoded credential check in {java_file.name}")
 
-                    # Inverse: user.equals("in28Minutes") && password.equals("dummy")
-                    eq_inv = re.finditer(
-                        r'(?:user|username)\s*\.equals(?:IgnoreCase)?\s*\(\s*["\']([^"\']+)["\']\s*\)\s*&&\s*(?:password|pass)\s*\.equals\s*\(\s*["\']([^"\']+)["\']\s*\)',
-                        c,
-                        re.IGNORECASE,
-                    )
-                    for em in eq_inv:
-                        _add(em.group(1), em.group(2), f"Hardcoded credential check in {java_file.name}")
+                        # Inverse: user.equals("in28Minutes") && password.equals("dummy")
+                        eq_inv = re.finditer(
+                            r'(?:user|username)\s*\.equals(?:IgnoreCase)?\s*\(\s*["\']([^"\']+)["\']\s*\)\s*&&\s*(?:password|pass)\s*\.equals\s*\(\s*["\']([^"\']+)["\']\s*\)',
+                            c,
+                            re.IGNORECASE,
+                        )
+                        for em in eq_inv:
+                            _add(em.group(1), em.group(2), f"Hardcoded credential check in {java_file.name}")
 
-                    # Pattern: withUser("admin").password("admin") or password("{noop}password")
-                    with_user_matches = re.finditer(
-                        r'\.withUser\s*\(\s*["\']([^"\']+)["\']\s*\)\s*\.password\s*\(\s*["\'](?:\{noop\})?([^"\']+)["\']\s*\)',
-                        c,
-                        re.IGNORECASE,
-                    )
-                    for wm in with_user_matches:
-                        _add(wm.group(1), wm.group(2), f"In-memory security config in {java_file.name}")
+                        # Pattern: withUser("admin").password("admin") or password("{noop}password")
+                        with_user_matches = re.finditer(
+                            r'\.withUser\s*\(\s*["\']([^"\']+)["\']\s*\)\s*\.password\s*\(\s*["\'](?:\{noop\})?([^"\']+)["\']\s*\)',
+                            c,
+                            re.IGNORECASE,
+                        )
+                        for wm in with_user_matches:
+                            _add(wm.group(1), wm.group(2), f"In-memory security config in {java_file.name}")
 
-                    # Pattern: formLogin().user("securityuser").password("password")
-                    form_login_matches = re.finditer(
-                        r'\.user\s*\(\s*["\']([^"\']+)["\']\s*\)\s*\.password\s*\(\s*["\']([^"\']+)["\']\s*\)',
-                        c,
-                        re.IGNORECASE,
-                    )
-                    for fm in form_login_matches:
-                        _add(fm.group(1), fm.group(2), f"Integration test login in {java_file.name}")
+                        # Pattern: formLogin().user("securityuser").password("password")
+                        form_login_matches = re.finditer(
+                            r'\.user\s*\(\s*["\']([^"\']+)["\']\s*\)\s*\.password\s*\(\s*["\']([^"\']+)["\']\s*\)',
+                            c,
+                            re.IGNORECASE,
+                        )
+                        for fm in form_login_matches:
+                            _add(fm.group(1), fm.group(2), f"Integration test login in {java_file.name}")
 
-                    # Pattern: loginAs("user1", "user123") or loginAs("user", "password")
-                    login_as_matches = re.finditer(
-                        r'loginAs\s*\(\s*["\']([^"\']+)["\']\s*,\s*["\']([^"\']+)["\']\s*\)',
-                        c,
-                        re.IGNORECASE,
-                    )
-                    for lam in login_as_matches:
-                        _add(lam.group(1), lam.group(2), f"UI test loginAs in {java_file.name}")
+                        # Pattern: loginAs("user1", "user123") or loginAs("user", "password")
+                        login_as_matches = re.finditer(
+                            r'loginAs\s*\(\s*["\']([^"\']+)["\']\s*,\s*["\']([^"\']+)["\']\s*\)',
+                            c,
+                            re.IGNORECASE,
+                        )
+                        for lam in login_as_matches:
+                            _add(lam.group(1), lam.group(2), f"UI test loginAs in {java_file.name}")
 
-                except Exception as e:
-                    logger.debug("Failed reading Java file %s: %s", java_file, e)
+                    except Exception as e:
+                        logger.debug("Failed reading Java file %s: %s", java_file, e)
 
-        # 3. Scan application.properties / application.yml
-        for prop_file in self.repo_dir.rglob("application*"):
-            if prop_file.suffix in [".properties", ".yml", ".yaml"]:
-                try:
-                    c = prop_file.read_text(encoding="utf-8", errors="ignore")
-                    u_m = re.search(r'spring\.security\.user\.name\s*[:=]\s*([^\s]+)', c)
-                    p_m = re.search(r'spring\.security\.user\.password\s*[:=]\s*([^\s]+)', c)
-                    if u_m and p_m:
-                        _add(u_m.group(1), p_m.group(1), f"Spring security properties in {prop_file.name}")
-                except Exception as e:
-                    logger.debug("Failed reading properties file %s: %s", prop_file, e)
+            # 3. Scan application.properties / application.yml
+            for prop_file in scan_dir.rglob("application*"):
+                if prop_file.suffix in [".properties", ".yml", ".yaml"]:
+                    try:
+                        c = prop_file.read_text(encoding="utf-8", errors="ignore")
+                        u_m = re.search(r'spring\.security\.user\.name\s*[:=]\s*([^\s]+)', c)
+                        p_m = re.search(r'spring\.security\.user\.password\s*[:=]\s*([^\s]+)', c)
+                        if u_m and p_m:
+                            _add(u_m.group(1), p_m.group(1), f"Spring security properties in {prop_file.name}")
+                    except Exception as e:
+                        logger.debug("Failed reading properties file %s: %s", prop_file, e)
+
+            # 4. Scan Frontend JS/TS/TSX/JSX files, test files, and environment configs
+            for code_file in scan_dir.rglob("*"):
+                if not code_file.is_file():
+                    continue
+                parts_low = [p.lower() for p in code_file.parts]
+                if any(x in parts_low for x in ["node_modules", ".git", "dist", "build", "target"]):
+                    continue
+
+                suffix = code_file.suffix.lower()
+                fname_low = code_file.name.lower()
+
+                if suffix in [".ts", ".tsx", ".js", ".jsx"]:
+                    if any(k in fname_low for k in ["login", "auth", "user", "security", "spec", "test", "app"]):
+                        try:
+                            c = code_file.read_text(encoding="utf-8", errors="ignore")
+                            # Pattern: username === 'EMS' && password === 'EMS'
+                            for m in re.finditer(
+                                r'(?:user|username)\s*==={1,2}\s*["\']([^"\']+)["\']\s*&&\s*(?:pass|password)\s*==={1,2}\s*["\']([^"\']+)["\']',
+                                c,
+                                re.IGNORECASE,
+                            ):
+                                _add(m.group(1), m.group(2), f"Frontend condition in {code_file.name}")
+                            # Inverse: password === '...' && username === '...'
+                            for m in re.finditer(
+                                r'(?:pass|password)\s*==={1,2}\s*["\']([^"\']+)["\']\s*&&\s*(?:user|username)\s*==={1,2}\s*["\']([^"\']+)["\']',
+                                c,
+                                re.IGNORECASE,
+                            ):
+                                _add(m.group(2), m.group(1), f"Frontend condition in {code_file.name}")
+                            # Test fill pattern: page.fill('...', 'EMS') and page.fill('...', 'EMS')
+                            fill_users = re.findall(
+                                r'(?:\.fill|\.type)\s*\(\s*["\'][^"\']*(?:username|user|text)[^"\']*["\']\s*,\s*["\']([^"\']+)["\']\s*\)',
+                                c,
+                                re.IGNORECASE,
+                            )
+                            fill_passes = re.findall(
+                                r'(?:\.fill|\.type)\s*\(\s*["\'][^"\']*(?:pass|password)[^"\']*["\']\s*,\s*["\']([^"\']+)["\']\s*\)',
+                                c,
+                                re.IGNORECASE,
+                            )
+                            for u, p in zip(fill_users, fill_passes):
+                                if u.lower() != "wrong" and p.lower() != "wrong":
+                                    _add(u, p, f"E2E test credentials in {code_file.name}")
+                        except Exception as e:
+                            logger.debug("Failed reading frontend/test file %s: %s", code_file, e)
+
+                elif fname_low.startswith(".env"):
+                    try:
+                        c = code_file.read_text(encoding="utf-8", errors="ignore")
+                        u_m = re.search(r'(?:USER|USERNAME|ADMIN_USER)\s*=\s*([^\s]+)', c, re.IGNORECASE)
+                        p_m = re.search(r'(?:PASS|PASSWORD|ADMIN_PASS|ADMIN_PASSWORD)\s*=\s*([^\s]+)', c, re.IGNORECASE)
+                        if u_m and p_m:
+                            _add(u_m.group(1).strip("'\""), p_m.group(1).strip("'\""), f"Env file {code_file.name}")
+                    except Exception as e:
+                        logger.debug("Failed reading env file %s: %s", code_file, e)
 
         self._cached_credentials = discovered
         if discovered:

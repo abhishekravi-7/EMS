@@ -33,6 +33,8 @@ class ProposedTestStatus(str, Enum):
     BLOCKED = "BLOCKED"
     NOT_EXECUTED = "NOT_EXECUTED"
     APPLICATION_UNAVAILABLE = "APPLICATION_UNAVAILABLE"  # App not reachable — NOT a functional failure
+    REVIEW_REQUIRED = "REVIEW_REQUIRED"          # Test assumptions need manual verification
+    BLOCKED_AUTHENTICATION = "BLOCKED_AUTHENTICATION"  # Auth could not be established
 
 
 class StepExecutionRecord(BaseModel):

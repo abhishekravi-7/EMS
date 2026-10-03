@@ -804,9 +804,23 @@ class ProposedTestService:
             self._log(job_id, "[PW] Launching Chromium...")
 
             from app.application.use_cases.proposed_tests.playwright_test_generator import PlaywrightTestGenerator
+            from app.application.use_cases.proposed_tests.authentication_manager import AuthenticationManager
 
             unit_tests = [t for t in tests_to_run if t.type == ProposedTestType.UNIT]
             playwright_tests = [t for t in tests_to_run if t.type in (ProposedTestType.API, ProposedTestType.UI)]
+
+            # GAP 4: One shared AuthenticationManager for the ENTIRE run so _failed_credentials
+            # and _active_session are never reset between unit-test and playwright-test phases.
+            shared_auth_manager = AuthenticationManager(
+                repo_dir=target_dir,
+                log_fn=lambda m, lvl="INFO": self._log(job_id, m, lvl),
+            )
+            discovered_creds = shared_auth_manager.discover_credentials()
+            self._log(
+                job_id,
+                f"[AUTH-TELEMETRY] Run start — discovered {len(discovered_creds)} credential profile(s): "
+                f"{[c.username for c in discovered_creds]}",
+            )
 
             executor = ProposedTestExecutor(
                 job_id,
@@ -815,7 +829,13 @@ class ProposedTestService:
                 api_base_url=api_base_url,
                 ui_base_url=ui_base_url,
                 repo_dir=target_dir,
+                auth_manager=shared_auth_manager,
             )
+
+            playwright_report_exists = False
+            playwright_url = None
+            allure_report_exists = False
+            allure_url = None
 
             try:
                 if unit_tests:
@@ -836,32 +856,33 @@ class ProposedTestService:
                         with self._lock:
                             if job_id in self._run_state:
                                 self._run_state[job_id]["completed"] = idx + 1
+
+                if playwright_tests:
+                    pw_gen = PlaywrightTestGenerator(
+                        paths.job_dir,
+                        api_base_url,
+                        ui_base_url,
+                        data_resolver=executor.data_resolver,
+                        auth_manager=shared_auth_manager,
+                    )
+                    self._log(job_id, f"[PLAYWRIGHT] Generating actual Playwright tests for {len(playwright_tests)} functional cases...")
+                    pw_gen.generate_project(playwright_tests)
+                    self._log(job_id, "[PLAYWRIGHT] Executing tests via npx playwright test...")
+                    report_ok = pw_gen.run_tests(test_count=len(playwright_tests))
+                    pw_gen.sync_results(playwright_tests)
+                    self._save_proposals(job_id, proposals)
+                    if not report_ok:
+                        self._log(job_id, "Playwright report generation failed", "ERROR")
+                    else:
+                        self._log(job_id, "[REPORT] Playwright report generated successfully.")
+                        playwright_report_exists = True
+                        playwright_url = f"/api/v1/migration/{job_id}/proposed-tests/playwright-report/index.html"
+                else:
+                    self._log(job_id, "[REPORT] 0 Playwright tests executed. Playwright report omitted.", "WARN")
             finally:
                 executor.close()
                 ProposedTestExecutor.shutdown_playwright()
                 runner.stop(log_fn=lambda m, lvl="INFO": self._log(job_id, m, lvl))
-
-            playwright_report_exists = False
-            playwright_url = None
-            allure_report_exists = False
-            allure_url = None
-
-            if playwright_tests:
-                pw_gen = PlaywrightTestGenerator(paths.job_dir, api_base_url, ui_base_url)
-                self._log(job_id, f"[PLAYWRIGHT] Generating actual Playwright tests for {len(playwright_tests)} functional cases...")
-                pw_gen.generate_project(playwright_tests)
-                self._log(job_id, "[PLAYWRIGHT] Executing tests via npx playwright test...")
-                report_ok = pw_gen.run_tests()
-                pw_gen.sync_results(playwright_tests)
-                self._save_proposals(job_id, proposals)
-                if not report_ok:
-                    self._log(job_id, "Playwright report generation failed", "ERROR")
-                else:
-                    self._log(job_id, "[REPORT] Playwright report generated successfully.")
-                    playwright_report_exists = True
-                    playwright_url = f"/api/v1/migration/{job_id}/proposed-tests/playwright-report/index.html"
-            else:
-                self._log(job_id, "[REPORT] 0 Playwright tests executed. Playwright report omitted.", "WARN")
 
             executed_count = sum(1 for t in tests_to_run if t.status in [ProposedTestStatus.PASSED, ProposedTestStatus.FAILED, ProposedTestStatus.SKIPPED])
             if executed_count > 0:
@@ -1272,15 +1293,29 @@ class ProposedTestService:
             self._log(job_id, f"[BASELINE] Executing {len(proposals)} proposed functional tests against source application...")
             
             from app.application.use_cases.proposed_tests.playwright_test_generator import PlaywrightTestGenerator
+            from app.application.use_cases.proposed_tests.authentication_manager import AuthenticationManager
 
             unit_tests = [t for t in proposals if t.type == ProposedTestType.UNIT]
             playwright_tests = [t for t in proposals if t.type in (ProposedTestType.API, ProposedTestType.UI)]
+
+            # GAP 4: share one AuthenticationManager for the full baseline run too
+            baseline_auth_manager = AuthenticationManager(
+                repo_dir=source_dir,
+                log_fn=lambda m, lvl="INFO": self._log(job_id, f"[BASELINE] {m}", lvl),
+            )
+            discovered_bl = baseline_auth_manager.discover_credentials()
+            self._log(
+                job_id,
+                f"[AUTH-TELEMETRY][BASELINE] Run start — discovered {len(discovered_bl)} credential profile(s): "
+                f"{[c.username for c in discovered_bl]}",
+            )
 
             executor = ProposedTestExecutor(
                 job_id,
                 evidence_dir=evidence_dir,
                 log_fn=lambda m, level="INFO": self._log(job_id, f"[BASELINE] {m}", level),
                 base_url=source_app_url,
+                auth_manager=baseline_auth_manager,
             )
 
             try:
@@ -1293,16 +1328,23 @@ class ProposedTestService:
                 ProposedTestExecutor.shutdown_playwright()
 
             if playwright_tests:
-                pw_gen = PlaywrightTestGenerator(paths.job_dir, source_app_url, source_app_url)
+                pw_gen = PlaywrightTestGenerator(
+                    paths.job_dir,
+                    source_app_url,
+                    source_app_url,
+                    data_resolver=executor.data_resolver,
+                    auth_manager=baseline_auth_manager,
+                )
                 # Override paths for baseline
                 pw_gen.pw_dir = paths.job_dir / "proposed-tests" / "playwright-project-baseline"
                 pw_gen.report_dir = paths.job_dir / "proposed-tests" / "playwright-report-baseline"
                 pw_gen.pw_dir.mkdir(parents=True, exist_ok=True)
+                pw_gen.report_dir.mkdir(parents=True, exist_ok=True)
                 
                 self._log(job_id, f"[BASELINE PLAYWRIGHT] Generating actual Playwright tests for {len(playwright_tests)} cases...")
                 pw_gen.generate_project(playwright_tests)
                 self._log(job_id, "[BASELINE PLAYWRIGHT] Executing tests via npx playwright test...")
-                report_ok = pw_gen.run_tests()
+                report_ok = pw_gen.run_tests(test_count=len(playwright_tests))
                 pw_gen.sync_results(playwright_tests)
                 
                 # sync_results sets t.execution_result. For baseline, we want baseline_execution_result.
