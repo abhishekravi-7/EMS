@@ -72,6 +72,7 @@ class UiTestSpec(BaseModel):
     expected_elements: list[str] = Field(default_factory=list)
     selectors: dict[str, str] = Field(default_factory=dict)
     assertions: list[str] = Field(default_factory=list)
+    authentication_required: bool | None = None
 
 
 class ExecutionEvidence(BaseModel):
@@ -101,6 +102,8 @@ class ExecutionResult(BaseModel):
     response_time_ms: int | None = None
     actual_response: Any | None = None
     evidence: ExecutionEvidence = Field(default_factory=ExecutionEvidence)
+    screenshot_url: str | None = None
+    video_url: str | None = None
     assertions_passed: int = 0
     assertions_failed: int = 0
     steps_execution: list[StepExecutionRecord] = Field(default_factory=list)
@@ -183,6 +186,8 @@ class ProposedTestCase(BaseModel):
     metadata: TestCaseMetadata | None = None
     document_id: str | None = None
     source_reference: str | None = None
+    category: str | None = None
+    custom_instruction_note: str | None = None
 
 
 class ProposedTestTypeBreakdown(BaseModel):

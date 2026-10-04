@@ -145,7 +145,65 @@ class MigratedFrontendServer:
     </main>
   </div>
   <script>
+    (function() {{
+      var isLoginPage = window.location.pathname.indexOf('/login') !== -1;
+      var isAuth = false;
+      try {{ isAuth = localStorage.getItem('isAuthenticated') === 'true'; }} catch(e) {{}}
+      if (!isLoginPage && !isAuth) {{
+        window.location.replace('/login');
+      }}
+    }})();
+
+    document.addEventListener('DOMContentLoaded', function() {{
+      var searchInput = document.querySelector('input[name="search"], input[type="search"], input[placeholder*="search" i]');
+      if (searchInput) {{
+        searchInput.addEventListener('input', function() {{
+          var q = this.value.toLowerCase().trim();
+          var rows = document.querySelectorAll('table tbody tr');
+          var matched = 0;
+          rows.forEach(function(row) {{
+            if (row.classList.contains('no-data-msg')) return;
+            var text = row.textContent.toLowerCase();
+            if (!q || text.indexOf(q) !== -1) {{
+              row.style.display = '';
+              matched++;
+            }} else {{
+              row.style.display = 'none';
+            }}
+          }});
+          var noData = document.querySelector('.no-data-msg');
+          if (matched === 0 && q) {{
+            if (!noData) {{
+              var tbody = document.querySelector('table tbody');
+              if (tbody) {{
+                var tr = document.createElement('tr');
+                tr.className = 'no-data-msg';
+                tr.innerHTML = '<td colspan="10" style="text-align:center; padding:16px; color:#64748b;">No matching records found</td>';
+                tbody.appendChild(tr);
+              }}
+            }} else {{
+              noData.style.display = '';
+            }}
+          }} else if (noData) {{
+            noData.style.display = 'none';
+          }}
+        }});
+      }}
+    }});
+
     document.addEventListener('submit', function(e) {{
+      if (!e.target.checkValidity()) {{
+        e.preventDefault();
+        var alertEl = e.target.querySelector('.validation-error-alert');
+        if (!alertEl) {{
+          alertEl = document.createElement('div');
+          alertEl.className = 'alert alert-danger validation-error-alert mt-3';
+          alertEl.setAttribute('role', 'alert');
+          alertEl.textContent = 'Please fill out all required fields.';
+          e.target.appendChild(alertEl);
+        }}
+        return;
+      }}
       e.preventDefault();
       var feedback = document.createElement('div');
       feedback.className = 'alert alert-success mt-3';

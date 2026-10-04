@@ -873,6 +873,10 @@ class ProposedTestAnalyzer:
         for bm in button_pattern.finditer(content):
             attrs = bm.group(1)
             btn_text = re.sub(r'<[^>]+>', '', bm.group(2)).strip()
+            btn_text = re.sub(r'[\r\n\t]+', ' ', btn_text).strip()
+            btn_text = re.sub(r'[{}\[\]`"\']', '', btn_text).strip()
+            if any(k in btn_text for k in ["=>", "function", "return", "()", ";", "style="]) or len(btn_text) > 40:
+                btn_text = ""
             testid_m = re.search(r'data-testid=["\']([^"\']+)["\']', attrs)
             id_m = re.search(r'id=["\']([^"\']+)["\']', attrs)
             name_m = re.search(r'name=["\']([^"\']+)["\']', attrs)
@@ -1052,6 +1056,20 @@ class ProposedTestAnalyzer:
                             # Skip layout shells like Layout, AppLayout, RootLayout
                             if comp_name.lower() in ["layout", "applayout", "rootlayout"] or "layout" in r_path.lower():
                                 continue
+                            norm_r = "/" + r_path.strip("/")
+                            spa_routes.append({
+                                "name": comp_name,
+                                "route": norm_r,
+                                "file": rel_path,
+                            })
+
+                    # Also check for auth/login components rendered in App: <Login ... />
+                    if re.search(r'<Login\b', content) and not any(r["route"] == "/login" for r in spa_routes):
+                        spa_routes.append({
+                            "name": "Login",
+                            "route": "/login",
+                            "file": rel_path,
+                        })
                     # Check for Angular router routes: { path: 'login', component: LoginComponent }
                     ang_matches = re.finditer(r"\{\s*path:\s*['\"]([^'\"]*)['\"]\s*,\s*component:\s*(\w+)", content)
                     for am in ang_matches:

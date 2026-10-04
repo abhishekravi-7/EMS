@@ -544,17 +544,57 @@ class ProposedTestValidator:
 
     def _get_scenario_signature(self, test: ProposedTestCase) -> str:
         if test.type == ProposedTestType.API and test.api_spec:
-            return f"API:{test.api_spec.method.upper()}:{_normalize_endpoint(test.api_spec.endpoint)}"
+            ep = _normalize_endpoint(test.api_spec.endpoint)
+            method = test.api_spec.method.upper()
+            status = test.api_spec.expected_status or (test.metadata.expected_status if test.metadata else 200)
+
+            t_low = (test.title or "").lower()
+            intent = "success"
+            if test.category:
+                cat_slug = re.sub(r'[^a-zA-Z0-9]', '_', test.category.lower()).strip('_')
+                field_match = re.search(r'(?:field|parameter|payload|input|scenario)\s+([a-zA-Z0-9_]+)', t_low)
+                f_slug = field_match.group(1) if field_match else "main"
+                intent = f"{cat_slug}_{f_slug}_{status}"
+            elif status in (401, 403) or "unauthorized" in t_low or "permission" in t_low or "role" in t_low or "auth" in t_low:
+                intent = f"auth_restriction_{status}"
+            elif "edge" in t_low or "boundary" in t_low or "max" in t_low or "empty" in t_low:
+                intent = f"edge_case_{status}"
+            elif status in (400, 422) or "invalid" in t_low or "reject" in t_low or "negative" in t_low or "malformed" in t_low:
+                field_match = re.search(r'(?:field|parameter|payload|input)\s+([a-zA-Z0-9_]+)', t_low)
+                param_slug = field_match.group(1) if field_match else "payload"
+                intent = f"negative_validation_{param_slug}_{status}"
+            elif "workflow" in t_low or "lifecycle" in t_low or "sequence" in t_low:
+                intent = f"workflow_{status}"
+            elif status == 404 or "not found" in t_low:
+                intent = "not_found"
+
+            return f"API:{method}:{ep}:{intent}"
+
         if test.type == ProposedTestType.UI and test.ui_spec:
             route = _normalize_endpoint(test.ui_spec.target_route or "/")
-            is_auth_workflow = (
-                "workflow" in test.title.lower()
-                or "authentication" in test.title.lower()
-                or (test.metadata and test.metadata.method == "POST")
-                or (test.metadata and "AUTHENTICATE_CREDENTIALS" in (test.metadata.dependencies or []))
-            )
-            scenario_kind = "AUTH_WORKFLOW" if is_auth_workflow else "VIEW"
-            return f"UI:{route}:{scenario_kind}"
+            t_low = (test.title or "").lower()
+            intent = "view"
+            if test.category:
+                cat_slug = re.sub(r'[^a-zA-Z0-9]', '_', test.category.lower()).strip('_')
+                field_match = re.search(r'for\s+([a-zA-Z0-9_]+)\s+on', t_low)
+                if not field_match:
+                    field_match = re.search(r'(?:field|button|action|table|controls?)\s+([a-zA-Z0-9_]+)', t_low)
+                param_slug = field_match.group(1) if field_match else "main"
+                intent = f"{cat_slug}_{param_slug}"
+            elif "login" in t_low or "auth" in t_low:
+                sub_action = "submit" if ("redirect" in t_low or "workflow" in t_low or "authentication" in t_low) else "view_controls"
+                intent = f"auth_{sub_action}"
+            elif "validation" in t_low or "invalid" in t_low or "missing" in t_low or "error" in t_low or "empty" in t_low:
+                field_match = re.search(r'(?:field|input|value)\s+([a-zA-Z0-9_]+)', t_low)
+                param_slug = field_match.group(1) if field_match else "required_fields"
+                intent = f"negative_validation_{param_slug}"
+            elif "edge" in t_low or "boundary" in t_low or "max" in t_low:
+                intent = "edge_case"
+            elif "role" in t_low or "permission" in t_low or "unauthenticated" in t_low:
+                intent = "role_permission"
+            elif "workflow" in t_low or "e2e" in t_low:
+                intent = "e2e_workflow"
+            return f"UI:{route}:{intent}"
         return f"GEN:{test.title.lower().strip()}"
 
     def _is_non_functional_test(self, test: ProposedTestCase) -> bool:

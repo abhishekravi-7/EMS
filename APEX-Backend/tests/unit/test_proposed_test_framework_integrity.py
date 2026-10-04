@@ -319,3 +319,137 @@ def test_dod_criterion_12_strict_execution_gate_blocks_non_valid():
         res = executor.execute_test(blocked_test)
         assert res.status == ProposedTestStatus.BLOCKED
         assert "blocked by strict execution gate" in res.error.lower()
+
+
+def test_submit_button_selector_chain_syntax_validity():
+    """Fix 1: Submit button selector chain is well-formed with no malformed :has-text clauses."""
+    from app.application.use_cases.proposed_tests.playwright_test_generator import PlaywrightTestGenerator
+
+    # 1. Test builder produces well-formed chain
+    submit_chain = PlaywrightTestGenerator._build_submit_button_selector()
+    assert submit_chain == 'button[type="submit"], input[type="submit"], button:has-text("Save"), button:has-text("Submit")'
+    assert 'button:has-text("Submit"]' not in submit_chain
+    assert submit_chain.count("(") == submit_chain.count(")")
+
+    # 2. Test sanitizer repairs malformed chains with missing closing parentheses
+    malformed = 'button[type="submit"], input[type="submit"], button:has-text("Save"), button:has-text("Submit"]'
+    sanitized = PlaywrightTestGenerator._sanitize_selector_chain(malformed)
+    assert sanitized == 'button[type="submit"], input[type="submit"], button:has-text("Save"), button:has-text("Submit")'
+    assert sanitized.count("(") == sanitized.count(")")
+
+
+def test_intent_derived_field_values_and_form_isolation(tmp_path):
+    """Fix 2: Testcase boundary and format intent derives probe values, isolates fields, and flags missing evidence."""
+    import tempfile
+    from app.application.use_cases.proposed_tests.playwright_test_generator import PlaywrightTestGenerator
+
+    # Setup dummy project repo
+    job_dir = tmp_path / "test_job"
+    migrated_repo = job_dir / "migrated-repo"
+    migrated_repo.mkdir(parents=True)
+    
+    # Create sample entity with numeric ID, constrained name, and unconstrained notes
+    java_file = migrated_repo / "SampleEntity.java"
+    java_file.write_text(
+        "public class SampleEntity {\n"
+        "    private Long accountId;\n"
+        "    @Size(max = 20)\n"
+        "    private String code;\n"
+        "    private String notes;\n"
+        "}\n",
+        encoding="utf-8"
+    )
+
+    gen = PlaywrightTestGenerator(job_dir, "http://localhost:8080", "http://localhost:3000")
+    dom_fields = [
+        {"name": "accountId", "type": "text", "tag": "input"},
+        {"name": "code", "type": "text", "tag": "input"},
+        {"name": "notes", "type": "text", "tag": "input"},
+        {"name": "email", "type": "email", "tag": "input"},
+    ]
+
+    # Case A: Boundary constraint with known max limit from evidence
+    code_constraints = gen._discover_field_constraints("/sample", "code", {"fields": dom_fields})
+    assert code_constraints["has_boundary_evidence"] is True
+    assert code_constraints["max_length"] == 20
+    assert len(code_constraints["boundary_probe_value"]) == 21
+    assert "known length constraint" in code_constraints["boundary_note"]
+
+    # Case B: Boundary constraint with unconfirmed limit (fallback to credible probe)
+    notes_constraints = gen._discover_field_constraints("/sample", "notes", {"fields": dom_fields})
+    assert notes_constraints["has_boundary_evidence"] is True
+    assert notes_constraints["max_length"] is None
+    assert len(notes_constraints["boundary_probe_value"]) == 300
+    assert "unconfirmed exact limit" in notes_constraints["boundary_note"]
+
+    # Case C: Format constraint on numeric ID (derived from Long accountId)
+    id_constraints = gen._discover_field_constraints("/sample", "accountId", {"fields": dom_fields})
+    assert id_constraints["has_format_evidence"] is True
+    assert id_constraints["format_type"] == "number"
+    assert id_constraints["violating_format_value"] == "INVALID_NON_NUMERIC_!@#"
+
+    # Case D: Format constraint on unconstrained text field flags missing evidence
+    freeform_constraints = gen._discover_field_constraints("/sample", "notes", {"fields": dom_fields})
+    assert freeform_constraints["has_format_evidence"] is False
+    assert freeform_constraints["violating_format_value"] is None
+
+    # Case E: Generating Playwright test for format constraint isolates form fields
+    format_test = ProposedTestCase(
+        id="PTC-FMT",
+        title="Playwright UI: Verify input format constraint validation for accountId on SampleForm",
+        description="Verify format constraint on accountId",
+        type=ProposedTestType.UI,
+        priority=ProposedTestPriority.MEDIUM,
+        source="LLM Generated",
+        reason="Format test",
+        expected_result="Validation error",
+        status=ProposedTestStatus.PROPOSED,
+        test_data={"ui_view": "SampleForm", "route": "/sample", "field": "accountId"},
+        category="Negative & Validation Testing",
+        custom_instruction_note="Format constraint validation for field accountId",
+        ui_spec=UiTestSpec(
+            target_route="/sample",
+            input_fields=[{"name": "accountId", "type": "text", "tag": "input"}],
+            actions=["navigate", "fill", "screenshot"],
+            expected_elements=["form"],
+        ),
+    )
+
+    gen._route_evidence_cache["/sample"] = {"fields": dom_fields, "buttons": [{"text": "Submit", "type": "submit"}]}
+    gen.generate_project([format_test])
+
+    spec_content = (job_dir / "proposed-tests" / "playwright-project" / "tests" / "functional.generated.spec.ts").read_text(encoding="utf-8")
+    # Verify accountId gets format-violating probe
+    assert "INVALID_NON_NUMERIC_!@#" in spec_content
+    # Verify sibling fields get valid default values (form field isolation)
+    assert "test@example.com" in spec_content
+    # Verify submit button selector parses cleanly
+    assert 'button:has-text("Submit"]' not in spec_content
+
+    # Case F: Unconstrained field format constraint testcase triggers REVIEW_REQUIRED
+    unconstrained_test = ProposedTestCase(
+        id="PTC-UNCONSTRAINED",
+        title="Playwright UI: Verify input format constraint validation for notes on SampleForm",
+        description="Verify format constraint on notes",
+        type=ProposedTestType.UI,
+        priority=ProposedTestPriority.MEDIUM,
+        source="LLM Generated",
+        reason="Format test",
+        expected_result="Validation error",
+        status=ProposedTestStatus.PROPOSED,
+        test_data={"ui_view": "SampleForm", "route": "/sample", "field": "notes"},
+        category="Negative & Validation Testing",
+        custom_instruction_note="Format constraint validation for field notes",
+        ui_spec=UiTestSpec(
+            target_route="/sample",
+            input_fields=[{"name": "notes", "type": "text", "tag": "input"}],
+            actions=["navigate", "fill", "screenshot"],
+            expected_elements=["form"],
+        ),
+    )
+    gen.generate_project([unconstrained_test])
+    unconstrained_spec = (job_dir / "proposed-tests" / "playwright-project" / "tests" / "functional.generated.spec.ts").read_text(encoding="utf-8")
+    assert "no boundary/format evidence found for field" in unconstrained_spec
+    assert "notes" in unconstrained_spec
+    assert "REVIEW_REQUIRED" in unconstrained_spec
+

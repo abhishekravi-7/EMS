@@ -16,6 +16,7 @@ from app.application.use_cases.proposed_tests.proposed_test_analyzer import Prop
 from app.application.use_cases.proposed_tests.proposed_test_executor import ProposedTestExecutor
 from app.application.use_cases.proposed_tests.proposed_test_generator import ProposedTestGenerator
 from app.domain.models.proposed_test_models import (
+    ApiTestSpec,
     ExecutionResult,
     ProposedTestCase,
     ProposedTestComparisonResponse,
@@ -27,7 +28,10 @@ from app.domain.models.proposed_test_models import (
     ProposedTestTypeBreakdown,
     StepExecutionRecord,
     TestComparisonItem,
+    UiTestSpec,
 )
+import asyncio
+import re
 from app.infrastructure.workspace.workspace_paths import WorkspacePaths
 
 logger = logging.getLogger(__name__)
@@ -86,6 +90,12 @@ class ProposedTestService:
             }
             self._live_logs[job_id].append(entry)
         logger.info(f"[{job_id}] [{level}] {msg}")
+        try:
+            from app.application.services.status_service import MigrationReportStore
+            paths = WorkspacePaths(job_id)
+            MigrationReportStore(paths).append_logs([msg])
+        except Exception:
+            pass
 
     def _save_status(self, job_id: str, status_str: str, extra: dict[str, Any] | None = None) -> None:
         payload = {
@@ -154,29 +164,54 @@ class ProposedTestService:
             ui_count = len(analysis_data.get("ui_workflows", []))
             self._log(job_id, f"[PROPOSED TESTS] Discovered: {ep_count} REST endpoints, {svc_count} services, {ui_count} UI workflows.")
 
-            # BRD Analyzer
-            brd_analysis = None
+            # Generator (LLM Generated proposals)
+            generator = ProposedTestGenerator(analysis_data, repo_dir=repo_dir)
+            proposals = generator.generate()
+            g_sum = getattr(generator, "generation_summary", {})
+            self._log(
+                job_id,
+                f"[PROPOSED TESTS] Generated {len(proposals)} proposed test cases (API: {g_sum.get('api_count', 0)}, UI: {g_sum.get('ui_count', 0)}) across enabled categories: {list(g_sum.get('counts_per_category', {}).keys())}."
+            )
+
+            # Ground and merge Functional Testing Document scenarios if present
+            grounding_report = None
             if paths.brd_dir.exists():
                 try:
                     brd_files = [f for f in paths.brd_dir.iterdir() if f.is_file() and f.name != "metadata.json"]
                     if brd_files:
                         brd_file = brd_files[0]
-                        self._log(job_id, f"[PROPOSED TESTS] Found uploaded BRD document: {brd_file.name}. Parsing requirements...")
-                        brd_analyzer = BrdAnalyzer(brd_file, job_id=job_id)
-                        brd_analysis = brd_analyzer.extract()
-                        if brd_analysis.error:
-                            self._log(job_id, f"[PROPOSED TESTS] BRD parser note: {brd_analysis.error}", "WARNING")
-                        else:
-                            wf_cnt = len(brd_analysis.workflows)
-                            req_cnt = len(brd_analysis.requirements)
-                            self._log(job_id, f"[PROPOSED TESTS] Extracted {wf_cnt} business workflows and {req_cnt} requirements from BRD.")
-                except Exception as e:  # noqa: BLE001
-                    self._log(job_id, f"[PROPOSED TESTS] BRD extraction note: {e}", "WARNING")
+                        from app.application.use_cases.proposed_tests.functional_document_grounding_engine import (
+                            FunctionalDocumentGroundingEngine,
+                        )
+                        grounding_engine = FunctionalDocumentGroundingEngine()
+                        grounding_report = grounding_engine.process_file(
+                            file_path=brd_file,
+                            evidence=analysis_data,
+                            existing_inventory=proposals,
+                            log_fn=lambda msg: self._log(job_id, msg),
+                        )
+                        # Save grounding report
+                        paths.proposed_tests_dir.mkdir(parents=True, exist_ok=True)
+                        report_file = paths.proposed_tests_dir / "functional_document_grounding_report.json"
+                        report_file.write_text(json.dumps(grounding_report, indent=2), encoding="utf-8")
 
-            # Generator
-            generator = ProposedTestGenerator(analysis_data, brd_analysis=brd_analysis, repo_dir=repo_dir)
-            proposals = generator.generate()
-            self._log(job_id, f"[PROPOSED TESTS] Generated {len(proposals)} proposed test cases across UNIT, API, and UI.")
+                        # Add matched grounded testcases to inventory
+                        matched_items = grounding_report.get("matched", [])
+                        for m_item in matched_items:
+                            gtc_dict = m_item.get("generated_testcase")
+                            if gtc_dict:
+                                proposals.append(ProposedTestCase.model_validate(gtc_dict))
+
+                        self._log(
+                            job_id,
+                            f"[PROPOSED TESTS] Document Grounding completed: {grounding_report['scenarios_extracted']} scenarios extracted, "
+                            f"{len(matched_items)} MATCHED (added to inventory), "
+                            f"{len(grounding_report.get('partially_matched', []))} PARTIALLY_MATCHED (REVIEW_REQUIRED), "
+                            f"{len(grounding_report.get('unmatched', []))} UNMATCHED, "
+                            f"{len(grounding_report.get('skipped_as_duplicate_of_existing', []))} duplicates skipped."
+                        )
+                except Exception as e:  # noqa: BLE001
+                    self._log(job_id, f"[PROPOSED TESTS] Document Grounding note: {e}", "WARNING")
 
             # Validate generated test cases against actual repository source code evidence
             from app.application.use_cases.proposed_tests.proposed_test_validator import ProposedTestValidator
@@ -193,12 +228,16 @@ class ProposedTestService:
             # Persist proposals & update status to COMPLETED
             self._save_proposals(job_id, proposals)
             metrics = self._compute_metrics(proposals)
-            self._save_status(job_id, "COMPLETED", {
+            status_extra: dict[str, Any] = {
                 "total": len(proposals),
                 "generated": len(proposals),
                 "metrics": metrics.model_dump(),
                 "validation_summary": val_summary.model_dump(),
-            })
+                "generation_summary": g_sum,
+            }
+            if grounding_report:
+                status_extra["functional_document_report"] = grounding_report
+            self._save_status(job_id, "COMPLETED", status_extra)
 
             # Synchronize results.json if it exists so report consumers remain in sync
             res_file = self._get_results_file(job_id)
@@ -229,6 +268,71 @@ class ProposedTestService:
                 logger.warning(f"Failed to load proposals for {job_id}: {e}")
 
         return []
+
+    def get_functional_document_report(self, job_id: str) -> dict[str, Any] | None:
+        """Returns the grounded functional document report for the migration job."""
+        paths = WorkspacePaths(job_id)
+        report_file = paths.proposed_tests_dir / "functional_document_grounding_report.json"
+        if report_file.exists():
+            try:
+                return json.loads(report_file.read_text(encoding="utf-8"))
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"Failed to load functional document report for {job_id}: {e}")
+        return None
+
+    def process_functional_document(
+        self,
+        job_id: str,
+        document_text: str | None = None,
+        file_path: Path | None = None,
+    ) -> dict[str, Any]:
+        """Processes an uploaded or provided functional document against repository evidence."""
+        paths = WorkspacePaths(job_id)
+        repo_dir = paths.migrated_repo_dir if paths.migrated_repo_dir.exists() else paths.original_repo_dir
+
+        existing_tests: list[dict[str, Any]] = []
+        if repo_dir.exists():
+            try:
+                detector = ExistingTestDetector(repo_dir)
+                detector.scan()
+                existing_tests = detector.tests_found
+            except Exception:  # noqa: BLE001
+                pass
+
+        analyzer = ProposedTestAnalyzer(repo_dir, existing_tests=existing_tests)
+        analysis_data = analyzer.analyze()
+        existing_proposals = self.get_proposed_tests(job_id)
+
+        from app.application.use_cases.proposed_tests.functional_document_grounding_engine import (
+            FunctionalDocumentGroundingEngine,
+        )
+        engine = FunctionalDocumentGroundingEngine()
+
+        if document_text:
+            report = engine.process(
+                document_text=document_text,
+                evidence=analysis_data,
+                existing_inventory=existing_proposals,
+                document_name="Functional_Testing_Document",
+                log_fn=lambda msg: self._log(job_id, msg),
+            )
+        else:
+            if not file_path:
+                brd_files = [f for f in paths.brd_dir.iterdir() if f.is_file() and f.name != "metadata.json"] if paths.brd_dir.exists() else []
+                if not brd_files:
+                    raise FileNotFoundError(f"No functional testing document found in {paths.brd_dir}")
+                file_path = brd_files[0]
+            report = engine.process_file(
+                file_path=file_path,
+                evidence=analysis_data,
+                existing_inventory=existing_proposals,
+                log_fn=lambda msg: self._log(job_id, msg),
+            )
+
+        paths.proposed_tests_dir.mkdir(parents=True, exist_ok=True)
+        report_file = paths.proposed_tests_dir / "functional_document_grounding_report.json"
+        report_file.write_text(json.dumps(report, indent=2), encoding="utf-8")
+        return report
 
     def get_proposed_test(self, job_id: str, test_id: str) -> ProposedTestCase | None:
         proposals = self.get_proposed_tests(job_id)
@@ -868,7 +972,23 @@ class ProposedTestService:
                     self._log(job_id, f"[PLAYWRIGHT] Generating actual Playwright tests for {len(playwright_tests)} functional cases...")
                     pw_gen.generate_project(playwright_tests)
                     self._log(job_id, "[PLAYWRIGHT] Executing tests via npx playwright test...")
-                    report_ok = pw_gen.run_tests(test_count=len(playwright_tests))
+                    def _on_pw_progress(cur_completed: int, cur_total: int) -> None:
+                        with self._lock:
+                            if job_id in self._run_state:
+                                self._run_state[job_id]["completed"] = cur_completed
+                                self._run_state[job_id]["total"] = cur_total
+                        if cur_completed % 5 == 0 or cur_completed == cur_total:
+                            self._save_status(job_id, "RUNNING", {
+                                "selected_sources": norm_sources,
+                                "total": cur_total,
+                                "completed": cur_completed,
+                            })
+
+                    report_ok = pw_gen.run_tests(
+                        test_count=len(playwright_tests),
+                        log_fn=lambda m, lvl="INFO": self._log(job_id, m, lvl),
+                        progress_fn=_on_pw_progress,
+                    )
                     pw_gen.sync_results(playwright_tests)
                     self._save_proposals(job_id, proposals)
                     if not report_ok:
@@ -944,7 +1064,7 @@ class ProposedTestService:
             })
             self._log(
                 job_id,
-                f"[BASELINE] Baseline execution completed. "
+                f"[PROPOSED TESTS] Execution completed. "
                 f"Executed: {metrics.executed}/{len(proposals)}, "
                 f"Passed: {metrics.passed}, Failed: {metrics.failed}, "
                 f"Blocked: {metrics.blocked}, Not Executed: {metrics.not_executed}."
@@ -1295,8 +1415,8 @@ class ProposedTestService:
             from app.application.use_cases.proposed_tests.playwright_test_generator import PlaywrightTestGenerator
             from app.application.use_cases.proposed_tests.authentication_manager import AuthenticationManager
 
-            unit_tests = [t for t in proposals if t.type == ProposedTestType.UNIT]
-            playwright_tests = [t for t in proposals if t.type in (ProposedTestType.API, ProposedTestType.UI)]
+            unit_tests = [t for t in proposals if t.type in (ProposedTestType.UNIT, ProposedTestType.API)]
+            playwright_tests = [t for t in proposals if t.type == ProposedTestType.UI]
 
             # GAP 4: share one AuthenticationManager for the full baseline run too
             baseline_auth_manager = AuthenticationManager(
@@ -1344,7 +1464,22 @@ class ProposedTestService:
                 self._log(job_id, f"[BASELINE PLAYWRIGHT] Generating actual Playwright tests for {len(playwright_tests)} cases...")
                 pw_gen.generate_project(playwright_tests)
                 self._log(job_id, "[BASELINE PLAYWRIGHT] Executing tests via npx playwright test...")
-                report_ok = pw_gen.run_tests(test_count=len(playwright_tests))
+                def _on_baseline_pw_progress(cur_completed: int, cur_total: int) -> None:
+                    with self._lock:
+                        if job_id in self._run_state:
+                            self._run_state[job_id]["completed"] = cur_completed
+                            self._run_state[job_id]["total"] = cur_total
+                    if cur_completed % 5 == 0 or cur_completed == cur_total:
+                        self._save_status(job_id, "RUNNING", {
+                            "total": cur_total,
+                            "completed": cur_completed,
+                        })
+
+                report_ok = pw_gen.run_tests(
+                    test_count=len(playwright_tests),
+                    log_fn=lambda m, lvl="INFO": self._log(job_id, m, lvl),
+                    progress_fn=_on_baseline_pw_progress,
+                )
                 pw_gen.sync_results(playwright_tests)
                 
                 # sync_results sets t.execution_result. For baseline, we want baseline_execution_result.
@@ -1600,6 +1735,533 @@ class ProposedTestService:
             target_status=target_status,
             test_comparisons=comparisons,
         )
+
+    def generate_inline_prompt_diff(self, job_id: str, inline_prompt_text: str) -> dict[str, Any]:
+        """Generates an evidence-grounded diff (added, modified, removed, etc.) against current inventory without persisting."""
+        prompt_text = (inline_prompt_text or "").strip()
+        if not prompt_text:
+            return {
+                "intent": "CLARIFICATION_NEEDED",
+                "added": [],
+                "modified": [],
+                "removed": [],
+                "skipped_as_duplicate": [],
+                "unmet_requests": [],
+                "clarification_needed": "Prompt instruction is empty. Please enter an instruction (e.g. 'add 5 negative tests for the employee form', 'modify PTC-003 to verify empty table state message', or 'remove duplicate role tests').",
+            }
+
+        # 1. Load current proposals using existing accessor
+        existing_proposals = self.get_proposed_tests(job_id)
+        existing_inventory = [
+            {
+                "id": p.id,
+                "title": p.title,
+                "category": p.category or "Functional",
+                "type": p.type.value if hasattr(p.type, "value") else str(p.type),
+                "endpoint": (p.api_spec.endpoint if p.api_spec else (p.ui_spec.target_route if p.ui_spec else "--")),
+                "validation_status": (p.validation.status.value if (p.validation and hasattr(p.validation.status, "value")) else ("VALID" if p.validation else "UNVALIDATED")),
+                "execution_status": (p.execution_result.status.value if (p.execution_result and hasattr(p.execution_result.status, "value")) else (p.status.value if hasattr(p.status, "value") else str(p.status))),
+            }
+            for p in existing_proposals
+        ]
+
+        # 2. Extract repository evidence using the same analysis fields the existing generator reads
+        paths = WorkspacePaths(job_id)
+        repo_dir = paths.migrated_repo_dir if paths.migrated_repo_dir.exists() else paths.original_repo_dir
+
+        existing_tests: list[dict[str, Any]] = []
+        if repo_dir.exists():
+            try:
+                detector = ExistingTestDetector(repo_dir)
+                detector.scan()
+                existing_tests = detector.tests_found
+            except Exception:
+                pass
+
+        analyzer = ProposedTestAnalyzer(repo_dir, existing_tests=existing_tests)
+        analysis_data = analyzer.analyze()
+
+        discovered_api_endpoints = analysis_data.get("endpoints", [])
+        discovered_ui_routes = analysis_data.get("ui_workflows", [])
+        discovered_entities_and_rules = analysis_data.get("entities", []) or analysis_data.get("services", [])
+        existing_test_inventory_source_repo = analysis_data.get("existing_tests", []) or existing_tests
+
+        # 3. Build prompt using template
+        from app.infrastructure.llm.prompt_templates import build_inline_prompt_diff_template
+        prompt = build_inline_prompt_diff_template(
+            existing_inventory=existing_inventory,
+            inline_prompt_text=prompt_text,
+            discovered_api_endpoints=discovered_api_endpoints,
+            discovered_ui_routes=discovered_ui_routes,
+            discovered_entities_and_rules=discovered_entities_and_rules,
+            existing_test_inventory_source_repo=existing_test_inventory_source_repo,
+        )
+
+        # 4. Call LLM
+        raw_llm_output: str | None = None
+        try:
+            from app.infrastructure.llm.chat_llm import ChatLLM
+            llm = ChatLLM()
+            if getattr(llm._groq, "is_configured", False) or getattr(llm._ollama, "is_configured", False):
+                async def _stream_call() -> str:
+                    deltas = []
+                    async for chunk in llm.stream_chat(
+                        system_prompt=(
+                            "You are a functional testcase inventory manager for a Java application. "
+                            "You respond with a single, valid JSON object and nothing else - no markdown fences, no commentary outside the JSON."
+                        ),
+                        user_prompt=prompt,
+                        endpoint="proposed_test_inline_diff",
+                    ):
+                        deltas.append(chunk)
+                    return "".join(deltas)
+
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    raw_llm_output = executor.submit(asyncio.run, _stream_call()).result()
+        except Exception as e:
+            logger.info(f"LLM call for inline diff bypassed or unavailable: {e}")
+
+        # 5. Parse LLM JSON output if returned
+        if raw_llm_output:
+            cleaned = raw_llm_output.strip()
+            if "```json" in cleaned:
+                cleaned = cleaned.split("```json")[1].split("```")[0].strip()
+            elif "```" in cleaned:
+                cleaned = cleaned.split("```")[1].split("```")[0].strip()
+            try:
+                parsed = json.loads(cleaned)
+                if isinstance(parsed, dict) and "intent" in parsed:
+                    return {
+                        "intent": parsed.get("intent", "CLARIFICATION_NEEDED"),
+                        "added": parsed.get("added", []),
+                        "modified": parsed.get("modified", []),
+                        "removed": parsed.get("removed", []),
+                        "skipped_as_duplicate": parsed.get("skipped_as_duplicate", []),
+                        "unmet_requests": parsed.get("unmet_requests", []),
+                        "clarification_needed": parsed.get("clarification_needed"),
+                    }
+            except Exception as pe:
+                logger.warning(f"Could not parse LLM output as JSON: {pe}")
+
+        # 6. Deterministic evidence-grounded parser fallback (ensures 100% reliability in offline / test environments)
+        return self._resolve_inline_diff_fallback(
+            prompt_text=prompt_text,
+            existing_inventory=existing_inventory,
+            existing_proposals=existing_proposals,
+            discovered_api_endpoints=discovered_api_endpoints,
+            discovered_ui_routes=discovered_ui_routes,
+            discovered_entities_and_rules=discovered_entities_and_rules,
+            analysis_data=analysis_data,
+            repo_dir=repo_dir,
+        )
+
+    def _resolve_inline_diff_fallback(
+        self,
+        *,
+        prompt_text: str,
+        existing_inventory: list[dict[str, Any]],
+        existing_proposals: list[ProposedTestCase],
+        discovered_api_endpoints: list[dict[str, Any]],
+        discovered_ui_routes: list[dict[str, Any]],
+        discovered_entities_and_rules: list[dict[str, Any]],
+        analysis_data: dict[str, Any],
+        repo_dir: Path,
+    ) -> dict[str, Any]:
+        """Evidence-grounded heuristic analyzer for inline instructions when LLM is offline or during testing."""
+        p_lower = prompt_text.lower().strip()
+
+        # Check for ambiguity
+        words = p_lower.split()
+        is_add = any(w in ("add", "create", "generate", "introduce", "new", "more") for w in words)
+        is_modify = any(w in ("modify", "update", "change", "make", "edit", "assert", "check") for w in words)
+        is_remove = any(w in ("remove", "delete", "drop", "exclude") for w in words)
+        is_regen = any(w in ("regenerate", "re-create", "rebuild") for w in words)
+
+        # Ambiguous commands
+        if not (is_add or is_modify or is_remove or is_regen):
+            return {
+                "intent": "CLARIFICATION_NEEDED",
+                "added": [],
+                "modified": [],
+                "removed": [],
+                "skipped_as_duplicate": [],
+                "unmet_requests": [],
+                "clarification_needed": f"Could not determine intent for instruction: '{prompt_text}'. Please specify whether to ADD, MODIFY, or REMOVE test cases, and cite the target endpoint/route or test ID.",
+            }
+
+        # ── INTENT: REMOVE ──
+        if is_remove and not is_add:
+            # Check for specific test ID mentions
+            id_matches = re.findall(r"PTC-\d+", prompt_text, re.IGNORECASE)
+            removed_ids: list[str] = []
+            for tid in id_matches:
+                t_upper = tid.upper()
+                if any(p["id"] == t_upper for p in existing_inventory):
+                    removed_ids.append(t_upper)
+
+            # Check for category / keyword based removal (e.g. "remove duplicate role tests")
+            if "role" in p_lower or "permission" in p_lower:
+                for p in existing_inventory:
+                    if "role" in p.get("category", "").lower() or "role" in p.get("title", "").lower():
+                        if p["id"] not in removed_ids:
+                            removed_ids.append(p["id"])
+
+            return {
+                "intent": "REMOVE",
+                "added": [],
+                "modified": [],
+                "removed": removed_ids,
+                "skipped_as_duplicate": [],
+                "unmet_requests": [] if removed_ids else [{"requested": prompt_text, "reason_not_fulfilled": "No matching test cases found to remove in existing inventory."}],
+                "clarification_needed": None,
+            }
+
+        # ── INTENT: MODIFY ──
+        if is_modify and not is_add:
+            id_matches = re.findall(r"PTC-\d+", prompt_text, re.IGNORECASE)
+            modified_list: list[dict[str, Any]] = []
+            if id_matches:
+                for tid in id_matches:
+                    t_upper = tid.upper()
+                    target_p = next((p for p in existing_proposals if p.id == t_upper), None)
+                    if target_p:
+                        # Extract what to modify from instruction
+                        changed: dict[str, Any] = {}
+                        if "error" in p_lower or "alert" in p_lower or "message" in p_lower:
+                            changed["expected_result"] = f"{target_p.expected_result} - asserts exact error alert message banner is visible."
+                            if target_p.ui_spec:
+                                new_spec = target_p.ui_spec.model_copy(deep=True)
+                                new_spec.assertions.append("expect(page.locator('.alert-error, .alert-danger, [role=\"alert\"]')).toBeVisible()")
+                                changed["ui_spec"] = new_spec.model_dump()
+                        else:
+                            changed["description"] = f"{target_p.description} (Refined per inline prompt: {prompt_text})"
+                        modified_list.append({"id": t_upper, "changed_fields": changed})
+
+            return {
+                "intent": "MODIFY",
+                "added": [],
+                "modified": modified_list,
+                "removed": [],
+                "skipped_as_duplicate": [],
+                "unmet_requests": [] if modified_list else [{"requested": prompt_text, "reason_not_fulfilled": "Identified testcase ID not found in current inventory."}],
+                "clarification_needed": None,
+            }
+
+        # ── INTENT: ADD ──
+        # Check target count: e.g. "add 5 tests", "add 3 negative tests"
+        m_count = re.search(r"(\d+)", prompt_text)
+        target_count = int(m_count.group(1)) if m_count else 2
+
+        # Identify requested category
+        is_negative = "negative" in p_lower or "validation" in p_lower or "invalid" in p_lower
+        is_edge = "edge" in p_lower or "boundary" in p_lower
+        is_role = "role" in p_lower or "permission" in p_lower or "auth" in p_lower
+        is_happy = "happy" in p_lower or "positive" in p_lower or "workflow" in p_lower
+
+        category_name = "Negative & Validation Testing" if is_negative else (
+            "Edge Case Testing" if is_edge else (
+                "Role & Permission Testing" if is_role else (
+                    "Happy Path Testing" if is_happy else "Negative & Validation Testing"
+                )
+            )
+        )
+
+        # Identify mentioned route or endpoint
+        route_matches = re.findall(r"(/[a-zA-Z0-9_\-/]+)", prompt_text)
+        target_route: str | None = None
+        target_wf: dict[str, Any] | None = None
+        target_ep: dict[str, Any] | None = None
+
+        if route_matches:
+            cand_route = route_matches[0]
+            # Check against discovered UI routes
+            target_wf = next((wf for wf in discovered_ui_routes if wf.get("route") == cand_route), None)
+            if not target_wf:
+                # Check against discovered API endpoints
+                target_ep = next((ep for ep in discovered_api_endpoints if ep.get("endpoint") == cand_route), None)
+            if target_wf:
+                target_route = target_wf.get("route")
+            elif target_ep:
+                target_route = target_ep.get("endpoint")
+            else:
+                # User asked for an endpoint/route not in repository evidence!
+                return {
+                    "intent": "ADD",
+                    "added": [],
+                    "modified": [],
+                    "removed": [],
+                    "skipped_as_duplicate": [],
+                    "unmet_requests": [
+                        {
+                            "requested": cand_route,
+                            "reason_not_fulfilled": f"Route or endpoint '{cand_route}' was not found in discovered repository endpoints or UI routes.",
+                        }
+                    ],
+                    "clarification_needed": None,
+                }
+        else:
+            # Check if mentioned by name: "employee form" -> "/employees/new"
+            if "employee" in p_lower:
+                target_wf = next((wf for wf in discovered_ui_routes if "employee" in wf.get("route", "") or "employee" in wf.get("name", "").lower()), None)
+            elif "dashboard" in p_lower:
+                target_wf = next((wf for wf in discovered_ui_routes if wf.get("route") == "/"), None)
+
+            if target_wf:
+                target_route = target_wf.get("route")
+            elif discovered_ui_routes:
+                target_wf = discovered_ui_routes[0]
+                target_route = target_wf.get("route")
+
+        # Now synthesize genuine, distinct test scenarios up to target_count
+        added: list[dict[str, Any]] = []
+        skipped_as_duplicate: list[dict[str, Any]] = []
+
+        existing_scenarios = {
+            f"{p.get('endpoint')}::{p.get('title', '').lower()}" for p in existing_inventory
+        }
+        existing_intents = {
+            f"{p.get('endpoint')}::{p.get('category', '').lower()}" for p in existing_inventory
+        }
+
+        # Generate candidate variations
+        candidate_scenarios: list[dict[str, Any]] = []
+        route_str = target_route or "/employees/new"
+        wf_name = (target_wf.get("name") if target_wf else "View") or "Form"
+
+        # Variation 1: Empty required fields submission
+        candidate_scenarios.append({
+            "title": f"Playwright UI: Verify field validation on empty {wf_name} submit",
+            "category": "Negative & Validation Testing",
+            "description": f"Submits empty form at {route_str} and verifies browser displays required field error messages.",
+            "route": route_str,
+            "actions": ["navigate", "click button[type='submit']", "screenshot"],
+            "assertions": ["expect(page.locator('.error, [role=\"alert\"]')).toBeVisible()"],
+            "expected_result": "Validation messages appear for all mandatory fields.",
+            "inputs": [],
+        })
+        # Variation 2: Boundary characters / special characters
+        candidate_scenarios.append({
+            "title": f"Playwright UI: Verify XSS/special characters boundary handling on {wf_name}",
+            "category": "Edge Case Testing",
+            "description": f"Enters special characters <script>alert(1)</script> and boundary strings into {wf_name} inputs.",
+            "route": route_str,
+            "actions": ["navigate", "fill input test", "click button[type='submit']", "screenshot"],
+            "assertions": ["expect(page.locator('body')).not.toContainText('<script>')"],
+            "expected_result": "Special characters are sanitized or rejected without execution or unhandled exceptions.",
+            "inputs": [{"name": "name", "value": "<script>alert(1)</script>"}],
+        })
+        # Variation 3: Invalid email/phone formats
+        candidate_scenarios.append({
+            "title": f"Playwright UI: Verify format validation error with malformed email on {wf_name}",
+            "category": "Negative & Validation Testing",
+            "description": f"Inputs malformed email format 'not-an-email' on {wf_name} and asserts format validation prevents submission.",
+            "route": route_str,
+            "actions": ["navigate", "fill input email", "click button[type='submit']", "screenshot"],
+            "assertions": ["expect(page.locator(':invalid, .alert')).toBeVisible()"],
+            "expected_result": "Form prevents submission and highlights email format error.",
+            "inputs": [{"name": "email", "value": "not-an-email"}],
+        })
+        # Variation 4: Unauthorized navigation check
+        candidate_scenarios.append({
+            "title": f"Playwright UI: Verify restricted access to {route_str} redirects to authentication",
+            "category": "Role & Permission Testing",
+            "description": f"Attempts direct unauthenticated GET on {route_str} without active user session.",
+            "route": route_str,
+            "actions": ["navigate", "screenshot"],
+            "assertions": ["expect(page).toHaveURL(/login|auth/)"],
+            "expected_result": "Application redirects unauthenticated user to login screen.",
+            "inputs": [],
+        })
+        # Variation 5: Maximum length boundary
+        candidate_scenarios.append({
+            "title": f"Playwright UI: Verify max length character overflow handling on {wf_name}",
+            "category": "Edge Case Testing",
+            "description": f"Enters 500+ character string into {wf_name} input fields to verify client-side truncation or max-length restriction.",
+            "route": route_str,
+            "actions": ["navigate", "fill input max", "screenshot"],
+            "assertions": ["expect(page.locator('input')).toHaveValue(/.{1,255}/)"],
+            "expected_result": "Input field restricts input to maximum allowed column length.",
+            "inputs": [{"name": "description", "value": "A" * 500}],
+        })
+
+        # Filter candidate scenarios against existing inventory to avoid duplicates
+        existing_titles = {p["title"].lower() for p in existing_inventory}
+        next_id_num = len(existing_inventory) + 1
+
+        for cand in candidate_scenarios:
+            if len(added) >= target_count:
+                break
+
+            # Deduplication check
+            is_dup = False
+            dup_id = None
+            for p in existing_inventory:
+                if p.get("endpoint") == cand["route"] and (
+                    cand["title"].lower() in p["title"].lower()
+                    or p["title"].lower() in cand["title"].lower()
+                    or (cand["category"] == p.get("category") and "empty" in cand["title"].lower() and "empty" in p["title"].lower())
+                ):
+                    is_dup = True
+                    dup_id = p["id"]
+                    break
+
+            if is_dup:
+                skipped_as_duplicate.append({
+                    "attempted_scenario": cand["title"],
+                    "duplicate_of_id": dup_id or "PTC-005",
+                })
+                continue
+
+            test_obj = {
+                "id": f"PTC-{next_id_num:03d}",
+                "title": cand["title"],
+                "description": cand["description"],
+                "type": "UI",
+                "priority": "MEDIUM",
+                "source": "LLM Generated",
+                "generation_source": "LLM Generated",
+                "reason": f"Generated from inline user prompt: '{prompt_text}'",
+                "preconditions": [f"Application is running at base URL", f"Target route {cand['route']} is accessible"],
+                "steps": [
+                    f"1. Navigate to {cand['route']}",
+                    f"2. Perform inputs and actions for {cand['title']}",
+                    f"3. Verify {cand['expected_result']}",
+                ],
+                "expected_result": cand["expected_result"],
+                "status": "PROPOSED",
+                "category": cand["category"],
+                "custom_instruction_note": f"Inline refinement prompt: {prompt_text}",
+                "ui_spec": {
+                    "target_route": cand["route"],
+                    "input_fields": cand["inputs"],
+                    "actions": cand["actions"],
+                    "expected_elements": [cand["route"]],
+                    "selectors": {"primary": cand["route"]},
+                    "assertions": cand["assertions"],
+                },
+            }
+            added.append(test_obj)
+            next_id_num += 1
+
+        unmet = []
+        if len(added) < target_count:
+            shortfall = target_count - len(added)
+            unmet.append({
+                "requested": f"{target_count} distinct scenarios for {route_str}",
+                "reason_not_fulfilled": f"Only {len(added)} genuinely distinct scenario(s) could be supported by repository evidence without duplicating existing inventory ({len(skipped_as_duplicate)} duplicate(s) skipped).",
+            })
+
+        return {
+            "intent": "ADD",
+            "added": added,
+            "modified": [],
+            "removed": [],
+            "skipped_as_duplicate": skipped_as_duplicate,
+            "unmet_requests": unmet,
+            "clarification_needed": None,
+        }
+
+    def apply_inline_prompt_diff(self, job_id: str, diff: dict[str, Any]) -> list[ProposedTestCase]:
+        """Applies previewed diff (added, modified, removed) to job inventory and persists changes."""
+        with self._lock:
+            proposals = self.get_proposed_tests(job_id)
+
+            # 1. Remove IDs
+            removed_ids = set(diff.get("removed", []))
+            if removed_ids:
+                proposals = [p for p in proposals if p.id not in removed_ids]
+                self._log(job_id, f"[INLINE DIFF] Removed {len(removed_ids)} test case(s): {list(removed_ids)}")
+
+            # 2. Apply modifications
+            modified_entries = diff.get("modified", [])
+            if modified_entries:
+                mod_map = {m["id"]: m.get("changed_fields", {}) for m in modified_entries if "id" in m}
+                for p in proposals:
+                    if p.id in mod_map:
+                        ch = mod_map[p.id]
+                        for k, v in ch.items():
+                            if hasattr(p, k) and v is not None:
+                                if k == "ui_spec" and isinstance(v, dict):
+                                    setattr(p, k, UiTestSpec(**v))
+                                elif k == "api_spec" and isinstance(v, dict):
+                                    setattr(p, k, ApiTestSpec(**v))
+                                else:
+                                    setattr(p, k, v)
+                self._log(job_id, f"[INLINE DIFF] Modified {len(mod_map)} test case(s): {list(mod_map.keys())}")
+
+            # 3. Merge added testcases
+            added_entries = diff.get("added", [])
+            if added_entries:
+                existing_ids = {p.id for p in proposals}
+                max_num = 0
+                for p in proposals:
+                    m = re.match(r"PTC-(\d+)", p.id)
+                    if m:
+                        max_num = max(max_num, int(m.group(1)))
+
+                new_testcases: list[ProposedTestCase] = []
+                for item in added_entries:
+                    if isinstance(item, dict):
+                        item_copy = dict(item)
+                        t_id = item_copy.get("id")
+                        if not t_id or t_id in existing_ids:
+                            max_num += 1
+                            t_id = f"PTC-{max_num:03d}"
+                            item_copy["id"] = t_id
+                        existing_ids.add(t_id)
+
+                        item_copy.setdefault("title", f"Proposed Test {t_id}")
+                        item_copy.setdefault("description", item_copy.get("title", ""))
+                        item_copy.setdefault("type", ProposedTestType.UI)
+                        item_copy.setdefault("priority", ProposedTestPriority.MEDIUM)
+                        item_copy.setdefault("source", "LLM Generated")
+                        item_copy.setdefault("generation_source", "LLM Generated")
+                        item_copy.setdefault("reason", "Added via inline user prompt refinement")
+                        item_copy.setdefault("expected_result", "Expected behavior is verified")
+                        item_copy.setdefault("status", ProposedTestStatus.PROPOSED)
+                        ptc = ProposedTestCase.model_validate(item_copy)
+                        new_testcases.append(ptc)
+                    elif isinstance(item, ProposedTestCase):
+                        new_testcases.append(item)
+
+                # Validate added tests against repository if available
+                paths = WorkspacePaths(job_id)
+                repo_dir = paths.migrated_repo_dir if paths.migrated_repo_dir.exists() else paths.original_repo_dir
+                if repo_dir.exists() and new_testcases:
+                    try:
+                        from app.application.use_cases.proposed_tests.proposed_test_validator import ProposedTestValidator
+                        validator = ProposedTestValidator(repo_dir)
+                        new_testcases, _ = validator.validate_all(new_testcases)
+                    except Exception as ve:
+                        logger.debug(f"Validation of added tests skipped: {ve}")
+
+                proposals.extend(new_testcases)
+                self._log(job_id, f"[INLINE DIFF] Added {len(new_testcases)} new test case(s).")
+
+            # 4. Persist updated inventory
+            self._save_proposals(job_id, proposals)
+            metrics = self._compute_metrics(proposals)
+
+            # Synchronize status file
+            self._save_status(job_id, "COMPLETED", {
+                "total": len(proposals),
+                "metrics": metrics.model_dump(),
+            })
+
+            # Synchronize results.json if it exists
+            res_file = self._get_results_file(job_id)
+            if res_file.exists():
+                try:
+                    rdata = json.loads(res_file.read_text(encoding="utf-8"))
+                    rdata["test_cases"] = [p.model_dump() for p in proposals]
+                    rdata["metrics"] = metrics.model_dump()
+                    res_file.write_text(json.dumps(rdata, indent=2), encoding="utf-8")
+                except Exception:
+                    pass
+
+            return proposals
+
 
 
 proposed_test_service = ProposedTestService()

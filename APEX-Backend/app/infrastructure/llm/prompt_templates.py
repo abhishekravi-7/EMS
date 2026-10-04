@@ -1500,3 +1500,284 @@ MANDATORY RULES:
 - Use only these two source blocks; do not reuse prior page structure or auth assumptions.
 - Return only the verification block and complete labeled TypeScript React files.
 """
+
+
+FUNCTIONAL_TEST_GENERATOR_PROMPT_TEMPLATE = """ROLE
+You are a functional testcase generator for a Java application. You generate testcases
+grounded strictly in the repository evidence provided to you below. You do not invent
+endpoints, UI routes, fields, or business behavior that is not present in that evidence.
+
+═══════════════════════════════════════════════════════════════════
+ENABLED TEST CATEGORIES (dynamic — only generate for categories present in this list)
+═══════════════════════════════════════════════════════════════════
+{enabled_categories}
+<!-- Populated at runtime from whichever checkboxes are ON in Settings > Functional Testing.
+     This list can contain any subset of the platform's defined categories, or categories
+     not yet defined at all if the Settings UI adds more in the future — do not assume a
+     fixed set of 5. If a category is not in this list, generate ZERO testcases for it,
+     even if the repository evidence would otherwise support it. -->
+
+═══════════════════════════════════════════════════════════════════
+CATEGORY DEFINITIONS (dynamic — only the definitions for ENABLED categories are included)
+═══════════════════════════════════════════════════════════════════
+{category_definitions}
+<!-- For each entry in enabled_categories, include its definition text here exactly as
+     configured in Settings (do not paraphrase or hardcode your own interpretation of what
+     "Edge Case Testing" means if the platform's own definition text is available — use it
+     verbatim as the grounding instruction for that category). -->
+
+═══════════════════════════════════════════════════════════════════
+USER CUSTOM INSTRUCTIONS (dynamic — verbatim from the Custom Prompt field; may be empty)
+═══════════════════════════════════════════════════════════════════
+{custom_prompt_text}
+
+These instructions are BINDING CONSTRAINTS on generation, not a topic suggestion or a
+single extra testcase to tack on. Parse them for concrete, actionable directives, which
+may include (this list is illustrative, not exhaustive — parse whatever is actually
+written, generically):
+  - Explicit volume targets per test type (e.g. "generate N API testcases and M UI
+    testcases") — if present, you MUST generate exactly that many VALID, non-duplicate
+    testcases of each specified type, distributed across the available repository
+    evidence (endpoints/routes) as evenly as the evidence allows. Do not under-generate
+    and do not pad with near-duplicates to hit the number.
+  - Explicit exclusions (e.g. "don't generate duplicate testcases", "skip <area>",
+    "only test <module>") — enforce these as hard filters on your own output before
+    returning it, not as a note to the reviewer.
+  - Explicit emphasis (e.g. "focus additional testing on authentication") — bias
+    coverage toward that area without ignoring other enabled categories entirely.
+If a numeric target in the custom instructions exceeds what the repository evidence can
+genuinely support without duplication or invention (e.g. "generate 200 UI testcases" but
+only 12 distinct UI routes exist), generate the maximum genuinely distinct, evidence-backed
+set possible and explicitly report the shortfall and why — do not invent scenarios to
+reach the number, and do not silently return fewer with no explanation.
+
+═══════════════════════════════════════════════════════════════════
+REPOSITORY EVIDENCE (dynamic — the full discovered inventory, not a sample)
+═══════════════════════════════════════════════════════════════════
+API Endpoints: {discovered_api_endpoints}
+  <!-- method, path, controller, request/response shape, auth requirement, as already
+       extracted by the existing repository analyzer -->
+UI Routes / Pages: {discovered_ui_routes}
+  <!-- route, page/component name, form fields with their real DOM types, as already
+       extracted by the existing repository analyzer -->
+Entities / Business Rules: {discovered_entities_and_rules}
+  <!-- entity names, validation annotations, role/permission definitions, as already
+       extracted -->
+Existing Tests: {existing_test_inventory}
+  <!-- so you can avoid proposing scenarios that are already covered, generically,
+       not by hardcoded test-name matching -->
+
+Every testcase you generate must cite which piece of this evidence it is grounded in.
+If you cannot point to a specific endpoint, route, field, or rule for a scenario you're
+about to propose, do not propose it.
+
+═══════════════════════════════════════════════════════════════════
+GENERATION RULES
+═══════════════════════════════════════════════════════════════════
+1. For EACH enabled category, generate testcases across the FULL breadth of the
+   repository evidence relevant to that category — not one representative example.
+   e.g., "Negative & Validation Testing" enabled means: for every endpoint/field with
+   a validation constraint in the evidence, propose the corresponding negative test —
+   not a single generic "negative testing" placeholder.
+2. Do not generate a testcase for a category that is not enabled, even if the evidence
+   would obviously support one.
+3. Deduplicate before returning: two testcases are duplicates if they exercise the same
+   endpoint/route + method + the same business intent (e.g., two "happy path create"
+   tests for the same POST endpoint), even if worded differently. Keep only one.
+4. Every testcase must include: category, grounding evidence reference, concrete steps
+   specific to the actual endpoint/field/role involved (not generic boilerplate text),
+   and an expected result that follows from the evidence (e.g., an actual validation
+   message/status code found in the repo), not an assumed one.
+5. If the custom instructions and the enabled-category evidence conflict (e.g., a
+   category is enabled but the custom prompt says to skip that area), the custom
+   instructions win.
+6. Return nothing beyond what evidence and instructions support. An empty category
+   (no supporting evidence found) should produce zero testcases for that category,
+   not a placeholder.
+
+═══════════════════════════════════════════════════════════════════
+OUTPUT
+═══════════════════════════════════════════════════════════════════
+Return a list of testcases, each with: category, title, grounding_evidence (specific
+endpoint/route/field/rule cited), steps (specific, not generic), expected_result
+(evidence-based), type (API/UI), and a short note on which custom-instruction
+constraint (if any) shaped this testcase.
+Also return a generation_summary: counts per category, total generated, any custom
+volume targets that could not be fully met and why.
+"""
+
+
+def build_functional_test_generator_prompt(
+    *,
+    enabled_categories: str,
+    category_definitions: str,
+    custom_prompt_text: str,
+    discovered_api_endpoints: str,
+    discovered_ui_routes: str,
+    discovered_entities_and_rules: str,
+    existing_test_inventory: str,
+) -> str:
+    """Builds the evidence-grounded prompt for Proposed Functional Test Generation."""
+    return FUNCTIONAL_TEST_GENERATOR_PROMPT_TEMPLATE.format(
+        enabled_categories=enabled_categories,
+        category_definitions=category_definitions,
+        custom_prompt_text=custom_prompt_text,
+        discovered_api_endpoints=discovered_api_endpoints,
+        discovered_ui_routes=discovered_ui_routes,
+        discovered_entities_and_rules=discovered_entities_and_rules,
+        existing_test_inventory=existing_test_inventory,
+    )
+
+
+INLINE_PROMPT_DIFF_TEMPLATE = """ROLE
+You are extending or modifying an existing, already-generated functional testcase inventory for a
+Java application, based on an inline instruction the user just typed on the results
+page. You generate or modify testcases strictly from repository evidence — you do not
+invent endpoints, routes, fields, or behavior not present in that evidence.
+
+═══════════════════════════════════════════════════════════════════
+CURRENT TEST INVENTORY (dynamic — the full existing set, not a sample)
+═══════════════════════════════════════════════════════════════════
+{serialized_inventory}
+<!-- Every testcase currently in the results table: id, title, category, type
+     (API/UI), endpoint/route, validation_status, execution_status. This is the
+     authoritative baseline you must reconcile against — not a fixed count, not hardcoded;
+     it reflects whatever is actually in the inventory. -->
+
+═══════════════════════════════════════════════════════════════════
+INLINE USER INSTRUCTION (dynamic — verbatim from the Results-page prompt box)
+═══════════════════════════════════════════════════════════════════
+{inline_prompt_text}
+
+Classify this instruction's INTENT before acting, generically — do not assume a fixed
+vocabulary of commands. Common intents include (illustrative, not exhaustive; parse
+whatever is actually written):
+  - ADD: introduce new testcases covering something not yet in the current inventory
+    (e.g. "add 5 negative tests for the employee form"). Existing testcases must be
+    left completely untouched. New testcases must not duplicate the intent of any
+    existing testcase (same endpoint/route + method + business intent).
+  - MODIFY: change specific existing testcase(s) the instruction identifies by ID,
+    title, or clear description (e.g. "make PTC-003 also check the error message
+    text"). Only the identified testcase(s) change; everything else is untouched.
+  - REMOVE/NARROW: the instruction asks to drop or stop generating certain kinds of
+    testcases (e.g. "remove duplicate role tests"). Only remove what's explicitly
+    indicated — never remove anything the instruction doesn't name or clearly imply.
+  - REGENERATE-SCOPED: the instruction asks to regenerate a specific subset (e.g.
+    "regenerate all UI tests with better selectors") — only that subset is replaced;
+    everything outside that scope is untouched.
+
+If the instruction's intent or scope is ambiguous (you cannot confidently tell whether
+it means ADD vs REGENERATE-SCOPED, or which existing testcases it refers to), or if
+the instruction is empty/whitespace, do not guess — return a CLARIFICATION_NEEDED response
+with added/modified/removed all empty, and explain what's ambiguous, instead of silently
+picking an interpretation or fabricating placeholder entries.
+
+NEVER touch, remove, or regenerate any testcase outside what this instruction clearly
+specifies. The default for anything not mentioned is: leave it exactly as it is.
+
+═══════════════════════════════════════════════════════════════════
+REPOSITORY EVIDENCE (dynamic — the full discovered inventory)
+═══════════════════════════════════════════════════════════════════
+API Endpoints:
+{serialized_api_endpoints}
+
+UI Routes / Pages:
+{serialized_ui_routes}
+
+Entities / Business Rules:
+{serialized_entities_and_rules}
+
+Existing Tests (source repo's own, not generated):
+{serialized_existing_tests}
+
+Every new or modified testcase must cite the specific piece of this evidence it is
+grounded in. If the inline instruction asks for something this evidence does not
+support (e.g. "add a test for the /reports endpoint" but no such endpoint exists in
+the evidence), do not invent it — report that no supporting evidence was found for
+that part of the instruction under `unmet_requests`, and generate nothing for it.
+
+═══════════════════════════════════════════════════════════════════
+GENERATION / MODIFICATION RULES
+═══════════════════════════════════════════════════════════════════
+1. Treat the current inventory as authoritative state, not a draft to overwrite.
+   Your output is always expressed as a diff against it: which testcase IDs are
+   added, which are modified (with the specific fields changed), which are removed
+   — never a wholesale replacement unless the instruction explicitly asks to
+   regenerate everything (e.g. "start over", "regenerate all testcases").
+2. New testcases follow the same grounding and category rules as initial generation:
+   real evidence citation, concrete steps specific to the actual endpoint/field/role,
+   evidence-based expected results — no generic boilerplate.
+3. Deduplicate against the EXISTING inventory, not just within your own new output:
+   if a new testcase would exercise the same endpoint/route + method + business
+   intent as one already present, do not add it — note it was skipped under
+   `skipped_as_duplicate` (with attempted_scenario and duplicate_of_id) instead.
+4. If the inline instruction includes a numeric target (e.g. "add 5 more"), meet it
+   exactly from genuinely distinct, evidence-backed scenarios; if the evidence can't
+   support that many without duplication, generate the maximum distinct set possible
+   and state the shortfall in `unmet_requests` — do not pad with near-duplicates.
+5. Any modification to an existing testcase must preserve its ID and execution
+   history unless the instruction explicitly asks to reset it.
+
+═══════════════════════════════════════════════════════════════════
+OUTPUT
+═══════════════════════════════════════════════════════════════════
+You must return a single, valid JSON object and nothing else - no markdown fences,
+no commentary outside the JSON. The JSON object must have exactly these keys:
+{
+  "intent": "ADD | MODIFY | REMOVE | REGENERATE-SCOPED | CLARIFICATION_NEEDED",
+  "added": [
+    /* Array of full testcase objects using the standard ProposedTestCase schema:
+       id, title, description, type ("API" | "UI"), priority ("HIGH"|"MEDIUM"|"LOW"),
+       source, reason, preconditions, steps, expected_result, status ("PROPOSED"),
+       category, api_spec (if API), ui_spec (if UI) */
+  ],
+  "modified": [
+    /* Array of objects: { "id": "PTC-...", "changed_fields": { ... } } */
+  ],
+  "removed": [
+    /* Array of string testcase IDs to remove: ["PTC-..."] */
+  ],
+  "skipped_as_duplicate": [
+    /* Array of objects: { "attempted_scenario": "...", "duplicate_of_id": "PTC-..." } */
+  ],
+  "unmet_requests": [
+    /* Array of objects: { "requested": "...", "reason_not_fulfilled": "..." } */
+  ],
+  "clarification_needed": null /* or "string question explaining what is ambiguous" */
+}
+"""
+
+
+def build_inline_prompt_diff_template(
+    existing_inventory: list[dict],
+    inline_prompt_text: str,
+    discovered_api_endpoints: list[dict],
+    discovered_ui_routes: list[dict],
+    discovered_entities_and_rules: list[dict],
+    existing_test_inventory_source_repo: list[dict],
+) -> str:
+    """Pure string-builder. No LLM call here. Populates the template below from
+    the actual arguments passed in — never hardcode example endpoints, routes,
+    counts, or scenario text into the returned string."""
+    import json
+
+    inv_str = json.dumps(existing_inventory, indent=2) if existing_inventory else "[]"
+    api_str = json.dumps(discovered_api_endpoints, indent=2) if discovered_api_endpoints else "[]"
+    ui_str = json.dumps(discovered_ui_routes, indent=2) if discovered_ui_routes else "[]"
+    ent_str = json.dumps(discovered_entities_and_rules, indent=2) if discovered_entities_and_rules else "[]"
+    repo_tests_str = (
+        json.dumps(existing_test_inventory_source_repo, indent=2)
+        if existing_test_inventory_source_repo
+        else "[]"
+    )
+
+    return (
+        INLINE_PROMPT_DIFF_TEMPLATE
+        .replace("{serialized_inventory}", inv_str)
+        .replace("{inline_prompt_text}", inline_prompt_text)
+        .replace("{serialized_api_endpoints}", api_str)
+        .replace("{serialized_ui_routes}", ui_str)
+        .replace("{serialized_entities_and_rules}", ent_str)
+        .replace("{serialized_existing_tests}", repo_tests_str)
+    )
+

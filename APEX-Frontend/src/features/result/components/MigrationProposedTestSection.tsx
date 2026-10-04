@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 import {
   FaSpinner,
   FaRedo,
@@ -23,6 +24,7 @@ import {
   FaChevronUp,
   FaImage,
   FaVideo,
+  FaDesktop,
 } from "react-icons/fa";
 import {
   getProposedTestsStatus,
@@ -31,10 +33,13 @@ import {
   formatProposedTestDisplayName,
   getProposedTestComparison,
   getProposedTestReport,
+  previewInlinePrompt,
+  applyInlinePrompt,
   type ProposedTestCase,
   type ProposedTestMetrics,
   type ProposedTestComparisonResponse,
   type ProposedTestReportResponse,
+  type InlinePromptDiff,
 } from "@/features/modernization/services/proposedTestService";
 import {
   downloadProposedTestReport,
@@ -73,9 +78,71 @@ export function MigrationProposedTestSection({
   const [playwrightReportAvailable, setPlaywrightReportAvailable] = useState(false);
   const [playwrightReportUrl, setPlaywrightReportUrl] = useState<string | null>(null);
   const [isLogsCopied, setIsLogsCopied] = useState(false);
+  const [progress, setProgress] = useState<{ total: number; completed: number }>({ total: 0, completed: 0 });
 
+  // ── Inline Prompt Refinement State ──
+  const [isPromptExpanded, setIsPromptExpanded] = useState(false);
+  const [inlinePromptText, setInlinePromptText] = useState("");
+  const [isPreviewing, setIsPreviewing] = useState(false);
+  const [isApplying, setIsApplying] = useState(false);
+  const [previewDiff, setPreviewDiff] = useState<InlinePromptDiff | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [showDiffDetails, setShowDiffDetails] = useState(false);
 
+  const handlePreviewPrompt = async () => {
+    if (!inlinePromptText.trim()) {
+      setPreviewDiff({
+        intent: "CLARIFICATION_NEEDED",
+        added: [],
+        modified: [],
+        removed: [],
+        skipped_as_duplicate: [],
+        unmet_requests: [],
+        clarification_needed: "Prompt instruction is empty. Please enter an instruction (e.g. 'add 5 negative tests for the employee form').",
+      });
+      return;
+    }
+    setIsPreviewing(true);
+    setPreviewError(null);
+    try {
+      const diff = await previewInlinePrompt(jobId, inlinePromptText.trim());
+      setPreviewDiff(diff);
+    } catch (err: any) {
+      setPreviewError(err?.message || "Failed to preview inline prompt diff");
+    } finally {
+      setIsPreviewing(false);
+    }
+  };
 
+  const handleApplyPrompt = async () => {
+    if (!previewDiff) return;
+    setIsApplying(true);
+    setPreviewError(null);
+    try {
+      const updated = await applyInlinePrompt(jobId, previewDiff);
+      setProposals(updated);
+      const freshResults = await getProposedTestsResults(jobId).catch(() => null);
+      if (freshResults?.metrics) {
+        setMetrics(freshResults.metrics);
+      }
+      setPreviewDiff(null);
+      setInlinePromptText("");
+      setIsPromptExpanded(false);
+      setShowDiffDetails(false);
+    } catch (err: any) {
+      setPreviewError(err?.message || "Failed to apply prompt diff");
+    } finally {
+      setIsApplying(false);
+    }
+  };
+
+  const handleCancelPrompt = () => {
+    setPreviewDiff(null);
+    setInlinePromptText("");
+    setPreviewError(null);
+    setIsPromptExpanded(false);
+    setShowDiffDetails(false);
+  };
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const logBoxRef = useRef<HTMLDivElement | null>(null);
 
@@ -103,11 +170,24 @@ export function MigrationProposedTestSection({
     }
   }, [logs]);
 
+  // Prevent body scrolling when modal is open
+  useEffect(() => {
+    if (selectedTest) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "auto";
+    }
+    return () => {
+      document.body.style.overflow = "auto";
+    };
+  }, [selectedTest]);
+
   const startPolling = useCallback(() => {
     if (pollRef.current) clearInterval(pollRef.current);
     pollRef.current = setInterval(async () => {
       try {
         const statusData = await getProposedTestsStatus(jobId);
+        if (statusData.progress) setProgress(statusData.progress);
         if (statusData.proposals) setProposals(statusData.proposals);
         if (statusData.metrics) setMetrics(statusData.metrics);
         if (statusData.logs) setLogs(statusData.logs);
@@ -167,6 +247,7 @@ export function MigrationProposedTestSection({
         if (compData) setComparison(compData);
 
         if (res) {
+          if (res.progress) setProgress(res.progress);
           if (res.proposals) setProposals(res.proposals);
           if (res.metrics) setMetrics(res.metrics);
           if (res.logs) setLogs(res.logs);
@@ -329,8 +410,9 @@ export function MigrationProposedTestSection({
   // If application startup fails: "0 Executed · 19 Blocked. Application could not be started. See execution logs."
   let executionSummaryText = "";
   if (isRunning) {
-    const runningCompleted = proposals.filter((p) => p.status === "PASSED" || p.status === "FAILED" || p.status === "SKIPPED").length;
-    executionSummaryText = `Running ${runningCompleted}/${selectedTestIds.size || validCount}...`;
+    const runningCompleted = progress.completed || proposals.filter((p) => p.status === "PASSED" || p.status === "FAILED" || p.status === "SKIPPED").length;
+    const runningTotal = progress.total || selectedTestIds.size || validCount;
+    executionSummaryText = `Running ${runningCompleted}/${runningTotal}...`;
   } else if (blockedCount > 0 && executedCount === 0) {
     executionSummaryText = `0 Executed · ${blockedCount} Blocked. Application could not be started. See execution logs.`;
   } else if (executedCount > 0) {
@@ -702,6 +784,226 @@ export function MigrationProposedTestSection({
           </div>
         </div>
 
+        {/* ── INLINE PROMPT REFINEMENT STRIP ── */}
+        {!isPromptExpanded && !previewDiff && (
+          <div style={{ padding: "9px 20px", borderBottom: "1px solid #f1f5f9", background: "#f8fafc", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 700, color: "#475569" }}>
+              <span>✨</span>
+              <span>Refine with a prompt</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsPromptExpanded(true)}
+              style={{ background: "transparent", border: "none", color: "#6366f1", fontSize: 12, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 4 }}
+            >
+              Expand ▾
+            </button>
+          </div>
+        )}
+
+        {isPromptExpanded && !previewDiff && (
+          <div style={{ padding: "14px 20px", borderBottom: "1px solid #f1f5f9", background: "#f8fafc", display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 700, color: "#1e293b" }}>
+                <span>✨</span>
+                <span>Refine with a prompt</span>
+              </div>
+              <button
+                type="button"
+                onClick={handleCancelPrompt}
+                style={{ background: "transparent", border: "none", color: "#94a3b8", fontSize: 12, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
+              >
+                Collapse ▴
+              </button>
+            </div>
+            <textarea
+              rows={2}
+              value={inlinePromptText}
+              onChange={(e) => setInlinePromptText(e.target.value)}
+              placeholder="e.g. Add 5 negative tests for the employee form, or make PTC-003 also check the error message text..."
+              style={{ width: "100%", padding: "10px 12px", borderRadius: 6, fontSize: 13, border: "1px solid #cbd5e1", backgroundColor: "#ffffff", outline: "none", boxSizing: "border-box", fontFamily: "inherit" }}
+            />
+            <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8 }}>
+              <button
+                type="button"
+                onClick={handleCancelPrompt}
+                style={{ background: "#f1f5f9", color: "#475569", border: "1px solid #e2e8f0", padding: "6px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handlePreviewPrompt}
+                disabled={isPreviewing}
+                style={{ display: "flex", alignItems: "center", gap: 6, background: "#6366f1", color: "#ffffff", border: "none", padding: "6px 16px", borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: isPreviewing ? "default" : "pointer" }}
+              >
+                {isPreviewing ? <FaSpinner className="animate-spin" size={11} /> : null}
+                {isPreviewing ? "Previewing..." : "Preview"}
+              </button>
+            </div>
+            {previewError && (
+              <div style={{ padding: "8px 12px", borderRadius: 6, background: "#fef2f2", border: "1px solid #fca5a5", color: "#991b1b", fontSize: 12 }}>
+                {previewError}
+              </div>
+            )}
+          </div>
+        )}
+
+        {previewDiff && previewDiff.clarification_needed && (
+          <div style={{ padding: "14px 20px", borderBottom: "1px solid #f1f5f9", background: "#fffbeb", borderLeft: "4px solid #f59e0b", display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 700, color: "#92400e" }}>
+                <span>⚠️ Clarification Needed</span>
+              </div>
+              <button
+                type="button"
+                onClick={handleCancelPrompt}
+                style={{ background: "transparent", border: "none", color: "#92400e", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+              >
+                ✕
+              </button>
+            </div>
+            <div style={{ fontSize: 12, color: "#78350f", lineHeight: 1.4 }}>
+              {previewDiff.clarification_needed}
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 4 }}>
+              <button
+                type="button"
+                onClick={() => setPreviewDiff(null)}
+                style={{ background: "#ffffff", border: "1px solid #d97706", color: "#92400e", padding: "5px 12px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+              >
+                Edit Prompt
+              </button>
+              <button
+                type="button"
+                onClick={handleCancelPrompt}
+                style={{ background: "#f1f5f9", border: "1px solid #e2e8f0", color: "#475569", padding: "5px 12px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {previewDiff && !previewDiff.clarification_needed && (
+          <div style={{ padding: "14px 20px", borderBottom: "1px solid #f1f5f9", background: "#f0fdf4", borderLeft: "4px solid #10b981", display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 13, fontWeight: 800, color: "#065f46", display: "flex", alignItems: "center", gap: 4 }}>
+                  <span>✨</span> Diff Preview ({previewDiff.intent})
+                </span>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 700 }}>
+                  <span style={{ background: "rgba(16,185,129,0.15)", color: "#059669", padding: "2px 8px", borderRadius: 4 }}>
+                    +{previewDiff.added.length} Added
+                  </span>
+                  <span style={{ background: "rgba(2,132,199,0.15)", color: "#0284c7", padding: "2px 8px", borderRadius: 4 }}>
+                    ~{previewDiff.modified.length} Modified
+                  </span>
+                  <span style={{ background: "rgba(239,68,68,0.15)", color: "#dc2626", padding: "2px 8px", borderRadius: 4 }}>
+                    -{previewDiff.removed.length} Removed
+                  </span>
+                  {(previewDiff.skipped_as_duplicate?.length || 0) > 0 && (
+                    <span style={{ background: "rgba(245,158,11,0.15)", color: "#d97706", padding: "2px 8px", borderRadius: 4 }}>
+                      {previewDiff.skipped_as_duplicate.length} Duplicates Skipped
+                    </span>
+                  )}
+                  {(previewDiff.unmet_requests?.length || 0) > 0 && (
+                    <span style={{ background: "rgba(100,116,139,0.15)", color: "#475569", padding: "2px 8px", borderRadius: 4 }}>
+                      {previewDiff.unmet_requests.length} Unmet
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => setShowDiffDetails(!showDiffDetails)}
+                  style={{ background: "transparent", border: "none", color: "#059669", fontSize: 12, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
+                >
+                  {showDiffDetails ? "Hide details ▴" : "View details ▾"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCancelPrompt}
+                  disabled={isApplying}
+                  style={{ background: "#ffffff", border: "1px solid #cbd5e1", color: "#475569", padding: "5px 12px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleApplyPrompt}
+                  disabled={isApplying}
+                  style={{ display: "flex", alignItems: "center", gap: 6, background: "#10b981", color: "#ffffff", border: "none", padding: "5px 16px", borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: isApplying ? "default" : "pointer" }}
+                >
+                  {isApplying ? <FaSpinner className="animate-spin" size={11} /> : <FaCheck size={11} />}
+                  {isApplying ? "Applying..." : "Apply"}
+                </button>
+              </div>
+            </div>
+
+            {showDiffDetails && (
+              <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 8, padding: "12px", fontSize: 12, display: "flex", flexDirection: "column", gap: 8, maxHeight: 220, overflowY: "auto" }}>
+                {previewDiff.added.length > 0 && (
+                  <div>
+                    <div style={{ fontWeight: 700, color: "#059669", marginBottom: 4 }}>Added Test Cases:</div>
+                    <ul style={{ margin: 0, paddingLeft: 18, color: "#334155" }}>
+                      {previewDiff.added.map((t, idx) => (
+                        <li key={idx} style={{ marginBottom: 2 }}>
+                          <strong>{t.id}:</strong> {t.title} <span style={{ color: "#64748b" }}>({t.type} · {t.api_spec?.endpoint || t.ui_spec?.target_route || "--"})</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {previewDiff.modified.length > 0 && (
+                  <div>
+                    <div style={{ fontWeight: 700, color: "#0284c7", marginBottom: 4 }}>Modified Test Cases:</div>
+                    <ul style={{ margin: 0, paddingLeft: 18, color: "#334155" }}>
+                      {previewDiff.modified.map((m, idx) => (
+                        <li key={idx} style={{ marginBottom: 2 }}>
+                          <strong>{m.id}:</strong> {Object.keys(m.changed_fields || {}).join(", ")} updated
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {previewDiff.removed.length > 0 && (
+                  <div>
+                    <div style={{ fontWeight: 700, color: "#dc2626", marginBottom: 4 }}>Removed Test Cases:</div>
+                    <div style={{ color: "#334155", paddingLeft: 18 }}>{previewDiff.removed.join(", ")}</div>
+                  </div>
+                )}
+                {(previewDiff.skipped_as_duplicate?.length || 0) > 0 && (
+                  <div>
+                    <div style={{ fontWeight: 700, color: "#d97706", marginBottom: 4 }}>Skipped as Duplicate of Existing Inventory:</div>
+                    <ul style={{ margin: 0, paddingLeft: 18, color: "#64748b" }}>
+                      {previewDiff.skipped_as_duplicate.map((s, idx) => (
+                        <li key={idx}>"{s.attempted_scenario}" (duplicate of {s.duplicate_of_id})</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {(previewDiff.unmet_requests?.length || 0) > 0 && (
+                  <div>
+                    <div style={{ fontWeight: 700, color: "#64748b", marginBottom: 4 }}>Unmet Requests (No Repository Evidence):</div>
+                    <ul style={{ margin: 0, paddingLeft: 18, color: "#64748b" }}>
+                      {previewDiff.unmet_requests.map((u, idx) => (
+                        <li key={idx}><strong>{u.requested}:</strong> {u.reason_not_fulfilled}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+            {previewError && (
+              <div style={{ padding: "8px 12px", borderRadius: 6, background: "#fef2f2", border: "1px solid #fca5a5", color: "#991b1b", fontSize: 12 }}>
+                {previewError}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Search & Filter Toolbar */}
         <div style={{ padding: "12px 20px", borderBottom: "1px solid #f1f5f9", background: "#fafbfc", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           {/* Search */}
@@ -759,21 +1061,21 @@ export function MigrationProposedTestSection({
                 <th style={{ padding: "10px 12px", width: 160, fontWeight: 700, fontSize: 11 }}>Endpoint / Route</th>
                 <th style={{ padding: "10px 12px", width: 100, fontWeight: 700, fontSize: 11 }}>Validation</th>
                 <th style={{ padding: "10px 12px", width: 120, fontWeight: 700, fontSize: 11 }}>Execution Status</th>
-                <th style={{ padding: "10px 12px", width: 70, fontWeight: 700, fontSize: 11 }}>Duration</th>
-                <th style={{ padding: "10px 12px", width: 52, fontWeight: 700, fontSize: 11, textAlign: "center" }}>Details</th>
+                <th style={{ padding: "10px 12px", width: 80, fontWeight: 700, fontSize: 11 }}>Duration</th>
+                <th style={{ padding: "10px 12px", width: 90, fontWeight: 700, fontSize: 11, textAlign: "center" }}>Details</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={12} style={{ padding: "40px 12px", textAlign: "center", color: "#64748b" }}>
+                  <td colSpan={11} style={{ padding: "40px 12px", textAlign: "center", color: "#64748b" }}>
                     <FaSpinner className="animate-spin" size={18} style={{ marginBottom: 8 }} />
                     <div style={{ fontSize: 13 }}>Loading proposed test execution data...</div>
                   </td>
                 </tr>
               ) : filteredProposals.length === 0 ? (
                 <tr>
-                  <td colSpan={12} style={{ padding: "36px 12px", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>
+                  <td colSpan={11} style={{ padding: "36px 12px", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>
                     {proposals.length === 0 ? "No proposed test cases found for this migration." : "No test cases match the current filters."}
                   </td>
                 </tr>
@@ -786,7 +1088,10 @@ export function MigrationProposedTestSection({
                   const sourceBadgeBg = isExisting ? "#ecfdf5" : isDoc ? "#faf5ff" : "#f0f9ff";
                   const sourceBadgeBorder = isExisting ? "#a7f3d0" : isDoc ? "#d8b4fe" : "#bae6fd";
 
-                  const execStatus = t.execution_result?.status || t.baseline_execution_result?.status || t.status || "NOT_EXECUTED";
+                  const rawExecStatus = t.execution_result?.status || t.baseline_execution_result?.status || t.status || "NOT_EXECUTED";
+                  const execStatus = (isRunning && (rawExecStatus === "NOT_EXECUTED" || rawExecStatus === "VALID" || rawExecStatus === "READY" || rawExecStatus === "PROPOSED") && selectedTestIds.has(t.id))
+                    ? "QUEUED"
+                    : rawExecStatus;
                   const method = t.api_spec?.method || (t.type === "API" ? "GET" : "--");
                   const endpoint = t.api_spec?.endpoint || t.ui_spec?.target_route || "--";
 
@@ -827,15 +1132,37 @@ export function MigrationProposedTestSection({
                           <span style={{ fontSize: 10, fontWeight: 800, color: valColor, background: valBg, border: `1px solid ${valBorder}`, padding: "2px 7px", borderRadius: 5 }}>{valStatus}</span>
                         </td>
                         <td style={{ padding: "9px 12px" }}>{renderStatusBadge(execStatus)}</td>
+                        <td style={{ padding: "9px 12px", fontSize: 11, color: "#334155", fontFamily: "monospace", whiteSpace: "nowrap" }}>
+                          {duration !== "--" ? (
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontWeight: 600 }}>
+                              <FaClock size={10} color="#94a3b8" />
+                              {duration}
+                            </span>
+                          ) : (
+                            <span style={{ color: "#94a3b8" }}>--</span>
+                          )}
+                        </td>
                         <td style={{ padding: "9px 12px", textAlign: "center" }}>
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); setSelectedTest(t); }}
-                            style={{ background: "#eff6ff", border: "1px solid #bfdbfe", color: "#2563eb", cursor: "pointer", fontSize: 11, borderRadius: 6, padding: "4px 7px", display: "inline-flex", alignItems: "center" }}
-                            title="View Test Details"
-                          >
-                            <FaExternalLinkAlt size={10} />
-                          </button>
+                          <div style={{ display: "inline-flex", alignItems: "center", gap: 6, justifyContent: "center" }}>
+                            {Boolean((t.execution_result as any)?.evidence?.screenshot_url || (t.execution_result as any)?.screenshot_url) && (
+                              <span title="Screenshot evidence available" style={{ color: "#2563eb", display: "inline-flex" }}>
+                                <FaImage size={12} />
+                              </span>
+                            )}
+                            {Boolean((t.execution_result as any)?.evidence?.video_url || (t.execution_result as any)?.video_url) && (
+                              <span title="Browser video recording available" style={{ color: "#dc2626", display: "inline-flex" }}>
+                                <FaVideo size={12} />
+                              </span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); setSelectedTest(t); }}
+                              style={{ background: "#eff6ff", border: "1px solid #bfdbfe", color: "#2563eb", cursor: "pointer", fontSize: 11, borderRadius: 6, padding: "4px 8px", display: "inline-flex", alignItems: "center", gap: 4, fontWeight: 600 }}
+                              title="View Test Details"
+                            >
+                              <FaExternalLinkAlt size={10} />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     </React.Fragment>
@@ -921,7 +1248,7 @@ export function MigrationProposedTestSection({
       )}
 
       {/* ── MODAL ─────────────────────────────────────────────────────────── */}
-      {selectedTest && (
+      {selectedTest && createPortal(
         <div
           style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(15, 23, 42, 0.6)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
           onClick={() => setSelectedTest(null)}
@@ -931,14 +1258,35 @@ export function MigrationProposedTestSection({
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
-            <div style={{ padding: "16px 20px", borderBottom: "1px solid #e2e8f0", background: "#f8fafc", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+            <div style={{ padding: "16px 20px", borderBottom: "1px solid #e2e8f0", background: "#f8fafc", display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexShrink: 0 }}>
               <div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
                   <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 900, background: "#0284c7", color: "#ffffff", padding: "2px 6px", borderRadius: 4 }}>{selectedTest.id}</span>
                   <span style={{ fontSize: 10, fontWeight: 800, background: "#e2e8f0", padding: "2px 8px", borderRadius: 4, color: "#475569" }}>{selectedTest.type}</span>
-                  <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 4, background: selectedTest.status === "PASSED" ? "rgba(16, 185, 129, 0.12)" : "rgba(239, 68, 68, 0.12)", color: selectedTest.status === "PASSED" ? "#059669" : "#dc2626" }}>
-                    Migrated: {selectedTest.status || "PROPOSED"}
-                  </span>
+                  {selectedTest.category && (
+                    <span style={{ fontSize: 10, fontWeight: 700, background: "#f1f5f9", padding: "2px 8px", borderRadius: 4, color: "#64748b", border: "1px solid #e2e8f0" }}>{selectedTest.category}</span>
+                  )}
+                  {selectedTest.priority && (
+                    <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 4, background: selectedTest.priority === "HIGH" ? "#fef2f2" : selectedTest.priority === "MEDIUM" ? "#fffbeb" : "#f0fdf4", color: selectedTest.priority === "HIGH" ? "#dc2626" : selectedTest.priority === "MEDIUM" ? "#d97706" : "#16a34a", border: `1px solid ${selectedTest.priority === "HIGH" ? "#fecaca" : selectedTest.priority === "MEDIUM" ? "#fde68a" : "#bbf7d0"}` }}>
+                      {selectedTest.priority}
+                    </span>
+                  )}
+                  {(() => {
+                    const st = selectedTest.execution_result?.status || selectedTest.status || "PROPOSED";
+                    const isPass = st === "PASSED";
+                    const isFail = st === "FAILED";
+                    return (
+                      <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 4, background: isPass ? "rgba(16, 185, 129, 0.12)" : isFail ? "rgba(239, 68, 68, 0.12)" : "rgba(100, 116, 139, 0.12)", color: isPass ? "#059669" : isFail ? "#dc2626" : "#475569", border: `1px solid ${isPass ? "rgba(16, 185, 129, 0.3)" : isFail ? "rgba(239, 68, 68, 0.3)" : "rgba(100, 116, 139, 0.2)"}` }}>
+                        Migrated: {st}
+                      </span>
+                    );
+                  })()}
+                  {(selectedTest.execution_result?.duration || selectedTest.baseline_execution_result?.duration) && (
+                    <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: "#f8fafc", color: "#334155", border: "1px solid #cbd5e1", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                      <FaClock size={10} color="#64748b" />
+                      Duration: {selectedTest.execution_result?.duration || selectedTest.baseline_execution_result?.duration}
+                    </span>
+                  )}
                   {selectedTest.baseline_execution_result && (
                     <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 4, background: selectedTest.baseline_execution_result.status === "PASSED" ? "rgba(16, 185, 129, 0.12)" : "rgba(239, 68, 68, 0.12)", color: selectedTest.baseline_execution_result.status === "PASSED" ? "#059669" : "#dc2626" }}>
                       Baseline: {selectedTest.baseline_execution_result.status}
@@ -997,10 +1345,43 @@ export function MigrationProposedTestSection({
             </div>
 
             {/* Modal Scrollable Content */}
-            <div style={{ padding: "20px", overflowY: "auto", display: "flex", flexDirection: "column", gap: 16 }}>
+            <div style={{ padding: "20px", overflowY: "auto", display: "flex", flexDirection: "column", gap: 16, flex: 1, minHeight: 0 }}>
               <div>
                 <div style={{ fontSize: 11, fontWeight: 700, color: "#475569", textTransform: "uppercase" }}>Description</div>
                 <p style={{ fontSize: 13, color: "#334155", margin: "4px 0 0 0", lineHeight: 1.5 }}>{selectedTest.description || selectedTest.reason}</p>
+              </div>
+
+              {/* Test Specification Card */}
+              <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, padding: 12 }}>
+                <div style={{ fontSize: 11, fontWeight: 800, color: "#475569", textTransform: "uppercase", marginBottom: 6 }}>Test Specification</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 12 }}>
+                  <div>
+                    <span style={{ color: "#64748b" }}>Route / Target: </span>
+                    <code style={{ background: "#e2e8f0", padding: "1px 5px", borderRadius: 4, fontSize: 11, color: "#0f172a" }}>
+                      {selectedTest.ui_spec?.target_route || selectedTest.api_spec?.endpoint || "--"}
+                    </code>
+                  </div>
+                  <div>
+                    <span style={{ color: "#64748b" }}>Source: </span>
+                    <span style={{ fontWeight: 600, color: "#0f172a" }}>{selectedTest.source || selectedTest.generation_source || "LLM Generated"}</span>
+                  </div>
+                  {selectedTest.ui_spec?.actions && selectedTest.ui_spec.actions.length > 0 && (
+                    <div style={{ gridColumn: "1 / -1" }}>
+                      <span style={{ color: "#64748b" }}>Planned Actions: </span>
+                      <span style={{ color: "#334155", fontFamily: "monospace", fontSize: 11 }}>
+                        {selectedTest.ui_spec.actions.join(" → ")}
+                      </span>
+                    </div>
+                  )}
+                  {selectedTest.ui_spec?.assertions && selectedTest.ui_spec.assertions.length > 0 && (
+                    <div style={{ gridColumn: "1 / -1" }}>
+                      <span style={{ color: "#64748b" }}>Assertions: </span>
+                      <code style={{ background: "#e2e8f0", padding: "1px 5px", borderRadius: 4, fontSize: 11, color: "#0f172a" }}>
+                        {selectedTest.ui_spec.assertions.join("; ")}
+                      </code>
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -1047,6 +1428,60 @@ export function MigrationProposedTestSection({
                 </div>
               )}
 
+              {/* Visual Evidence: Screenshot & Browser Recording */}
+              {(() => {
+                const ev = (selectedTest.execution_result as any)?.evidence;
+                const scUrl = ev?.screenshot_url || (selectedTest.execution_result as any)?.screenshot_url || (selectedTest as any).screenshot_url;
+                const vidUrl = ev?.video_url || (selectedTest.execution_result as any)?.video_url || (selectedTest as any).video_url;
+                const isUiTest = selectedTest.type === "UI";
+
+                if (!scUrl && !vidUrl && !isUiTest) return null;
+
+                return (
+                  <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 10, padding: 14 }}>
+                    <div style={{ fontSize: 11, fontWeight: 800, color: "#475569", textTransform: "uppercase", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+                      <FaDesktop color="#2563eb" /> UI Test Evidence & Recordings
+                    </div>
+                    {scUrl || vidUrl ? (
+                      <div style={{ display: "grid", gridTemplateColumns: scUrl && vidUrl ? "1fr 1fr" : "1fr", gap: 12 }}>
+                        {scUrl && (
+                          <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 8, padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                              <span style={{ fontSize: 11, fontWeight: 700, color: "#0f172a", display: "flex", alignItems: "center", gap: 5 }}>
+                                <FaImage color="#2563eb" /> Browser Screenshot
+                              </span>
+                              <a href={scUrl} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#2563eb", fontWeight: 600, textDecoration: "none", display: "flex", alignItems: "center", gap: 3 }}>
+                                Open Full <FaExternalLinkAlt size={9} />
+                              </a>
+                            </div>
+                            <a href={scUrl} target="_blank" rel="noreferrer" style={{ display: "block", overflow: "hidden", borderRadius: 6, border: "1px solid #cbd5e1" }}>
+                              <img src={scUrl} alt={`Screenshot for ${selectedTest.id}`} style={{ width: "100%", maxHeight: 220, objectFit: "contain", background: "#f1f5f9" }} />
+                            </a>
+                          </div>
+                        )}
+                        {vidUrl && (
+                          <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 8, padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                              <span style={{ fontSize: 11, fontWeight: 700, color: "#0f172a", display: "flex", alignItems: "center", gap: 5 }}>
+                                <FaVideo color="#dc2626" /> Browser Recording
+                              </span>
+                              <a href={vidUrl} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#2563eb", fontWeight: 600, textDecoration: "none", display: "flex", alignItems: "center", gap: 3 }}>
+                                Open Video <FaExternalLinkAlt size={9} />
+                              </a>
+                            </div>
+                            <video controls src={vidUrl} style={{ width: "100%", maxHeight: 220, borderRadius: 6, background: "#000000" }} />
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 12, color: "#94a3b8", fontStyle: "italic", padding: "4px 0" }}>
+                        Screenshots and video recordings are automatically captured when UI tests are executed. Run tests to view live artifacts.
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
               {selectedTest.execution_result?.stdout && (
                 <div>
                   <div style={{ fontSize: 11, fontWeight: 700, color: "#475569", textTransform: "uppercase", marginBottom: 4 }}>Execution Log</div>
@@ -1057,7 +1492,8 @@ export function MigrationProposedTestSection({
               )}
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
     </div>
