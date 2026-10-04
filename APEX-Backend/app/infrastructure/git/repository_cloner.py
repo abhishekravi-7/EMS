@@ -16,7 +16,7 @@ from pathlib import Path
 from app.core.exceptions import CloneFailedError
 from app.infrastructure.git.git_command_runner import GitCommandRunner
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("git")
 
 _TOKEN_MASK = "***"  # nosec B105
 

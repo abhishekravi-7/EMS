@@ -12,7 +12,7 @@ import logging
 _CONFIGURED = False
 
 
-_CLEAN_LOGGERS = {"auth", "connect", "strategy", "migration", "discovery"}
+_CLEAN_LOGGERS = {"auth", "connect", "strategy", "migration", "discovery", "git", "local_project"}
 
 
 class ApexConsoleFormatter(logging.Formatter):

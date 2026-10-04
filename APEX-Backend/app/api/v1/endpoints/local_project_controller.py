@@ -25,7 +25,7 @@ from app.core.exceptions import (
 from app.schemas.document_schema import TechnicalDocumentRequest, TechnicalDocumentResponse
 from app.schemas.local_project_schema import LocalProjectCapabilitiesResponse
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("local_project")
 
 router = APIRouter(tags=["local-project"])
 _document_use_case = GenerateTechnicalDocumentUseCase()
@@ -223,7 +223,7 @@ async def upload_local_project(
                 repository_name=resolved_project_name
             )
 
-        logger.info("[LOCAL PROJECT UPLOAD SUCCESS] job_id=%s project=%s", job_id, resolved_project_name)
+        logger.info("[LOCAL PROJECT UPLOAD SUCCESS] - JobID: %s - Project: %s", job_id, resolved_project_name)
 
         return JSONResponse(
             status_code=200,

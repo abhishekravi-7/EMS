@@ -39,7 +39,7 @@ from app.schemas.strategy_schema import (
     StrategyQueryRequest,
 )
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("strategy")
 
 router = APIRouter(prefix="/strategy", tags=["strategy"])
 
