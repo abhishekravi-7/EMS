@@ -20,10 +20,10 @@ FROM python:3.12-slim-bookworm AS backend-runtime
 # curl/unzip are only needed to fetch the Java toolchain below.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        git \
-        curl \
-        unzip \
-        ca-certificates \
+    git \
+    curl \
+    unzip \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # -- Java toolchain --------------------------------------------------------- #
@@ -34,18 +34,18 @@ ARG JDK_VERSIONS="17 21"
 RUN set -eux; \
     mkdir -p /opt/java; \
     for major in ${JDK_VERSIONS}; do \
-        curl -fsSL -o /tmp/jdk.tar.gz \
-            "https://api.adoptium.net/v3/binary/latest/${major}/ga/linux/x64/jdk/hotspot/normal/eclipse"; \
-        mkdir -p "/opt/java/jdk-${major}"; \
-        tar -xzf /tmp/jdk.tar.gz -C "/opt/java/jdk-${major}" --strip-components=1; \
-        rm /tmp/jdk.tar.gz; \
+    curl -fsSL -o /tmp/jdk.tar.gz \
+    "https://api.adoptium.net/v3/binary/latest/${major}/ga/linux/x64/jdk/hotspot/normal/eclipse"; \
+    mkdir -p "/opt/java/jdk-${major}"; \
+    tar -xzf /tmp/jdk.tar.gz -C "/opt/java/jdk-${major}" --strip-components=1; \
+    rm /tmp/jdk.tar.gz; \
     done
 
 # -- Maven ------------------------------------------------------------------ #
 ARG MAVEN_VERSION=3.9.9
 RUN set -eux; \
     curl -fsSL -o /tmp/maven.tar.gz \
-        "https://archive.apache.org/dist/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz"; \
+    "https://archive.apache.org/dist/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz"; \
     mkdir -p /opt/maven; \
     tar -xzf /tmp/maven.tar.gz -C /opt/maven --strip-components=1; \
     rm /tmp/maven.tar.gz
@@ -54,7 +54,7 @@ RUN set -eux; \
 ARG GRADLE_VERSION=8.10.2
 RUN set -eux; \
     curl -fsSL -o /tmp/gradle.zip \
-        "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip"; \
+    "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip"; \
     unzip -q /tmp/gradle.zip -d /opt; \
     mv "/opt/gradle-${GRADLE_VERSION}" /opt/gradle; \
     rm /tmp/gradle.zip
@@ -77,9 +77,9 @@ COPY --from=frontend-build /frontend/dist ./frontend-dist
 # Writable job workspace. Mount a persistent volume here if you want reports,
 # the Gradle cache, and the vector store to survive container recreation.
 RUN mkdir -p /app/storage/migration-jobs \
-             /app/storage/support-tickets \
-             /app/storage/vector-store \
-             /app/storage/.gradle-cache
+    /app/storage/support-tickets \
+    /app/storage/vector-store \
+    /app/storage/.gradle-cache
 
 ENV GRADLE_USER_HOME=/app/storage/.gradle-cache \
     PYTHONUNBUFFERED=1

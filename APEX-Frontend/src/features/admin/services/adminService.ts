@@ -111,6 +111,7 @@ export interface UserSettingsResponse {
     test_cases_cypress_enabled?: boolean | string;
     test_cases_selenium_enabled?: boolean | string;
   };
+  settings_permissions?: UserSettingsPermissions;
 }
 
 export interface FullUserSettings {
@@ -128,6 +129,7 @@ export interface FullUserSettings {
     test_cases_cypress_enabled?: boolean | string;
     test_cases_selenium_enabled?: boolean | string;
   };
+  settings_permissions?: UserSettingsPermissions;
 }
 
 export async function getUserSettings(): Promise<FullUserSettings> {
@@ -142,6 +144,7 @@ export async function getUserSettings(): Promise<FullUserSettings> {
     llm_values: response.llm_values || {},
     system_llm_config: response.system_llm_config || {},
     system_test_cases_config: response.system_test_cases_config || {},
+    settings_permissions: response.settings_permissions,
   };
 }
 
@@ -177,6 +180,7 @@ export async function updateUserSettings(
     llm_values: response.llm_values || {},
     system_llm_config: response.system_llm_config || {},
     system_test_cases_config: response.system_test_cases_config || {},
+    settings_permissions: response.settings_permissions,
   };
 }
 
@@ -338,3 +342,69 @@ export async function analyzeTestingPrompt(
     }
   );
 }
+
+export interface UserSettingsPermissions {
+  llm_settings: boolean;
+  quality_checks: boolean;
+  unit_testing: boolean;
+  functional_testing: boolean;
+  brd_testing: boolean;
+  test_connection: boolean;
+}
+
+export interface AdminUser {
+  id: string | number;
+  _id: string | number;
+  full_name: string;
+  email: string;
+  role: string;
+  settings_permissions: UserSettingsPermissions;
+  created_at?: string;
+}
+
+export interface UserEffectivePermissionsResponse {
+  user_id: string | number;
+  role: string;
+  permissions: UserSettingsPermissions;
+  effective: UserSettingsPermissions;
+}
+
+export async function getAdminUsers(): Promise<AdminUser[]> {
+  const res = await requestJson<{ users: AdminUser[] }>(
+    "/v1/admin/users",
+    "Failed to fetch admin users list"
+  );
+  return res.users || [];
+}
+
+export async function getAdminUserPermissions(userId: string | number): Promise<UserSettingsPermissions> {
+  const encodedId = encodeURIComponent(String(userId));
+  const res = await requestJson<{ permissions: UserSettingsPermissions }>(
+    `/v1/admin/users/${encodedId}/permissions`,
+    "Failed to fetch user permissions"
+  );
+  return res.permissions;
+}
+
+export async function updateAdminUserPermissions(
+  userId: string | number,
+  permissions: UserSettingsPermissions
+): Promise<{ status: string; message: string; permissions: UserSettingsPermissions }> {
+  const encodedId = encodeURIComponent(String(userId));
+  return requestJson<{ status: string; message: string; permissions: UserSettingsPermissions }>(
+    `/v1/admin/users/${encodedId}/permissions`,
+    "Failed to update user permissions",
+    {
+      method: "PUT",
+      body: { permissions },
+    }
+  );
+}
+
+export async function getMySettingsPermissions(): Promise<UserEffectivePermissionsResponse> {
+  return requestJson<UserEffectivePermissionsResponse>(
+    "/v1/user/me/settings-permissions",
+    "Failed to fetch user settings permissions"
+  );
+}
+

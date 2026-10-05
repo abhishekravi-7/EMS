@@ -243,3 +243,50 @@ def test_worker_exception_marks_status_failed_and_releases_lock():
         
         # Verify active lock is released
         assert pipeline.is_job_running(job_id) is False
+
+
+def test_clear_previous_migration_state_removes_old_artifacts_and_resets(tmp_path):
+    """Verify that clear_previous_migration_state removes old migrated_repo, reports, logs, and database records."""
+    job_id = "job_test_fresh_cleanup"
+    paths = WorkspacePaths(job_id, storage_dir=tmp_path)
+    
+    # Setup mock previous migration files
+    paths.migrated_repo_dir.mkdir(parents=True, exist_ok=True)
+    (paths.migrated_repo_dir / "old_code.java").write_text("class OldCode {}", encoding="utf-8")
+    
+    paths.reports_dir.mkdir(parents=True, exist_ok=True)
+    paths.migration_report_path.write_text('{"status": "COMPLETED"}', encoding="utf-8")
+    paths.existing_test_state_path.write_text('{"status": "COMPLETED"}', encoding="utf-8")
+    paths.existing_test_report_path.write_text('{"status": "COMPLETED"}', encoding="utf-8")
+    (paths.reports_dir / "unit-test-report.json").write_text('{}', encoding="utf-8")
+    (paths.reports_dir / "migration-config-report.json").write_text('{"targetJavaVersion": "17"}', encoding="utf-8")
+    
+    paths.logs_dir.mkdir(parents=True, exist_ok=True)
+    paths.migration_log_path.write_text("Old log line", encoding="utf-8")
+
+    pipeline = MigrationExecutionPipeline(use_case=MagicMock())
+
+    with patch("app.infrastructure.workspace.workspace_paths.WorkspacePaths", return_value=paths), \
+         patch("app.application.pipelines.migration_execution_pipeline.WorkspacePaths", return_value=paths), \
+         patch("app.application.pipelines.migration_execution_pipeline.MigrationReportStore") as mock_store_cls, \
+         patch("app.application.use_cases.existing_test_runner_service.existing_test_runner_service") as mock_test_service:
+        
+        mock_store_inst = MagicMock()
+        mock_store_cls.return_value = mock_store_inst
+
+        pipeline.clear_previous_migration_state(job_id)
+
+        # Assert store.clear() and test_service.reset() were called
+        mock_store_inst.clear.assert_called_once()
+        mock_test_service.reset.assert_called_once_with(job_id)
+
+        # Assert migrated_repo, test state files, and logs were deleted
+        assert not paths.migrated_repo_dir.exists()
+        assert not paths.existing_test_state_path.exists()
+        assert not paths.existing_test_report_path.exists()
+        assert not paths.migration_log_path.exists()
+        assert not (paths.reports_dir / "unit-test-report.json").exists()
+        
+        # Assert config file was preserved
+        assert (paths.reports_dir / "migration-config-report.json").exists()
+

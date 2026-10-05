@@ -569,10 +569,19 @@ export default function FloatingChatbot() {
 
   // LLM configuration check
   const [isLlmConfigured, setIsLlmConfigured] = useState<boolean | null>(null);
+  const [isLlmDisabledByAdmin, setIsLlmDisabledByAdmin] = useState<boolean>(false);
 
   const checkLlmConfig = useCallback(() => {
     getUserSettings()
       .then((s) => {
+        const perms = s.settings_permissions;
+        const isAllowed = perms?.llm_settings !== false && s.system_llm_config?.llm_enabled !== "false";
+        if (!isAllowed) {
+          setIsLlmDisabledByAdmin(true);
+          setIsLlmConfigured(false);
+          return;
+        }
+        setIsLlmDisabledByAdmin(false);
         const llm = s.llm_values || {};
         const groqOk = Boolean(llm.groq_api_key && llm.groq_model);
         const hfOk = Boolean(llm.huggingface_api_key && llm.huggingface_model);
@@ -1139,24 +1148,38 @@ export default function FloatingChatbot() {
               <div className="strategy-chat-input-wrapper">
                 <textarea
                   ref={textareaRef}
-                  placeholder={isLlmConfigured === false ? "⚙️ LLM setup needed — configure in User Settings → Intelligence" : "Ask your queries..."}
+                  placeholder={
+                    isLlmDisabledByAdmin
+                      ? "⛔ LLM Chat disabled by Super Admin"
+                      : isLlmConfigured === false
+                      ? "⚙️ LLM setup needed — configure in User Settings → Intelligence"
+                      : "Ask your queries..."
+                  }
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}
                   rows={1}
-                  disabled={isLlmConfigured === false}
+                  disabled={isLlmConfigured === false || isLlmDisabledByAdmin}
                   className="strategy-chat-input"
-                  style={isLlmConfigured === false ? { opacity: 0.55, cursor: "not-allowed" } : undefined}
+                  style={isLlmConfigured === false || isLlmDisabledByAdmin ? { opacity: 0.55, cursor: "not-allowed" } : undefined}
                 />
               </div>
-              {!input && isLlmConfigured !== false && <span className="strategy-chat-hint">Press Enter to send</span>}
+              {!input && isLlmConfigured !== false && !isLlmDisabledByAdmin && <span className="strategy-chat-hint">Press Enter to send</span>}
             </div>
             <button
               type="submit"
-              disabled={isLlmConfigured === false || (!input.trim() && !sending)}
+              disabled={isLlmConfigured === false || isLlmDisabledByAdmin || (!input.trim() && !sending)}
               className={`strategy-chat-send ${sending ? "strategy-chat-send-stop" : ""}`}
               aria-label={sending ? "Stop generation" : "Send question"}
-              title={isLlmConfigured === false ? "Configure LLM in User Settings first" : (sending ? "Stop generation" : "Send question")}
+              title={
+                isLlmDisabledByAdmin
+                  ? "LLM feature is disabled by Super Admin"
+                  : isLlmConfigured === false
+                  ? "Configure LLM in User Settings first"
+                  : sending
+                  ? "Stop generation"
+                  : "Send question"
+              }
             >
               <span className="strategy-chat-send-icon-wrapper">
                 {sending ? (
