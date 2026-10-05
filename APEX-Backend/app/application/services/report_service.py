@@ -397,6 +397,8 @@ def _core(report: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "job_id": job_id,
+        "execution_id": report.get("executionId") or report.get("execution_id") or job_id,
+        "executionId": report.get("executionId") or report.get("execution_id") or job_id,
         "status": report.get("status", "queued"),
         "source_repo": report.get("sourceRepoUrl") or report.get("source_repo") or "",
         "target_repo": _resolve_target_repo(report),

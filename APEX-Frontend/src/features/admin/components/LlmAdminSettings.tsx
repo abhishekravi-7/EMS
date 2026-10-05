@@ -73,14 +73,7 @@ export function LlmAdminSettings({ settings, onChange }: LlmAdminSettingsProps) 
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
-      <div>
-        <h3 className="card-heading-modern">
-          <FaBrain style={{ color: "#2563eb", marginRight: "8px" }} />
-          LLM Configuration
-        </h3>
-      </div>
-
+    <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
       <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
 
         {/* Enable Intelligence (Master Switch) */}

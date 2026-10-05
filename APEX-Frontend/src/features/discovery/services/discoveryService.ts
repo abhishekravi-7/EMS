@@ -62,6 +62,7 @@ export interface DiscoveryProject {
   jspFiles?: string[];
   jsfFiles?: string[];
   totalFileCount?: number;
+  fileMetrics?: import("@/shared/types/domain").FileMetrics;
   defaultBranch?: string;
   buildWarning?: string | null;
   frontend?: { detected: boolean; type: string; path: string | null; packageManager: string | null };
@@ -234,6 +235,7 @@ export function mapDiscoveryToRepoAnalysis(response: DiscoveryResponse): RepoAna
       other_files: cleanOtherFiles,
       other_file_count: cleanOtherCount,
       total_file_count: project.totalFileCount,
+      file_metrics: project.fileMetrics ?? (project as any).file_metrics,
       jsp_count: project.jspFileCount,
       jsf_count: project.jsfFileCount,
       jsp_files: project.jspFiles ?? [],
