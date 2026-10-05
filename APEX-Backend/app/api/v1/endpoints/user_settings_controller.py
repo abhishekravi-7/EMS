@@ -150,6 +150,56 @@ async def get_user_github_settings(
         elif "junitPrompt" in raw_qc_values:
             effective_tc_values["testing_prompt"] = raw_qc_values["junitPrompt"]
 
+    from app.infrastructure.persistence.mongodb_user_repository import normalize_permissions
+    user_perms = normalize_permissions(user_doc.get("settings_permissions"))
+
+    is_admin = (
+        getattr(current_user, "role", "").upper() in ("ADMIN", "SUPERADMIN") or
+        getattr(current_user, "is_admin", False) is True
+    )
+
+    global_llm = str(get_system_setting("llm_enabled", "true")).strip().lower() not in ("false", "0", "disabled", "off")
+    global_qc_cfg = str(get_system_setting("quality_checks_config", "enabled")).strip().lower() != "disabled"
+    global_ci = str(get_system_setting("ci_enabled", "true")).strip().lower() not in ("false", "0", "off")
+    global_cd = str(get_system_setting("cd_enabled", "true")).strip().lower() not in ("false", "0", "off")
+    global_qc = global_qc_cfg and (global_ci or global_cd)
+    global_unit = global_qc_cfg and global_ci
+
+    global_playwright = str(get_system_setting("test_cases_playwright_enabled", "true")).strip().lower() not in ("false", "0", "off")
+    global_cypress = str(get_system_setting("test_cases_cypress_enabled", "true")).strip().lower() not in ("false", "0", "off")
+    global_selenium = str(get_system_setting("test_cases_selenium_enabled", "true")).strip().lower() not in ("false", "0", "off")
+    global_functional = global_playwright or global_cypress or global_selenium
+
+    global_brd = True
+    global_test_conn = True
+
+    if is_admin:
+        effective_permissions = {
+            "llm_settings": global_llm,
+            "quality_checks": global_qc,
+            "unit_testing": global_unit,
+            "functional_testing": global_functional,
+            "brd_testing": global_brd,
+            "test_connection": global_test_conn,
+        }
+    else:
+        effective_permissions = {
+            "llm_settings": bool(global_llm and user_perms.get("llm_settings", True)),
+            "quality_checks": bool(global_qc and user_perms.get("quality_checks", True)),
+            "unit_testing": bool(global_unit and user_perms.get("unit_testing", True)),
+            "functional_testing": bool(global_functional and user_perms.get("functional_testing", True)),
+            "brd_testing": bool(global_brd and user_perms.get("brd_testing", True)),
+            "test_connection": bool(global_test_conn and user_perms.get("test_connection", True)),
+        }
+
+    if not effective_permissions.get("llm_settings", True):
+        system_llm_config["llm_enabled"] = "false"
+
+    if not effective_permissions.get("functional_testing", True):
+        system_test_cases_config["test_cases_playwright_enabled"] = "false"
+        system_test_cases_config["test_cases_cypress_enabled"] = "false"
+        system_test_cases_config["test_cases_selenium_enabled"] = "false"
+
     return UserSettingsResponse(
         github_config=UserGitHubConfig(
             github_account=github_account,
@@ -163,7 +213,8 @@ async def get_user_github_settings(
         test_cases_values=effective_tc_values,
         llm_values=masked_llm_values,
         system_llm_config=system_llm_config,
-        system_test_cases_config=system_test_cases_config
+        system_test_cases_config=system_test_cases_config,
+        settings_permissions=effective_permissions
     )
 
 @router.post("/user/settings/github", response_model=UserSettingsResponse)
@@ -412,6 +463,76 @@ async def get_user_quality_checks_config(
         "quality_checks_config": quality_checks_config(raw_qc),
         "ci_enabled": enabled("ci_enabled"),
         "cd_enabled": enabled("cd_enabled"),
+    }
+
+
+@router.get("/user/me/settings-permissions")
+async def get_my_settings_permissions(
+    current_user: User = Depends(get_current_user),  # noqa: B008
+):
+    """Fetch the effective settings permissions for the currently authenticated user."""
+    mongo_db = await get_mongodb()
+    user_doc = await _get_current_user_doc(mongo_db, current_user)
+
+    from app.infrastructure.persistence.mongodb_user_repository import normalize_permissions
+    user_perms = normalize_permissions(user_doc.get("settings_permissions"))
+
+    from app.infrastructure.persistence.mongodb_system_settings_repository import get_all_settings as get_mongo_settings
+    db_settings = await get_mongo_settings(mongo_db) if mongo_db is not None else {}
+    env_values = _get_live_env_values()
+
+    def get_sys_bool(key: str, default_val: bool = True) -> bool:
+        val = db_settings.get(key)
+        if val is None:
+            val = env_values.get(key.upper())
+        if val is None:
+            return default_val
+        return str(val).strip().lower() in {"1", "true", "yes", "on"}
+
+    global_llm = get_sys_bool("llm_enabled", True)
+    global_qc_cfg = str(db_settings.get("quality_checks_config", env_values.get("QUALITY_CHECKS_CONFIG", "enabled"))).strip().lower() != "disabled"
+    global_ci = get_sys_bool("ci_enabled", True)
+    global_cd = get_sys_bool("cd_enabled", True)
+    global_qc = global_qc_cfg and (global_ci or global_cd)
+    global_unit = global_qc_cfg and global_ci
+
+    global_playwright = get_sys_bool("test_cases_playwright_enabled", True)
+    global_cypress = get_sys_bool("test_cases_cypress_enabled", True)
+    global_selenium = get_sys_bool("test_cases_selenium_enabled", True)
+    global_functional = global_playwright or global_cypress or global_selenium
+
+    global_brd = True
+    global_test_conn = True
+
+    is_admin = current_user.role in ("SUPERADMIN", "ADMIN", "admin") or getattr(current_user, "is_admin", False)
+
+    if is_admin:
+        effective = {
+            "llm_settings": global_llm,
+            "quality_checks": global_qc,
+            "unit_testing": global_unit,
+            "functional_testing": global_functional,
+            "brd_testing": global_brd,
+            "test_connection": global_test_conn,
+        }
+    else:
+        effective = {
+            "llm_settings": bool(global_llm and user_perms.get("llm_settings", True)),
+            "quality_checks": bool(global_qc and user_perms.get("quality_checks", True)),
+            "unit_testing": bool(global_unit and user_perms.get("unit_testing", True)),
+            "functional_testing": bool(global_functional and user_perms.get("functional_testing", True)),
+            "brd_testing": bool(global_brd and user_perms.get("brd_testing", True)),
+            "test_connection": bool(global_test_conn and user_perms.get("test_connection", True)),
+        }
+
+    return {
+        "status": "success",
+        "user_id": str(user_doc.get("_id") or current_user.id),
+        "role": current_user.role,
+        "permissions": user_perms,
+        "user_permissions": user_perms,
+        "effective": effective,
+        "effective_permissions": effective,
     }
 
 @router.post("/user/settings/github/test")
@@ -680,4 +801,7 @@ async def test_user_sonar_connection(
         except Exception as e:
             logger.error("SonarQube connection error: %s", str(e))
             raise HTTPException(status_code=400, detail=f"Unable to connect to SonarQube at {raw_url}. Check the URL and network.")
+
+
+
  

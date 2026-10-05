@@ -34,6 +34,7 @@ import { wizardStyles as styles } from "@/shared/components/wizard/wizardStyles"
 import type { RepoAnalysis, RepoFile, RepoInfo } from "@/shared/types/domain";
 import { getFileContent, getDiscoveryFileContent } from "../services/discoveryService";
 import { getLocalProjectFileContent } from "@/features/connect/services/connectService";
+import { getUserSettings } from "@/features/admin/services/adminService";
 import { DiscoveryLoader } from "./DiscoveryLoader";
 import type { useDiscoveryState } from "../hooks/useDiscoveryState";
 import "./DiscoveryDashboard.css";
@@ -511,6 +512,18 @@ export function DiscoveryStepView({
   const [searchQuery, setSearchQuery] = useState("");
   const [fileCategoryFilter, setFileCategoryFilter] = useState<"ALL" | "JSP" | "JSF" | "OTHERS">("ALL");
   const [collapsedFolders, setCollapsedFolders] = useState<Record<string, boolean>>({});
+
+  const [isBrdAllowed, setIsBrdAllowed] = useState<boolean>(true);
+
+  useEffect(() => {
+    getUserSettings()
+      .then((s) => {
+        if (s?.settings_permissions?.brd_testing === false) {
+          setIsBrdAllowed(false);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Hover & pinned state for KPI metric cards
   const [hoveredKpi, setHoveredKpi] = useState<string | null>(null);
@@ -2079,7 +2092,7 @@ export function DiscoveryStepView({
             </div>
 
             {/* Card 3: Technical Specification Document (bottom right corner) */}
-            <div className="discovery-spec-card">
+            <div className="discovery-spec-card" style={!isBrdAllowed ? { opacity: 0.65, filter: "grayscale(0.8)" } : undefined}>
               <div className="discovery-panel-header">
                 <div className="discovery-panel-title-wrap">
                   <div className="discovery-panel-icon" style={{ background: "#faf5ff", color: "#9333ea" }}>
@@ -2087,7 +2100,7 @@ export function DiscoveryStepView({
                   </div>
                   <div className="discovery-panel-titles">
                     <h3>Technical Specification Document</h3>
-                    <p>Generate a repository-grounded technical specification document.</p>
+                    <p>{!isBrdAllowed ? "BRD Document generation is disabled by Super Admin for your user account." : "Generate a repository-grounded technical specification document."}</p>
                   </div>
                 </div>
               </div>
@@ -2117,20 +2130,23 @@ export function DiscoveryStepView({
                   </svg>
                 </div>
 
-                <h4 className="discovery-spec-h4">Generate Technical Specification Document</h4>
+                <h4 className="discovery-spec-h4">{!isBrdAllowed ? "BRD Generation Disabled by Admin" : "Generate Technical Specification Document"}</h4>
                 <p className="discovery-spec-desc">
-                  {/* The document will include project structure, detected frameworks, dependencies, and key technical details. */}
+                  {!isBrdAllowed && "Contact your system super admin to request BRD generation feature access."}
                 </p>
 
                 <button
                   className="discovery-spec-generate-btn"
-                  disabled={documentGenerationLoading !== null}
+                  disabled={!isBrdAllowed || documentGenerationLoading !== null}
+                  style={!isBrdAllowed ? { opacity: 0.5, cursor: "not-allowed", backgroundColor: "#94a3b8" } : undefined}
                   onClick={() => {
+                    if (!isBrdAllowed) return;
                     void handleGenerateBrdDocument();
                   }}
+                  title={!isBrdAllowed ? "BRD Generation is disabled by Super Admin for your user account" : undefined}
                 >
                   <FaFileAlt size={13} />
-                  {documentGenerationLoading ? "Generating Document..." : (technicalSpecificationButtonLabel || "Generate Document")}
+                  {!isBrdAllowed ? "Disabled by Super Admin" : (documentGenerationLoading ? "Generating Document..." : (technicalSpecificationButtonLabel || "Generate Document"))}
                 </button>
 
                 <div className="discovery-spec-footnote">

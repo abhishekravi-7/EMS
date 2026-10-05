@@ -3,8 +3,10 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from typing import Any, Dict
 import dotenv
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
 from app.api.deps import User, get_current_user
 from app.core.config import settings
@@ -225,3 +227,73 @@ async def test_admin_playwright_connection(
     except Exception as e:
         logger.error("Playwright Test Connection encountered an error: %s", str(e))
         raise HTTPException(status_code=500, detail="An error occurred while testing Playwright configuration.")
+
+
+class UserPermissionsPayload(BaseModel):
+    permissions: dict[str, Any]
+
+
+@router.get("/admin/users")
+async def list_admin_users(
+    current_user: User = Depends(get_current_user),  # noqa: B008
+):
+    """List all registered users for the admin user-selection dropdown."""
+    if current_user.role not in ("SUPERADMIN", "ADMIN", "admin") and not getattr(current_user, "is_admin", False):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    mongo_db = await get_mongodb()
+    from app.infrastructure.persistence.mongodb_user_repository import get_all_users_sanitized
+    users = await get_all_users_sanitized(mongo_db)
+    return {"users": users}
+
+
+@router.get("/admin/users/{user_id}/permissions")
+async def get_admin_user_permissions(
+    user_id: str,
+    current_user: User = Depends(get_current_user),  # noqa: B008
+):
+    """Retrieve permissions for a specific user."""
+    if current_user.role not in ("SUPERADMIN", "ADMIN", "admin") and not getattr(current_user, "is_admin", False):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    mongo_db = await get_mongodb()
+    from app.infrastructure.persistence.mongodb_user_repository import get_user_by_id, normalize_permissions
+    user_doc = await get_user_by_id(mongo_db, user_id)
+    if not user_doc:
+        raise HTTPException(status_code=404, detail="User not found.")
+
+    perms = normalize_permissions(user_doc.get("settings_permissions"))
+    return {
+        "user_id": user_doc.get("_id"),
+        "permissions": perms,
+    }
+
+
+@router.put("/admin/users/{user_id}/permissions")
+async def update_admin_user_permissions(
+    user_id: str,
+    payload: UserPermissionsPayload,
+    current_user: User = Depends(get_current_user),  # noqa: B008
+):
+    """Update permissions for a specific user independently."""
+    if current_user.role not in ("SUPERADMIN", "ADMIN", "admin") and not getattr(current_user, "is_admin", False):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    mongo_db = await get_mongodb()
+    from app.infrastructure.persistence.mongodb_user_repository import get_user_by_id, update_user, normalize_permissions
+    user_doc = await get_user_by_id(mongo_db, user_id)
+    if not user_doc:
+        raise HTTPException(status_code=404, detail="User not found.")
+
+    norm_perms = normalize_permissions(payload.permissions)
+    target_id = user_doc["_id"]
+
+    await update_user(mongo_db, target_id, {"settings_permissions": norm_perms})
+
+    return {
+        "status": "success",
+        "message": f"Permissions updated for user {user_doc.get('email') or target_id}",
+        "user_id": target_id,
+        "permissions": norm_perms,
+    }
+
