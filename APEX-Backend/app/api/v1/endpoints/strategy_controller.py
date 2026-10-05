@@ -39,7 +39,7 @@ from app.schemas.strategy_schema import (
     StrategyQueryRequest,
 )
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("strategy")
 
 router = APIRouter(prefix="/strategy", tags=["strategy"])
 
@@ -64,6 +64,8 @@ async def query_stream(
     payload: StrategyQueryRequest,
     current_user: User = Depends(get_current_user),  # noqa: B008
 ) -> StreamingResponse:
+    job_id = payload.job_id or "N/A"
+    logger.info("[STRATEGY STREAM START] - UserID: %s - JobID: %s - Question: '%s'", current_user.id, job_id, payload.question[:60])
     async def event_stream() -> AsyncIterator[str]:
         try:
             # Skip RAG-related phase messages for simple greetings/thanks
@@ -109,6 +111,7 @@ async def query_stream(
                 yield _sse("chunk", {"chunk": delta})
 
             answer = "".join(buffer).strip()
+            logger.info("[STRATEGY STREAM SUCCESS] - UserID: %s - JobID: %s - Provider: %s - Length: %d chars", current_user.id, job_id, prepared.chat.last_provider, len(answer))
 
             # Final source list using the standardized SourceReference format
             sources = []
@@ -155,7 +158,7 @@ async def query_stream(
             # Repository not indexed – advise client to index first
             yield _sse("error", {"message": str(exc), "status": "REPOSITORY_NOT_INDEXED"})
         except Exception as exc:  # noqa: BLE001 - surface a clean error, never a 500 stream
-            logger.exception("Strategy chat stream failed.")
+            logger.error("[STRATEGY STREAM ERROR] - UserID: %s - JobID: %s - Error: %s", current_user.id, job_id, exc)
             yield _sse(
                 "error",
                 {"message": "The assistant hit an unexpected error. Please try again.", "status": "INTERNAL_ERROR", "detail": str(exc)},
@@ -170,6 +173,8 @@ async def query(
     payload: StrategyQueryRequest,
     current_user: User = Depends(get_current_user),  # noqa: B008
 ) -> JSONResponse:
+    job_id = payload.job_id or "N/A"
+    logger.info("[STRATEGY QUERY START] - UserID: %s - JobID: %s - Question: '%s'", current_user.id, job_id, payload.question[:60])
     try:
         history_dicts = [{"role": msg.role, "content": msg.content} for msg in payload.history] if payload.history else None
         result = await _answer_use_case.answer(
@@ -181,22 +186,25 @@ async def query(
             page_context=payload.strategy_context,
         )
     except StrategyChatError as exc:
+        logger.warning("[STRATEGY QUERY CHAT ERROR] - JobID: %s - Status: %s - Message: %s", job_id, exc.status, exc.message)
         return JSONResponse(
             status_code=exc.http_status,
             content={"status": exc.status, "message": exc.message, "detail": exc.message},
         )
     except RepositoryNotIndexedError as exc:
+        logger.warning("[STRATEGY QUERY UNINDEXED] - JobID: %s - Repo not indexed: %s", job_id, exc)
         # Repository not indexed yet – signal client to index first
         return JSONResponse(
             status_code=404,
             content={"status": "REPOSITORY_NOT_INDEXED", "message": str(exc), "detail": str(exc)},
         )
     except Exception as exc:
-        logger.exception("Unexpected error in strategy query")
+        logger.error("[STRATEGY QUERY FAILED] - JobID: %s - Error: %s", job_id, exc)
         return JSONResponse(
             status_code=500,
             content={"status": "INTERNAL_ERROR", "message": "An unexpected error occurred.", "detail": str(exc)},
         )
+    logger.info("[STRATEGY QUERY SUCCESS] - UserID: %s - JobID: %s", current_user.id, job_id)
     return JSONResponse(status_code=200, content=result)
 
 
@@ -213,9 +221,8 @@ async def reindex(payload: IndexRequest) -> JSONResponse:
 
 
 async def _run_index(payload: IndexRequest) -> JSONResponse:
-    # Indexing goes straight to the embedder/vector store without passing
-    # through retriever.retrieve(), so it needs its own guard — otherwise this
-    # is the one path that would surface a raw ImportError as a 500.
+    target = payload.job_id or payload.repo_url or "N/A"
+    logger.info("[STRATEGY INDEX START] - Target: %s", target)
     if not settings.rag_enabled:
         exc = RagDisabledError()
         return JSONResponse(
@@ -238,11 +245,13 @@ async def _run_index(payload: IndexRequest) -> JSONResponse:
             )
     except RepositoryNotFoundForIndexingError:
         message = "Repository has not been analyzed yet. Run discovery for it first."
+        logger.warning("[STRATEGY INDEX FAILED] - Target: %s - Not analyzed yet", target)
         return JSONResponse(
             status_code=404,
             content={"status": "REPOSITORY_NOT_FOUND", "message": message, "detail": message},
         )
 
+    logger.info("[STRATEGY INDEX SUCCESS] - JobID: %s - Repo: %s - Chunks: %d", outcome.job_id, outcome.repository_url, outcome.chunk_count)
     return JSONResponse(
         status_code=200,
         content={

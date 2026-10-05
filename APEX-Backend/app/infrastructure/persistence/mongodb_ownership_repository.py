@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from typing import Optional
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("connect")
 
 async def get_job_owner_user_id(db: AsyncIOMotorDatabase, job_id: str) -> Optional[str]:
     """Retrieve the owner user ID for a given job ID from MongoDB."""

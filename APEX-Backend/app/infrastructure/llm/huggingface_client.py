@@ -19,7 +19,7 @@ import token_tracing as tt
 from app.core.config import settings
 from app.core.exceptions import LLMNotConfiguredError, LLMServiceError
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("discovery")
 
 
 class HuggingFaceClient:
@@ -108,7 +108,7 @@ class HuggingFaceClient:
             for attempt in range(max_retries):
                 try:
                     async with httpx.AsyncClient(timeout=self._timeout) as client:
-                        logger.info(
+                        logger.debug(
                             "[HuggingFace] Sending request to %s/chat/completions (attempt %s/%s)",
                             self._base_url,
                             attempt + 1,

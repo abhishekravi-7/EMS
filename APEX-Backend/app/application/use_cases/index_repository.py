@@ -17,7 +17,7 @@ from typing import Any
 
 from app.infrastructure.rag import chunker, embedder, repo_index_locator, vector_store
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("discovery")
 
 
 @dataclass(frozen=True)
@@ -114,10 +114,10 @@ class IndexRepositoryUseCase:
         vector_store.upsert(vectors, payloads, ids)
 
         logger.info(
-            "Indexed %d knowledge chunks for repository %s (job %s).",
+            "[DISCOVERY INDEX] - JobID: %s - Indexed %d knowledge chunks for repository %s",
+            report.get("jobId"),
             len(chunks),
             repo_url,
-            report.get("jobId"),
         )
         return IndexOutcome(
             repository_url=repo_url,
