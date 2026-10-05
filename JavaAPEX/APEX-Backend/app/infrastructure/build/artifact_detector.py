@@ -98,16 +98,15 @@ class ArtifactDetector:
             )
 
         # 3. If no fat-JAR exists, evaluate build-tool execution plugins
-        target_mod = analysis.primary_backend_module
-        if target_mod and target_mod.has_pom:
-            # Check if spring-boot-maven-plugin is configured
+        target_mod = analysis.primary_backend_module or (analysis.backend_modules[0] if analysis.backend_modules else None)
+        if (target_mod and target_mod.has_pom) or analysis.build_tool == BuildToolType.MAVEN:
             return DetectedArtifactResult(
                 has_runnable_jar=False,
                 target_module=target_mod,
                 supports_maven_run=True,
                 run_strategy="MAVEN_PLUGIN",
             )
-        elif target_mod and target_mod.has_gradle:
+        elif (target_mod and target_mod.has_gradle) or analysis.build_tool == BuildToolType.GRADLE:
             return DetectedArtifactResult(
                 has_runnable_jar=False,
                 target_module=target_mod,

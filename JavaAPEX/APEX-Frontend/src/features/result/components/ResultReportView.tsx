@@ -1892,13 +1892,11 @@ export function ResultReportView({
             </div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: 16, marginBottom: 16 }}>
-                {/* Proposed Test Case Information — only shown when Functional Testing was enabled */}
-                {(runFunctionalTests ?? migrationJob.run_functional_tests ?? true) && (
-                  <MigrationProposedTestSection
-                    styles={styles}
-                    migrationJob={migrationJob}
-                  />
-                )}
+                {/* Proposed Test Case Information */}
+                <MigrationProposedTestSection
+                  styles={styles}
+                  migrationJob={migrationJob}
+                />
 
                 <MigrationSonarSection
                   styles={styles}

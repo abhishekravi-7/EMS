@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Callable
 
 from app.infrastructure.build.repository_analyzer import BuildToolType, RepositoryAnalysisResult
+from app.shared.command_runner import resolve_executable
 
 logger = logging.getLogger(__name__)
 
@@ -64,22 +65,37 @@ class BuildExecutor:
                 stdout="No build tool required.",
             )
 
+        # Determine working directory for build
+        build_dir = self.repo_dir
+        if analysis.primary_backend_module and analysis.primary_backend_module.path.exists():
+            build_dir = analysis.primary_backend_module.path
+
         # 1. Resolve Command
         cmd: list[str] = []
         if analysis.build_tool == BuildToolType.MAVEN:
-            wrapper = self.repo_dir / ("mvnw.cmd" if is_windows else "mvnw")
-            mvn_cmd = str(wrapper) if wrapper.exists() else "mvn"
+            wrapper = build_dir / ("mvnw.cmd" if is_windows else "mvnw")
+            if not wrapper.exists():
+                wrapper = self.repo_dir / ("mvnw.cmd" if is_windows else "mvnw")
+            if wrapper.exists():
+                mvn_cmd = str(wrapper)
+            else:
+                mvn_cmd = resolve_executable("mvn") or ("mvn.cmd" if is_windows else "mvn")
             cmd = [mvn_cmd, "clean", "package", "-DskipTests"]
         elif analysis.build_tool == BuildToolType.GRADLE:
-            wrapper = self.repo_dir / ("gradlew.bat" if is_windows else "gradlew")
-            gradle_cmd = str(wrapper) if wrapper.exists() else "gradle"
+            wrapper = build_dir / ("gradlew.bat" if is_windows else "gradlew")
+            if not wrapper.exists():
+                wrapper = self.repo_dir / ("gradlew.bat" if is_windows else "gradlew")
+            if wrapper.exists():
+                gradle_cmd = str(wrapper)
+            else:
+                gradle_cmd = resolve_executable("gradle") or ("gradle.bat" if is_windows else "gradle")
             cmd = [gradle_cmd, "clean", "build", "-x", "test"]
         elif analysis.build_tool == BuildToolType.NPM:
-            npm_cmd = "npm.cmd" if is_windows else "npm"
+            npm_cmd = resolve_executable("npm") or ("npm.cmd" if is_windows else "npm")
             cmd = [npm_cmd, "install"]
 
         command_str = " ".join(cmd)
-        _log(f"Running build command: {command_str}")
+        _log(f"Running build command in '{build_dir.name}': {command_str}")
 
         start_t = time.time()
         env = dict(os.environ)
@@ -87,12 +103,13 @@ class BuildExecutor:
         try:
             proc = subprocess.run(
                 cmd,
-                cwd=str(self.repo_dir),
+                cwd=str(build_dir),
                 env=env,
                 capture_output=True,
                 text=True,
                 timeout=timeout_s,
                 check=False,
+                shell=is_windows,
             )
             duration = round(time.time() - start_t, 2)
             stdout = proc.stdout or ""

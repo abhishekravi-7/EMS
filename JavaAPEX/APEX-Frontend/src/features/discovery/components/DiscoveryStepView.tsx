@@ -603,9 +603,9 @@ export function DiscoveryStepView({
     const pathSet = new Set<string>();
     (repoAnalysis?.java_files || []).forEach((f) => pathSet.add(f));
     (repoAnalysis?.config_files || []).forEach((f) => pathSet.add(f));
+    (repoAnalysis?.other_files || []).forEach((f) => pathSet.add(f));
     ((repoAnalysis?.jsp_files || (repoAnalysis as any)?.jspFiles) || []).forEach((f: string) => pathSet.add(f));
     ((repoAnalysis?.jsf_files || (repoAnalysis as any)?.jsfFiles) || []).forEach((f: string) => pathSet.add(f));
-    (otherFileList || []).forEach((f) => pathSet.add(f));
     (repoAnalysis?.all_files || []).forEach((f) => {
       if (typeof f === "string") pathSet.add(f);
       else if (f?.path) pathSet.add(f.path);
@@ -613,39 +613,36 @@ export function DiscoveryStepView({
     (repoFiles || []).forEach((f) => {
       if (f.path) pathSet.add(f.path);
     });
-    if (pathSet.size === 0) {
-      [...javaFileList, ...configFileList, ...otherFileList, ...(repoAnalysis?.jsp_files || []), ...(repoAnalysis?.jsf_files || [])].forEach((f) => pathSet.add(f));
-    }
-     const normalizedPaths = Array.from(pathSet)
+    const normalizedPaths = Array.from(pathSet)
       .map((p) => p.replace(/\\/g, "/").replace(/^\/+/, ""))
       .filter(Boolean);
-       return Array.from(new Set(normalizedPaths));
-  }, [repoAnalysis, repoFiles, javaFileList, configFileList, otherFileList]);
+    return Array.from(new Set(normalizedPaths));
+  }, [repoAnalysis, repoFiles]);
 
   const jspFileList = useMemo(() => {
-    const directList: string[] = repoAnalysis?.jsp_files?.length
+    const directList: string[] = (repoAnalysis?.jsp_files?.length
       ? repoAnalysis.jsp_files
       : (repoAnalysis as any)?.jspFiles?.length
       ? (repoAnalysis as any).jspFiles
-      : [];
-    if (directList.length > 0) return directList;
-    return allDiscoveredPaths.filter((f) => {
+      : []) as string[];
+    const extractedFromPaths = allDiscoveredPaths.filter((f) => {
       const lower = f.toLowerCase();
       return lower.endsWith(".jsp") || lower.endsWith(".jspf") || lower.endsWith(".jspx");
     });
+    return Array.from(new Set([...directList, ...extractedFromPaths]));
   }, [repoAnalysis, allDiscoveredPaths]);
 
   const jsfFileList = useMemo(() => {
-    const directList: string[] = repoAnalysis?.jsf_files?.length
+    const directList: string[] = (repoAnalysis?.jsf_files?.length
       ? repoAnalysis.jsf_files
       : (repoAnalysis as any)?.jsfFiles?.length
       ? (repoAnalysis as any).jsfFiles
-      : [];
-    if (directList.length > 0) return directList;
-    return allDiscoveredPaths.filter((f) => {
+      : []) as string[];
+    const extractedFromPaths = allDiscoveredPaths.filter((f) => {
       const lower = f.toLowerCase();
       return lower.endsWith(".jsf") || lower.endsWith(".xhtml");
     });
+    return Array.from(new Set([...directList, ...extractedFromPaths]));
   }, [repoAnalysis, allDiscoveredPaths]);
 
   const jspFiles = Math.max(

@@ -81,7 +81,7 @@ export function MigrationProposedTestSection({
   const [progress, setProgress] = useState<{ total: number; completed: number }>({ total: 0, completed: 0 });
 
   // ── Inline Prompt Refinement State ──
-  const [isPromptExpanded, setIsPromptExpanded] = useState(false);
+  const [isPromptExpanded, setIsPromptExpanded] = useState(true);
   const [inlinePromptText, setInlinePromptText] = useState("");
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
