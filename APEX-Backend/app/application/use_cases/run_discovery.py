@@ -319,6 +319,7 @@ class RunDiscoveryUseCase:
             "jsfFiles": list(analysis.jsf_files),
             "viewTechnologies": analysis.view_technologies,
             "totalFileCount": analysis.total_file_count,
+            "fileMetrics": analysis.file_metrics,
             "defaultBranch": "main",
             "buildWarning": analysis.build_warning,
             "sourceLayout": {
@@ -458,6 +459,7 @@ class RunDiscoveryUseCase:
                 "jspFileCount": report.get("jspFileCount") or len(jsp_files),
                 "jsfFileCount": report.get("jsfFileCount") or len(jsf_files),
                 "totalFileCount": report.get("totalFileCount") or (len(java_files) + len(config_files) + len(jsp_files) + len(jsf_files) + len(other_files or [])),
+                "fileMetrics": report.get("fileMetrics"),
                 "defaultBranch": report.get("defaultBranch", "main"),
                 "buildWarning": report.get("buildWarning"),
                 "frontend": frontend_info,
@@ -545,6 +547,7 @@ class RunDiscoveryUseCase:
                 "jspFiles": list(analysis.jsp_files),
                 "jsfFiles": list(analysis.jsf_files),
                 "totalFileCount": analysis.total_file_count,
+                "fileMetrics": analysis.file_metrics,
                 "defaultBranch": "main",
                 "buildWarning": analysis.build_warning,
                 "frontend": analysis.frontend.to_dict(),

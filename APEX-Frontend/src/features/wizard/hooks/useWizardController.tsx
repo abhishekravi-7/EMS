@@ -1278,6 +1278,10 @@ export function useWizardController() {
   } = strategyState;
 
 
+  const userSelectedTargetVersionRef = useRef<boolean>(
+    Boolean(persistedFormState?.selectedTargetVersion)
+  );
+
   const fetchedVersionRecommendationKeyRef = useRef<string>("");
 
   const effectiveTargetVersion = selectedTargetVersion;
@@ -2731,6 +2735,7 @@ export function useWizardController() {
   */
 
   const handleTargetVersionChange = (value: string) => {
+    userSelectedTargetVersionRef.current = true;
     setSelectedTargetVersion(value);
     if (value) {
       setTargetVersionRequiredError(false);
@@ -3861,13 +3866,21 @@ export function useWizardController() {
   }, [detectedSourceVersionNumber, targetVersions]);
 
   const defaultRecommendedTargetVersion = useMemo(() => {
+    if (versionRecommendation?.recommended_target_version) {
+      const recommended = availableTargetVersions.find(
+        (version) => version.value === versionRecommendation.recommended_target_version
+      );
+      if (recommended) {
+        return recommended;
+      }
+    }
     const ltsJavaVersions = new Set(["8", "11", "17", "21", "25"]);
     return (
       availableTargetVersions.find((version) => ltsJavaVersions.has(version.value)) ||
       availableTargetVersions[0] ||
       null
     );
-  }, [availableTargetVersions]);
+  }, [availableTargetVersions, versionRecommendation]);
 
   const versionRecommendationCards = useMemo(() => {
     if (!versionRecommendation) {
@@ -4956,7 +4969,13 @@ export function useWizardController() {
     const isStillValid =
       Boolean(selectedTargetVersion) &&
       availableTargetVersions.some((version) => version.value === selectedTargetVersion);
-    if (!isStillValid && defaultRecommendedTargetVersion) {
+
+    if (!userSelectedTargetVersionRef.current && defaultRecommendedTargetVersion) {
+      if (selectedTargetVersion !== defaultRecommendedTargetVersion.value) {
+        setSelectedTargetVersion(defaultRecommendedTargetVersion.value);
+      }
+    } else if (!isStillValid && defaultRecommendedTargetVersion) {
+      userSelectedTargetVersionRef.current = false;
       setSelectedTargetVersion(defaultRecommendedTargetVersion.value);
     }
   }, [
@@ -5440,6 +5459,7 @@ export function useWizardController() {
     setFrameworkFileLoading(false);
 
     // 6. Reset strategy state
+    userSelectedTargetVersionRef.current = false;
     resetTargetRepoNaming();
     setTargetRepoTimestamp(generateRepoTimestamp());
     setSelectedSourceVersion("8");
