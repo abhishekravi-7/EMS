@@ -46,7 +46,7 @@ from app.schemas.dependency_analysis_schema import (
     DependencyRiskCounts,
 )
 
-logger = logging.getLogger("discovery")
+logger = logging.getLogger("strategy")
 
 _CACHE_DIR = Path(".cache/dependency_analysis")
 _memory_cache: LRUCache = LRUCache(maxsize=100)
@@ -191,6 +191,14 @@ def _build_fallback_analysis(
     else:
         complexity = "COMPLEX"
 
+    logger.info(
+        "[STRATEGY DEPENDENCIES RISKS] - TotalDependencies: %d - Critical: %d - Medium: %d - Low: %d",
+        tot_cnt,
+        crit_cnt,
+        med_cnt,
+        low_cnt,
+    )
+
     return DependencyAnalysisResponse(
         overall_risk=overall_risk,
         complexity=complexity,
@@ -237,12 +245,30 @@ class AnalyzeDependenciesUseCase:
 
         fp = compute_analysis_fingerprint(request)
         if fp in _memory_cache:
-            return _memory_cache[fp]
+            res = _memory_cache[fp]
+            if res.counts:
+                logger.info(
+                    "[STRATEGY DEPENDENCIES RISKS] (CACHED) - TotalDependencies: %d - Critical: %d - Medium: %d - Low: %d",
+                    res.counts.total,
+                    res.counts.critical,
+                    res.counts.medium,
+                    res.counts.low,
+                )
+            return res
 
         flight_lock = _get_flight_lock(fp)
         async with flight_lock:
             if fp in _memory_cache:
-                return _memory_cache[fp]
+                res = _memory_cache[fp]
+                if res.counts:
+                    logger.info(
+                        "[STRATEGY DEPENDENCIES RISKS] (CACHED) - TotalDependencies: %d - Critical: %d - Medium: %d - Low: %d",
+                        res.counts.total,
+                        res.counts.critical,
+                        res.counts.medium,
+                        res.counts.low,
+                    )
+                return res
 
             result = await self._execute_internal(request, input_deps, db, current_user)
             _memory_cache[fp] = result
@@ -389,6 +415,14 @@ class AnalyzeDependenciesUseCase:
                 medium=med_cnt,
                 low=low_cnt,
                 total=tot_cnt,
+            )
+
+            logger.info(
+                "[STRATEGY DEPENDENCIES RISKS] - TotalDependencies: %d - Critical: %d - Medium: %d - Low: %d",
+                tot_cnt,
+                crit_cnt,
+                med_cnt,
+                low_cnt,
             )
 
             # Determine overall risk
