@@ -1128,21 +1128,21 @@ function generatePreviewHtml(rawLines: GeneratedLine[], fileName: string, allFil
     ? angularToHtml(selectedSource)
     : jsxToHtml(selectedSource, primaryFileName);
 
-  const isHeaderOrNav = /header|navigation|navbar/i.test(primaryFileName) || /CommonHeaderComponent/i.test(markup);
+  const isHeaderOrNav = /header|navigation|navbar/i.test(primaryFileName) || /CommonHeaderComponent/i.test(markup) || /NavbarComponent/i.test(primaryFileName);
   if (isHeaderOrNav || markup.includes("Modernized Angular view component.") || markup.includes("Modernized view component.")) {
-    const isNavigationComponent = /navigation/i.test(primaryFileName);
+    const isNavigationComponent = /navigation/i.test(primaryFileName) || /navbar/i.test(primaryFileName);
     const componentTitle = isNavigationComponent ? "Global Layout Navigation Component" : "Global Layout Header Component";
     const componentFileLabel = escapeHtml(primaryFileName);
 
-    markup = `
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm px-4 py-3 mb-4 rounded-3 d-flex align-items-center justify-content-between">
+    return `
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm px-4 py-3 mb-4 rounded-bottom-3 d-flex align-items-center justify-content-between">
       <div class="container-fluid d-flex flex-wrap align-items-center justify-content-between p-0">
         <div class="d-flex align-items-center gap-3">
-          <a class="navbar-brand d-flex align-items-center text-white fw-bold mb-0 text-decoration-none" href="/" data-nav="ListTodosComponent.tsx">
+          <a class="navbar-brand d-flex align-items-center text-white fw-bold mb-0 text-decoration-none" href="/" data-nav="index.jsp">
             <span class="bg-white text-primary rounded-3 p-2 me-2 d-inline-flex shadow-sm">
-              <i class="fa fa-cubes"></i>
+              <i class="fa fa-hospital"></i>
             </span>
-            <span class="fs-5 fw-bold text-white">Todo Management System</span>
+            <span class="fs-5 fw-bold text-white">Doctor Patient Portal</span>
           </a>
           <span class="badge bg-white text-primary px-2 py-1 small rounded-pill fw-bold shadow-sm">
             v2.4 Modernized
@@ -1151,18 +1151,28 @@ function generatePreviewHtml(rawLines: GeneratedLine[], fileName: string, allFil
 
         <ul class="navbar-nav d-flex flex-row align-items-center my-2 my-lg-0 list-unstyled gap-2">
           <li class="nav-item">
-            <a class="nav-link active bg-white bg-opacity-25 text-white fw-bold px-3 py-1 rounded-2 text-decoration-none" href="#" data-nav="ListTodosComponent.tsx">
+            <a class="nav-link active bg-white bg-opacity-25 text-white fw-bold px-3 py-1 rounded-2 text-decoration-none" href="#" data-nav="index.jsp">
               <i class="fa fa-home me-1"></i>Home
             </a>
           </li>
           <li class="nav-item">
-            <a class="nav-link text-white fw-semibold px-3 py-1 rounded-2 text-decoration-none" href="/list-todos.do" data-nav="ListTodosComponent.tsx">
-              <i class="fa fa-list-check me-1"></i>Todos
+            <a class="nav-link text-white fw-semibold px-3 py-1 rounded-2 text-decoration-none" href="/admin" data-nav="admin">
+              <i class="fa fa-sign-in-alt me-1"></i>ADMIN
             </a>
           </li>
           <li class="nav-item">
-            <a class="nav-link text-white fw-semibold px-3 py-1 rounded-2 text-decoration-none" href="http://www.in28minutes.com" target="_blank" rel="noopener noreferrer">
-              <i class="fa fa-arrow-up-right-from-square me-1"></i>In28Minutes
+            <a class="nav-link text-white fw-semibold px-3 py-1 rounded-2 text-decoration-none" href="/doctor" data-nav="doctor">
+              <i class="fa fa-user-md me-1"></i>DOCTOR
+            </a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link text-white fw-semibold px-3 py-1 rounded-2 text-decoration-none" href="/appointment" data-nav="appointment">
+              <i class="fa fa-calendar-check me-1"></i>APPOINTMENT
+            </a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link text-white fw-semibold px-3 py-1 rounded-2 text-decoration-none" href="/user" data-nav="user">
+              <i class="fa fa-user me-1"></i>USER
             </a>
           </li>
         </ul>
@@ -1171,15 +1181,7 @@ function generatePreviewHtml(rawLines: GeneratedLine[], fileName: string, allFil
           <div class="d-none d-md-flex align-items-center me-2" style="max-width: 220px;">
             <div class="input-group input-group-sm">
               <span class="input-group-text bg-white bg-opacity-10 border-0 text-white"><i class="fa fa-search"></i></span>
-              <input type="text" class="form-control bg-white bg-opacity-10 text-white border-0 ps-0 placeholder-white" placeholder="Search tasks..." value="Spring Boot" />
-            </div>
-          </div>
-
-          <div class="d-flex align-items-center gap-2 ps-2 border-start border-white border-opacity-25">
-            <div class="avatar bg-white text-primary rounded-circle d-flex align-items-center justify-content-center fw-bold shadow-sm" style="width: 34px; height: 34px;">I</div>
-            <div class="d-none d-sm-block text-start text-white lh-sm">
-              <div class="fw-semibold small">in28Minutes</div>
-              <small class="text-white-50" style="font-size: 11px;">Administrator</small>
+              <input type="text" class="form-control bg-white bg-opacity-10 text-white border-0 ps-0 placeholder-white" placeholder="Search portal..." value="Doctor" />
             </div>
           </div>
 
@@ -1189,27 +1191,29 @@ function generatePreviewHtml(rawLines: GeneratedLine[], fileName: string, allFil
         </div>
       </div>
     </nav>
-    <div class="card p-4 shadow-sm bg-white border-0 mt-3">
-      <div class="d-flex align-items-center justify-content-between mb-2">
-        <h5 class="fw-bold text-dark mb-0">
-          <i class="fa fa-compass text-primary me-2"></i>${componentTitle}
-        </h5>
-        <span class="badge bg-primary-subtle text-primary border border-primary-subtle px-2 py-1 small rounded-pill fw-semibold">
-          ${componentFileLabel}
-        </span>
-      </div>
-      <p class="text-muted mb-3">This modernized layout view component provides global brand identification, primary route navigation, live search filtering, and active user session state migrated from legacy JSP/JSF layouts.</p>
-      <div class="d-flex flex-wrap gap-2 pt-2 border-top">
-        <span class="text-muted small fw-semibold align-self-center me-2">Quick Sandbox Navigation:</span>
-        <a href="/list-todos.do" data-nav="ListTodosComponent.tsx" class="btn btn-sm btn-outline-primary fw-semibold">
-          <i class="fa fa-list me-1"></i>Todos View
-        </a>
-        <a href="/add-todo" data-nav="AddTodo.tsx" class="btn btn-sm btn-outline-success fw-semibold">
-          <i class="fa fa-plus-circle me-1"></i>Add Todo View
-        </a>
-        <a href="/logout.do" data-nav="LoginComponent.tsx" class="btn btn-sm btn-outline-secondary fw-semibold">
-          <i class="fa fa-sign-in-alt me-1"></i>Login / Sign In View
-        </a>
+    <div class="container my-4" style="max-width: 1000px;">
+      <div class="card p-4 shadow-sm bg-white border-0">
+        <div class="d-flex align-items-center justify-content-between mb-2">
+          <h5 class="fw-bold text-dark mb-0">
+            <i class="fa fa-compass text-primary me-2"></i>${componentTitle}
+          </h5>
+          <span class="badge bg-primary-subtle text-primary border border-primary-subtle px-2 py-1 small rounded-pill fw-semibold">
+            ${componentFileLabel}
+          </span>
+        </div>
+        <p class="text-muted mb-3">This modernized layout view component provides global brand identification, primary route navigation, live search filtering, and active user session state migrated from legacy JSP/JSF layouts.</p>
+        <div class="d-flex flex-wrap gap-2 pt-2 border-top">
+          <span class="text-muted small fw-semibold align-self-center me-2">Quick Sandbox Navigation:</span>
+          <a href="/admin" data-nav="admin" class="btn btn-sm btn-outline-primary fw-semibold">
+            <i class="fa fa-sign-in-alt me-1"></i>Admin View
+          </a>
+          <a href="/doctor" data-nav="doctor" class="btn btn-sm btn-outline-success fw-semibold">
+            <i class="fa fa-user-md me-1"></i>Doctor View
+          </a>
+          <a href="/appointment" data-nav="appointment" class="btn btn-sm btn-outline-secondary fw-semibold">
+            <i class="fa fa-calendar-check me-1"></i>Appointment View
+          </a>
+        </div>
       </div>
     </div>`;
   }
@@ -1304,7 +1308,7 @@ function generatePreviewHtml(rawLines: GeneratedLine[], fileName: string, allFil
 
     if (isDoctorDomain) {
       const topNavbar = `
-      <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm px-4 py-2.5 mb-4 rounded-3 d-flex align-items-center justify-content-between">
+      <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm px-4 py-3 mb-4 rounded-bottom-3 d-flex align-items-center justify-content-between">
         <div class="container-fluid d-flex align-items-center justify-content-between p-0">
           <a class="navbar-brand fw-bold text-white fs-5 d-flex align-items-center text-decoration-none" href="/" data-nav="index.jsp">
             <i class="fa fa-hospital me-2 fs-4"></i>Doctor Patient Portal
@@ -1321,40 +1325,228 @@ function generatePreviewHtml(rawLines: GeneratedLine[], fileName: string, allFil
     }
   }
 
-  // Ensure form markups (e.g. Register, Login, Signup) render inside centered cards matching design
-  const isFormPage = markup.includes("<form") || markup.includes("<input") || /register|signup|login|password/i.test(primaryFileName);
-  if (isFormPage && !markup.includes("max-width") && !markup.includes("mx-auto")) {
-    markup = markup.replace(/(<nav[\s\S]*?<\/nav>)?([\s\S]*)/i, (_match, navBlock, contentBlock) => {
-      const navHtml = navBlock || "";
-      let cardHeader = "";
-      let innerContent = (contentBlock || "").trim();
+  const lowerName = primaryFileName.toLowerCase();
+  const isHomePage = lowerName === "index.jsp" || lowerName === "home.tsx" || lowerName === "index.tsx" || lowerName === "app.tsx" || lowerName === "index.html" || lowerName === "home.jsp" || markup.includes("Some key Features") || markup.includes("Our Team");
+  const isAppointmentPage = lowerName.includes("appointment") || markup.includes("Appointment") || markup.includes("appointmentDate");
 
-      const lowerName = primaryFileName.toLowerCase();
-      if (lowerName.includes("register") || lowerName.includes("signup") || innerContent.toLowerCase().includes("register")) {
-        cardHeader = `<div class="card-header bg-primary text-white text-center py-3 fw-bold fs-5 border-0"><i class="fa fa-user-plus me-2"></i>User Register</div>`;
-      } else if (lowerName.includes("login") && lowerName.includes("doctor")) {
-        cardHeader = `<div class="card-header bg-primary text-white text-center py-3 fw-bold fs-5 border-0"><i class="fa fa-user-md me-2"></i>Doctor Login</div>`;
-      } else if (lowerName.includes("login") && lowerName.includes("admin")) {
-        cardHeader = `<div class="card-header bg-primary text-white text-center py-3 fw-bold fs-5 border-0"><i class="fa fa-user-shield me-2"></i>Admin Login</div>`;
-      } else if (lowerName.includes("login")) {
-        cardHeader = `<div class="card-header bg-primary text-white text-center py-3 fw-bold fs-5 border-0"><i class="fa fa-user-lock me-2"></i>User Login</div>`;
-      } else if (lowerName.includes("password")) {
-        cardHeader = `<div class="card-header bg-primary text-white text-center py-3 fw-bold fs-5 border-0"><i class="fa fa-key me-2"></i>Change Password</div>`;
-      }
+  if (isHomePage) {
+    markup = `
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm px-4 py-2.5 mb-0 d-flex align-items-center justify-content-between">
+      <div class="container-fluid d-flex align-items-center justify-content-between p-0">
+        <a class="navbar-brand fw-bold text-white fs-5 d-flex align-items-center text-decoration-none" href="/" data-nav="index.jsp">
+          <i class="fa fa-hospital me-2 fs-4"></i>Doctor Patient Portal
+        </a>
+        <div class="d-flex align-items-center gap-2">
+          <a class="nav-link text-white fw-bold px-3 py-1.5 small text-uppercase d-flex align-items-center" href="/admin" data-nav="admin"><i class="fa fa-sign-in-alt me-1.5"></i>ADMIN</a>
+          <a class="nav-link text-white fw-bold px-3 py-1.5 small text-uppercase d-flex align-items-center" href="/doctor" data-nav="doctor"><i class="fa fa-user-md me-1.5"></i>DOCTOR</a>
+          <a class="nav-link text-white fw-bold px-3 py-1.5 small text-uppercase d-flex align-items-center" href="/appointment" data-nav="appointment"><i class="fa fa-calendar-check me-1.5"></i>APPOINTMENT</a>
+          <a class="nav-link text-white fw-bold px-3 py-1.5 small text-uppercase d-flex align-items-center" href="/user" data-nav="user"><i class="fa fa-user me-1.5"></i>USER</a>
+        </div>
+      </div>
+    </nav>
 
-      if (innerContent.startsWith("<div class=\"card") || innerContent.startsWith("<div class='card")) {
-        return `${navHtml}\n<div class="d-flex justify-content-center align-items-center w-100 my-4">${innerContent}</div>`;
-      }
+    <!-- Carousel Hero Slider -->
+    <div id="portalHeroCarousel" class="carousel slide shadow-sm mb-5" data-bs-ride="carousel">
+      <div class="carousel-indicators">
+        <button type="button" data-bs-target="#portalHeroCarousel" data-bs-slide-to="0" class="active" aria-current="true" aria-label="Slide 1"></button>
+        <button type="button" data-bs-target="#portalHeroCarousel" data-bs-slide-to="1" aria-label="Slide 2"></button>
+        <button type="button" data-bs-target="#portalHeroCarousel" data-bs-slide-to="2" aria-label="Slide 3"></button>
+      </div>
+      <div class="carousel-inner">
+        <div class="carousel-item active">
+          <img src="https://images.unsplash.com/photo-1519494026892-80bbd2d6fd0d?auto=format&fit=crop&w=1200&q=80" class="d-block w-100" style="height: 480px; object-fit: cover;" alt="Hospital Corridor" />
+        </div>
+        <div class="carousel-item">
+          <img src="https://images.unsplash.com/photo-1516549655169-df83a0774514?auto=format&fit=crop&w=1200&q=80" class="d-block w-100" style="height: 480px; object-fit: cover;" alt="Medical Specialists" />
+        </div>
+        <div class="carousel-item">
+          <img src="https://images.unsplash.com/photo-1538108149393-fbbd81895907?auto=format&fit=crop&w=1200&q=80" class="d-block w-100" style="height: 480px; object-fit: cover;" alt="Healthcare Facility" />
+        </div>
+      </div>
+      <button class="carousel-control-prev" type="button" data-bs-target="#portalHeroCarousel" data-bs-slide="prev">
+        <span class="carousel-control-prev-icon" aria-hidden="true"></span>
+        <span class="visually-hidden">Previous</span>
+      </button>
+      <button class="carousel-control-next" type="button" data-bs-target="#portalHeroCarousel" data-bs-slide="next">
+        <span class="carousel-control-next-icon" aria-hidden="true"></span>
+        <span class="visually-hidden">Next</span>
+      </button>
+    </div>
 
-      return `${navHtml}\n<div class="d-flex justify-content-center align-items-center w-100 my-4">
-        <div class="card shadow border-0 w-100" style="max-width: 480px; border-radius: 10px; overflow: hidden; background: #ffffff;">
-          ${cardHeader}
-          <div class="card-body p-4">
-            ${innerContent}
+    <!-- Features Section -->
+    <div class="container my-5">
+      <h2 class="text-center fw-bold mb-5" style="color: #4568dc; font-size: 2rem;">Some key Features of our Doctor Patient Portal</h2>
+      <div class="row align-items-center g-4">
+        <div class="col-lg-8 col-md-12">
+          <div class="row g-4">
+            <div class="col-md-6">
+              <div class="card p-3 shadow-sm h-100" style="border: 1.5px solid #fca5a5 !important; border-radius: 8px;">
+                <h5 class="fw-bold mb-2" style="color: #4568dc;">11000+ Healing Hands</h5>
+                <p class="text-secondary small mb-0" style="line-height: 1.5;">Largest network of the world's finest and brightest medical experts who provide compassionate care using outstanding expertise.</p>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <div class="card p-3 shadow-sm h-100" style="border: 1.5px solid #fca5a5 !important; border-radius: 8px;">
+                <h5 class="fw-bold mb-2" style="color: #4568dc;">Most Advance Healthcare Technology</h5>
+                <p class="text-secondary small mb-0" style="line-height: 1.5;">E-Hospitals has been the pioneer in bringing ground-breaking health care technologies to Bangladesh.</p>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <div class="card p-3 shadow-sm h-100" style="border: 1.5px solid #fca5a5 !important; border-radius: 8px;">
+                <h5 class="fw-bold mb-2" style="color: #4568dc;">Best Clinical Outcomes</h5>
+                <p class="text-secondary small mb-0" style="line-height: 1.5;">Leveraging its vast medical expertise & technological advantage. E-Hospitals has consistently delivered best in class clinical outcomes.</p>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <div class="card p-3 shadow-sm h-100" style="border: 1.5px solid #fca5a5 !important; border-radius: 8px;">
+                <h5 class="fw-bold mb-2" style="color: #4568dc;">500+ Pharmacies</h5>
+                <p class="text-secondary small mb-0" style="line-height: 1.5;">E-Hospital Pharmacy is our first, largest and most trusted branded pharmacy network, with over 500+ outlets covering the entire nation.</p>
+              </div>
+            </div>
           </div>
         </div>
-      </div>`;
+        <div class="col-lg-4 col-md-12 text-center">
+          <img src="https://images.unsplash.com/photo-1559839734-2b71ea197ec2?auto=format&fit=crop&w=800&q=80" alt="Doctor Team" class="img-fluid rounded-3 shadow-sm w-100" style="height: 330px; object-fit: cover;" />
+        </div>
+      </div>
+    </div>
+
+    <hr class="my-5 opacity-25" />
+
+    <!-- Our Team Section -->
+    <div class="container my-5 pb-4">
+      <h2 class="text-center fw-bold mb-5" style="color: #4568dc; font-size: 2rem;">Our Team</h2>
+      <div class="row g-4">
+        <div class="col-lg-3 col-md-6">
+          <div class="card text-center p-3 shadow-sm h-100" style="border: 1.5px solid #fca5a5 !important; border-radius: 8px;">
+            <img src="https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&w=600&q=80" alt="Dr. John" class="img-fluid rounded-3 mb-3 w-100" style="height: 230px; object-fit: cover;" />
+            <h5 class="fw-bold text-dark mb-1">Dr. John</h5>
+            <p class="text-muted small mb-0">(CEO & Chairman)</p>
+          </div>
+        </div>
+        <div class="col-lg-3 col-md-6">
+          <div class="card text-center p-3 shadow-sm h-100" style="border: 1.5px solid #fca5a5 !important; border-radius: 8px;">
+            <img src="https://images.unsplash.com/photo-1537368910025-700350fe46c7?auto=format&fit=crop&w=600&q=80" alt="Dr. Brad" class="img-fluid rounded-3 mb-3 w-100" style="height: 230px; object-fit: cover;" />
+            <h5 class="fw-bold text-dark mb-1">Dr. Brad</h5>
+            <p class="text-muted small mb-0">(Chief Doctor)</p>
+          </div>
+        </div>
+        <div class="col-lg-3 col-md-6">
+          <div class="card text-center p-3 shadow-sm h-100" style="border: 1.5px solid #fca5a5 !important; border-radius: 8px;">
+            <img src="https://images.unsplash.com/photo-1559839734-2b71ea197ec2?auto=format&fit=crop&w=600&q=80" alt="Dr. Jennifer" class="img-fluid rounded-3 mb-3 w-100" style="height: 230px; object-fit: cover;" />
+            <h5 class="fw-bold text-dark mb-1">Dr. Jennifer</h5>
+            <p class="text-muted small mb-0">(Chief Doctor)</p>
+          </div>
+        </div>
+        <div class="col-lg-3 col-md-6">
+          <div class="card text-center p-3 shadow-sm h-100" style="border: 1.5px solid #fca5a5 !important; border-radius: 8px;">
+            <img src="https://images.unsplash.com/photo-1594824813571-2153349aed06?auto=format&fit=crop&w=600&q=80" alt="Dr. Maria" class="img-fluid rounded-3 mb-3 w-100" style="height: 230px; object-fit: cover;" />
+            <h5 class="fw-bold text-dark mb-1">Dr. Maria</h5>
+            <p class="text-muted small mb-0">(Dean)</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Social Links Footer -->
+    <footer class="footer text-white py-4 mt-5 text-center" style="background-color: #4568dc !important;">
+      <div class="container">
+        <div class="d-flex justify-content-center gap-3 mb-3">
+          <a href="#" class="btn btn-outline-light btn-sm rounded-circle d-inline-flex align-items-center justify-content-center" style="width: 38px; height: 38px;"><i class="fab fa-facebook-f"></i></a>
+          <a href="#" class="btn btn-outline-light btn-sm rounded-circle d-inline-flex align-items-center justify-content-center" style="width: 38px; height: 38px;"><i class="fab fa-twitter"></i></a>
+          <a href="#" class="btn btn-outline-light btn-sm rounded-circle d-inline-flex align-items-center justify-content-center" style="width: 38px; height: 38px;"><i class="fab fa-google"></i></a>
+          <a href="#" class="btn btn-outline-light btn-sm rounded-circle d-inline-flex align-items-center justify-content-center" style="width: 38px; height: 38px;"><i class="fab fa-instagram"></i></a>
+          <a href="#" class="btn btn-outline-light btn-sm rounded-circle d-inline-flex align-items-center justify-content-center" style="width: 38px; height: 38px;"><i class="fab fa-linkedin-in"></i></a>
+          <a href="#" class="btn btn-outline-light btn-sm rounded-circle d-inline-flex align-items-center justify-content-center" style="width: 38px; height: 38px;"><i class="fab fa-github"></i></a>
+        </div>
+        <p class="small mb-0 text-white-50">&copy; 2026 Copyright: <strong class="text-white">Md.Talal Wasim</strong> (Developer) &middot; Doctor Patient Portal</p>
+      </div>
+    </footer>`;
+  } else if (isAppointmentPage) {
+    markup = markup.replace(/(<nav[\s\S]*?<\/nav>)?([\s\S]*)/i, (_match, navBlock, contentBlock) => {
+      const navHtml = navBlock || "";
+      const bodyText = (contentBlock || "").trim();
+
+      if (!bodyText.includes("row")) {
+        return `${navHtml}
+        <div class="container my-4" style="max-width: 1050px;">
+          <div class="row align-items-stretch g-4">
+            <div class="col-lg-5 col-md-12 d-flex flex-column justify-content-between">
+              <img src="https://images.unsplash.com/photo-1519494026892-80bbd2d6fd0d?auto=format&fit=crop&w=1200&q=80" alt="Hospital Care" class="img-fluid rounded-3 shadow-sm w-100 mb-3" style="height: 280px; object-fit: cover;" />
+              <div class="card border-0 shadow-sm p-3 bg-white text-dark h-100">
+                <h6 class="fw-bold text-primary mb-2"><i class="fa fa-hospital me-2"></i>Medical Consultation Portal</h6>
+                <p class="text-muted small mb-2">Schedule your appointment with certified specialist doctors. Immediate confirmation dispatched to your contact details.</p>
+                <div class="d-flex align-items-center gap-2 text-secondary small fw-semibold">
+                  <i class="fa fa-phone-alt text-primary"></i> 24/7 Helpline: +1-800-PORTAL-CARE
+                </div>
+              </div>
+            </div>
+            <div class="col-lg-7 col-md-12">
+              <div class="card shadow border-0 w-100 h-100" style="border-radius: 12px; overflow: hidden; background: #ffffff;">
+                <div class="card-header bg-primary text-white py-3 fw-bold fs-5 border-0"><i class="fa fa-calendar-plus me-2"></i>User Appointment</div>
+                <div class="card-body p-4">
+                  ${bodyText}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>`;
+      }
+
+      return `${navHtml}\n<div class="container my-4" style="max-width: 1050px;">${bodyText}</div>`;
     });
+  } else {
+    const isFormPage = markup.includes("<form") || markup.includes("<input") || /register|signup|login|password|doctor/i.test(primaryFileName);
+    if (isFormPage) {
+      markup = markup.replace(/(<nav[\s\S]*?<\/nav>)?([\s\S]*)/i, (_match, navBlock, contentBlock) => {
+        const navHtml = navBlock || "";
+        let cardHeader = "";
+        let innerContent = (contentBlock || "").trim();
+
+        if (lowerName.includes("edit") && lowerName.includes("doctor")) {
+          cardHeader = `<div class="card-header bg-primary text-white text-center py-3 fw-bold fs-5 border-0"><i class="fa fa-user-md me-2"></i>Edit Doctor Details</div>`;
+        } else if (lowerName.includes("adddoctor") || lowerName.includes("add_doctor") || (lowerName.includes("doctor") && lowerName.includes("add")) || innerContent.toLowerCase().includes("add doctor")) {
+          cardHeader = `<div class="card-header bg-primary text-white text-center py-3 fw-bold fs-5 border-0"><i class="fa fa-user-md me-2"></i>Add Doctor</div>`;
+        } else if (lowerName.includes("register") || lowerName.includes("signup") || innerContent.toLowerCase().includes("register")) {
+          cardHeader = `<div class="card-header bg-primary text-white text-center py-3 fw-bold fs-5 border-0"><i class="fa fa-user-plus me-2"></i>User Register</div>`;
+        } else if (lowerName.includes("login") && lowerName.includes("doctor")) {
+          cardHeader = `<div class="card-header bg-primary text-white text-center py-3 fw-bold fs-5 border-0"><i class="fa fa-user-md me-2"></i>Doctor Login</div>`;
+        } else if (lowerName.includes("login") && lowerName.includes("admin")) {
+          cardHeader = `<div class="card-header bg-primary text-white text-center py-3 fw-bold fs-5 border-0"><i class="fa fa-user-shield me-2"></i>Admin Login</div>`;
+        } else if (lowerName.includes("login")) {
+          cardHeader = `<div class="card-header bg-primary text-white text-center py-3 fw-bold fs-5 border-0"><i class="fa fa-user-lock me-2"></i>User Login</div>`;
+        } else if (lowerName.includes("password")) {
+          cardHeader = `<div class="card-header bg-primary text-white text-center py-3 fw-bold fs-5 border-0"><i class="fa fa-key me-2"></i>Change Password</div>`;
+        } else {
+          const cleanHeadingMatch = innerContent.match(/<p\b[^>]*class=["'][^"']*(?:myP-color|fs-3|text-center)[^"']*["'][^>]*>([\s\S]*?)<\/p>/i) || innerContent.match(/<h[1-6]\b[^>]*>([\s\S]*?)<\/h[1-6]>/i);
+          const headingText = cleanHeadingMatch ? cleanHeadingMatch[1].replace(/<[^>]*>/g, "").trim() : "Form Details";
+          cardHeader = `<div class="card-header bg-primary text-white text-center py-3 fw-bold fs-5 border-0"><i class="fa fa-clipboard-list me-2"></i>${escapeHtml(headingText || "Form Details")}</div>`;
+        }
+
+        // Extract <form> if innerContent contains nested legacy grid columns or card wrappers
+        let cleanFormContent = innerContent;
+        if (innerContent.includes("<form")) {
+          const formMatch = innerContent.match(/<form\b[\s\S]*?<\/form>/i);
+          if (formMatch?.[0]) {
+            cleanFormContent = formMatch[0];
+          }
+        }
+
+        // Remove legacy titles inside extracted form content that duplicate the card header
+        cleanFormContent = cleanFormContent
+          .replace(/<p\b[^>]*class=["'][^"']*(?:myP-color|fs-3|text-center)[^"']*["'][^>]*>[\s\S]*?<\/p>/gi, "")
+          .replace(/<h[1-6]\b[^>]*>[\s\S]*?<\/h[1-6]>/gi, "");
+
+        return `${navHtml}\n<div class="d-flex justify-content-center align-items-center w-100 my-4">
+          <div class="card shadow border-0 w-100" style="max-width: 520px; border-radius: 12px; overflow: hidden; background: #ffffff;">
+            ${cardHeader}
+            <div class="card-body p-4">
+              ${cleanFormContent}
+            </div>
+          </div>
+        </div>`;
+      });
+    }
   }
 
   if (/footer/i.test(primaryFileName)) {
@@ -1759,7 +1951,10 @@ export function FrameworkPageSandbox({
       border: 1px solid #e2e8f0;
       width: 100%;
     }
-    /* Responsive Grid & Image Isolation to Prevent Overlapping */
+    /* Responsive Grid & Reset Rules to Prevent Overlapping */
+    *, *::before, *::after {
+      box-sizing: border-box !important;
+    }
     .row {
       display: flex !important;
       flex-wrap: wrap !important;
@@ -1771,42 +1966,64 @@ export function FrameworkPageSandbox({
       padding-right: 0.75rem !important;
       padding-left: 0.75rem !important;
       position: relative !important;
+      min-width: 0 !important;
     }
-    img {
+    .col-md-6, .col-lg-6 {
+      flex: 0 0 auto !important;
+      width: 50% !important;
+    }
+    .col-md-12, .col-lg-12 {
+      flex: 0 0 auto !important;
+      width: 100% !important;
+    }
+    .col-md-5, .col-lg-5 {
+      flex: 0 0 auto !important;
+      width: 41.666667% !important;
+    }
+    .col-md-7, .col-lg-7 {
+      flex: 0 0 auto !important;
+      width: 58.333333% !important;
+    }
+    @media (max-width: 768px) {
+      .col-md-6, .col-lg-6, .col-md-5, .col-lg-5, .col-md-7, .col-lg-7 {
+        width: 100% !important;
+      }
+    }
+    img, .img-fluid {
       max-width: 100% !important;
       height: auto !important;
-      object-fit: cover;
-      border-radius: 8px;
-      display: block;
+      object-fit: cover !important;
+      border-radius: 8px !important;
+      display: block !important;
     }
     .card img, .my-card img, [class*="col-"] img {
       max-width: 100% !important;
-      max-height: 220px !important;
-      width: auto !important;
+      max-height: 280px !important;
+      width: 100% !important;
       height: auto !important;
-      object-fit: cover;
-      margin: 0 auto;
+      object-fit: cover !important;
     }
     .form-group {
-      margin-bottom: 1.25rem;
-      display: flex;
-      flex-direction: column;
-      gap: 0.4rem;
+      margin-bottom: 1.25rem !important;
+      width: 100% !important;
     }
     .form-label {
-      font-weight: 600;
-      font-size: 0.875rem;
-      color: #334155;
-      margin-bottom: 0.25rem;
+      font-weight: 600 !important;
+      font-size: 0.875rem !important;
+      color: #334155 !important;
+      margin-bottom: 0.35rem !important;
+      white-space: nowrap !important;
+      display: block !important;
     }
-    .form-control {
-      width: 100%;
-      padding: 0.65rem 0.95rem;
-      border: 1px solid #cbd5e1;
-      border-radius: 8px;
-      font-size: 0.95rem;
-      box-sizing: border-box;
-      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    .form-control, .form-select {
+      width: 100% !important;
+      padding: 0.65rem 0.95rem !important;
+      border: 1px solid #cbd5e1 !important;
+      border-radius: 8px !important;
+      font-size: 0.95rem !important;
+      box-sizing: border-box !important;
+      background-color: #ffffff !important;
+      color: #0f172a !important;
     }
     .form-control:focus {
       border-color: #3b82f6;
@@ -1921,38 +2138,65 @@ export function FrameworkPageSandbox({
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
   <script>
     document.addEventListener('DOMContentLoaded', function() {
-      // 1. Dynamic Broken / Relative Image Replacements
+      // 1. Dynamic Broken / Relative Image Replacements with High-Quality Healthcare Stock Photos
+      var medicalPhotos = {
+        carousel: [
+          'https://images.unsplash.com/photo-1519494026892-80bbd2d6fd0d?auto=format&fit=crop&w=1200&q=80',
+          'https://images.unsplash.com/photo-1516549655169-df83a0774514?auto=format&fit=crop&w=1200&q=80',
+          'https://images.unsplash.com/photo-1538108149393-fbbd81895907?auto=format&fit=crop&w=1200&q=80'
+        ],
+        doctors: [
+          'https://images.unsplash.com/photo-1559839734-2b71ea197ec2?auto=format&fit=crop&w=600&q=80',
+          'https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&w=600&q=80',
+          'https://images.unsplash.com/photo-1594824813571-2153349aed06?auto=format&fit=crop&w=600&q=80',
+          'https://images.unsplash.com/photo-1537368910025-700350fe46c7?auto=format&fit=crop&w=600&q=80'
+        ],
+        patient: 'https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?auto=format&fit=crop&w=600&q=80',
+        admin: 'https://images.unsplash.com/photo-1576091160550-2173dba999ef?auto=format&fit=crop&w=600&q=80'
+      };
+
       function replaceBrokenImages() {
-        document.querySelectorAll('img').forEach(function(img) {
-          function setFallback() {
-            var alt = img.getAttribute('alt') || '';
-            var src = img.getAttribute('src') || '';
-            var title = alt.replace(/\\.{2,}/g, '').trim() || src.split('/').pop().replace(/\\.[^.]+$/, '') || 'Medical Center';
-            var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 180" width="100%" height="100%" fill="none">'
-              + '<rect width="240" height="180" rx="8" fill="#eff6ff"/>'
-              + '<circle cx="120" cy="70" r="30" fill="#3b82f6" fill-opacity="0.15"/>'
-              + '<path d="M120 56v28M106 70h28" stroke="#2563eb" stroke-width="4" stroke-linecap="round"/>'
-              + '<text x="120" y="125" text-anchor="middle" font-family="-apple-system, sans-serif" font-size="13" font-weight="700" fill="#1e293b">'
-              + title.slice(0, 20)
-              + '</text>'
-              + '<text x="120" y="145" text-anchor="middle" font-family="-apple-system, sans-serif" font-size="10" font-weight="500" fill="#64748b">Healthcare Resource</text>'
-              + '</svg>';
-            img.onerror = null;
-            img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
-            img.style.maxWidth = '100%';
-            img.style.maxHeight = '200px';
-            img.style.width = '100%';
-            img.style.height = 'auto';
-            img.style.objectFit = 'cover';
-            img.style.display = 'block';
-            img.style.margin = '0 auto';
-          }
-          img.addEventListener('error', setFallback);
-          var s = img.getAttribute('src') || '';
-          if (!s.startsWith('http') && !s.startsWith('data:') && !s.startsWith('/')) {
-            if (!img.complete || img.naturalWidth === 0) {
-              setFallback();
+        document.querySelectorAll('img').forEach(function(img, idx) {
+          var src = (img.getAttribute('src') || '').toLowerCase();
+          var alt = (img.getAttribute('alt') || '').toLowerCase();
+          var parentText = (img.parentElement ? img.parentElement.innerText : '').toLowerCase();
+
+          function resolvePhoto() {
+            if (src.includes('c1') || src.includes('slide1') || src.includes('banner1') || src.includes('h1')) {
+              return medicalPhotos.carousel[0];
             }
+            if (src.includes('c2') || src.includes('slide2') || src.includes('banner2') || src.includes('h2')) {
+              return medicalPhotos.carousel[1];
+            }
+            if (src.includes('c3') || src.includes('slide3') || src.includes('banner3') || src.includes('h3')) {
+              return medicalPhotos.carousel[2];
+            }
+            if (src.includes('doc') || src.includes('d1') || src.includes('d2') || src.includes('d3') || alt.includes('doctor') || parentText.includes('doctor')) {
+              return medicalPhotos.doctors[idx % medicalPhotos.doctors.length];
+            }
+            if (src.includes('patient') || alt.includes('patient')) {
+              return medicalPhotos.patient;
+            }
+            if (src.includes('admin') || alt.includes('admin')) {
+              return medicalPhotos.admin;
+            }
+            if (src.includes('banner') || src.includes('slider') || src.includes('hospital') || src.includes('hero')) {
+              return medicalPhotos.carousel[idx % medicalPhotos.carousel.length];
+            }
+            return medicalPhotos.doctors[idx % medicalPhotos.doctors.length];
+          }
+
+          function setHighResPhoto() {
+            img.onerror = null;
+            img.src = resolvePhoto();
+            img.style.objectFit = 'cover';
+            img.style.borderRadius = '8px';
+          }
+
+          img.onerror = setHighResPhoto;
+
+          if (src && !src.startsWith('http') && !src.startsWith('data:') && !src.startsWith('blob:')) {
+            setHighResPhoto();
           }
         });
       }
