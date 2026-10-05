@@ -203,6 +203,45 @@ export function mapDiscoveryToRepoAnalysis(response: DiscoveryResponse): RepoAna
   }));
 
     const rawOtherFiles: string[] = project.otherFiles ?? (project as any).other_files ?? [];
+
+    const jspFilesList: string[] =
+      project.jspFiles ??
+      (project as any).jsp_files ??
+      (project as any).jspFiles ??
+      [];
+    const jsfFilesList: string[] =
+      project.jsfFiles ??
+      (project as any).jsf_files ??
+      (project as any).jsfFiles ??
+      [];
+
+    // Fallback: If jspFilesList / jsfFilesList are empty, extract any JSP/JSF files found in rawOtherFiles
+    const extractedJspFromOther = rawOtherFiles.filter((f: string) => {
+      const lower = (typeof f === "string" ? f : "").toLowerCase();
+      return lower.endsWith(".jsp") || lower.endsWith(".jspf") || lower.endsWith(".jspx");
+    });
+    const extractedJsfFromOther = rawOtherFiles.filter((f: string) => {
+      const lower = (typeof f === "string" ? f : "").toLowerCase();
+      return lower.endsWith(".xhtml") || lower.endsWith(".jsf");
+    });
+
+    const finalJspFiles = jspFilesList.length > 0 ? jspFilesList : extractedJspFromOther;
+    const finalJsfFiles = jsfFilesList.length > 0 ? jsfFilesList : extractedJsfFromOther;
+
+    const rawJspCount =
+      project.jspFileCount ?? (project as any).jsp_file_count ?? (project as any).jsp_count;
+    const rawJsfCount =
+      project.jsfFileCount ?? (project as any).jsf_file_count ?? (project as any).jsf_count;
+
+    const jspCount =
+      typeof rawJspCount === "number"
+        ? Math.max(rawJspCount, finalJspFiles.length)
+        : finalJspFiles.length;
+    const jsfCount =
+      typeof rawJsfCount === "number"
+        ? Math.max(rawJsfCount, finalJsfFiles.length)
+        : finalJsfFiles.length;
+
     const cleanOtherFiles = rawOtherFiles.filter((f: string) => {
       const lower = (typeof f === "string" ? f : "").toLowerCase();
       return (
@@ -234,29 +273,31 @@ export function mapDiscoveryToRepoAnalysis(response: DiscoveryResponse): RepoAna
       other_files: cleanOtherFiles,
       other_file_count: cleanOtherCount,
       total_file_count: project.totalFileCount,
-      jsp_count: project.jspFileCount,
-      jsf_count: project.jsfFileCount,
-      jsp_files: project.jspFiles ?? [],
-      jsf_files: project.jsfFiles ?? [],
+      jsp_count: jspCount,
+      jsf_count: jsfCount,
+      jsp_file_count: jspCount,
+      jsf_file_count: jsfCount,
+      jsp_files: finalJspFiles,
+      jsf_files: finalJsfFiles,
       view_technologies: (project as any).viewTechnologies ?? (project as any).view_technologies ?? undefined,
-    has_tests: Boolean(project.hasTests),
-    dependencies,
-    api_endpoints: project.apiEndpoints ?? [],
-    detected_frameworks: (project.frameworks ?? []).map((f) => ({
-      name: f,
-      path: project.detectedFiles?.pomXml ? "pom.xml" : "build.gradle",
-      type: "FRAMEWORK",
-    })),
-    frameworks: project.frameworks ?? [],
-    structure: {
-      has_pom_xml: Boolean(project.detectedFiles?.pomXml),
-      has_build_gradle: Boolean(project.detectedFiles?.buildGradle),
-      has_build_gradle_kts: Boolean(project.detectedFiles?.buildGradleKts),
-      has_src_main: Boolean(project.sourceLayout?.hasSrcMain),
-      has_src_test: Boolean(project.sourceLayout?.hasSrcTest),
-      jsp_count: project.jspFileCount,
-      jsf_count: project.jsfFileCount,
-    },
+      has_tests: Boolean(project.hasTests),
+      dependencies,
+      api_endpoints: project.apiEndpoints ?? [],
+      detected_frameworks: (project.frameworks ?? []).map((f) => ({
+        name: f,
+        path: project.detectedFiles?.pomXml ? "pom.xml" : "build.gradle",
+        type: "FRAMEWORK",
+      })),
+      frameworks: project.frameworks ?? [],
+      structure: {
+        has_pom_xml: Boolean(project.detectedFiles?.pomXml),
+        has_build_gradle: Boolean(project.detectedFiles?.buildGradle),
+        has_build_gradle_kts: Boolean(project.detectedFiles?.buildGradleKts),
+        has_src_main: Boolean(project.sourceLayout?.hasSrcMain),
+        has_src_test: Boolean(project.sourceLayout?.hasSrcTest),
+        jsp_count: jspCount,
+        jsf_count: jsfCount,
+      },
     spring_boot_eligibility: springBootEligibility,
     framework_recommendations: project.frameworkRecommendations,
     discovery_stages: project.discoveryStages,

@@ -604,8 +604,8 @@ export function DiscoveryStepView({
     const pathSet = new Set<string>();
     (repoAnalysis?.java_files || []).forEach((f) => pathSet.add(f));
     (repoAnalysis?.config_files || []).forEach((f) => pathSet.add(f));
-    (repoAnalysis?.jsp_files || []).forEach((f) => pathSet.add(f));
-    (repoAnalysis?.jsf_files || []).forEach((f) => pathSet.add(f));
+    ((repoAnalysis?.jsp_files || (repoAnalysis as any)?.jspFiles) || []).forEach((f: string) => pathSet.add(f));
+    ((repoAnalysis?.jsf_files || (repoAnalysis as any)?.jsfFiles) || []).forEach((f: string) => pathSet.add(f));
     (otherFileList || []).forEach((f) => pathSet.add(f));
     (repoAnalysis?.all_files || []).forEach((f) => {
       if (typeof f === "string") pathSet.add(f);
@@ -624,23 +624,43 @@ export function DiscoveryStepView({
   }, [repoAnalysis, repoFiles, javaFileList, configFileList, otherFileList]);
 
   const jspFileList = useMemo(() => {
-    if (repoAnalysis?.jsp_files && repoAnalysis.jsp_files.length > 0) return repoAnalysis.jsp_files;
+    const directList: string[] = repoAnalysis?.jsp_files?.length
+      ? repoAnalysis.jsp_files
+      : (repoAnalysis as any)?.jspFiles?.length
+      ? (repoAnalysis as any).jspFiles
+      : [];
+    if (directList.length > 0) return directList;
     return allDiscoveredPaths.filter((f) => {
       const lower = f.toLowerCase();
       return lower.endsWith(".jsp") || lower.endsWith(".jspf") || lower.endsWith(".jspx");
     });
-  }, [repoAnalysis?.jsp_files, allDiscoveredPaths]);
+  }, [repoAnalysis, allDiscoveredPaths]);
 
   const jsfFileList = useMemo(() => {
-    if (repoAnalysis?.jsf_files && repoAnalysis.jsf_files.length > 0) return repoAnalysis.jsf_files;
+    const directList: string[] = repoAnalysis?.jsf_files?.length
+      ? repoAnalysis.jsf_files
+      : (repoAnalysis as any)?.jsfFiles?.length
+      ? (repoAnalysis as any).jsfFiles
+      : [];
+    if (directList.length > 0) return directList;
     return allDiscoveredPaths.filter((f) => {
       const lower = f.toLowerCase();
       return lower.endsWith(".jsf") || lower.endsWith(".xhtml");
     });
-  }, [repoAnalysis?.jsf_files, allDiscoveredPaths]);
+  }, [repoAnalysis, allDiscoveredPaths]);
 
-  const jspFiles = repoAnalysis?.jsp_file_count ?? repoAnalysis?.jsp_count ?? (repoAnalysis?.structure?.jsp_count ?? jspFileList.length);
-  const jsfFiles = repoAnalysis?.jsf_file_count ?? repoAnalysis?.jsf_count ?? (repoAnalysis?.structure?.jsf_count ?? jsfFileList.length);
+  const jspFiles = Math.max(
+    repoAnalysis?.jsp_file_count ?? 0,
+    repoAnalysis?.jsp_count ?? 0,
+    repoAnalysis?.structure?.jsp_count ?? 0,
+    jspFileList.length
+  );
+  const jsfFiles = Math.max(
+    repoAnalysis?.jsf_file_count ?? 0,
+    repoAnalysis?.jsf_count ?? 0,
+    repoAnalysis?.structure?.jsf_count ?? 0,
+    jsfFileList.length
+  );
 
   // Dynamic calculations from repoAnalysis
   const javaFiles = repoAnalysis?.java_file_count ?? repoAnalysis?.java_files?.length ?? javaFileList.length;
@@ -1437,7 +1457,8 @@ export function DiscoveryStepView({
               onClick={(e) => {
                 e.stopPropagation();
                 setPinnedKpi((prev) => (prev === "jsp" ? null : "jsp"));
-                setSearchQuery(".jsp");
+                setFileCategoryFilter("JSP");
+                setSearchQuery("");
               }}
               style={{ cursor: "pointer" }}
             >
@@ -1530,8 +1551,8 @@ export function DiscoveryStepView({
               onClick={(e) => {
                 e.stopPropagation();
                 setPinnedKpi((prev) => (prev === "jsf" ? null : "jsf"));
-                const hasXhtml = allDiscoveredPaths.some(p => p.toLowerCase().endsWith('.xhtml'));
-                setSearchQuery(hasXhtml ? ".xhtml" : ".jsf");
+                setFileCategoryFilter("JSF");
+                setSearchQuery("");
               }}
               style={{ cursor: "pointer" }}
             >

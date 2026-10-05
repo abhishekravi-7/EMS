@@ -367,31 +367,47 @@ class RunDiscoveryUseCase:
         }
 
         paths = WorkspacePaths(job_id)
-        java_files = report.get("javaFiles") or []
+        java_files = report.get("javaFiles")
+        if java_files is None:
+            java_files = report.get("java_files")
         config_files = report.get("configFiles")
+        if config_files is None:
+            config_files = report.get("config_files")
         other_files = report.get("otherFiles")
-        jsp_files = report.get("jspFiles") or []
-        jsf_files = report.get("jsfFiles") or []
+        if other_files is None:
+            other_files = report.get("other_files")
+        jsp_files = report.get("jspFiles")
+        if jsp_files is None:
+            jsp_files = report.get("jsp_files")
+        jsf_files = report.get("jsfFiles")
+        if jsf_files is None:
+            jsf_files = report.get("jsf_files")
 
         if (
-            not java_files
-            or not jsp_files
-            or not jsf_files
+            java_files is None
+            or jsp_files is None
+            or jsf_files is None
             or config_files is None
             or other_files is None
         ) and paths.original_repo_dir.is_dir():
             all_files = file_utils.find_files(paths.original_repo_dir, "", limit=None)
-            if not java_files:
+            if java_files is None:
                 java_files = [f for f in all_files if f.lower().endswith(".java")][:200]
-            if not jsp_files:
+            if jsp_files is None:
                 jsp_files = [f for f in all_files if f.lower().endswith((".jsp", ".jspf", ".jspx"))]
-            if not jsf_files:
+            if jsf_files is None:
                 jsf_files = [f for f in all_files if f.lower().endswith((".xhtml", ".jsf"))]
             if config_files is None:
                 config_exts = (".xml", ".yml", ".yaml", ".properties", ".gradle", ".gradle.kts", ".json", ".conf", ".config", ".toml")
-                config_files = [f for f in all_files if f not in java_files and f not in jsp_files and f not in jsf_files and any(f.lower().endswith(ext) for ext in config_exts)][:100]
+                config_files = [f for f in all_files if f not in (java_files or []) and f not in (jsp_files or []) and f not in (jsf_files or []) and any(f.lower().endswith(ext) for ext in config_exts)][:100]
             if other_files is None:
                 other_files = [f for f in all_files if f not in (java_files or []) and f not in (config_files or []) and f not in (jsp_files or []) and f not in (jsf_files or [])][:100]
+
+        java_files = java_files or []
+        jsp_files = jsp_files or []
+        jsf_files = jsf_files or []
+        config_files = config_files or []
+        other_files = other_files or []
 
         if other_files:
             jsp_jsf_exts = (".jsp", ".jspf", ".jspx", ".xhtml", ".jsf")
@@ -449,14 +465,16 @@ class RunDiscoveryUseCase:
                 "frameworks": report.get("frameworks", []),
                 "apiEndpoints": report.get("apiEndpoints", []),
                 "hasTests": bool(report.get("hasTests", False)),
-                "javaFileCount": report.get("javaFileCount") or len(java_files),
+                "javaFileCount": report.get("javaFileCount") if report.get("javaFileCount") is not None else len(java_files),
                 "javaFiles": java_files,
-                "configFileCount": report.get("configFileCount") or len(config_files),
+                "configFileCount": report.get("configFileCount") if report.get("configFileCount") is not None else len(config_files),
                 "configFiles": config_files,
                 "otherFileCount": len(other_files) if other_files is not None else report.get("otherFileCount"),
                 "otherFiles": other_files,
-                "jspFileCount": report.get("jspFileCount") or len(jsp_files),
-                "jsfFileCount": report.get("jsfFileCount") or len(jsf_files),
+                "jspFileCount": report.get("jspFileCount") if report.get("jspFileCount") is not None else len(jsp_files),
+                "jsfFileCount": report.get("jsfFileCount") if report.get("jsfFileCount") is not None else len(jsf_files),
+                "jspFiles": jsp_files,
+                "jsfFiles": jsf_files,
                 "totalFileCount": report.get("totalFileCount") or (len(java_files) + len(config_files) + len(jsp_files) + len(jsf_files) + len(other_files or [])),
                 "defaultBranch": report.get("defaultBranch", "main"),
                 "buildWarning": report.get("buildWarning"),
