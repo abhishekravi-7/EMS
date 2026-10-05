@@ -105,6 +105,7 @@ def _to_repo_analysis(owner: str, repo: str, analysis: ProjectAnalysis) -> dict[
         "jsf_count": analysis.jsf_file_count,
         "jsf_file_count": analysis.jsf_file_count,
         "total_file_count": analysis.total_file_count,
+        "file_metrics": analysis.file_metrics,
         "view_technologies": analysis.view_technologies,
         "has_tests": bool(analysis.has_tests),
         "dependencies": dependencies,
