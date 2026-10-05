@@ -46,7 +46,7 @@ from app.schemas.dependency_analysis_schema import (
     DependencyRiskCounts,
 )
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("discovery")
 
 _CACHE_DIR = Path(".cache/dependency_analysis")
 _memory_cache: LRUCache = LRUCache(maxsize=100)
@@ -297,7 +297,7 @@ class AnalyzeDependenciesUseCase:
                 )
 
                 try:
-                    logger.info("[DependencyAnalysis] Attempting Hugging Face (primary)")
+                    logger.debug("[DependencyAnalysis] Attempting Hugging Face (primary)")
                     raw_json = await self._llm.chat_json(DEPENDENCY_ANALYSIS_SYSTEM_PROMPT, user_prompt)
                     providers_used.add("huggingface")
                 except Exception as exc:  # noqa: BLE001

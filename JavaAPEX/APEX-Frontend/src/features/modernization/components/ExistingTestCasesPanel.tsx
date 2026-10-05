@@ -3,7 +3,7 @@ import { FaInfoCircle, FaSpinner } from "react-icons/fa";
 import { FunctionalTestingTabs } from "./FunctionalTestingTabs";
 import { ExistingTestCoverage } from "./ExistingTestCoverage";
 import { ExistingTestTable, type TestResult } from "./ExistingTestTable";
-import { classifyTestType } from "../services/existingTestService";
+import { classifyTestType, deriveTestingTypes, type TestSelectionItem } from "../services/existingTestService";
 
 export type TestCase = TestResult;
 
@@ -16,7 +16,9 @@ interface ExistingTestCasesPanelProps {
   isRunning?: boolean;
   isLoading?: boolean;
   onViewSuite?: (suiteName: string) => void;
-  onSelectTest?: (test: TestResult) => void;
+  onSelectTest?: (test: TestResult | TestSelectionItem) => void;
+  runTests?: boolean;
+  runFunctionalTests?: boolean;
 }
 
 export function ExistingTestCasesPanel({
@@ -26,22 +28,11 @@ export function ExistingTestCasesPanel({
   isRunning = false,
   isLoading = false,
   onViewSuite: _onViewSuite,
-  onSelectTest: _onSelectTest,
+  onSelectTest,
+  runTests = true,
+  runFunctionalTests = true,
 }: ExistingTestCasesPanelProps) {
   const [activeTab, setActiveTab] = useState<"FUNCTIONAL" | "BUSINESS">("FUNCTIONAL");
-
-  const discoveryMetrics = {
-    total: discoveredTests.length,
-    executed: 0,
-    passed: 0,
-    failed: 0,
-    skipped: 0,
-    not_executed: discoveredTests.length,
-    duration: "—",
-    pass_percentage: "—",
-    type: framework || "JUnit",
-    existing_coverage: "N/A",
-  };
 
   // Map discovered test cases to TestResult format with NOT_EXECUTED status and duration "—"
   const mappedDiscoveredTests: TestResult[] = useMemo(() => {
@@ -82,6 +73,50 @@ export function ExistingTestCasesPanel({
 
     return list;
   }, [discoveredTests, framework]);
+
+  // Split into Unit and Functional test collections using existing classification
+  const {
+    unitMappedTests,
+    unitDiscoveredTests,
+    functionalMappedTests,
+    functionalDiscoveredTests,
+  } = useMemo(() => {
+    const unitM: TestResult[] = [];
+    const funcM: TestResult[] = [];
+
+    mappedDiscoveredTests.forEach((t) => {
+      const type = classifyTestType(t);
+      if (type === "Unit") {
+        unitM.push(t);
+      } else {
+        funcM.push(t);
+      }
+    });
+
+    const unitD: TestResult[] = [];
+    const funcD: TestResult[] = [];
+
+    discoveredTests.forEach((t) => {
+      const type = classifyTestType(t);
+      if (type === "Unit") {
+        unitD.push(t);
+      } else {
+        funcD.push(t);
+      }
+    });
+
+    return {
+      unitMappedTests: unitM,
+      unitDiscoveredTests: unitD,
+      functionalMappedTests: funcM,
+      functionalDiscoveredTests: funcD,
+    };
+  }, [mappedDiscoveredTests, discoveredTests]);
+
+  // Case 4: Neither Unit Testing nor Functional Testing is selected
+  if (!runTests && !runFunctionalTests) {
+    return null;
+  }
 
   if (isLoading) {
     return (
@@ -126,46 +161,38 @@ export function ExistingTestCasesPanel({
     );
   }
 
-  if (discoveredTests.length === 0) {
-    return (
-      <div
-        style={{
-          textAlign: "center",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: 12,
-          padding: "60px 24px",
-        }}
-      >
-        <div
-          style={{
-            width: 48,
-            height: 48,
-            borderRadius: "50%",
-            background: "#f8fafc",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            color: "#94a3b8",
-            fontSize: 20,
-          }}
-        >
-          <FaInfoCircle />
-        </div>
-        <div style={{ fontSize: 16, fontWeight: 700, color: "#1e293b" }}>
-          No Test Cases Available
-        </div>
-        <div style={{ fontSize: 13, color: "#64748b", maxWidth: 360, lineHeight: 1.5 }}>
-          No existing test cases were found in this repository.
-        </div>
-      </div>
-    );
-  }
+  const unitFrameworkName = deriveTestingTypes(unitDiscoveredTests, "unit", framework);
+  const functionalFrameworkName = deriveTestingTypes(functionalDiscoveredTests, "functional", framework);
 
-  return (
+  const unitDiscoveryMetrics = {
+    total: unitDiscoveredTests.length,
+    executed: 0,
+    passed: 0,
+    failed: 0,
+    skipped: 0,
+    not_executed: unitDiscoveredTests.length,
+    duration: "—",
+    pass_percentage: "—",
+    type: unitFrameworkName,
+    existing_coverage: "N/A",
+  };
+
+  const functionalDiscoveryMetrics = {
+    total: functionalDiscoveredTests.length,
+    executed: 0,
+    passed: 0,
+    failed: 0,
+    skipped: 0,
+    not_executed: functionalDiscoveredTests.length,
+    duration: "—",
+    pass_percentage: "—",
+    type: functionalFrameworkName,
+    existing_coverage: "N/A",
+  };
+
+  const renderUnitSection = () => (
     <div
+      key="unit-section"
       style={{
         background: "#fff",
         borderRadius: 20,
@@ -178,42 +205,167 @@ export function ExistingTestCasesPanel({
         gap: 2,
       }}
     >
-      {/* Top Tabs: Functional Testing Summary & Business Report Summary */}
       <FunctionalTestingTabs
+        title="Existing Unit Test Cases"
         activeTab={activeTab}
         onTabChange={setActiveTab}
         isRunning={isRunning}
-        statusLabel={discoveredTests.length > 0 ? "Discovered" : undefined}
+        statusLabel={unitDiscoveredTests.length > 0 ? "Discovered" : undefined}
       />
 
-      {/* Existing Test Coverage 8-Cards Grid (Discovered State) */}
       <ExistingTestCoverage
         jobId={jobId}
-        metrics={discoveryMetrics}
-        discoveredTests={discoveredTests}
-        testResults={mappedDiscoveredTests}
+        title="Existing Unit Tests"
+        filterMode="unit"
+        metrics={unitDiscoveryMetrics}
+        discoveredTests={unitDiscoveredTests}
+        testResults={unitMappedTests}
         isExecuted={false}
         frameworkInfo={{
-          detected_framework: framework || "JUnit",
+          detected_framework: unitFrameworkName,
           build_tool: "MAVEN",
           test_source_dir: "src/test/java",
         }}
       />
 
-      {/* Existing Tests Validation Report Table (Showing All Discovered Tests with NOT EXECUTED Status) */}
-      {mappedDiscoveredTests.length > 0 && (
+      {unitMappedTests.length > 0 ? (
         <ExistingTestTable
-          title="Existing Tests Validation Report"
-          testResults={mappedDiscoveredTests}
+          title="Existing Unit Tests Validation Report"
+          testResults={unitMappedTests}
           frameworkInfo={{
-            detected_framework: framework || "JUnit",
+            detected_framework: unitFrameworkName,
             build_tool: "MAVEN",
             test_source_dir: "src/test/java",
           }}
           hasRun={false}
           isRunning={isRunning}
+          onSelectTest={onSelectTest}
         />
+      ) : (
+        <div
+          style={{
+            textAlign: "center",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 10,
+            padding: "32px 24px",
+            background: "#f8fafc",
+            borderRadius: 12,
+            border: "1px dashed #cbd5e1",
+          }}
+        >
+          <FaInfoCircle style={{ color: "#94a3b8", fontSize: 18 }} />
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#334155" }}>
+            No Unit Test Cases Found
+          </div>
+          <div style={{ fontSize: 12, color: "#64748b" }}>
+            No existing Unit Test cases were found in this repository.
+          </div>
+        </div>
       )}
     </div>
   );
+
+  const renderFunctionalSection = () => (
+    <div
+      key="functional-section"
+      style={{
+        background: "#fff",
+        borderRadius: 20,
+        border: "1px solid #e2e8f0",
+        padding: "28px",
+        marginTop: 24,
+        boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.05)",
+        display: "flex",
+        flexDirection: "column",
+        gap: 20,
+      }}
+    >
+      <FunctionalTestingTabs
+        title="Existing Functional Test Cases"
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        isRunning={isRunning}
+        statusLabel={functionalDiscoveredTests.length > 0 ? "Discovered" : undefined}
+      />
+
+      <ExistingTestCoverage
+        jobId={jobId}
+        title="Existing Functional Tests"
+        filterMode="functional"
+        metrics={functionalDiscoveryMetrics}
+        discoveredTests={functionalDiscoveredTests}
+        testResults={functionalMappedTests}
+        isExecuted={false}
+        frameworkInfo={{
+          detected_framework: functionalFrameworkName,
+          build_tool: "MAVEN",
+          test_source_dir: "src/test/java",
+        }}
+      />
+
+      {functionalMappedTests.length > 0 ? (
+        <ExistingTestTable
+          title="Existing Functional Tests Validation Report"
+          testResults={functionalMappedTests}
+          frameworkInfo={{
+            detected_framework: functionalFrameworkName,
+            build_tool: "MAVEN",
+            test_source_dir: "src/test/java",
+          }}
+          hasRun={false}
+          isRunning={isRunning}
+          onSelectTest={onSelectTest}
+        />
+      ) : (
+        <div
+          style={{
+            textAlign: "center",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 10,
+            padding: "32px 24px",
+            background: "#f8fafc",
+            borderRadius: 12,
+            border: "1px dashed #cbd5e1",
+          }}
+        >
+          <FaInfoCircle style={{ color: "#94a3b8", fontSize: 18 }} />
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#334155" }}>
+            No Functional Test Cases Found
+          </div>
+          <div style={{ fontSize: 12, color: "#64748b" }}>
+            No existing functional test cases (UI/API) were found in this repository.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  // Case 3: Both Unit Testing and Functional Testing are selected
+  if (runTests && runFunctionalTests) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+        {renderUnitSection()}
+        {renderFunctionalSection()}
+      </div>
+    );
+  }
+
+  // Case 1: Only Unit Testing is selected
+  if (runTests) {
+    return renderUnitSection();
+  }
+
+  // Case 2: Only Functional Testing is selected
+  if (runFunctionalTests) {
+    return renderFunctionalSection();
+  }
+
+  return null;
 }
+

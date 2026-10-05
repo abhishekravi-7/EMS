@@ -81,13 +81,19 @@ async def get_user_github_settings(
     quality_checks_values = user_doc.get("quality_checks_values", {})
     masked_qc_values = {}
     for field_id, value in quality_checks_values.items():
-        if value and isinstance(value, str) and any(secret_word in field_id.lower() for secret_word in ["token", "key", "secret", "password"]):
+        if field_id in ("sonarqube_project_key", "project_key", "sonarqube_url", "sonarqube_org", "sonar_organization"):
+            masked_qc_values[field_id] = value
+        elif value and isinstance(value, str) and (
+            any(secret_word in field_id.lower() for secret_word in ["token", "secret", "password"])
+            or (field_id.endswith("api_key") and "project" not in field_id.lower())
+        ):
             if len(value) > 4:
                 masked_qc_values[field_id] = "****************" + value[-4:]
             else:
                 masked_qc_values[field_id] = "********"
         else:
             masked_qc_values[field_id] = value
+    masked_qc_values["sonarqube_url"] = "https://sonarcloud.io"
 
     # Process llm_values and mask the api_keys
     llm_values = user_doc.get("llm_values", {})
@@ -144,6 +150,56 @@ async def get_user_github_settings(
         elif "junitPrompt" in raw_qc_values:
             effective_tc_values["testing_prompt"] = raw_qc_values["junitPrompt"]
 
+    from app.infrastructure.persistence.mongodb_user_repository import normalize_permissions
+    user_perms = normalize_permissions(user_doc.get("settings_permissions"))
+
+    is_admin = (
+        getattr(current_user, "role", "").upper() in ("ADMIN", "SUPERADMIN") or
+        getattr(current_user, "is_admin", False) is True
+    )
+
+    global_llm = str(get_system_setting("llm_enabled", "true")).strip().lower() not in ("false", "0", "disabled", "off")
+    global_qc_cfg = str(get_system_setting("quality_checks_config", "enabled")).strip().lower() != "disabled"
+    global_ci = str(get_system_setting("ci_enabled", "true")).strip().lower() not in ("false", "0", "off")
+    global_cd = str(get_system_setting("cd_enabled", "true")).strip().lower() not in ("false", "0", "off")
+    global_qc = global_qc_cfg and (global_ci or global_cd)
+    global_unit = global_qc_cfg and global_ci
+
+    global_playwright = str(get_system_setting("test_cases_playwright_enabled", "true")).strip().lower() not in ("false", "0", "off")
+    global_cypress = str(get_system_setting("test_cases_cypress_enabled", "true")).strip().lower() not in ("false", "0", "off")
+    global_selenium = str(get_system_setting("test_cases_selenium_enabled", "true")).strip().lower() not in ("false", "0", "off")
+    global_functional = global_playwright or global_cypress or global_selenium
+
+    global_brd = True
+    global_test_conn = True
+
+    if is_admin:
+        effective_permissions = {
+            "llm_settings": global_llm,
+            "quality_checks": global_qc,
+            "unit_testing": global_unit,
+            "functional_testing": global_functional,
+            "brd_testing": global_brd,
+            "test_connection": global_test_conn,
+        }
+    else:
+        effective_permissions = {
+            "llm_settings": bool(global_llm and user_perms.get("llm_settings", True)),
+            "quality_checks": bool(global_qc and user_perms.get("quality_checks", True)),
+            "unit_testing": bool(global_unit and user_perms.get("unit_testing", True)),
+            "functional_testing": bool(global_functional and user_perms.get("functional_testing", True)),
+            "brd_testing": bool(global_brd and user_perms.get("brd_testing", True)),
+            "test_connection": bool(global_test_conn and user_perms.get("test_connection", True)),
+        }
+
+    if not effective_permissions.get("llm_settings", True):
+        system_llm_config["llm_enabled"] = "false"
+
+    if not effective_permissions.get("functional_testing", True):
+        system_test_cases_config["test_cases_playwright_enabled"] = "false"
+        system_test_cases_config["test_cases_cypress_enabled"] = "false"
+        system_test_cases_config["test_cases_selenium_enabled"] = "false"
+
     return UserSettingsResponse(
         github_config=UserGitHubConfig(
             github_account=github_account,
@@ -157,7 +213,8 @@ async def get_user_github_settings(
         test_cases_values=effective_tc_values,
         llm_values=masked_llm_values,
         system_llm_config=system_llm_config,
-        system_test_cases_config=system_test_cases_config
+        system_test_cases_config=system_test_cases_config,
+        settings_permissions=effective_permissions
     )
 
 @router.post("/user/settings/github", response_model=UserSettingsResponse)
@@ -188,6 +245,7 @@ async def update_user_github_settings(
             merged_qc_values[field_id] = existing_qc_values.get(field_id, value)
         else:
             merged_qc_values[field_id] = value
+    merged_qc_values["sonarqube_url"] = "https://sonarcloud.io"
 
     # Canonical storage: remove JUnit testing settings from quality_checks_values on new saves
     merged_qc_values.pop("selected_predefined_prompts", None)
@@ -223,7 +281,7 @@ async def update_user_github_settings(
     return await get_user_github_settings(current_user)
 
 class SonarqubeTestPayload(BaseModel):
-    url: str
+    url: str | None = None
     token: str
     project_key: str | None = None
     org: str | None = None
@@ -234,39 +292,93 @@ async def test_user_sonarqube_connection(
     current_user: User = Depends(get_current_user),  # noqa: B008
 ):
     """Test SonarQube URL and authentication token."""
-    url = payload.url.rstrip('/') if payload.url else "https://sonarcloud.io"
-    token = payload.token
+    url = (getattr(settings, "sonarqube_host_url", None) or "https://sonarcloud.io").rstrip("/")
+    token = (payload.token or "").strip()
 
     if token == "********" or (isinstance(token, str) and token.startswith("****************")):
         mongo_db = await get_mongodb()
-        user_doc = (await mongo_db.users.find_one({"_id": _get_query_id(str(current_user.id))})) or {} if mongo_db is not None else {}
+        user_doc = (await _get_current_user_doc(mongo_db, current_user))
         qc_values = user_doc.get("quality_checks_values", {})
         token = qc_values.get("sonarqube_token", token)
+        if not token or (isinstance(token, str) and token.startswith("****************")):
+            token = _get_live_env_values().get("SONARQUBE_TOKEN") or getattr(settings, "sonarqube_token", "")
 
-    if not token:
+    token = (token or "").strip()
+    if not token or (isinstance(token, str) and (token.startswith("****************") or token == "********")):
         raise HTTPException(status_code=400, detail="No SonarQube Auth Token provided.")
 
     import httpx
     try:
         async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
-            response = await client.get(
-                f"{url}/api/system/status",
-                headers={"Authorization": f"Bearer {token}"}
-            )
-            if response.status_code == 200:
-                return {"status": "success", "message": "SonarQube connection successful! Token and URL validated."}
+            is_valid_token = False
+
+            # Check 1: /api/authentication/validate with Basic Auth
+            r_val = await client.get(f"{url}/api/authentication/validate", auth=(token, ""))
+            if r_val.status_code == 200 and r_val.json().get("valid") is True:
+                is_valid_token = True
             else:
-                response_basic = await client.get(
-                    f"{url}/api/authentication/validate",
+                # Check 2: /api/users/current with Basic Auth
+                r_usr = await client.get(f"{url}/api/users/current", auth=(token, ""))
+                if r_usr.status_code == 200 and r_usr.json().get("isLoggedIn") is True:
+                    is_valid_token = True
+                else:
+                    # Check 3: /api/user_tokens/search with Basic Auth
+                    r_tok = await client.get(f"{url}/api/user_tokens/search", auth=(token, ""))
+                    if r_tok.status_code == 200:
+                        is_valid_token = True
+                    else:
+                        # Check 4: Bearer header fallback
+                        r_bearer = await client.get(f"{url}/api/authentication/validate", headers={"Authorization": f"Bearer {token}"})
+                        if r_bearer.status_code == 200 and r_bearer.json().get("valid") is True:
+                            is_valid_token = True
+                        else:
+                            r_usr_bearer = await client.get(f"{url}/api/users/current", headers={"Authorization": f"Bearer {token}"})
+                            if r_usr_bearer.status_code == 200 and r_usr_bearer.json().get("isLoggedIn") is True:
+                                is_valid_token = True
+
+            # If organization is provided, sanitize and verify
+            org_cleaned = (payload.org or "").strip()
+            if org_cleaned:
+                if "sonarcloud.io" in org_cleaned:
+                    import urllib.parse
+                    parsed = urllib.parse.urlparse(org_cleaned)
+                    qs = urllib.parse.parse_qs(parsed.query)
+                    if "organization" in qs:
+                        org_cleaned = qs["organization"][0]
+                    elif "/organizations/" in parsed.path:
+                        org_cleaned = parsed.path.split("/organizations/")[-1].split("/")[0]
+                org_cleaned = org_cleaned.strip("@/ ")
+
+            # If token wasn't confirmed yet and org is provided, try project search with auth
+            if not is_valid_token and org_cleaned:
+                r_proj = await client.get(f"{url}/api/projects/search", params={"organization": org_cleaned.lower()}, auth=(token, ""))
+                if r_proj.status_code == 200:
+                    is_valid_token = True
+
+            if not is_valid_token:
+                raise HTTPException(status_code=400, detail="Invalid SonarQube authentication token.")
+
+            if org_cleaned:
+                orgs_to_search = list(dict.fromkeys([org_cleaned, org_cleaned.lower()]))
+                org_res = await client.get(
+                    f"{url}/api/organizations/search",
+                    params={"organizations": ",".join(orgs_to_search)},
                     auth=(token, "")
                 )
-                if response_basic.status_code == 200 and response_basic.json().get("valid") is True:
-                    return {"status": "success", "message": "SonarQube connection successful! Credentials valid."}
-                else:
-                    return {"status": "success", "message": "SonarQube URL reached and validated."}
+                if org_res.status_code == 200:
+                    orgs = org_res.json().get("organizations", [])
+                    if not orgs:
+                        raise HTTPException(status_code=400, detail=f"Sonar organization '{org_cleaned}' was not found on SonarCloud.")
+
+            return {"status": "success", "valid": True, "message": "SonarQube connection successful! Configuration is valid."}
+    except HTTPException:
+        raise
+    except httpx.RequestError as exc:
+        logger.error("SonarQube Test Connection network error: %s", str(exc))
+        raise HTTPException(status_code=502, detail="Unable to connect to SonarQube.")
     except Exception as e:
         logger.error("SonarQube Test Connection error: %s", str(e))
-        raise HTTPException(status_code=400, detail=f"Failed to connect to SonarQube at {url}.")
+        raise HTTPException(status_code=500, detail=f"Failed to connect to SonarQube at {url}.")
 
 class FossaTestPayload(BaseModel):
     api_key: str | None = None
@@ -283,11 +395,16 @@ async def test_user_fossa_connection(
     user_doc = (await mongo_db.users.find_one({"_id": _get_query_id(str(current_user.id))})) or {} if mongo_db is not None else {}
     qc_values = user_doc.get("quality_checks_values", {})
 
-    if not api_key or api_key == "********" or (isinstance(api_key, str) and api_key.startswith("****************")):
+    if api_key == "********" or (isinstance(api_key, str) and api_key.startswith("****************")):
+        mongo_db = await get_mongodb()
+        user_doc = (await _get_current_user_doc(mongo_db, current_user))
+        qc_values = user_doc.get("quality_checks_values", {})
         api_key = qc_values.get("fossa_api_key", api_key)
+        if not api_key or (isinstance(api_key, str) and api_key.startswith("****************")):
+            api_key = _get_live_env_values().get("FOSSA_API_KEY") or getattr(settings, "fossa_api_key", "")
 
-    if not api_key or api_key == "********" or (isinstance(api_key, str) and api_key.startswith("****************")):
-        raise HTTPException(status_code=400, detail="No FOSSA API Key provided. Please enter a valid API key.")
+    if not api_key or (isinstance(api_key, str) and api_key.startswith("****************")):
+        raise HTTPException(status_code=400, detail="No FOSSA API Key provided.")
 
     import httpx
     fossa_endpoints = [
@@ -301,33 +418,24 @@ async def test_user_fossa_connection(
 
     try:
         async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
-            headers_list = [
-                {"Authorization": f"Bearer {api_key}"},
-                {"Authorization": f"token {api_key}"},
-            ]
-            for endpoint in fossa_endpoints:
-                for headers in headers_list:
-                    try:
-                        response = await client.get(endpoint, headers=headers)
-                        last_status = response.status_code
-                        if response.status_code in (200, 201, 204):
-                            return {"status": "success", "message": "FOSSA connection successful! API Key validated."}
-                        elif response.status_code in (401, 403):
-                            last_error_detail = f"Invalid FOSSA API Key: Unauthorized (HTTP {response.status_code})."
-                    except Exception as req_err:
-                        last_error_detail = str(req_err)
-                        
-            if last_status in (401, 403):
-                raise HTTPException(status_code=400, detail=last_error_detail or "Invalid FOSSA API Key: Unauthorized (401).")
-            elif last_status:
-                raise HTTPException(status_code=400, detail=f"FOSSA API connection returned HTTP {last_status}.")
+            response = await client.get(
+                "https://app.fossa.com/api/cli/organization",
+                headers={"Authorization": f"Bearer {api_key}"}
+            )
+            if response.status_code in (200, 201):
+                return {"status": "success", "valid": True, "message": "FOSSA connection successful! API key validated."}
+            elif response.status_code in (401, 403):
+                raise HTTPException(status_code=400, detail="Invalid FOSSA API key.")
             else:
-                raise HTTPException(status_code=400, detail=f"FOSSA connection failed: {last_error_detail or 'Unable to reach app.fossa.com'}")
+                raise HTTPException(status_code=400, detail=f"FOSSA API returned status {response.status_code}.")
     except HTTPException:
         raise
+    except httpx.RequestError as exc:
+        logger.error("FOSSA Test Connection network error: %s", str(exc))
+        raise HTTPException(status_code=502, detail="Unable to connect to FOSSA API server.")
     except Exception as e:
         logger.error("FOSSA Test Connection error: %s", str(e))
-        raise HTTPException(status_code=400, detail=f"FOSSA test connection error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to test FOSSA connection.")
  
 @router.get("/user/settings/quality-checks-config")
 async def get_user_quality_checks_config(
@@ -340,6 +448,11 @@ async def get_user_quality_checks_config(
     mongo_db = await get_mongodb()
     system_settings = await get_all_settings(mongo_db) if mongo_db is not None else {}
 
+    raw_qc = system_settings.get("quality_checks_config")
+    if not raw_qc:
+        from app.api.v1.endpoints.admin_settings_controller import _get_live_env_values
+        raw_qc = _get_live_env_values().get("QUALITY_CHECKS_CONFIG")
+
     def enabled(name: str) -> bool:
         value = system_settings.get(name)
         if value is None:
@@ -347,9 +460,79 @@ async def get_user_quality_checks_config(
         return str(value if value is not None else "true").strip().lower() in {"1", "true", "yes", "on"}
 
     return {
-        "quality_checks_config": quality_checks_config(),
+        "quality_checks_config": quality_checks_config(raw_qc),
         "ci_enabled": enabled("ci_enabled"),
         "cd_enabled": enabled("cd_enabled"),
+    }
+
+
+@router.get("/user/me/settings-permissions")
+async def get_my_settings_permissions(
+    current_user: User = Depends(get_current_user),  # noqa: B008
+):
+    """Fetch the effective settings permissions for the currently authenticated user."""
+    mongo_db = await get_mongodb()
+    user_doc = await _get_current_user_doc(mongo_db, current_user)
+
+    from app.infrastructure.persistence.mongodb_user_repository import normalize_permissions
+    user_perms = normalize_permissions(user_doc.get("settings_permissions"))
+
+    from app.infrastructure.persistence.mongodb_system_settings_repository import get_all_settings as get_mongo_settings
+    db_settings = await get_mongo_settings(mongo_db) if mongo_db is not None else {}
+    env_values = _get_live_env_values()
+
+    def get_sys_bool(key: str, default_val: bool = True) -> bool:
+        val = db_settings.get(key)
+        if val is None:
+            val = env_values.get(key.upper())
+        if val is None:
+            return default_val
+        return str(val).strip().lower() in {"1", "true", "yes", "on"}
+
+    global_llm = get_sys_bool("llm_enabled", True)
+    global_qc_cfg = str(db_settings.get("quality_checks_config", env_values.get("QUALITY_CHECKS_CONFIG", "enabled"))).strip().lower() != "disabled"
+    global_ci = get_sys_bool("ci_enabled", True)
+    global_cd = get_sys_bool("cd_enabled", True)
+    global_qc = global_qc_cfg and (global_ci or global_cd)
+    global_unit = global_qc_cfg and global_ci
+
+    global_playwright = get_sys_bool("test_cases_playwright_enabled", True)
+    global_cypress = get_sys_bool("test_cases_cypress_enabled", True)
+    global_selenium = get_sys_bool("test_cases_selenium_enabled", True)
+    global_functional = global_playwright or global_cypress or global_selenium
+
+    global_brd = True
+    global_test_conn = True
+
+    is_admin = current_user.role in ("SUPERADMIN", "ADMIN", "admin") or getattr(current_user, "is_admin", False)
+
+    if is_admin:
+        effective = {
+            "llm_settings": global_llm,
+            "quality_checks": global_qc,
+            "unit_testing": global_unit,
+            "functional_testing": global_functional,
+            "brd_testing": global_brd,
+            "test_connection": global_test_conn,
+        }
+    else:
+        effective = {
+            "llm_settings": bool(global_llm and user_perms.get("llm_settings", True)),
+            "quality_checks": bool(global_qc and user_perms.get("quality_checks", True)),
+            "unit_testing": bool(global_unit and user_perms.get("unit_testing", True)),
+            "functional_testing": bool(global_functional and user_perms.get("functional_testing", True)),
+            "brd_testing": bool(global_brd and user_perms.get("brd_testing", True)),
+            "test_connection": bool(global_test_conn and user_perms.get("test_connection", True)),
+        }
+
+    return {
+        "status": "success",
+        "user_id": str(user_doc.get("_id") or current_user.id),
+        "role": current_user.role,
+        "permissions": user_perms,
+        "user_permissions": user_perms,
+        "effective": effective,
+        "effective_permissions": effective,
     }
 
 @router.post("/user/settings/github/test")
@@ -587,9 +770,9 @@ async def test_user_sonar_connection(
     if not token:
         raise HTTPException(status_code=400, detail="No SonarQube authentication token provided.")
  
-    raw_url = (payload.sonarqube_url or existing_qc_values.get("sonarqube_url") or "https://sonarcloud.io").strip().rstrip("/")
+    raw_url = (getattr(settings, "sonarqube_host_url", None) or "https://sonarcloud.io").strip().rstrip("/")
     if not raw_url.startswith("http://") and not raw_url.startswith("https://"):
-        raw_url = f"https://{raw_url}" if "sonarcloud.io" in raw_url else f"http://{raw_url}"
+        raw_url = f"https://{raw_url}"
  
     auth_b64 = base64.b64encode(f"{token}:".encode("utf-8")).decode("ascii")
     headers = {
@@ -618,78 +801,7 @@ async def test_user_sonar_connection(
         except Exception as e:
             logger.error("SonarQube connection error: %s", str(e))
             raise HTTPException(status_code=400, detail=f"Unable to connect to SonarQube at {raw_url}. Check the URL and network.")
- 
- 
-class FossaTestPayload(BaseModel):
-    fossa_api_key: str | None = None
-    fossa_endpoint: str | None = None
- 
- 
-@router.post("/user/settings/fossa/test")
-async def test_user_fossa_connection(
-    payload: FossaTestPayload,
-    current_user: User = Depends(get_current_user),  # noqa: B008
-):
-    """Test the user's FOSSA credentials and endpoint."""
-    mongo_db = await get_mongodb()
-    user_doc = (await mongo_db.users.find_one({"_id": _get_query_id(str(current_user.id))})) or {} if mongo_db is not None else {}
-    existing_qc_values = user_doc.get("quality_checks_values", {})
- 
-    api_key = (payload.fossa_api_key or "").strip()
-    if not api_key or api_key == "********" or api_key.startswith("****************"):
-        api_key = (
-            existing_qc_values.get("fossa_api_key")
-            or existing_qc_values.get("fossa_token")
-            or getattr(settings, "fossa_api_key", "")
-            or ""
-        ).strip()
- 
-    if not api_key:
-        raise HTTPException(status_code=400, detail="No FOSSA API Key provided.")
- 
-    endpoint = (payload.fossa_endpoint or existing_qc_values.get("fossa_endpoint") or "https://app.fossa.com").strip().rstrip("/")
-    if not endpoint.startswith("http://") and not endpoint.startswith("https://"):
-        endpoint = f"https://{endpoint}"
- 
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Accept": "application/json",
-    }
- 
-    async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
-        test_urls = [
-            f"{endpoint}/api/cli/organization",
-            f"{endpoint}/api/users/me",
-            f"{endpoint}/api/projects?limit=1",
-        ]
-        success = False
-        user_msg = "FOSSA connection successful."
-        last_error = ""
 
-        for test_url in test_urls:
-            try:
-                response = await client.get(test_url, headers=headers)
-                if response.status_code in (200, 201):
-                    success = True
-                    try:
-                        info = response.json()
-                        if isinstance(info, dict):
-                            org_name = info.get("name") or info.get("email") or info.get("username")
-                            if org_name:
-                                user_msg = f"FOSSA connection successful ({org_name})."
-                    except Exception:
-                        pass
-                    break
-                elif response.status_code in (401, 403):
-                    last_error = "FOSSA authentication failed. Invalid API key."
-                else:
-                    last_error = f"FOSSA returned status {response.status_code}."
-            except Exception as e:
-                logger.error("FOSSA connection error for %s: %s", test_url, str(e))
-                last_error = f"Unable to connect to FOSSA at {endpoint}."
 
-        if success:
-            return {"status": "success", "message": user_msg}
-        else:
-            raise HTTPException(status_code=400, detail=last_error or "FOSSA connection test failed.")
+
  

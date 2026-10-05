@@ -1215,56 +1215,6 @@ export function StrategyStepView({
               );
             })}
           </div>
-          {((versionRecommendation.benefits?.length ?? 0) > 0 ||
-            (versionRecommendation.compatibility_considerations?.length ?? 0) > 0) && (
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-                gap: 12,
-                marginTop: 12,
-              }}
-            >
-              {(versionRecommendation.benefits?.length ?? 0) > 0 && (
-                <div
-                  style={{
-                    padding: 12,
-                    borderRadius: 10,
-                    border: "1px solid #e2e8f0",
-                    background: "#ffffff",
-                  }}
-                >
-                  <div style={{ fontSize: 11, fontWeight: 700, color: "#166534", textTransform: "uppercase", letterSpacing: "0.4px", marginBottom: 6 }}>
-                    Upgrade Benefits
-                  </div>
-                  <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: "#334155", lineHeight: 1.6, listStyleType: "disc" }}>
-                    {versionRecommendation.benefits!.map((benefit, index) => (
-                      <li key={index}>{benefit}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              {(versionRecommendation.compatibility_considerations?.length ?? 0) > 0 && (
-                <div
-                  style={{
-                    padding: 12,
-                    borderRadius: 10,
-                    border: "1px solid #e2e8f0",
-                    background: "#ffffff",
-                  }}
-                >
-                  <div style={{ fontSize: 11, fontWeight: 700, color: "#92400e", textTransform: "uppercase", letterSpacing: "0.4px", marginBottom: 6 }}>
-                    Compatibility Considerations
-                  </div>
-                  <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: "#334155", lineHeight: 1.6, listStyleType: "disc" }}>
-                    {versionRecommendation.compatibility_considerations!.map((item, index) => (
-                      <li key={index}>{item}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          )}
         </div>
       )}
 

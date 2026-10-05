@@ -22,7 +22,7 @@ from app.infrastructure.llm.prompt_templates import (
 )
 from app.schemas.java_version_schema import RiskExplanationRequest, RiskExplanationResponse
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("discovery")
 
 
 def get_default_risk_explanation(risk_level: str) -> str:
@@ -73,7 +73,7 @@ class ExplainRiskUseCase:
 
         try:
             try:
-                logger.info("[RiskExplanation] Attempting Hugging Face (primary)")
+                logger.debug("[RiskExplanation] Attempting Hugging Face (primary)")
                 raw = await self._llm.chat_json(system_prompt, user_prompt)
                 explanation = str(raw.get("risk_explanation") or "").strip()
                 if not explanation:

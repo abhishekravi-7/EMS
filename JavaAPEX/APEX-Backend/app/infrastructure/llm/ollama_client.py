@@ -23,7 +23,7 @@ import httpx
 from app.core.config import settings
 from app.core.exceptions import ChatLLMServiceError
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("llm")
 
 class OllamaUnavailableError(ChatLLMServiceError):
     """Raised when the Ollama server cannot be reached (not running / wrong URL)."""

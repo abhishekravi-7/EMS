@@ -31,6 +31,26 @@ from app.infrastructure.analyzers.spring_entrypoint_scanner import SpringEntrypo
 from app.infrastructure.analyzers.spring_framework_detector import SpringFrameworkDetector
 from app.infrastructure.analyzers.view_technology_analyzer import ViewTechnologyAnalyzer
 from app.infrastructure.analyzers.brd_repository_evidence import BrdRepositoryEvidenceScanner
+from app.infrastructure.analyzers.repository_file_categorizer import (
+    CAT_ANGULAR,
+    CAT_CONFIGURATION,
+    CAT_CSS,
+    CAT_DOCUMENTATION,
+    CAT_HTML,
+    CAT_JAVA,
+    CAT_JAVA_TEST,
+    CAT_JAVASCRIPT,
+    CAT_JSF,
+    CAT_JSP,
+    CAT_OTHER,
+    CAT_REACT,
+    CAT_RESOURCES,
+    CAT_SCRIPTS,
+    CAT_SQL,
+    CAT_TYPESCRIPT,
+    CAT_XML,
+    RepositoryFileCategorizer,
+)
 from app.shared import file_utils
 
 
@@ -69,6 +89,7 @@ class ProjectAnalysis:
     total_file_count: int = 0
     jsp_file_count: int = 0
     jsf_file_count: int = 0
+    file_metrics: dict[str, Any] = field(default_factory=dict)
     view_technologies: dict[str, Any] = field(default_factory=dict)
     test_files: list[str] = field(default_factory=list)
     frontend_files: list[str] = field(default_factory=list)
@@ -130,6 +151,7 @@ class ProjectAnalyzer:
         self._api_endpoints = ApiEndpointDetector()
         self._view_technology = ViewTechnologyAnalyzer()
         self._brd_evidence = BrdRepositoryEvidenceScanner()
+        self._file_categorizer = RepositoryFileCategorizer()
 
     def analyze(self, root: Path) -> ProjectAnalysis:
         # The Java project may live in a subfolder (e.g. backend/pom.xml) rather
@@ -154,44 +176,42 @@ class ProjectAnalyzer:
         spring_boot_version = self._spring_boot.detect(pom_root, build_gradle_text)
         spring_boot_signal = self._spring_boot.has_signal(pom_root, build_gradle_text)
         spring_framework_version = self._spring_framework.detect(pom_root, build_gradle_text)
-        all_files = file_utils.find_files(root, "", limit=None)
-        java_files = [f for f in all_files if f.lower().endswith(".java")]
-        jsp_files = [f for f in all_files if f.lower().endswith((".jsp", ".jspf", ".jspx"))]
-        jsf_files = [f for f in all_files if f.lower().endswith((".xhtml", ".jsf"))]
-        config_exts = (
-            ".xml",
-            ".yml",
-            ".yaml",
-            ".properties",
-            ".gradle",
-            ".gradle.kts",
-            ".json",
-            ".conf",
-            ".config",
-            ".toml",
-            ".ini",
-            ".cfg",
-            ".env",
-            ".inf",
-            ".policy",
+
+        # Single source of truth file categorization pass
+        repo_metrics = self._file_categorizer.categorize_repository(root)
+        file_metrics = repo_metrics.to_dict()
+        total_file_count = repo_metrics.total
+
+        # Populate backward-compatible lists from category_files
+        cat_files = repo_metrics.category_files
+        java_files = cat_files.get(CAT_JAVA, [])
+        jsp_files = cat_files.get(CAT_JSP, [])
+        jsf_files = cat_files.get(CAT_JSF, [])
+        config_files = cat_files.get(CAT_XML, []) + cat_files.get(CAT_CONFIGURATION, [])
+        other_files = (
+            cat_files.get(CAT_REACT, [])
+            + cat_files.get(CAT_ANGULAR, [])
+            + cat_files.get(CAT_JAVASCRIPT, [])
+            + cat_files.get(CAT_TYPESCRIPT, [])
+            + cat_files.get(CAT_CSS, [])
+            + cat_files.get(CAT_HTML, [])
+            + cat_files.get(CAT_RESOURCES, [])
+            + cat_files.get(CAT_DOCUMENTATION, [])
+            + cat_files.get(CAT_SCRIPTS, [])
+            + cat_files.get(CAT_SQL, [])
+            + cat_files.get(CAT_OTHER, [])
         )
-        config_files = [
-            f
-            for f in all_files
-            if f not in java_files
-            and f not in jsp_files
-            and f not in jsf_files
-            and any(f.lower().endswith(ext) for ext in config_exts)
-        ]
-        other_files = [
-            f
-            for f in all_files
-            if f not in java_files
-            and f not in config_files
-            and f not in jsp_files
-            and f not in jsf_files
-        ]
-        total_file_count = len(all_files)
+        test_files = [fc.rel_path for fc in repo_metrics.classifications if fc.is_test]
+        frontend_files = (
+            cat_files.get(CAT_JSP, [])
+            + cat_files.get(CAT_JSF, [])
+            + cat_files.get(CAT_REACT, [])
+            + cat_files.get(CAT_ANGULAR, [])
+            + cat_files.get(CAT_JAVASCRIPT, [])
+            + cat_files.get(CAT_TYPESCRIPT, [])
+            + cat_files.get(CAT_CSS, [])
+            + cat_files.get(CAT_HTML, [])
+        )
 
         spring_entry_class: str | None = None
         if not spring_boot_version and not spring_boot_signal:
@@ -237,9 +257,8 @@ class ProjectAnalyzer:
             dependencies=dependencies,
         ).to_dict()
 
-        test_files = [f for f in all_files if any(p in f.lower() for p in ("test", "tests", "src/test"))]
-        frontend_files = list(dict.fromkeys(jsp_files + jsf_files + [f for f in all_files if f.lower().endswith((".html", ".htm", ".xhtml", ".js", ".ts", ".jsx", ".tsx", ".css", ".vue"))]))
-        brd_evidence = self._brd_evidence.scan(root, all_files, project_type)
+        all_files_plain = [fc.rel_path for fc in repo_metrics.classifications]
+        brd_evidence = self._brd_evidence.scan(root, all_files_plain, project_type)
 
         return ProjectAnalysis(
             build_tool=build_tool.build_tool,
@@ -264,7 +283,7 @@ class ProjectAnalyzer:
             has_package_json=(root / "package.json").is_file() or frontend.detected,
             has_src_main=has_src_main,
             has_src_test=has_src_test,
-            has_tests=has_src_test,
+            has_tests=has_src_test or len(test_files) > 0,
             project_root=project_root,
             api_endpoints=api_endpoints,
             java_files=java_files,
@@ -275,6 +294,7 @@ class ProjectAnalyzer:
             total_file_count=total_file_count,
             jsp_file_count=len(jsp_files),
             jsf_file_count=len(jsf_files),
+            file_metrics=file_metrics,
             view_technologies=view_technologies,
             test_files=test_files,
             frontend_files=frontend_files,

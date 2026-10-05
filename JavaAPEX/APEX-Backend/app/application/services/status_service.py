@@ -27,6 +27,7 @@ except ImportError:
             super().__setitem__(key, value)
 
 from app.infrastructure.persistence.mongodb_report_repository import (
+    delete_report_from_db_sync,
     load_report_from_db_sync,
     save_report_to_db_sync,
 )
@@ -41,10 +42,33 @@ _CACHE_LOCK = threading.RLock()
 _LAST_DB_FLUSH: dict[str, float] = {}
 
 
+def clear_report_cache_for_job(job_id: str) -> None:
+    """Evict in-memory cached report and database flush timestamp for a job."""
+    with _CACHE_LOCK:
+        _REPORT_CACHE.pop(job_id, None)
+    _LAST_DB_FLUSH.pop(job_id, None)
+
+
 class MigrationReportStore:
     def __init__(self, paths: WorkspacePaths) -> None:
         self._paths = paths
         self._job_id = paths.job_id
+
+    def clear(self) -> None:
+        """Clear cached, persisted, and database report for this job."""
+        clear_report_cache_for_job(self._job_id)
+        try:
+            if self._paths.migration_report_path.exists():
+                self._paths.migration_report_path.unlink(missing_ok=True)
+            if self._paths.migration_log_path.exists():
+                self._paths.migration_log_path.unlink(missing_ok=True)
+        except Exception as err:
+            logger.debug("Non-fatal: failed deleting migration files from disk for %s: %s", self._job_id, err)
+
+        try:
+            delete_report_from_db_sync(self._job_id)
+        except Exception as db_err:
+            logger.debug("Non-fatal: failed deleting migration report from db for %s: %s", self._job_id, db_err)
 
     def read(self) -> dict[str, Any] | None:
         # 1. Read from disk (primary source)

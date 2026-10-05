@@ -12,7 +12,7 @@ import logging
 import re
 import uuid
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("discovery")
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -59,11 +59,20 @@ class GenerateTechnicalDocumentUseCase:
         self._view_inspector = view_inspector or ViewTechnologyInspector()
 
     def execute(self, request: TechnicalDocumentRequest) -> dict[str, str]:
+        job_id = (request.job_id or request.migration_job_id or "N/A").strip()
+        logger.info("[DISCOVERY BRD EXECUTE START] - JobID: %s - Generating Technical BRD Specification Document", job_id)
         repo_root, cleanup = self._resolve_repository_root(request)
         try:
             if repo_root is not None:
-                return self._generate_from_repository(repo_root, request)
-            return self._generate_from_snapshot(request)
+                res = self._generate_from_repository(repo_root, request)
+                logger.info("[DISCOVERY BRD EXECUTE SUCCESS] - JobID: %s - Technical BRD Document generated from repository", job_id)
+                return res
+            res = self._generate_from_snapshot(request)
+            logger.info("[DISCOVERY BRD EXECUTE SUCCESS] - JobID: %s - Technical BRD Document generated from snapshot", job_id)
+            return res
+        except Exception as exc:
+            logger.error("[DISCOVERY BRD EXECUTE FAILED] - JobID: %s - Error: %s", job_id, exc)
+            raise
         finally:
             if cleanup is not None:
                 file_utils.remove_tree(cleanup)
@@ -90,12 +99,15 @@ class GenerateTechnicalDocumentUseCase:
         return target_dir, target_dir
 
     def _generate_from_repository(self, repo_root: Path, request: TechnicalDocumentRequest) -> dict[str, str]:
+        job_id = (request.job_id or request.migration_job_id or "N/A").strip()
+        logger.info("[DISCOVERY BRD SCAN START] - JobID: %s - Analyzing repository for technical document generation...", job_id)
         analysis = self._analyzer.analyze(repo_root)
         classes = self._scanner.scan(repo_root)
         class_groups = self._group_classes(classes)
         chunks = build_chunks(classes)
         endpoints = self._collect_endpoints(analysis, classes)
         tables = self._collect_tables(repo_root, class_groups.entities, classes)
+        logger.info("[DISCOVERY BRD SCAN DONE] - JobID: %s - Scanned %d classes, %d endpoints, %d tables", job_id, len(classes), len(endpoints), len(tables))
         
         deep_view_analysis = self._view_inspector.inspect(
             repo_root=repo_root,
@@ -232,20 +244,25 @@ class GenerateTechnicalDocumentUseCase:
         tables: list[dict[str, Any]] = []
         seen_models: set[tuple[str, str, int]] = set()
         for entity in all_classes:
-            if "Entity" not in entity.annotations and "Document" not in entity.annotations:
+            annotations = getattr(entity, "annotations", set()) or set()
+            if "Entity" not in annotations and "Document" not in annotations:
                 continue
-            key = (entity.relative_path, entity.class_name, entity.line_start)
+            line_start = getattr(entity, "line_start", 1)
+            line_end = getattr(entity, "line_end", 1)
+            rel_path = getattr(entity, "relative_path", "")
+            cls_name = getattr(entity, "class_name", "")
+            key = (rel_path, cls_name, line_start)
             if key in seen_models:
                 continue
             seen_models.add(key)
             tables.append(
                 {
-                    "model": entity.class_name,
-                    "table": entity.table_name,
-                    "fields": entity.fields,
-                    "file": entity.relative_path,
-                    "line_start": entity.line_start,
-                    "line_end": entity.line_end,
+                    "model": cls_name,
+                    "table": getattr(entity, "table_name", getattr(entity, "table", cls_name)),
+                    "fields": getattr(entity, "fields", []),
+                    "file": rel_path,
+                    "line_start": line_start,
+                    "line_end": line_end,
                 }
             )
 

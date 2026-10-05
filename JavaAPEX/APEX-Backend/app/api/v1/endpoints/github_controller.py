@@ -38,7 +38,7 @@ from app.schemas.github_schema import (
     RepoVisibilityResponse,
 )
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("discovery")
 
 router = APIRouter(tags=["github"])
 

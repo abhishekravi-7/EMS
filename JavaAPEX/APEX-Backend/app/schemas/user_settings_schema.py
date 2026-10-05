@@ -19,6 +19,7 @@ class UserSettingsResponse(BaseModel):
     llm_values: Optional[dict] = Field(default_factory=dict)
     system_llm_config: Optional[dict] = Field(default_factory=dict)
     system_test_cases_config: Optional[dict] = Field(default_factory=dict)
+    settings_permissions: Optional[dict] = Field(default_factory=dict)
 
 class UserSettingsUpdate(BaseModel):
     github_config: UserGitHubConfig

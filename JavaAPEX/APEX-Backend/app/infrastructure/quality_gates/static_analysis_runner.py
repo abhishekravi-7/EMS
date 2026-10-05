@@ -97,28 +97,30 @@ class StaticAnalysisRunner:
                 log_lines=["SonarQube skipped: Token is not configured in user settings or .env."],
             )
 
+        sonar_org = (
+            qc_config.get("sonar_organization")
+            or qc_config.get("organization")
+            or qc_config.get("sonar_org")
+            or qc_config.get("sonarOrg")
+            or ""
+        ).strip()
         proj_key_val = (
             qc_config.get("project_key")
             or qc_config.get("sonar_project_key")
             or qc_config.get("projectKey")
             or ""
-        )
-        project_key = self._project_key(job_id, project_name or project_dir.name, proj_key_val)
-        raw_host = (
-            qc_config.get("sonarqube_url")
-            or qc_config.get("sonar_url")
-            or qc_config.get("sonar_host_url")
-            or qc_config.get("sonarHostUrl")
-            or qc_config.get("host_url")
-            or qc_config.get("url")
-            or "http://localhost:9000"
-        ).strip().rstrip("/")
-        if not raw_host.startswith(("http://", "https://")):
-            host_url = f"https://{raw_host}" if "sonarcloud.io" in raw_host else f"http://{raw_host}"
-        else:
-            host_url = raw_host
+        ).strip()
+        project_key = proj_key_val or (f"{sonar_org}_{project_name or job_id}" if sonar_org else (project_name or job_id))
 
-        analysis_url = f"{host_url}/dashboard?id={urllib.parse.quote(project_key)}"
+        # SonarQube host URL is fixed to https://sonarcloud.io for all users
+        host_url = (getattr(settings, "sonarqube_host_url", None) or "https://sonarcloud.io").strip().rstrip("/")
+        if not host_url.startswith(("http://", "https://")):
+            host_url = f"https://{host_url}"
+
+        if "sonarcloud.io" in host_url:
+            analysis_url = f"https://sonarcloud.io/project/overview?id={urllib.parse.quote(project_key)}"
+        else:
+            analysis_url = f"{host_url}/dashboard?id={urllib.parse.quote(project_key)}"
         display_name = project_name or project_dir.name
 
         # Log pre-flight context

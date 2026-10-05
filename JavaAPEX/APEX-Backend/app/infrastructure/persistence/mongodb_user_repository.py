@@ -321,21 +321,52 @@ async def get_user_by_email(db: AsyncIOMotorDatabase, email: str) -> Optional[di
     return await db.users.find_one({"email": email.strip().lower()})
 
 
-async def get_user_by_id(db: AsyncIOMotorDatabase, user_id: Any) -> Optional[dict]:
+def _get_query_id(user_id: Any) -> dict:
+    if isinstance(user_id, dict):
+        return user_id
+    if user_id is None:
+        return {}
     if isinstance(user_id, int):
-        return await db.users.find_one({"_id": user_id})
+        return {"$or": [{"_id": user_id}, {"_id": str(user_id)}]}
+    s_uid = str(user_id).strip()
+    if s_uid.isdigit():
+        num_id = int(s_uid)
+        return {"$or": [{"_id": num_id}, {"_id": s_uid}]}
+    from bson import ObjectId
+    if ObjectId.is_valid(s_uid):
+        return {"$or": [{"_id": ObjectId(s_uid)}, {"_id": s_uid}]}
+    if "@" in s_uid:
+        return {"$or": [{"email": s_uid.lower()}, {"_id": s_uid}]}
+    return {"_id": s_uid}
+
+
+async def get_user_by_id(db: AsyncIOMotorDatabase, user_id: Any) -> Optional[dict]:
+    if db is None or user_id is None:
+        return None
+    if isinstance(user_id, int):
+        doc = await db.users.find_one({"_id": user_id})
+        if doc:
+            return doc
     if isinstance(user_id, str):
-        if user_id.isdigit():
-            doc = await db.users.find_one({"_id": int(user_id)})
+        s_uid = user_id.strip()
+        if s_uid.isdigit():
+            doc = await db.users.find_one({"_id": int(s_uid)})
             if doc:
                 return doc
         from bson import ObjectId
-        if ObjectId.is_valid(user_id):
-            doc = await db.users.find_one({"_id": ObjectId(user_id)})
+        if ObjectId.is_valid(s_uid):
+            doc = await db.users.find_one({"_id": ObjectId(s_uid)})
             if doc:
                 return doc
-        return await db.users.find_one({"_id": user_id})
-    return await db.users.find_one({"_id": _get_query_id(user_id)})
+        doc = await db.users.find_one({"_id": s_uid})
+        if doc:
+            return doc
+        if "@" in s_uid:
+            doc = await db.users.find_one({"email": s_uid.lower()})
+            if doc:
+                return doc
+    query = _get_query_id(user_id)
+    return await db.users.find_one(query)
 
 
 
@@ -351,6 +382,66 @@ async def ensure_fallback_user(db: AsyncIOMotorDatabase, user: dict) -> None:
         # A legacy fallback may already exist under the unique synthetic email.
         # Authentication can continue with the in-memory token identity.
         logger.info("Fallback user already exists for token user %s.", user["_id"])
+
+DEFAULT_SETTINGS_PERMISSIONS = {
+    "llm_settings": True,
+    "quality_checks": True,
+    "unit_testing": True,
+    "functional_testing": True,
+    "brd_testing": True,
+    "test_connection": True,
+}
+
+def normalize_permissions(raw_perms: Any) -> dict[str, bool]:
+    perms = dict(DEFAULT_SETTINGS_PERMISSIONS)
+    if not isinstance(raw_perms, dict):
+        return perms
+
+    key_mapping = {
+        "llmsettings": "llm_settings",
+        "llm_settings": "llm_settings",
+        "qualitychecks": "quality_checks",
+        "quality_checks": "quality_checks",
+        "unittesting": "unit_testing",
+        "unit_testing": "unit_testing",
+        "functionaltesting": "functional_testing",
+        "functional_testing": "functional_testing",
+        "brdtesting": "brd_testing",
+        "brd_testing": "brd_testing",
+        "testconnection": "test_connection",
+        "test_connection": "test_connection",
+    }
+
+    for k, v in raw_perms.items():
+        norm_k = key_mapping.get(str(k).lower().replace("_", ""))
+        if norm_k:
+            perms[norm_k] = str(v).strip().lower() in {"1", "true", "yes", "on", "true"} if not isinstance(v, bool) else bool(v)
+
+    return perms
+
+async def get_all_users_sanitized(db: AsyncIOMotorDatabase) -> list[dict]:
+    if db is None:
+        return []
+    cursor = db.users.find({}, {
+        "password_hash": 0,
+        "verification_code": 0,
+        "reset_token": 0,
+    }).sort("created_at", pymongo.DESCENDING)
+    docs = await cursor.to_list(length=1000)
+    sanitized = []
+    for doc in docs:
+        raw_id = doc.get("_id")
+        user_id_val = raw_id if isinstance(raw_id, (int, float)) else str(raw_id)
+        sanitized.append({
+            "id": user_id_val,
+            "_id": user_id_val,
+            "full_name": doc.get("full_name") or doc.get("name") or (doc.get("email", "").split("@")[0] if doc.get("email") else "User"),
+            "email": doc.get("email", ""),
+            "role": doc.get("role", "USER"),
+            "settings_permissions": normalize_permissions(doc.get("settings_permissions")),
+            "created_at": doc.get("created_at").isoformat() if isinstance(doc.get("created_at"), datetime) else doc.get("created_at"),
+        })
+    return sanitized
 
 async def create_user(
     db: AsyncIOMotorDatabase,
@@ -379,6 +470,7 @@ async def create_user(
         "role": role,
         "is_active": True,
         "is_email_verified": is_email_verified,
+        "settings_permissions": dict(DEFAULT_SETTINGS_PERMISSIONS),
         "failed_login_attempts": 0,
         "created_at": now,
         "updated_at": now,
@@ -398,9 +490,16 @@ async def update_last_login(db: AsyncIOMotorDatabase, user_id: Any):
 
 
 async def update_user(db: AsyncIOMotorDatabase, user_id: Any, updates: dict[str, Any]):
-    target_id = int(user_id) if (isinstance(user_id, int) or (isinstance(user_id, str) and user_id.isdigit())) else user_id
+    if db is None or user_id is None:
+        return
     updates["updated_at"] = datetime.now(timezone.utc)
-    await db.users.update_one({"_id": target_id}, {"$set": updates})
+    if isinstance(user_id, dict):
+        query = user_id
+    elif isinstance(user_id, (str, int)):
+        query = _get_query_id(str(user_id))
+    else:
+        query = {"_id": user_id}
+    await db.users.update_one(query, {"$set": updates})
 
 
 # --- Password Reset ---

@@ -31,10 +31,13 @@ const TEST_SCENARIO_SUGGESTIONS = [
   }
 ];
 
+import type { UserSettingsPermissions } from "../services/adminService";
+
 interface UserQualityChecksSettingsProps {
   settings: FullUserSettings;
   onChange: React.Dispatch<React.SetStateAction<FullUserSettings>>;
   mode?: "all" | "testing_only";
+  effectivePermissions?: UserSettingsPermissions | null;
 }
 
 const JUNIT_PREDEFINED_PROMPTS = [
@@ -73,7 +76,8 @@ const JUNIT_PREDEFINED_PROMPTS = [
 export default function UserQualityChecksSettings({
   settings: rawSettings,
   onChange,
-  mode = "all"
+  mode = "all",
+  effectivePermissions
 }: UserQualityChecksSettingsProps) {
   const settings = rawSettings || ({
     github_config: {},
@@ -348,19 +352,6 @@ export default function UserQualityChecksSettings({
     setShowSecrets((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const handleToggleFeature = (featureKey: string) => {
-    onChange((prev) => {
-      const currentVal = prev.quality_checks_values?.[featureKey] ?? true;
-      return {
-        ...prev,
-        quality_checks_values: {
-          ...(prev.quality_checks_values || {}),
-          [featureKey]: !currentVal
-        }
-      };
-    });
-  };
-
   if (isLoading) {
     return (
       <div className="admin-loading-state">
@@ -584,60 +575,62 @@ export default function UserQualityChecksSettings({
   let renderedFunctionalPromptInCheck = false;
 
   if (mode === "testing_only") {
+    const isUnitTestAllowed = effectivePermissions?.unit_testing !== false && rawSettings?.settings_permissions?.unit_testing !== false;
+    const isFunctionalTestAllowed = effectivePermissions?.functional_testing !== false && rawSettings?.settings_permissions?.functional_testing !== false;
+
     return (
       <div className="grid-2">
-        <div className="settings-toggle-card">
-          <div className="settings-toggle-header" style={{ marginBottom: "16px" }}>
-            <div className="settings-toggle-title">
-              <FaShieldAlt style={{ color: "#2563eb", marginRight: "8px" }} />
-              JUnit Unit Testing
+        {isUnitTestAllowed ? (
+          <div className="settings-toggle-card">
+            <div className="settings-toggle-header" style={{ marginBottom: "16px" }}>
+              <div className="settings-toggle-title">
+                <FaShieldAlt style={{ color: "#2563eb", marginRight: "8px" }} />
+                JUnit Unit Testing
+              </div>
             </div>
-            <div className="switch-wrap">
-              <label className="switch-ios">
-                <input type="checkbox" checked={settings.quality_checks_values?.junit_testing_enabled ?? true} onChange={() => handleToggleFeature("junit_testing_enabled")} />
-                <span className="slider-ios"></span>
-              </label>
-              <span className="switch-label">Enabled</span>
-            </div>
+            <p className="settings-toggle-desc" style={{ marginBottom: "16px" }}>Configure JUnit test focus, predefined coverage prompts, and custom instructions for AI test generation.</p>
+            {renderPromptSection()}
           </div>
-          <p className="settings-toggle-desc" style={{ marginBottom: "16px" }}>Enable or disable JUnit test generation and execution during migration.</p>
-          {renderPromptSection()}
-        </div>
+        ) : (
+          <div className="settings-toggle-card" style={{ opacity: 0.7, backgroundColor: "#f8fafc" }}>
+            <div className="settings-toggle-header" style={{ marginBottom: "16px" }}>
+              <div className="settings-toggle-title" style={{ color: "#64748b" }}>
+                <FaShieldAlt style={{ color: "#94a3b8", marginRight: "8px" }} />
+                JUnit Unit Testing (Disabled)
+              </div>
+            </div>
+            <p className="settings-toggle-desc">JUnit unit testing features have been disabled by your administrator.</p>
+          </div>
+        )}
         
-        <div className="settings-toggle-card">
-          <div className="settings-toggle-header" style={{ marginBottom: "16px" }}>
-            <div className="settings-toggle-title">
-              <FaShieldAlt style={{ color: "#2563eb", marginRight: "8px" }} />
-              Functional Testing
+        {isFunctionalTestAllowed ? (
+          <div className="settings-toggle-card">
+            <div className="settings-toggle-header" style={{ marginBottom: "16px" }}>
+              <div className="settings-toggle-title">
+                <FaShieldAlt style={{ color: "#2563eb", marginRight: "8px" }} />
+                Functional Testing
+              </div>
             </div>
-            <div className="switch-wrap">
-              <label className="switch-ios">
-                <input type="checkbox" checked={settings.quality_checks_values?.functional_testing_enabled ?? true} onChange={() => handleToggleFeature("functional_testing_enabled")} />
-                <span className="slider-ios"></span>
-              </label>
-              <span className="switch-label">Enabled</span>
-            </div>
+            <p className="settings-toggle-desc" style={{ marginBottom: "16px" }}>Configure functional testing focus, scenario suggestions, and custom instructions for automated test generation.</p>
+            {renderFunctionalPromptSection()}
           </div>
-          <p className="settings-toggle-desc" style={{ marginBottom: "16px" }}>Enable or disable end-to-end functional UI testing frameworks (Playwright, Cypress, Selenium).</p>
-          {renderFunctionalPromptSection()}
-        </div>
+        ) : (
+          <div className="settings-toggle-card" style={{ opacity: 0.7, backgroundColor: "#f8fafc" }}>
+            <div className="settings-toggle-header" style={{ marginBottom: "16px" }}>
+              <div className="settings-toggle-title" style={{ color: "#64748b" }}>
+                <FaShieldAlt style={{ color: "#94a3b8", marginRight: "8px" }} />
+                Functional Testing (Disabled)
+              </div>
+            </div>
+            <p className="settings-toggle-desc">Functional testing features have been disabled by your administrator.</p>
+          </div>
+        )}
       
         <div className="settings-toggle-card">
           <div className="settings-toggle-header" style={{ marginBottom: "16px" }}>
             <div className="settings-toggle-title">
               <FaFlask style={{ color: "#2563eb", marginRight: "8px" }} />
               Playwright E2E Testing
-            </div>
-            <div className="switch-wrap">
-              <label className="switch-ios">
-                <input
-                  type="checkbox"
-                  checked={settings.quality_checks_values?.e2e_framework_enabled ?? true}
-                  onChange={() => handleToggleFeature("e2e_framework_enabled")}
-                />
-                <span className="slider-ios"></span>
-              </label>
-              <span className="switch-label">Enabled</span>
             </div>
           </div>
           <p className="settings-toggle-desc" style={{ marginBottom: "16px" }}>

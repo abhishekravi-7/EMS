@@ -7,6 +7,7 @@ import {
   runExistingTests,
   getExistingTestsStatus,
   stopExistingTests,
+  classifyTestType,
   type TestResult,
   type TestSelectionItem,
   type ExistingTestRunResponse,
@@ -159,6 +160,7 @@ interface ModernizationStepViewProps {
   hasUI: boolean;
   localApiTestCases: FunctionalTestScopePreview["apiTestCases"];
   loading: boolean;
+  startMigrationStatusText?: string;
   repoUtils: {
     isLocalRepoRef: (value: string | null | undefined) => boolean;
     extractLocalRepoPath: (value: string) => string;
@@ -180,6 +182,7 @@ export function ModernizationStepView({
   hasUI,
   localApiTestCases,
   loading,
+  startMigrationStatusText,
   repoUtils,
   onBack,
   onStartMigration,
@@ -821,13 +824,19 @@ setIsLlmConfiguredMod(
   const isFossaEnabledGlobally = Boolean(adminConfig.find((c: any) => c.name === "FOSSA")?.enabled);
   const isTestsEnabledGlobally = Boolean(adminConfig.find((c: any) => c.name === "Run Unit Test Suite")?.enabled);
 
-  const isSonarAvailable = !isQualityChecksLoading && !adminConfigError && isSonarEnabledGlobally && isSonarConfigured;
-  const isFossaAvailable = !isQualityChecksLoading && !adminConfigError && isFossaEnabledGlobally && isFossaConfigured;
-  const isTestsAvailable = !isAdminConfigLoading && !adminConfigError && isTestsEnabledGlobally;
+  const isQualityChecksPermitted = fullUserSettings?.settings_permissions?.quality_checks !== false;
+  const isUnitTestPermitted = fullUserSettings?.settings_permissions?.unit_testing !== false;
+  const isFunctionalTestPermitted = fullUserSettings?.settings_permissions?.functional_testing !== false;
+
+  const isSonarAvailable = !isQualityChecksLoading && !adminConfigError && isQualityChecksPermitted && isSonarEnabledGlobally && isSonarConfigured;
+  const isFossaAvailable = !isQualityChecksLoading && !adminConfigError && isQualityChecksPermitted && isFossaEnabledGlobally && isFossaConfigured;
+  const isTestsAvailable = !isAdminConfigLoading && !isUserSettingsLoading && !adminConfigError && isUnitTestPermitted && isTestsEnabledGlobally;
+  const isFunctionalTestAvailable = !isUserSettingsLoading && isFunctionalTestPermitted;
 
   const getSonarSubtitle = () => {
     if (isQualityChecksLoading) return "Checking authorization...";
     if (adminConfigError) return "Unable to verify admin authorization.";
+    if (!isQualityChecksPermitted) return "Quality Checks disabled by Admin.";
     if (!isSonarEnabledGlobally) return "Not authorized by Super Admin.";
     if (!isSonarConfigured) return "Not configured. Set up in User Settings.";
     return "Static analysis for bug and vulnerability detection.";
@@ -835,13 +844,32 @@ setIsLlmConfiguredMod(
 
   const cycodeConfig = adminConfig.find((c: any) => c.name === "Cycode");
   const isCycodeAvailable = !isQualityChecksLoading && !adminConfigError && !userSettingsError &&
-    Boolean(cycodeConfig?.enabled) && cycodeConfig?.execution_enabled !== false && isCycodeConfigured;
+    isQualityChecksPermitted && Boolean(cycodeConfig?.enabled) && cycodeConfig?.execution_enabled !== false && isCycodeConfigured;
+
   useEffect(() => {
-    if (!isQualityChecksLoading && !isCycodeAvailable) setRunCycode(false);
-  }, [isQualityChecksLoading, isCycodeAvailable, setRunCycode]);
+    if (!isQualityChecksLoading) {
+      if (!isSonarAvailable) setRunSonar(false);
+      if (!isFossaAvailable) setRunFossa(false);
+      if (!isCycodeAvailable) setRunCycode(false);
+    }
+  }, [isQualityChecksLoading, isSonarAvailable, isFossaAvailable, isCycodeAvailable, setRunSonar, setRunFossa, setRunCycode]);
+
+  useEffect(() => {
+    if (!isAdminConfigLoading && !isUserSettingsLoading && !isTestsAvailable) {
+      setRunTests(false);
+    }
+  }, [isAdminConfigLoading, isUserSettingsLoading, isTestsAvailable, setRunTests]);
+
+  useEffect(() => {
+    if (!isUserSettingsLoading && !isFunctionalTestAvailable) {
+      setRunFunctionalTests(false);
+    }
+  }, [isUserSettingsLoading, isFunctionalTestAvailable, setRunFunctionalTests]);
+
   const cycodeSubtitle = isQualityChecksLoading ? "Checking authorization..."
     : adminConfigError ? "Unable to verify admin authorization."
     : userSettingsError ? "Unable to verify user settings."
+    : !isQualityChecksPermitted ? "Quality Checks disabled by Admin."
     : !cycodeConfig?.enabled ? "Not authorized by Super Admin."
     : cycodeConfig.execution_enabled === false ? "Execution disabled by Super Admin."
     : !isCycodeConfigured ? "Not configured. Set up in User Settings."
@@ -850,20 +878,24 @@ setIsLlmConfiguredMod(
   const getFossaSubtitle = () => {
     if (isQualityChecksLoading) return "Checking authorization...";
     if (adminConfigError) return "Unable to verify admin authorization.";
+    if (!isQualityChecksPermitted) return "Quality Checks disabled by Admin.";
     if (!isFossaEnabledGlobally) return "Not authorized by Super Admin.";
     if (!isFossaConfigured) return "Not configured. Set up in User Settings.";
     return "Open-source license compliance and security.";
   };
 
   const getTestsSubtitle = () => {
-    if (isAdminConfigLoading) return "Checking authorization...";
+    if (isAdminConfigLoading || isUserSettingsLoading) return "Checking authorization...";
     if (adminConfigError) return "Unable to verify admin authorization.";
+    if (!isUnitTestPermitted) return "Unit Testing disabled by Admin.";
     if (!isTestsEnabledGlobally) return "Not authorized by Super Admin.";
     return "Execute discovered unit tests in the repository.";
   };
 
   const apiEndpointCount = repoAnalysis?.api_endpoints?.length ?? 0;
   void apiEndpointCount;
+
+  const hasNoTestPermissions = !isUserSettingsLoading && !isQualityChecksPermitted && !isUnitTestPermitted && !isFunctionalTestPermitted;
 
   return (
     <>
@@ -874,6 +906,34 @@ setIsLlmConfiguredMod(
           <h2 style={styles.title}>Build Modernization &amp; Migration</h2>
         </div>
       </div>
+
+      {hasNoTestPermissions && (
+        <div style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: "80px 20px",
+          textAlign: "center",
+        }}>
+          <button
+            style={{
+              ...styles.primaryBtn,
+              padding: "16px 40px",
+              fontSize: "16px",
+              fontWeight: 700,
+              borderRadius: "10px",
+              boxShadow: "0 10px 25px -5px rgba(37, 99, 235, 0.4)",
+              opacity: loading ? 0.5 : 1,
+              cursor: loading ? "not-allowed" : "pointer",
+            }}
+            onClick={handleStartMigrationClick}
+            disabled={loading}
+          >
+            {renderForwardButtonLabel(loading ? (startMigrationStatusText || "Preparing migration...") : "Start Migration")}
+          </button>
+        </div>
+      )}
 
       {/* LLM Not Configured Warning Banner */}
       {isLlmConfiguredMod === false && (
@@ -911,277 +971,304 @@ setIsLlmConfiguredMod(
         </div>
       )}
 
-      {/* ── Quality Gates & Test Suites Selection (3 Equal Cards in 1 Row) ── */}
-      {ciEnabled && cdEnabled && <div style={{ marginBottom: 28, marginTop: 24 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-          <FaShieldAlt style={{ fontSize: 18, color: "#0f172a" }} />
-          <span style={{ fontWeight: 800, fontSize: 18, color: "#0f172a" }}>Quality Gates</span>
+      {/* ── Quality Gates & Test Suites Selection (Rendered only when permitted) ── */}
+      {ciEnabled && cdEnabled && (isQualityChecksPermitted || isUnitTestPermitted || isFunctionalTestPermitted) && (
+        <div style={{ marginBottom: 28, marginTop: 24 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+            <FaShieldAlt style={{ fontSize: 18, color: "#0f172a" }} />
+            <span style={{ fontWeight: 800, fontSize: 18, color: "#0f172a" }}>Quality Gates</span>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14 }}>
+            {/* 1. SonarQube */}
+            {isQualityChecksPermitted && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 12,
+                  padding: "14px 18px",
+                  borderRadius: 12,
+                  border: `2px solid ${runSonar && isSonarAvailable ? "#2563eb" : "#e2e8f0"}`,
+                  background: runSonar && isSonarAvailable ? "#eff6ff" : (isSonarAvailable ? "#fff" : "#f8fafc"),
+                  cursor: isSonarAvailable ? "pointer" : "not-allowed",
+                  transition: "all 0.15s ease",
+                  minHeight: 88,
+                  opacity: isSonarAvailable ? 1 : 0.6,
+                }}
+                onClick={() => {
+                  if (isSonarAvailable) setRunSonar(!runSonar);
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={runSonar && isSonarAvailable}
+                  disabled={!isSonarAvailable}
+                  onChange={(e) => {
+                    e.stopPropagation();
+                    if (isSonarAvailable) setRunSonar(e.target.checked);
+                  }}
+                  style={{ width: 18, height: 18, accentColor: "#2563eb", cursor: isSonarAvailable ? "pointer" : "not-allowed", flexShrink: 0 }}
+                />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a", display: "flex", alignItems: "center", gap: 8 }}>
+                    <FaSearch style={{ fontSize: 12, color: runSonar && isSonarAvailable ? "#2563eb" : "#64748b", flexShrink: 0 }} />
+                    <span style={{ whiteSpace: "nowrap" }}>SonarQube</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: "#64748b", marginTop: 2, lineHeight: 1.3 }}>
+                    {getSonarSubtitle()}
+                  </div>
+                </div>
+                <span
+                  style={{
+                    marginLeft: "auto",
+                    fontSize: 10,
+                    fontWeight: 700,
+                    padding: "3px 8px",
+                    borderRadius: 6,
+                    background: runSonar && isSonarAvailable ? "#dbeafe" : "#f1f5f9",
+                    color: runSonar && isSonarAvailable ? "#1e40af" : "#64748b",
+                    flexShrink: 0,
+                  }}
+                >
+                  RECOMMENDED
+                </span>
+              </div>
+            )}
+
+            {/* 2. FOSSA */}
+            {isQualityChecksPermitted && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 12,
+                  padding: "14px 18px",
+                  borderRadius: 12,
+                  border: `2px solid ${runFossa && isFossaAvailable ? "#2563eb" : "#e2e8f0"}`,
+                  background: runFossa && isFossaAvailable ? "#eff6ff" : (isFossaAvailable ? "#fff" : "#f8fafc"),
+                  cursor: isFossaAvailable ? "pointer" : "not-allowed",
+                  transition: "all 0.15s ease",
+                  minHeight: 88,
+                  opacity: isFossaAvailable ? 1 : 0.6,
+                }}
+                onClick={() => {
+                  if (isFossaAvailable) setRunFossa(!runFossa);
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={runFossa && isFossaAvailable}
+                  disabled={!isFossaAvailable}
+                  onChange={(e) => {
+                    e.stopPropagation();
+                    if (isFossaAvailable) setRunFossa(e.target.checked);
+                  }}
+                  style={{ width: 18, height: 18, accentColor: "#2563eb", cursor: isFossaAvailable ? "pointer" : "not-allowed", flexShrink: 0 }}
+                />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a", display: "flex", alignItems: "center", gap: 8 }}>
+                    <FaShieldAlt style={{ fontSize: 12, color: runFossa && isFossaAvailable ? "#2563eb" : "#64748b", flexShrink: 0 }} />
+                    <span style={{ whiteSpace: "nowrap" }}>FOSSA</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: "#64748b", marginTop: 2, lineHeight: 1.3 }}>
+                    {getFossaSubtitle()}
+                  </div>
+                </div>
+                <span
+                  style={{
+                    marginLeft: "auto",
+                    fontSize: 10,
+                    fontWeight: 700,
+                    padding: "3px 8px",
+                    borderRadius: 6,
+                    background: runFossa && isFossaAvailable ? "#dbeafe" : "#f1f5f9",
+                    color: runFossa && isFossaAvailable ? "#1e40af" : "#64748b",
+                    flexShrink: 0,
+                  }}
+                >
+                  RECOMMENDED
+                </span>
+              </div>
+            )}
+
+            {/* 3. Cycode */}
+            {isQualityChecksPermitted && (
+              <label style={{
+                display: "flex", alignItems: "center", gap: 12, padding: "14px 18px", borderRadius: 12,
+                border: `2px solid ${runCycode && isCycodeAvailable ? "#2563eb" : "#e2e8f0"}`,
+                background: runCycode && isCycodeAvailable ? "#eff6ff" : "#f8fafc",
+                cursor: isCycodeAvailable ? "pointer" : "not-allowed", minHeight: 88,
+                opacity: isCycodeAvailable ? 1 : 0.6,
+              }}>
+                <input type="checkbox" aria-label="Run Cycode security scans"
+                  checked={runCycode && isCycodeAvailable} disabled={!isCycodeAvailable}
+                  onChange={(event) => setRunCycode(event.target.checked)}
+                  style={{ width: 18, height: 18, accentColor: "#2563eb", flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a", display: "flex", alignItems: "center", gap: 8 }}>
+                    <FaShieldAlt aria-hidden="true" style={{ color: runCycode && isCycodeAvailable ? "#2563eb" : "#64748b" }} />
+                    <span style={{ whiteSpace: "nowrap" }}>Cycode</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: "#64748b", marginTop: 2, lineHeight: 1.3 }}>{cycodeSubtitle}</div>
+                </div>
+                <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 6,
+                  color: runCycode && isCycodeAvailable ? "#1e40af" : "#64748b",
+                  background: runCycode && isCycodeAvailable ? "#dbeafe" : "#f1f5f9", flexShrink: 0 }}>
+                  {runCycode && isCycodeAvailable ? "ENABLED" : "OPTIONAL"}
+                </span>
+              </label>
+            )}
+
+            {/* 4. Run Unit Test Suite */}
+            {isUnitTestPermitted && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 12,
+                  padding: "14px 18px",
+                  borderRadius: 12,
+                  border: `2px solid ${runTests && isTestsAvailable ? "#2563eb" : "#e2e8f0"}`,
+                  background: runTests && isTestsAvailable ? "#eff6ff" : (isTestsAvailable ? "#fff" : "#f8fafc"),
+                  cursor: isTestsAvailable ? "pointer" : "not-allowed",
+                  transition: "all 0.15s ease",
+                  minHeight: 88,
+                  opacity: isTestsAvailable ? 1 : 0.6,
+                }}
+                onClick={() => {
+                  if (isTestsAvailable) setRunTests(!runTests);
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={runTests && isTestsAvailable}
+                  disabled={!isTestsAvailable}
+                  onChange={(e) => {
+                    e.stopPropagation();
+                    if (isTestsAvailable) setRunTests(e.target.checked);
+                  }}
+                  style={{ width: 18, height: 18, accentColor: "#2563eb", cursor: isTestsAvailable ? "pointer" : "not-allowed", flexShrink: 0 }}
+                />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a", display: "flex", alignItems: "center", gap: 8 }}>
+                    <FaFileAlt style={{ fontSize: 12, color: runTests && isTestsAvailable ? "#2563eb" : "#64748b", flexShrink: 0 }} />
+                    <span style={{ whiteSpace: "nowrap" }}>Run Unit Test Suite</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: "#64748b", marginTop: 2, lineHeight: 1.3 }}>
+                    {getTestsSubtitle()}
+                  </div>
+                </div>
+                <span
+                  style={{
+                    marginLeft: "auto",
+                    fontSize: 10,
+                    fontWeight: 700,
+                    padding: "3px 8px",
+                    borderRadius: 6,
+                    background: runTests && isTestsAvailable ? "#dbeafe" : "#f1f5f9",
+                    color: runTests && isTestsAvailable ? "#1e40af" : "#64748b",
+                    flexShrink: 0,
+                  }}
+                >
+                  RECOMMENDED
+                </span>
+              </div>
+            )}
+
+            {/* 5. Functional Testing */}
+            {isFunctionalTestPermitted && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 12,
+                  padding: "14px 18px",
+                  borderRadius: 12,
+                  border: `2px solid ${runFunctionalTests && isFunctionalTestAvailable ? "#2563eb" : "#e2e8f0"}`,
+                  background: runFunctionalTests && isFunctionalTestAvailable ? "#eff6ff" : (isFunctionalTestAvailable ? "#fff" : "#f8fafc"),
+                  cursor: isFunctionalTestAvailable ? "pointer" : "not-allowed",
+                  transition: "all 0.15s ease",
+                  minHeight: 88,
+                  opacity: isFunctionalTestAvailable ? 1 : 0.6,
+                }}
+                onClick={() => {
+                  if (isFunctionalTestAvailable) setRunFunctionalTests(!runFunctionalTests);
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={runFunctionalTests && isFunctionalTestAvailable}
+                  disabled={!isFunctionalTestAvailable}
+                  onChange={(e) => {
+                    e.stopPropagation();
+                    if (isFunctionalTestAvailable) setRunFunctionalTests(e.target.checked);
+                  }}
+                  style={{ width: 18, height: 18, accentColor: "#2563eb", cursor: isFunctionalTestAvailable ? "pointer" : "not-allowed", flexShrink: 0 }}
+                />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a", display: "flex", alignItems: "center", gap: 8 }}>
+                    <FaFlask style={{ fontSize: 12, color: runFunctionalTests && isFunctionalTestAvailable ? "#2563eb" : "#64748b", flexShrink: 0 }} />
+                    <span style={{ whiteSpace: "nowrap" }}>Functional Testing</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: "#64748b", marginTop: 2, lineHeight: 1.3 }}>
+                    {runFunctionalTests
+                      ? "Upload & run functional test scenarios from a document."
+                      : "Functional testing disabled — document upload hidden."}
+                  </div>
+                </div>
+                <span
+                  style={{
+                    marginLeft: "auto",
+                    fontSize: 10,
+                    fontWeight: 700,
+                    padding: "3px 8px",
+                    borderRadius: 6,
+                    background: runFunctionalTests && isFunctionalTestAvailable ? "#dbeafe" : "#f1f5f9",
+                    color: runFunctionalTests && isFunctionalTestAvailable ? "#1e40af" : "#64748b",
+                    flexShrink: 0,
+                  }}
+                >
+                  {runFunctionalTests ? "RECOMMENDED" : "OPTIONAL"}
+                </span>
+              </div>
+            )}
+          </div>
         </div>
+      )}
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14 }}>
-          {/* 1. SonarQube */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 12,
-              padding: "14px 18px",
-              borderRadius: 12,
-              border: `2px solid ${runSonar && isSonarAvailable ? "#2563eb" : "#e2e8f0"}`,
-              background: runSonar && isSonarAvailable ? "#eff6ff" : (isSonarAvailable ? "#fff" : "#f8fafc"),
-              cursor: isSonarAvailable ? "pointer" : "not-allowed",
-              transition: "all 0.15s ease",
-              minHeight: 88,
-              opacity: isSonarAvailable ? 1 : 0.6,
-            }}
-            onClick={() => {
-              if (isSonarAvailable) setRunSonar(!runSonar);
-            }}
-          >
-            <input
-              type="checkbox"
-              checked={runSonar && isSonarAvailable}
-              disabled={!isSonarAvailable}
-              onChange={(e) => {
-                e.stopPropagation();
-                if (isSonarAvailable) setRunSonar(e.target.checked);
-              }}
-              style={{ width: 18, height: 18, accentColor: "#2563eb", cursor: isSonarAvailable ? "pointer" : "not-allowed", flexShrink: 0 }}
-            />
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a", display: "flex", alignItems: "center", gap: 8 }}>
-                <FaSearch style={{ fontSize: 12, color: runSonar && isSonarAvailable ? "#2563eb" : "#64748b", flexShrink: 0 }} />
-                <span style={{ whiteSpace: "nowrap" }}>SonarQube</span>
-              </div>
-              <div style={{ fontSize: 12, color: "#64748b", marginTop: 2, lineHeight: 1.3 }}>
-                {getSonarSubtitle()}
-              </div>
-            </div>
-            <span
-              style={{
-                marginLeft: "auto",
-                fontSize: 10,
-                fontWeight: 700,
-                padding: "3px 8px",
-                borderRadius: 6,
-                background: runSonar && isSonarAvailable ? "#dbeafe" : "#f1f5f9",
-                color: runSonar && isSonarAvailable ? "#1e40af" : "#64748b",
-                flexShrink: 0,
-              }}
-            >
-              RECOMMENDED
-            </span>
-          </div>
+      {/* Existing Test Cases Section (Discovered Only - Filtered by Quality Gate Selection) */}
+      {(isUnitTestPermitted || isFunctionalTestPermitted) && (
+        <ExistingTestCasesPanel
+          jobId={jobId}
+          discoveredTests={discoveredTests}
+          framework={existingFramework || "JUnit"}
+          isRunning={false}
+          isLoading={isLoadingDiscoveredTests}
+          runTests={runTests}
+          runFunctionalTests={runFunctionalTests}
+          onSelectTest={(t: TestResult | TestSelectionItem) => {
+            setTestDetailReport(buildTestDetailReport(t, "NOT_EXECUTED"));
+            setShowTestDetailModal(true);
+          }}
+        />
+      )}
 
-          {/* 2. FOSSA */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 12,
-              padding: "14px 18px",
-              borderRadius: 12,
-              border: `2px solid ${runFossa && isFossaAvailable ? "#2563eb" : "#e2e8f0"}`,
-              background: runFossa && isFossaAvailable ? "#eff6ff" : (isFossaAvailable ? "#fff" : "#f8fafc"),
-              cursor: isFossaAvailable ? "pointer" : "not-allowed",
-              transition: "all 0.15s ease",
-              minHeight: 88,
-              opacity: isFossaAvailable ? 1 : 0.6,
-            }}
-            onClick={() => {
-              if (isFossaAvailable) setRunFossa(!runFossa);
-            }}
-          >
-            <input
-              type="checkbox"
-              checked={runFossa && isFossaAvailable}
-              disabled={!isFossaAvailable}
-              onChange={(e) => {
-                e.stopPropagation();
-                if (isFossaAvailable) setRunFossa(e.target.checked);
-              }}
-              style={{ width: 18, height: 18, accentColor: "#2563eb", cursor: isFossaAvailable ? "pointer" : "not-allowed", flexShrink: 0 }}
-            />
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a", display: "flex", alignItems: "center", gap: 8 }}>
-                <FaShieldAlt style={{ fontSize: 12, color: runFossa && isFossaAvailable ? "#2563eb" : "#64748b", flexShrink: 0 }} />
-                <span style={{ whiteSpace: "nowrap" }}>FOSSA</span>
-              </div>
-              <div style={{ fontSize: 12, color: "#64748b", marginTop: 2, lineHeight: 1.3 }}>
-                {getFossaSubtitle()}
-              </div>
-            </div>
-            <span
-              style={{
-                marginLeft: "auto",
-                fontSize: 10,
-                fontWeight: 700,
-                padding: "3px 8px",
-                borderRadius: 6,
-                background: runFossa && isFossaAvailable ? "#dbeafe" : "#f1f5f9",
-                color: runFossa && isFossaAvailable ? "#1e40af" : "#64748b",
-                flexShrink: 0,
-              }}
-            >
-              RECOMMENDED
-            </span>
-          </div>
-
-          <label style={{
-            display: "flex", alignItems: "center", gap: 12, padding: "14px 18px", borderRadius: 12,
-            border: `2px solid ${runCycode && isCycodeAvailable ? "#2563eb" : "#e2e8f0"}`,
-            background: runCycode && isCycodeAvailable ? "#eff6ff" : "#f8fafc",
-            cursor: isCycodeAvailable ? "pointer" : "not-allowed", minHeight: 88,
-            opacity: isCycodeAvailable ? 1 : 0.6,
-          }}>
-            <input type="checkbox" aria-label="Run Cycode security scans"
-              checked={runCycode && isCycodeAvailable} disabled={!isCycodeAvailable}
-              onChange={(event) => setRunCycode(event.target.checked)}
-              style={{ width: 18, height: 18, accentColor: "#2563eb", flexShrink: 0 }} />
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a", display: "flex", alignItems: "center", gap: 8 }}>
-                <FaShieldAlt aria-hidden="true" style={{ color: runCycode && isCycodeAvailable ? "#2563eb" : "#64748b" }} />
-                <span style={{ whiteSpace: "nowrap" }}>Cycode</span>
-              </div>
-              <div style={{ fontSize: 12, color: "#64748b", marginTop: 2, lineHeight: 1.3 }}>{cycodeSubtitle}</div>
-            </div>
-            <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 6,
-              color: runCycode && isCycodeAvailable ? "#1e40af" : "#64748b",
-              background: runCycode && isCycodeAvailable ? "#dbeafe" : "#f1f5f9", flexShrink: 0 }}>
-              {runCycode && isCycodeAvailable ? "ENABLED" : "OPTIONAL"}
-            </span>
-          </label>
-
-          {/* 3. Run Unit Test Suite */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 12,
-              padding: "14px 18px",
-              borderRadius: 12,
-              border: `2px solid ${runTests && isTestsAvailable ? "#2563eb" : "#e2e8f0"}`,
-              background: runTests && isTestsAvailable ? "#eff6ff" : (isTestsAvailable ? "#fff" : "#f8fafc"),
-              cursor: isTestsAvailable ? "pointer" : "not-allowed",
-              transition: "all 0.15s ease",
-              minHeight: 88,
-              opacity: isTestsAvailable ? 1 : 0.6,
-            }}
-            onClick={() => {
-              if (isTestsAvailable) setRunTests(!runTests);
-            }}
-          >
-            <input
-              type="checkbox"
-              checked={runTests && isTestsAvailable}
-              disabled={!isTestsAvailable}
-              onChange={(e) => {
-                e.stopPropagation();
-                if (isTestsAvailable) setRunTests(e.target.checked);
-              }}
-              style={{ width: 18, height: 18, accentColor: "#2563eb", cursor: isTestsAvailable ? "pointer" : "not-allowed", flexShrink: 0 }}
-            />
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a", display: "flex", alignItems: "center", gap: 8 }}>
-                <FaFileAlt style={{ fontSize: 12, color: runTests && isTestsAvailable ? "#2563eb" : "#64748b", flexShrink: 0 }} />
-                <span style={{ whiteSpace: "nowrap" }}>Run Unit Test Suite</span>
-              </div>
-              <div style={{ fontSize: 12, color: "#64748b", marginTop: 2, lineHeight: 1.3 }}>
-                {getTestsSubtitle()}
-              </div>
-            </div>
-            <span
-              style={{
-                marginLeft: "auto",
-                fontSize: 10,
-                fontWeight: 700,
-                padding: "3px 8px",
-                borderRadius: 6,
-                background: runTests && isTestsAvailable ? "#dbeafe" : "#f1f5f9",
-                color: runTests && isTestsAvailable ? "#1e40af" : "#64748b",
-                flexShrink: 0,
-              }}
-            >
-              RECOMMENDED
-            </span>
-          </div>
-
-          {/* 4. Functional Testing */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 12,
-              padding: "14px 18px",
-              borderRadius: 12,
-              border: `2px solid ${runFunctionalTests ? "#2563eb" : "#e2e8f0"}`,
-              background: runFunctionalTests ? "#eff6ff" : "#f8fafc",
-              cursor: "pointer",
-              transition: "all 0.15s ease",
-              minHeight: 88,
-            }}
-            onClick={() => setRunFunctionalTests(!runFunctionalTests)}
-          >
-            <input
-              type="checkbox"
-              checked={runFunctionalTests}
-              onChange={(e) => {
-                e.stopPropagation();
-                setRunFunctionalTests(e.target.checked);
-              }}
-              style={{ width: 18, height: 18, accentColor: "#2563eb", cursor: "pointer", flexShrink: 0 }}
-            />
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a", display: "flex", alignItems: "center", gap: 8 }}>
-                <FaFlask style={{ fontSize: 12, color: runFunctionalTests ? "#2563eb" : "#64748b", flexShrink: 0 }} />
-                <span style={{ whiteSpace: "nowrap" }}>Functional Testing</span>
-              </div>
-              <div style={{ fontSize: 12, color: "#64748b", marginTop: 2, lineHeight: 1.3 }}>
-                {runFunctionalTests
-                  ? "Upload & run functional test scenarios from a document."
-                  : "Functional testing disabled — document upload hidden."}
-              </div>
-            </div>
-            <span
-              style={{
-                marginLeft: "auto",
-                fontSize: 10,
-                fontWeight: 700,
-                padding: "3px 8px",
-                borderRadius: 6,
-                background: runFunctionalTests ? "#dbeafe" : "#f1f5f9",
-                color: runFunctionalTests ? "#1e40af" : "#64748b",
-                flexShrink: 0,
-              }}
-            >
-              {runFunctionalTests ? "RECOMMENDED" : "OPTIONAL"}
-            </span>
-          </div>
-        </div>
-      </div>}
-
-      {/* Existing Test Cases Section (Discovered Only - No Execution) */}
-      <ExistingTestCasesPanel
-        jobId={jobId}
-        discoveredTests={discoveredTests}
-        framework={existingFramework || "JUnit"}
-        isRunning={false}
-        isLoading={isLoadingDiscoveredTests}
-        onSelectTest={(t: TestResult | TestSelectionItem) => {
-          setTestDetailReport(buildTestDetailReport(t, "NOT_EXECUTED"));
-          setShowTestDetailModal(true);
-        }}
-      />
-
-      {/* Functional Testing Document Upload Section — only shown when enabled */}
-      {runFunctionalTests && <FunctionalTestingDocumentCard jobId={jobId} />}
+      {/* Functional Testing Document Upload Section — only shown when enabled and permitted */}
+      {isFunctionalTestPermitted && runFunctionalTests && <FunctionalTestingDocumentCard jobId={jobId} />}
 
       {/* Test Validation Report Modal */}
       {showValidationReport && existingExecResult && (
         <ExistingTestValidationReport
           metrics={existingExecResult.metrics || {}}
           frameworkInfo={existingExecResult.framework_info}
-          testResults={displayTestResults}
+          testResults={
+            runTests && !runFunctionalTests
+              ? displayTestResults.filter((t) => classifyTestType(t) === "Unit")
+              : !runTests && runFunctionalTests
+              ? displayTestResults.filter((t) => classifyTestType(t) === "UI" || classifyTestType(t) === "API")
+              : displayTestResults
+          }
           fileBreakdown={existingExecResult.file_breakdown || []}
           logs={existingLogs}
           onClose={() => setShowValidationReport(false)}
@@ -1406,7 +1493,7 @@ setIsLlmConfiguredMod(
                   transition: "all 0.15s ease",
                 }}
               >
-                {loading ? "Starting..." : "Continue Migration"}
+                {loading ? (startMigrationStatusText || "Preparing migration...") : "Continue Migration"}
               </button>
             </div>
           </div>
@@ -1416,15 +1503,17 @@ setIsLlmConfiguredMod(
 
       </div>
 
-      <div style={{ ...styles.btnRow, justifyContent: "flex-end" }} className="modernization-nav-btn-row">
-        <button
-          style={{ ...styles.primaryBtn, opacity: loading ? 0.5 : 1 }}
-          onClick={handleStartMigrationClick}
-          disabled={loading}
-        >
-          {renderForwardButtonLabel(loading ? "Starting..." : "Start Migration")}
-        </button>
-      </div>
+      {!hasNoTestPermissions && (
+        <div style={{ ...styles.btnRow, justifyContent: "flex-end" }} className="modernization-nav-btn-row">
+          <button
+            style={{ ...styles.primaryBtn, opacity: loading ? 0.5 : 1 }}
+            onClick={handleStartMigrationClick}
+            disabled={loading}
+          >
+            {renderForwardButtonLabel(loading ? (startMigrationStatusText || "Preparing migration...") : "Start Migration")}
+          </button>
+        </div>
+      )}
     </>
   );
 }

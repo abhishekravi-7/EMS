@@ -33,7 +33,7 @@ from app.infrastructure.llm.prompt_templates import (
 )
 from app.schemas.java_version_schema import JavaVersionRecommendationRequest
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("discovery")
 
 # Canonical, LTS-first release ladder. Matches the frontend's dropdown/LTS set
 # so every recommended version can actually be selected and rendered.
@@ -97,7 +97,7 @@ class RecommendJavaVersionUseCase:
 
         try:
             try:
-                logger.info("[JavaRecommendation] Attempting Hugging Face (primary)")
+                logger.debug("[JavaRecommendation] Attempting Hugging Face (primary)")
                 raw = await self._llm.chat_json(system_prompt, user_prompt)
                 return self._sanitize(raw, allowed_targets, already_at_latest)
             except (LLMServiceError, Exception) as exc:
