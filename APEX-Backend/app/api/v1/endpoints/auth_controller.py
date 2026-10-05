@@ -35,7 +35,7 @@ from app.schemas.auth_schema import (
     VerifyEmailRequest,
 )
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("auth")
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -118,10 +118,11 @@ async def signup(payload: SignupRequest) -> JSONResponse:
             password=payload.password,
             frontend_url=settings.frontend_url,
         )
-        logger.info("Pending signup created for email=%s.", result["email"])
+        logger.info("[AUTH SIGN-UP] - Email: %s - Name: %s", result["email"], clean_name)
         body = SignupResponse.model_validate(result).model_dump(by_alias=True, mode="json")
         return JSONResponse(status_code=201, content=body)
     except AuthError as exc:
+        logger.warning("[AUTH SIGN-UP FAILED] - Email: %s - Reason: %s", payload.email, exc.status)
         return _auth_error_response(exc)
 
 
@@ -143,12 +144,13 @@ async def login(payload: LoginRequest) -> JSONResponse:
         user_data = dict(user)
         user_data["id"] = user_data.pop("_id")
 
-        logger.info("User logged in via MongoDB (user_id=%s).", user_data["id"])
+        logger.info("[AUTH SIGN-IN] - Email: %s - UserID: %s", user_data.get("email"), user_data["id"])
         body = AuthResponse(user=UserResponse.model_validate(user_data), message="Login successful.")
         response = JSONResponse(status_code=200, content=body.model_dump(by_alias=True, mode="json"))
         _set_auth_cookies(response, access_token, refresh_token)
         return response
     except AuthError as exc:
+        logger.warning("[AUTH SIGN-IN FAILED] - Email: %s - Reason: %s", payload.email, exc.status)
         return _auth_error_response(exc)
 
 
@@ -194,8 +196,14 @@ async def refresh(request: Request) -> JSONResponse:
 async def logout(request: Request) -> JSONResponse:
     raw_refresh_token = request.cookies.get(REFRESH_TOKEN_COOKIE)
     mongo_db = await get_mongodb()
+    logged_out_user = None
     if mongo_db is not None and raw_refresh_token:
-        await MongoDBAuthService(mongo_db).logout(raw_refresh_token)
+        logged_out_user = await MongoDBAuthService(mongo_db).logout(raw_refresh_token)
+
+    if logged_out_user and isinstance(logged_out_user, dict):
+        logger.info("[AUTH SIGN-OUT] - Email: %s - UserID: %s", logged_out_user.get("email"), logged_out_user.get("_id"))
+    else:
+        logger.info("[AUTH SIGN-OUT] - Session cookies cleared")
 
     response = JSONResponse(status_code=200, content={"message": "Logged out."})
     _clear_auth_cookies(response)
@@ -378,7 +386,7 @@ async def google_id_token_auth(payload: GoogleAuthRequest) -> JSONResponse:
         user_data = dict(user)
         user_data["id"] = user_data.pop("_id")
 
-        logger.info("User authenticated via Google ID token (user_id=%s).", user_data["id"])
+        logger.info("[AUTH SIGN-IN (Google)] - Email: %s - UserID: %s", user_data.get("email"), user_data["id"])
         body = AuthResponse(user=UserResponse.model_validate(user_data), message="Sign in with Google successful.")
         response = JSONResponse(status_code=200, content=body.model_dump(by_alias=True, mode="json"))
         _set_auth_cookies(response, access_token, refresh_token)
@@ -480,7 +488,7 @@ async def google_callback(request: Request) -> RedirectResponse:
         logger.exception("Unexpected error completing Google OAuth login (intent=%s).", intent)
         return _oauth_error_redirect("server_error", intent=intent)
 
-    logger.info("User authenticated via Google OAuth (user_id=%s, intent=%s).", user_id_for_log, intent)
+    logger.info("[AUTH SIGN-IN (Google OAuth)] - Email: %s - UserID: %s", profile.email, user_id_for_log)
     response = _oauth_success_redirect(access_token, refresh_token)
     response.delete_cookie(
         GOOGLE_CODE_VERIFIER_COOKIE,
@@ -550,5 +558,5 @@ async def github_callback(request: Request) -> RedirectResponse:
         logger.exception("Unexpected error completing GitHub OAuth login (intent=%s).", intent)
         return _oauth_error_redirect("server_error", intent=intent)
 
-    logger.info("User authenticated via GitHub OAuth (user_id=%s, intent=%s).", user_id_for_log, intent)
+    logger.info("[AUTH SIGN-IN (GitHub OAuth)] - Email: %s - UserID: %s", profile.email, user_id_for_log)
     return _oauth_success_redirect(access_token, refresh_token)
