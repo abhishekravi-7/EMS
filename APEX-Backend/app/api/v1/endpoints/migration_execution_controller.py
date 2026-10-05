@@ -23,7 +23,7 @@ from app.infrastructure.workspace.workspace_paths import WorkspacePaths
 from app.schemas.migration_execution_schema import MigrationStartRequest
 from app.schemas.unit_test import UnitTestGenerateAndRunRequest
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("migration")
 
 router = APIRouter(tags=["migration"])
 

@@ -11,7 +11,7 @@ except ImportError:
     pymongo = None  # type: ignore[misc,assignment]
 from app.core.config import settings
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("mongodb")
 
 class MongoDBManager:
     def __init__(self):

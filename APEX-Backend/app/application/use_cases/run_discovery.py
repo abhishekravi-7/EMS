@@ -31,7 +31,7 @@ from app.infrastructure.workspace.workspace_manager import WorkspaceManager
 from app.infrastructure.workspace.workspace_paths import WorkspacePaths
 from app.shared import file_utils
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("discovery")
 
 STATUS_COMPLETED = "DISCOVERY_COMPLETED"
 NEXT_STEP = "STRATEGY"
@@ -60,6 +60,7 @@ class RunDiscoveryUseCase:
         # 1. Connect report must exist.
         connect = self._job_repository.read_connect_report(job_id)
         if not connect:
+            logger.error("[DISCOVERY FAILED] - JobID: %s - Connect report missing or Connect step not completed", job_id)
             raise ConnectReportNotFoundError()
 
         repo_url = connect.get("repoUrl", "")
@@ -69,6 +70,9 @@ class RunDiscoveryUseCase:
         storage_dir = getattr(self._job_repository, "_storage_dir", None)
         paths = WorkspacePaths(job_id, storage_dir=storage_dir)
 
+        logger.info("[CONNECT -> DISCOVERY] - JobID: %s - Initiating transition to discovery for repo: %s", job_id, repo_url)
+        logger.debug("[CONNECT -> DISCOVERY] - JobID: %s - Connect Metadata: owner=%s, repo=%s, visibility=%s", job_id, owner, repo_name, visibility)
+
         # Check if discovery was already completed and the cloned workspace is intact
         if not force_refresh:
             existing_report = self._job_repository.read_discovery_report(job_id)
@@ -77,7 +81,7 @@ class RunDiscoveryUseCase:
                 and existing_report.get("status") == STATUS_COMPLETED
                 and paths.original_repo_dir.is_dir()
             ):
-                logger.info("Reusing existing discovery report for job %s (%s)", job_id, repo_url)
+                logger.warning("[DISCOVERY REUSE] - JobID: %s - Reusing existing discovery report from cache", job_id)
                 response = self._reconstruct_response_from_report(
                     job_id, repo_url, owner, repo_name, visibility, existing_report
                 )
@@ -91,7 +95,7 @@ class RunDiscoveryUseCase:
             or None
         )
 
-        logger.info("Discovery started for job %s (%s)", job_id, repo_url)
+        logger.info("[DISCOVERY START] - JobID: %s - Repo: %s", job_id, repo_url)
 
         # 2. Prepare workspace + clone into original-repo (or verify local project).
         workspace = WorkspaceManager(paths)
@@ -100,25 +104,25 @@ class RunDiscoveryUseCase:
         is_local_project = bool(connect.get("isLocalProject")) or repo_url.startswith("local://")
 
         if is_local_project:
-            logger.info("Local project detected for job %s. Using existing files in original-repo ...", job_id)
+            logger.info("[DISCOVERY LOCAL] - JobID: %s - Using local workspace files", job_id)
             if not paths.original_repo_dir.is_dir() or not any(paths.original_repo_dir.iterdir()):
-                logger.error("Local project workspace is empty or missing for job %s: %s", job_id, paths.original_repo_dir)
+                logger.error("[DISCOVERY ERROR] - JobID: %s - Local workspace empty or missing", job_id)
                 raise UnsupportedProjectError()
         else:
             workspace.prepare_original_repo_target()
-            logger.info("Cloning repository into workspace for job %s ...", job_id)
+            logger.info("[DISCOVERY CLONE] - JobID: %s - Cloning repository into workspace...", job_id)
             self._cloner.clone(
                 repo_url,
                 paths.original_repo_dir,
                 token=token,
                 log_path=paths.discovery_log_path,
             )
-            logger.info("Clone finished for job %s. Analyzing project ...", job_id)
+            logger.info("[DISCOVERY ANALYSIS] - JobID: %s - Analyzing project files...", job_id)
 
         # 3. Analyze the cloned project (read-only).
         analysis = self._analyzer.analyze(paths.original_repo_dir)
         if not analysis.is_supported:
-            logger.info("Discovery for job %s: unsupported project (no Maven/Gradle).", job_id)
+            logger.error("[DISCOVERY FAILED] - JobID: %s - Unsupported project (no Maven/Gradle build file found)", job_id)
             raise UnsupportedProjectError()
 
         eligibility = compute_eligibility(
@@ -132,21 +136,32 @@ class RunDiscoveryUseCase:
         )
 
         logger.info(
-            "Discovery completed for job %s: buildTool=%s javaVersion=%s springBoot=%s "
-            "type=%s multiModule=%s dependencies=%d frontend=%s "
-            "springDetected=%s springBootDetected=%s conversionEligible=%s upgradeEligible=%s",
+            "[DISCOVERY SCAN] - JobID: %s - TotalFiles: %d - JavaFiles: %d - ConfigFiles: %d - TestFiles: %d",
+            job_id,
+            analysis.total_file_count,
+            len(analysis.java_files),
+            len(analysis.config_files),
+            len(analysis.test_files),
+        )
+
+        logger.debug(
+            "[DISCOVERY METRICS] - JobID: %s - JavaLOC: %d - ConfigLOC: %d - TestLOC: %d - Modules: %d - Endpoints: %d",
+            job_id,
+            analysis.java_loc,
+            analysis.config_loc,
+            analysis.test_loc,
+            len(analysis.modules),
+            len(analysis.api_endpoints),
+        )
+
+        logger.info(
+            "[DISCOVERY SUCCESS] - JobID: %s - BuildTool: %s - Java: %s - SpringBoot: %s - TotalFiles: %d - Dependencies: %d",
             job_id,
             analysis.build_tool,
             analysis.current_java_version,
-            analysis.spring_boot_version,
-            analysis.project_type,
-            analysis.multi_module,
+            analysis.spring_boot_version or "N/A",
+            analysis.total_file_count,
             analysis.dependency_count,
-            analysis.frontend.type if analysis.frontend.detected else "none",
-            eligibility.spring_detected,
-            eligibility.spring_boot_detected,
-            eligibility.spring_boot_conversion_eligible,
-            eligibility.spring_boot_upgrade_eligible,
         )
 
         from app.infrastructure.analyzers.frontend_compatibility_analyzer import (
@@ -197,14 +212,13 @@ class RunDiscoveryUseCase:
         if not settings.rag_enabled:
             return
         try:
-            # Imported lazily so Discovery has no hard dependency on the RAG
-            # stack (embeddings/vector store) being installed or importable.
+            logger.debug("[DISCOVERY RAG] - JobID: %s - Indexing report into vector store...", job_id)
             from app.application.use_cases.index_repository import IndexRepositoryUseCase
 
             IndexRepositoryUseCase().index_report(report)
         except Exception:  # noqa: BLE001 - indexing is best-effort
             logger.warning(
-                "Chatbot indexing skipped for job %s (non-fatal).", job_id, exc_info=True
+                "[DISCOVERY RAG SKIPPED] - JobID: %s - Vector indexing skipped (non-fatal).", job_id, exc_info=True
             )
 
     # -- builders ------------------------------------------------------------ #
@@ -319,6 +333,7 @@ class RunDiscoveryUseCase:
             "jsfFiles": list(analysis.jsf_files),
             "viewTechnologies": analysis.view_technologies,
             "totalFileCount": analysis.total_file_count,
+            "fileMetrics": analysis.file_metrics,
             "defaultBranch": "main",
             "buildWarning": analysis.build_warning,
             "sourceLayout": {
@@ -458,6 +473,7 @@ class RunDiscoveryUseCase:
                 "jspFileCount": report.get("jspFileCount") or len(jsp_files),
                 "jsfFileCount": report.get("jsfFileCount") or len(jsf_files),
                 "totalFileCount": report.get("totalFileCount") or (len(java_files) + len(config_files) + len(jsp_files) + len(jsf_files) + len(other_files or [])),
+                "fileMetrics": report.get("fileMetrics"),
                 "defaultBranch": report.get("defaultBranch", "main"),
                 "buildWarning": report.get("buildWarning"),
                 "frontend": frontend_info,
@@ -545,6 +561,7 @@ class RunDiscoveryUseCase:
                 "jspFiles": list(analysis.jsp_files),
                 "jsfFiles": list(analysis.jsf_files),
                 "totalFileCount": analysis.total_file_count,
+                "fileMetrics": analysis.file_metrics,
                 "defaultBranch": "main",
                 "buildWarning": analysis.build_warning,
                 "frontend": analysis.frontend.to_dict(),

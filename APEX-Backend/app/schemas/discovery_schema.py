@@ -131,6 +131,7 @@ class DiscoveryProject(BaseModel):
     spring_boot_conversion: Optional[DiscoverySpringBootConversion] = Field(
         None, alias="springBootConversion"
     )
+    file_metrics: Optional[dict[str, Any]] = Field(None, alias="fileMetrics")
     framework_recommendations: Optional[FrameworkRecommendations] = Field(
         None, alias="frameworkRecommendations"
     )

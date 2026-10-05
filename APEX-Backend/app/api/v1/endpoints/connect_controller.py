@@ -23,7 +23,7 @@ from app.infrastructure.persistence.mongodb_ownership_repository import (
 from app.schemas.connect_schema import ConnectRequest, ConnectResponse
 from app.shared.response_builder import build_connect_error, build_connect_success
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("connect")
 
 router = APIRouter(tags=["connect"])
 
@@ -56,12 +56,7 @@ async def connect_repository(
     except Exception:  # noqa: BLE001
         log_url = "[invalid-url]"
 
-    logger.info(
-        "[CONNECT START] user_id=%s repo_url=%s has_token=%s",
-        current_user.id,
-        log_url,
-        has_token,
-    )
+    logger.info("[CONNECT START] - UserID: %s - Repo: %s", current_user.id, log_url)
 
     try:
         t_pipe = time.perf_counter()
@@ -71,17 +66,15 @@ async def connect_repository(
 
         result = await _pipeline.run(payload.repo_url, normalized_token)
         logger.info(
-            "[CONNECT PIPELINE DONE] elapsed=%.3fs job_id=%s visibility=%s status=%s",
-            time.perf_counter() - t_pipe,
+            "[CONNECT SUCCESS] - JobID: %s - Visibility: %s - Status: %s",
             result.job_id,
             result.repo_visibility,
             result.access_status,
         )
     except ConnectError as exc:
         logger.warning(
-            "[CONNECT ERROR] elapsed=%.3fs status_code=%s access_status=%s message=%s",
-            time.perf_counter() - t0,
-            exc.http_status,
+            "[CONNECT FAILED] - Repo: %s - Status: %s - Message: %s",
+            log_url,
             exc.access_status,
             exc.message,
         )
@@ -108,15 +101,12 @@ async def connect_repository(
         logger.warning("[CONNECT] MongoDB enabled but unavailable - skipping ownership record.")
 
     logger.info(
-        "[CONNECT DB RECORD DONE] elapsed=%.3fs job_id=%s",
-        time.perf_counter() - t_db,
+        "[CONNECT DB RECORD DONE] - JobID: %s",
         result.job_id,
     )
 
-    total_elapsed = time.perf_counter() - t0
     logger.info(
-        "[CONNECT RESPONSE] total_elapsed=%.3fs job_id=%s status=200",
-        total_elapsed,
+        "[CONNECT RESPONSE] - JobID: %s - Status: 200",
         result.job_id,
     )
 

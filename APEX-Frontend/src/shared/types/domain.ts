@@ -108,6 +108,32 @@ export interface ViewTechnologyData {
   summaryMessage: string;
 }
 
+export interface FileCategoryCounts {
+  java: number;
+  java_test: number;
+  jsp: number;
+  jsf: number;
+  react: number;
+  angular: number;
+  javascript: number;
+  typescript: number;
+  css: number;
+  html: number;
+  xml: number;
+  configuration: number;
+  resources: number;
+  documentation: number;
+  scripts: number;
+  sql: number;
+  other: number;
+}
+
+export interface FileMetrics {
+  total: number;
+  categories: FileCategoryCounts;
+  category_files?: Record<string, string[]>;
+}
+
 export interface RepoAnalysis {
   name: string;
   full_name: string;
@@ -124,6 +150,7 @@ export interface RepoAnalysis {
   other_files?: string[];
   other_file_count?: number;
   total_file_count?: number;
+  file_metrics?: FileMetrics;
   jsp_files?: string[];
   jsf_files?: string[];
   jsp_count?: number;
