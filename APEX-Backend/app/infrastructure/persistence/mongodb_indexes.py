@@ -3,7 +3,7 @@ import logging
 from motor.motor_asyncio import AsyncIOMotorDatabase
 import pymongo
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("mongodb")
 
 async def setup_mongodb_indexes(db: AsyncIOMotorDatabase):
     """Idempotent, parallel creation of MongoDB indexes."""

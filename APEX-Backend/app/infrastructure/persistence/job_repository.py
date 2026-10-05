@@ -39,12 +39,21 @@ class JobRepository:
         report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
         return report_path
 
+    @staticmethod
+    def _read_json_file(file_path: Path) -> dict[str, Any] | None:
+        if not file_path.exists():
+            return None
+        try:
+            content = file_path.read_text(encoding="utf-8").strip()
+            if not content:
+                return None
+            return json.loads(content)
+        except (json.JSONDecodeError, OSError):
+            return None
+
     def read_connect_report(self, job_id: str) -> dict[str, Any] | None:
         """Read back a previously saved connect report, if it exists."""
-        report_path = self._reports_dir(job_id) / "connect-report.json"
-        if not report_path.exists():
-            return None
-        return json.loads(report_path.read_text(encoding="utf-8"))
+        return self._read_json_file(self._reports_dir(job_id) / "connect-report.json")
 
     def save_discovery_report(self, job_id: str, report: dict[str, Any]) -> Path:
         """Write ``discovery-report.json`` for the given job and return its path."""
@@ -57,10 +66,7 @@ class JobRepository:
 
     def read_discovery_report(self, job_id: str) -> dict[str, Any] | None:
         """Read back a previously saved discovery report, if it exists."""
-        report_path = self._reports_dir(job_id) / "discovery-report.json"
-        if not report_path.exists():
-            return None
-        return json.loads(report_path.read_text(encoding="utf-8"))
+        return self._read_json_file(self._reports_dir(job_id) / "discovery-report.json")
 
     def save_migration_config_report(self, job_id: str, report: dict[str, Any]) -> Path:
         """Write ``migration-config-report.json`` for the job and return its path."""
@@ -73,10 +79,7 @@ class JobRepository:
 
     def read_migration_config_report(self, job_id: str) -> dict[str, Any] | None:
         """Read back a previously saved migration config report, if it exists."""
-        report_path = self._reports_dir(job_id) / "migration-config-report.json"
-        if not report_path.exists():
-            return None
-        return json.loads(report_path.read_text(encoding="utf-8"))
+        return self._read_json_file(self._reports_dir(job_id) / "migration-config-report.json")
 
     def save_brd_attachment(self, job_id: str, content: bytes, filename: str) -> dict[str, Any]:
         """Save a BRD attachment to the job's storage and return metadata."""
@@ -101,10 +104,7 @@ class JobRepository:
         """Read BRD metadata if it exists."""
         from app.infrastructure.workspace.workspace_paths import WorkspacePaths
         paths = WorkspacePaths(job_id, storage_dir=self._storage_dir)
-        metadata_path = paths.attachments_dir / "brd-metadata.json"
-        if not metadata_path.exists():
-            return None
-        return json.loads(metadata_path.read_text(encoding="utf-8"))
+        return self._read_json_file(paths.attachments_dir / "brd-metadata.json")
 
     def job_exists(self, job_id: str) -> bool:
         """True if the job directory (created during Connect) exists on disk."""

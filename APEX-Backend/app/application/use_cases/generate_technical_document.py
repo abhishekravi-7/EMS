@@ -244,20 +244,25 @@ class GenerateTechnicalDocumentUseCase:
         tables: list[dict[str, Any]] = []
         seen_models: set[tuple[str, str, int]] = set()
         for entity in all_classes:
-            if "Entity" not in entity.annotations and "Document" not in entity.annotations:
+            annotations = getattr(entity, "annotations", set()) or set()
+            if "Entity" not in annotations and "Document" not in annotations:
                 continue
-            key = (entity.relative_path, entity.class_name, entity.line_start)
+            line_start = getattr(entity, "line_start", 1)
+            line_end = getattr(entity, "line_end", 1)
+            rel_path = getattr(entity, "relative_path", "")
+            cls_name = getattr(entity, "class_name", "")
+            key = (rel_path, cls_name, line_start)
             if key in seen_models:
                 continue
             seen_models.add(key)
             tables.append(
                 {
-                    "model": entity.class_name,
-                    "table": getattr(entity, "table_name", getattr(entity, "table", entity.class_name)),
-                    "fields": entity.fields,
-                    "file": entity.relative_path,
-                    "line_start": entity.line_start,
-                    "line_end": entity.line_end,
+                    "model": cls_name,
+                    "table": getattr(entity, "table_name", getattr(entity, "table", cls_name)),
+                    "fields": getattr(entity, "fields", []),
+                    "file": rel_path,
+                    "line_start": line_start,
+                    "line_end": line_end,
                 }
             )
 

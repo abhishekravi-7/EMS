@@ -50,7 +50,7 @@ class RepositoryCloner:
         clone_url = self._build_clone_url(normalized, token)
         masked_url = self._mask_token(clone_url)
 
-        logger.info("git clone %s", masked_url)
+        logger.info("[GIT CLONE START] - Target: %s", masked_url)
         self._log(log_path, f"Cloning {masked_url} -> {target_dir}")
 
         result = self._git.clone(clone_url, target_dir)
@@ -58,22 +58,22 @@ class RepositoryCloner:
         if not result.succeeded:
             stderr = self._mask_token(result.stderr.strip())
             if result.timed_out:
-                logger.warning("Clone timed out for %s", masked_url)
+                logger.warning("[GIT CLONE TIMEOUT] - Target: %s", masked_url)
                 self._log(log_path, "Clone timed out.")
                 raise CloneFailedError(
                     "Repository clone timed out. Please try again."
                 )
             if result.exit_code == 130 or "signal" in stderr.lower():
-                logger.warning("Clone interrupted by process signal (exit %s) for %s: %s", result.exit_code, masked_url, stderr)
+                logger.warning("[GIT CLONE SIGNAL] - ExitCode: %s - Target: %s - Error: %s", result.exit_code, masked_url, stderr)
                 self._log(log_path, f"Clone interrupted by process signal (exit {result.exit_code}): {stderr}")
                 raise CloneFailedError(
                     "Repository clone was interrupted by a server reload or process signal. Please try again."
                 )
-            logger.warning("Clone failed (exit %s) for %s: %s", result.exit_code, masked_url, stderr)
+            logger.warning("[GIT CLONE FAILED] - ExitCode: %s - Target: %s - Error: %s", result.exit_code, masked_url, stderr)
             self._log(log_path, f"Clone failed (exit {result.exit_code}): {stderr}")
             raise CloneFailedError()
 
-        logger.info("git clone completed: %s", masked_url)
+        logger.info("[GIT CLONE SUCCESS] - Target: %s", masked_url)
         self._log(log_path, "Clone completed successfully.")
 
         # Strip the embedded token from the clone's remote URL so the credential
