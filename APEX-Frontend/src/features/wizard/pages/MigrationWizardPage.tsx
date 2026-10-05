@@ -107,6 +107,7 @@ export default function MigrationWizardPage() {
     hasUI,
     localApiTestCases,
     loading,
+    startMigrationStatusText,
     handleStartMigration,
     migrationJob,
     migrationLogs,
@@ -579,6 +580,7 @@ export default function MigrationWizardPage() {
               hasUI={hasUI}
               localApiTestCases={localApiTestCases}
               loading={loading}
+              startMigrationStatusText={startMigrationStatusText}
               repoUtils={{ isLocalRepoRef, extractLocalRepoPath }}
               onBack={() => setStep(3)}
               onStartMigration={handleStartMigration}
