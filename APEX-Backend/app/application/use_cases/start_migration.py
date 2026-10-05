@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import os
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from app.core.context import user_id_ctx, job_id_ctx, repository_url_ctx
@@ -333,9 +334,12 @@ class StartMigrationUseCase:
             run_cycode = False
             run_tests = False
 
+        fresh_execution_id = f"exec-{uuid.uuid4().hex[:12]}"
         store = MigrationReportStore(WorkspacePaths(job_id))
         report = {
             "jobId": job_id,
+            "executionId": fresh_execution_id,
+            "execution_id": fresh_execution_id,
             "status": MigrationStatus.QUEUED.value,
             "currentStep": MigrationStep.QUEUED.value,
             "progressPercent": 0,
@@ -387,7 +391,7 @@ class StartMigrationUseCase:
             "logLines": [],
         }
         store.write(report)
-        logger.info("Migration queued for job %s (target Java %s)", job_id, target_java)
+        logger.info("Migration queued for job %s (executionId %s, target Java %s)", job_id, fresh_execution_id, target_java)
         return report
 
     # ------------------------------------------------------------------ #

@@ -73,6 +73,26 @@ def load_report_from_db_sync(job_id: str) -> Optional[dict[str, Any]]:
         logger.debug("Non-fatal: failed to load report from MongoDB synchronously: %s", exc)
         return None
 
+async def delete_report_from_db(db: Optional[AsyncIOMotorDatabase], job_id: str) -> None:
+    """Remove a migration report for a job from MongoDB asynchronously."""
+    if db is None:
+        db = mongodb_manager.db
+    if db is None:
+        delete_report_from_db_sync(job_id)
+        return
+    await db.migration_reports.delete_one({"job_id": job_id})
+
+def delete_report_from_db_sync(job_id: str) -> None:
+    """Synchronously remove a migration report for a job from MongoDB."""
+    try:
+        sync_db = mongodb_manager.get_sync_db()
+        if sync_db is None:
+            return
+        sync_db.migration_reports.delete_one({"job_id": job_id})
+    except Exception as exc:
+        logger.debug("Non-fatal: failed to delete report from MongoDB synchronously: %s", exc)
+
+
 async def save_discovery_report(db: AsyncIOMotorDatabase, job_id: str, report: dict[str, Any]):
     """Persist a discovery report JSON to MongoDB."""
     if db is None:
