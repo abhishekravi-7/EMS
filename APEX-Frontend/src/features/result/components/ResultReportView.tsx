@@ -129,7 +129,7 @@ export function ResultReportView({
     setMigrationLogs,
     fossaResult,
     fossaLoading: _fossaLoading,
-    rerunTestsLoading: _rerunTestsLoading,
+    rerunTestsLoading,
     setRerunTestsLoading,
     reportAccordionState,
     setReportAccordionState,
@@ -399,7 +399,7 @@ export function ResultReportView({
     }));
   };
 
-  const _handleRerunTests = async () => {
+  const handleRerunTests = async () => {
     if (!migrationJob) return;
     setRerunTestsLoading(true);
     try {
