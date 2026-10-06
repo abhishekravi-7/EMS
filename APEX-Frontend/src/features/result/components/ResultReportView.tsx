@@ -1870,6 +1870,8 @@ export function ResultReportView({
                     testsRun={testsRun}
                     runTests={Boolean(migrationJob.run_tests ?? migrationJob.runTests ?? runTests)}
                     onDownloadUnitTestReport={handleDownloadUnitTestReport}
+                    onGenerateUnitTests={handleRerunTests}
+                    isGenerating={rerunTestsLoading}
                   />
                 </div>
 

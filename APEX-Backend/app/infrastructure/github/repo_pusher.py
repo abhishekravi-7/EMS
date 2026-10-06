@@ -30,6 +30,7 @@ class RepoPusher:
         branch: str = "main",
         token: str | None = None,
         allow_force_update_existing: bool = False,
+        incremental: bool = False,
     ) -> str:
         """Init, commit, and push ``repo_dir`` to ``clone_url``. Returns the branch."""
         effective_token = (
@@ -61,13 +62,14 @@ class RepoPusher:
 
         try:
             # 2. Init fresh repo and configure git HTTP buffers
-            self._git(repo_dir, ["init", "-q"])
-            self._git(repo_dir, ["config", "core.longpaths", "true"])
-            self._git(repo_dir, ["config", "http.postBuffer", "524288000"])
-            self._git(repo_dir, ["config", "http.version", "HTTP/1.1"])
-            self._git(repo_dir, ["symbolic-ref", "HEAD", f"refs/heads/{branch}"])
-            self._git(repo_dir, ["config", "user.name", settings.migration_commit_author_name])
-            self._git(repo_dir, ["config", "user.email", settings.migration_commit_author_email])
+            if not incremental:
+                self._git(repo_dir, ["init", "-q"])
+                self._git(repo_dir, ["config", "core.longpaths", "true"])
+                self._git(repo_dir, ["config", "http.postBuffer", "524288000"])
+                self._git(repo_dir, ["config", "http.version", "HTTP/1.1"])
+                self._git(repo_dir, ["symbolic-ref", "HEAD", f"refs/heads/{branch}"])
+                self._git(repo_dir, ["config", "user.name", settings.migration_commit_author_name])
+                self._git(repo_dir, ["config", "user.email", settings.migration_commit_author_email])
             self._git(repo_dir, ["add", "-A"])
             self._git(repo_dir, ["commit", "-q", "-m", commit_message])
             self._git(repo_dir, ["remote", "add", "origin", auth_url], sensitive=True)
