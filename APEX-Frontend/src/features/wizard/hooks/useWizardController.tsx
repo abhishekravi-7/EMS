@@ -1131,6 +1131,7 @@ export function useWizardController() {
     Math.max(persistedFormState?.maxVisitedIndicatorStep ?? 1, getIndicatorStep(initialStep))
   );
   const [error, setError] = useState<string>("");
+  const [startMigrationStatusText, setStartMigrationStatusText] = useState<string>("");
   const discoveryState = useDiscoveryState(persistedFormState, createDefaultMicroserviceAccordionState);
   const {
     repoAnalysis,
@@ -5302,10 +5303,40 @@ export function useWizardController() {
 
     migrationStartInFlightRef.current = true;
     setLoading(true);
-    setError("");
-    setMigrationLogs([]);
-    setMigrationJob(null);
-    setMigrationDetailLoadedJobId(null);
+    // 1. Show "Preparing migration..." while cleaning up previous session & state
+    setStartMigrationStatusText("Preparing migration...");
+    await new Promise((resolve) => setTimeout(resolve, 400));
+
+    // Clean local session storage for previous migration run before starting fresh
+    removeSessionValue(WIZARD_MIGRATION_JOB_KEY);
+    removeSessionValue(getScopedStepUnlockKey(WIZARD_MIGRATION_COMPLETED_KEY, currentJobId));
+    try {
+      if (typeof window !== "undefined") {
+        for (let i = window.sessionStorage.length - 1; i >= 0; i--) {
+          const key = window.sessionStorage.key(i);
+          if (
+            key &&
+            (key.includes(currentJobId) ||
+              key.startsWith("existing_test_") ||
+              key.startsWith("unit_test_")) &&
+            !key.startsWith(WIZARD_REPO_ANALYSIS_KEY) &&
+            !key.startsWith(WIZARD_STRATEGY_COMPLETED_KEY) &&
+            !key.startsWith(WIZARD_DISCOVERY_COMPLETED_KEY) &&
+            key !== WIZARD_JOB_ID_KEY &&
+            key !== WIZARD_REPO_URL_KEY &&
+            key !== WIZARD_SELECTED_REPO_KEY
+          ) {
+            window.sessionStorage.removeItem(key);
+          }
+        }
+      }
+    } catch (e) {
+      console.debug("Non-fatal: session storage cleanup error before migration start:", e);
+    }
+
+    // 2. Show "Starting migration..." while initiating fresh job
+    setStartMigrationStatusText("Starting migration...");
+    await new Promise((resolve) => setTimeout(resolve, 400));
 
     const migrationRequest = buildMigrationRequest();
 
@@ -5386,6 +5417,7 @@ export function useWizardController() {
       setError(formatLlmAwareError(err, "Failed to start migration."));
     } finally {
       setLoading(false);
+      setStartMigrationStatusText("");
       migrationStartInFlightRef.current = false;
     }
   };
@@ -5667,6 +5699,7 @@ export function useWizardController() {
     hasUI,
     localApiTestCases,
     loading,
+    startMigrationStatusText,
     handleStartMigration,
     migrationJob,
     migrationLogs,

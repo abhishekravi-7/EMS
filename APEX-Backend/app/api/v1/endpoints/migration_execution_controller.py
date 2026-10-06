@@ -23,7 +23,7 @@ from app.infrastructure.workspace.workspace_paths import WorkspacePaths
 from app.schemas.migration_execution_schema import MigrationStartRequest
 from app.schemas.unit_test import UnitTestGenerateAndRunRequest
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("migration")
 
 router = APIRouter(tags=["migration"])
 
@@ -58,10 +58,11 @@ async def start_migration(
     from app.api.deps import resolve_github_token
     github_token = await resolve_github_token(request.get("github_token"), current_user)
     try:
+        logger.info("[MIGRATION EXECUTE START] - JobID: %s - UserID: %s", job_id, current_user.id)
         result = await asyncio.to_thread(
             _pipeline.start, job_id, request, current_user_id=current_user.id, github_token=github_token
         )
-        logger.info("[START API] Returning HTTP 200 for job %s to client (user %s)", job_id, current_user.id)
+        logger.info("[MIGRATION EXECUTE SUCCESS] - JobID: %s - Status: %s", job_id, result.get("status", "SUCCESS"))
         return JSONResponse(status_code=200, content=result)
     except (MigrationConfigError, MigrationExecutionError) as exc:
         logger.warning("[MIGRATION START FAILED] job_id=%s status=%s message=%s", job_id, exc.status, exc.message)

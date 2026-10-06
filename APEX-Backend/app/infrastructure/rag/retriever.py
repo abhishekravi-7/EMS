@@ -18,7 +18,7 @@ from app.core.config import settings
 from app.core.exceptions import RagDisabledError
 from app.infrastructure.rag import embedder, repo_index_locator, vector_store
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("strategy")
 
 # Upper bound on the assembled context so a large report can't blow the prompt.
 # Reduced from 6000 to 4000 to speed up LLM prefill/processing time.
@@ -55,13 +55,13 @@ def retrieve(question: str, repository_url: str, job_id: str | None = None, top_
     # Embed question and search candidates
     embed_start = time.time()
     query_vector = embedder.embed_query(question)
-    logger.debug("[Retriever] Query embedding completed in %.2fms", (time.time() - embed_start) * 1000)
+    logger.debug("[STRATEGY RETRIEVER EMBED] - Query embedding completed in %.2fms", (time.time() - embed_start) * 1000)
 
     # Get more candidates for hybrid re-ranking
     search_start = time.time()
     search_limit = max(50, limit * 2)
     hits = vector_store.search(query_vector, repository_url, search_limit, job_id)
-    logger.debug("[Retriever] Qdrant search completed in %.2fms", (time.time() - search_start) * 1000)
+    logger.debug("[STRATEGY RETRIEVER SEARCH] - Qdrant search returned %d candidates in %.2fms", len(hits), (time.time() - search_start) * 1000)
 
     # Keywords from question
     keywords = set(re.findall(r'[a-zA-Z0-9_\.\-]+', question.lower()))

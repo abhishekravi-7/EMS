@@ -26,7 +26,7 @@ from app.infrastructure.llm.chat_llm import ChatLLM
 from app.infrastructure.rag import prompt_builder, repo_index_locator, retriever
 from app.shared import branding
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("strategy")
 
 
 @dataclass
@@ -60,13 +60,13 @@ class AnswerRepoQuestionUseCase:
     ) -> PreparedAnswer:
         """Retrieve context (indexing on demand) and build grounded prompts."""
         start_time = time.time()
-        logger.info("[AnswerUseCase] Query received: %s", (question[:50] + "...") if len(question) > 50 else question)
+        logger.info("[STRATEGY CHAT PREPARE] - UserID: %s - JobID: %s - Query: '%s'", current_user.id, job_id or "N/A", (question[:50] + "...") if len(question) > 50 else question)
 
         repo_url = (repository_url or "").strip()
 
         # Intent detection: skip RAG for simple greetings/thanks/farewells to save time
         if is_conversational_intent(question):
-            logger.info("[AnswerUseCase] Conversational intent detected, skipping RAG retrieval.")
+            logger.info("[STRATEGY CHAT CONVERSATIONAL] - UserID: %s - Skipping RAG retrieval for greeting", current_user.id)
             repository_metadata = _metadata_from([], page_context, repo_url)
 
             tracing_chat = LLMTokenTracingService(
@@ -90,7 +90,7 @@ class AnswerRepoQuestionUseCase:
 
         # General technical questions (e.g. dependency injection, differences between Java versions, Spring)
         if is_general_technical_intent(question):
-            logger.info("[AnswerUseCase] General technical question detected, using LLM knowledge.")
+            logger.info("[STRATEGY CHAT GENERAL] - UserID: %s - General technical query, using base LLM knowledge", current_user.id)
             repository_metadata = _metadata_from([], page_context, repo_url)
             user_prompt = prompt_builder.build_user_prompt(
                 question=question,
@@ -139,24 +139,25 @@ class AnswerRepoQuestionUseCase:
             try:
                 retrieval_start = time.time()
                 result = await run_in_threadpool(retriever.retrieve, question, repo_url, job_id)
-                logger.info("[AnswerUseCase] RAG retrieval completed in %.2fms", (time.time() - retrieval_start) * 1000)
+                logger.info("[STRATEGY CHAT RAG SUCCESS] - JobID: %s - Retrieved %d chunks in %.2fms", job_id or "N/A", len(result.chunks), (time.time() - retrieval_start) * 1000)
 
                 if result.is_empty:
                     # Attempt on-demand indexing if analyzed
                     try:
+                        logger.info("[STRATEGY CHAT ON_DEMAND_INDEX] - JobID: %s - Triggering on-demand indexing", job_id or "N/A")
                         if job_id:
                             await run_in_threadpool(self._indexer.index_by_job_id, job_id)
                         elif repo_url:
                             await run_in_threadpool(self._indexer.index_by_repo_url, repo_url)
                         result = await run_in_threadpool(retriever.retrieve, question, repo_url, job_id)
                     except (RepositoryNotFoundForIndexingError, Exception) as exc:
-                        logger.warning("On-demand indexing skipped/failed for %s: %s", repo_url or job_id, exc)
+                        logger.warning("[STRATEGY CHAT INDEX WARN] - Target: %s - On-demand indexing skipped: %s", repo_url or job_id, exc)
 
                 retrieved_context = result.context_text
                 retrieved_chunks = result.chunks
                 retrieved_types = [str(c.get("chunk_type")) for c in result.chunks]
             except Exception as exc:
-                logger.warning("Retriever failed for query '%s': %s", question, exc)
+                logger.warning("[STRATEGY CHAT RETRIEVER WARN] - Query: '%s' - Error: %s", question, exc)
 
         # If no RAG chunks found and no page_context provided, require a repo
         if not retrieved_context and not page_context and not repo_url:

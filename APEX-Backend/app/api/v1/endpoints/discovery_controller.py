@@ -32,7 +32,7 @@ from app.infrastructure.workspace.workspace_paths import WorkspacePaths
 from app.schemas.dashboard_schema import DashboardStatsResponse
 from app.schemas.discovery_schema import DiscoveryRequest, DiscoveryResponse
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("discovery")
 
 router = APIRouter(tags=["discovery"])
 
@@ -96,9 +96,11 @@ async def run_discovery(
     from app.api.deps import resolve_github_token
     token = await resolve_github_token(payload.github_token if payload else None, current_user)
     force_refresh = payload.force_refresh if payload else False
+    logger.info("[DISCOVERY REQUEST] - UserID: %s - JobID: %s", current_user.id, job_id)
     try:
         outcome = await run_in_threadpool(_pipeline.run, job_id, token, force_refresh)
     except DiscoveryError as exc:
+        logger.warning("[DISCOVERY FAILED] - JobID: %s - Message: %s", job_id, exc.message)
         return JSONResponse(
             status_code=exc.http_status,
             content={
@@ -269,6 +271,7 @@ async def upload_brd_document(
     current_user: User = Depends(get_current_user),  # noqa: B008
 ) -> JSONResponse:
     await verify_job_ownership(job_id, current_user)
+    logger.info("[DISCOVERY BRD UPLOAD START] - JobID: %s - Filename: %s", job_id, file.filename if file else "N/A")
 
     if not file or not file.filename:
         raise HTTPException(status_code=400, detail="No file provided")
@@ -340,6 +343,7 @@ async def upload_brd_document(
     )
 
     paths.brd_metadata_path.write_text(json.dumps(metadata.model_dump(), indent=2), encoding="utf-8")
+    logger.info("[DISCOVERY BRD UPLOAD SUCCESS] - JobID: %s - Saved file '%s' (%s, %d bytes)", job_id, clean_name, ext.lstrip(".").upper(), len(content))
 
     return JSONResponse(status_code=200, content=metadata.model_dump())
 
@@ -370,6 +374,7 @@ async def get_brd_document_metadata(
         if exc.status_code in (403, 404):
             return JSONResponse(status_code=200, content={"status": "NONE", "job_id": job_id})
         raise
+    logger.debug("[DISCOVERY BRD METADATA REQUEST] - JobID: %s", job_id)
 
     paths = WorkspacePaths(job_id)
 
@@ -413,6 +418,7 @@ async def delete_brd_document(
         except Exception: # noqa: BLE001, S110
             pass
 
+    logger.info("[DISCOVERY BRD DELETE] - JobID: %s - BRD document removed", job_id)
     return JSONResponse(status_code=200, content={"status": "DELETED", "job_id": job_id})
 
 
@@ -425,6 +431,7 @@ async def view_brd_document(
     current_user: User = Depends(get_current_user),  # noqa: B008
 ) -> Response:
     await verify_job_ownership(job_id, current_user)
+    logger.info("[DISCOVERY BRD VIEW START] - JobID: %s", job_id)
     paths = WorkspacePaths(job_id)
 
     if not paths.brd_metadata_path.exists():
@@ -487,6 +494,7 @@ async def download_brd(
     current_user: User = Depends(get_current_user),  # noqa: B008
 ) -> FileResponse:
     await verify_job_ownership(job_id, current_user)
+    logger.info("[DISCOVERY BRD DOWNLOAD START] - JobID: %s", job_id)
     paths = WorkspacePaths(job_id)
 
     if paths.brd_metadata_path.exists():

@@ -8,6 +8,7 @@ migration in a background thread, and exposes read accessors for polling
 from __future__ import annotations
 
 import logging
+import shutil
 import threading
 from contextvars import copy_context
 from typing import Any
@@ -32,6 +33,49 @@ class MigrationExecutionPipeline:
         with self._active_jobs_lock:
             return job_id in self._active_jobs
 
+    def clear_previous_migration_state(self, job_id: str) -> None:
+        """Wipe previous migration cache, state, logs, temporary files, and reports."""
+        logger.info("[START API] Clearing previous migration cache/state for job %s", job_id)
+        
+        # 1. Clear status store & MongoDB report
+        store = MigrationReportStore(WorkspacePaths(job_id))
+        store.clear()
+        
+        # 2. Reset existing test runner state
+        try:
+            from app.application.use_cases.existing_test_runner_service import existing_test_runner_service
+            existing_test_runner_service.reset(job_id)
+        except Exception as exc:
+            logger.debug("[START API] Non-fatal error resetting existing tests for %s: %s", job_id, exc)
+
+        # 3. Clean filesystem artifacts (migrated-repo, test state/reports, migration logs)
+        try:
+            paths = WorkspacePaths(job_id)
+            if paths.migrated_repo_dir.exists():
+                shutil.rmtree(paths.migrated_repo_dir, ignore_errors=True)
+                logger.info("[START API] Removed previous migrated_repo_dir for job %s", job_id)
+                
+            if paths.existing_test_state_path.exists():
+                paths.existing_test_state_path.unlink(missing_ok=True)
+                
+            if paths.existing_test_report_path.exists():
+                paths.existing_test_report_path.unlink(missing_ok=True)
+
+            if paths.reports_dir.exists():
+                for p in paths.reports_dir.glob("migration-*.json"):
+                    if p.name != "migration-config-report.json":
+                        p.unlink(missing_ok=True)
+                for p in paths.reports_dir.glob("unit-test-*.json"):
+                    p.unlink(missing_ok=True)
+                for p in paths.reports_dir.glob("quality-*.json"):
+                    p.unlink(missing_ok=True)
+
+            if paths.logs_dir.exists():
+                if paths.migration_log_path.exists():
+                    paths.migration_log_path.unlink(missing_ok=True)
+        except Exception as exc:
+            logger.warning("[START API] Non-fatal error removing workspace files for %s: %s", job_id, exc)
+
     def start(
         self,
         job_id: str,
@@ -48,6 +92,8 @@ class MigrationExecutionPipeline:
                 existing_report = MigrationReportStore(WorkspacePaths(job_id)).read()
                 return report_service.build_result(existing_report or {"jobId": job_id, "status": "QUEUED"})
 
+            # Clear previous migration state before initializing new run
+            self.clear_previous_migration_state(job_id)
             self._active_jobs.add(job_id)
 
         try:

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import os
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from app.core.context import user_id_ctx, job_id_ctx, repository_url_ctx
@@ -51,7 +52,7 @@ from app.application.pipelines.frontend_migration.ui_migration_handler import (
 )
 from app.shared import file_utils
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("migration")
 
 MODE_CREATE_NEW_REPO = "CREATE_NEW_REPO"
 MODE_EXISTING_REPO_BRANCH = "EXISTING_REPO_BRANCH"
@@ -264,6 +265,19 @@ class StartMigrationUseCase:
             t_host = destination.get("targetHost") or "github.com"
             initial_target_repo = f"https://{t_host}/{t_owner}/{t_name}"
 
+        logger.info(
+            "[MIGRATION DESTINATION] - JobID: %s - DestinationMode: %s - TargetRepoName: %s - TargetRepoUrl: %s",
+            job_id,
+            destination.get("mode"),
+            destination.get("targetRepoName") or "N/A",
+            initial_target_repo or "N/A",
+        )
+        logger.info(
+            "[MIGRATION CONVERSION TYPES] - JobID: %s - SelectedTypes: %s",
+            job_id,
+            ", ".join(conversion_types) if conversion_types else "None",
+        )
+
         # Explicit request parameters take precedence over stored config options
         run_sonar = (
             bool(request["run_sonar"])
@@ -333,9 +347,12 @@ class StartMigrationUseCase:
             run_cycode = False
             run_tests = False
 
+        fresh_execution_id = f"exec-{uuid.uuid4().hex[:12]}"
         store = MigrationReportStore(WorkspacePaths(job_id))
         report = {
             "jobId": job_id,
+            "executionId": fresh_execution_id,
+            "execution_id": fresh_execution_id,
             "status": MigrationStatus.QUEUED.value,
             "currentStep": MigrationStep.QUEUED.value,
             "progressPercent": 0,
@@ -387,7 +404,7 @@ class StartMigrationUseCase:
             "logLines": [],
         }
         store.write(report)
-        logger.info("Migration queued for job %s (target Java %s)", job_id, target_java)
+        logger.info("Migration queued for job %s (executionId %s, target Java %s)", job_id, fresh_execution_id, target_java)
         return report
 
     # ------------------------------------------------------------------ #

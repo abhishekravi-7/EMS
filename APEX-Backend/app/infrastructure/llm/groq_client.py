@@ -17,7 +17,7 @@ import httpx
 from app.core.config import Settings, settings
 from app.core.exceptions import ChatLLMNotConfiguredError, ChatLLMServiceError
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("llm")
 
 class GroqPermanentError(ChatLLMServiceError):
     """Groq failed with an error that will NOT be fixed by retrying or falling back to Ollama.

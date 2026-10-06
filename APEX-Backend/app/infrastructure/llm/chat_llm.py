@@ -26,7 +26,7 @@ from app.core.exceptions import ChatLLMNotConfiguredError, ChatLLMServiceError
 from app.infrastructure.llm.groq_client import GroqClient, GroqPermanentError
 from app.infrastructure.llm.ollama_client import OllamaClient
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("llm")
 
 
 class ChatLLM:
@@ -71,7 +71,7 @@ class ChatLLM:
         for i, provider in enumerate(providers):
             started = False
             provider_start = time.time()
-            logger.info("[ChatLLM] Attempting %s (attempt %s/%s)", provider.provider, i + 1, len(providers))
+            logger.info("[ChatLLM] - Attempting %s (attempt %s/%s)", provider.provider, i + 1, len(providers))
 
             try:
                 # If this is the primary provider and we have a fallback, enforce a fast timeout
@@ -84,10 +84,10 @@ class ChatLLM:
                         first_delta = await asyncio.wait_for(gen.__anext__(), timeout=fallback_timeout)
                         started = True
                         self.last_provider = provider.provider
-                        logger.info("[ChatLLM] %s first token received in %.2fs", provider.provider, time.time() - provider_start)
+                        logger.info("[ChatLLM] - %s first token received in %.2fs", provider.provider, time.time() - provider_start)
                         yield first_delta
                     except (asyncio.TimeoutError, StopAsyncIteration) as exc:
-                        logger.warning("[ChatLLM] %s timed out or empty before first token (%.2fs). Falling back.", provider.provider, time.time() - provider_start)
+                        logger.warning("[ChatLLM] - %s timed out or empty before first token (%.2fs). Falling back.", provider.provider, time.time() - provider_start)
                         errors.append((provider.provider, exc))
 
                         # Record the timeout attempt
@@ -98,14 +98,14 @@ class ChatLLM:
                     if not started:
                         started = True
                         self.last_provider = provider.provider
-                        logger.info("[ChatLLM] %s first token received in %.2fs", provider.provider, time.time() - provider_start)
+                        logger.info("[ChatLLM] - %s first token received in %.2fs", provider.provider, time.time() - provider_start)
                     yield delta
 
                 if not started:
                     self.last_provider = provider.provider
 
-                logger.info("[ChatLLM] Request completed successfully using %s in %.2fs", provider.provider, time.time() - provider_start)
-                logger.info("[ChatLLM] Total response time: %.2fs", time.time() - total_start)
+                logger.info("[ChatLLM] - Request completed successfully using %s in %.2fs", provider.provider, time.time() - provider_start)
+                logger.info("[ChatLLM] - Total response time: %.2fs", time.time() - total_start)
 
                 # Record success
                 self._record_call(provider, i, provider_start, endpoint, None)
@@ -124,7 +124,7 @@ class ChatLLM:
                     # If we already yielded some tokens, we must NOT fall back
                     raise
                 logger.warning(
-                    "[ChatLLM] Provider '%s' failed in %.2fs, trying next. Reason: %s",
+                    "[ChatLLM] - Provider '%s' failed in %.2fs, trying next. Reason: %s",
                     provider.provider,
                     time.time() - provider_start,
                     exc,
@@ -138,7 +138,7 @@ class ChatLLM:
             # Multiple providers failed — combine their messages.
             parts = [f"{name}: {exc}" for name, exc in errors]
             combined = "All configured LLM providers failed. " + " | ".join(parts)
-            logger.error("[ChatLLM] All providers failed: %s", combined)
+            logger.error("[ChatLLM] - All providers failed: %s", combined)
             raise ChatLLMServiceError(combined)
 
         raise ChatLLMNotConfiguredError()

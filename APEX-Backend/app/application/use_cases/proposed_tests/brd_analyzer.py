@@ -15,7 +15,7 @@ from app.domain.models.brd_models import (
     BrdWorkflowStep,
 )
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("discovery")
 
 
 class BrdAnalyzer:
@@ -28,7 +28,9 @@ class BrdAnalyzer:
     def extract(self) -> BrdExtractionResult:
         """Parses the document and extracts structured business workflows and requirements."""
         filename = self.file_path.name
+        logger.info("[DISCOVERY BRD PARSE START] - JobID: %s - File: %s", self.job_id, filename)
         if not self.file_path.exists():
+            logger.warning("[DISCOVERY BRD PARSE FAILED] - JobID: %s - File not found: %s", self.job_id, self.file_path)
             return BrdExtractionResult(
                 job_id=self.job_id,
                 filename=filename,
@@ -38,6 +40,7 @@ class BrdAnalyzer:
         try:
             raw_text = self._extract_raw_text()
             if not raw_text.strip():
+                logger.warning("[DISCOVERY BRD PARSE FAILED] - JobID: %s - Empty/unreadable text", self.job_id)
                 return BrdExtractionResult(
                     job_id=self.job_id,
                     filename=filename,
@@ -46,6 +49,14 @@ class BrdAnalyzer:
 
             requirements = self._extract_requirements(raw_text)
             workflows = self._extract_workflows(raw_text, requirements)
+
+            logger.info(
+                "[DISCOVERY BRD PARSE SUCCESS] - JobID: %s - Requirements: %d - Workflows: %d - RawLength: %d",
+                self.job_id,
+                len(requirements),
+                len(workflows),
+                len(raw_text),
+            )
 
             return BrdExtractionResult(
                 job_id=self.job_id,
@@ -57,7 +68,7 @@ class BrdAnalyzer:
             )
 
         except Exception as e:  # noqa: BLE001
-            logger.warning(f"Failed to parse BRD document {filename}: {e}")
+            logger.warning("[DISCOVERY BRD PARSE FAILED] - JobID: %s - Error parsing %s: %s", self.job_id, filename, e)
             return BrdExtractionResult(
                 job_id=self.job_id,
                 filename=filename,
