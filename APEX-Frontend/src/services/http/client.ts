@@ -262,23 +262,23 @@ export function refreshAuthSession(): Promise<boolean> {
   }
   return activeRefreshPromise;
 }
- 
+
 export async function performRequest(path: string, options: ApiRequestOptions = {}): Promise<Response> {
   const { baseUrl, query, ...requestInit } = options;
   const init = buildRequestInit(requestInit);
- 
+
   const response = await fetch(buildApiUrl(path, query, baseUrl), init);
- 
+
   if (response.status === 401 && !options._isRetry && !isAuthEndpoint(path)) {
     const refreshSuccess = await refreshAuthSession();
- 
+
     if (refreshSuccess) {
       return performRequest(path, { ...options, _isRetry: true });
     }
- 
+
     notifySessionExpired();
   }
- 
+
   return response;
 }
  
@@ -288,7 +288,6 @@ export async function requestJson<T>(
   options: ApiRequestOptions = {}
 ): Promise<T> {
   const response = await performRequest(path, options);
- 
   if (response.status === 401 && !isAuthEndpoint(path)) {
     throw new ApiError(
       "Your session has expired. Please sign in again.",
@@ -296,7 +295,6 @@ export async function requestJson<T>(
       "SESSION_EXPIRED"
     );
   }
- 
   return parseJsonResponse<T>(response, fallbackMessage);
 }
  

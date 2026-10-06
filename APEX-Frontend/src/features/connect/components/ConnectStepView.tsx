@@ -14,6 +14,7 @@ import {
   FaRocket,
   FaSearch,
   FaShieldAlt,
+  FaTrashAlt,
 } from "react-icons/fa";
 import { useAuth } from "@/shared/context/AuthContext";
 import { getUserSettings } from "@/features/admin/services/adminService";
@@ -45,6 +46,7 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
   const {
     repoUrl,
     setRepoUrl,
+    selectedRepo,
     setSelectedRepo,
     githubToken,
     setGithubToken,
@@ -71,11 +73,61 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
     handleRepositoryContinue,
     handleLocalProjectFilesChange,
     handleLocalProjectUpload,
+    handleRemoveLocalProject,
+    isLocalRepoRef,
   } = connect;
 
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const zipInputRef = useRef<HTMLInputElement | null>(null);
   const tokenCardTitle = showEnterpriseToken ? "Enterprise Access Token" : "Personal Access Token";
+
+  const isLocalProjectSelected = localProjectUploadFiles.length > 0;
+  const isLocalProjectUploaded = Boolean(selectedRepo && isLocalRepoRef?.(selectedRepo.url));
+  const hasLocalProject = isLocalProjectSelected || isLocalProjectUploaded;
+
+  const isZip = isLocalProjectSelected
+    ? localProjectUploadFiles.length === 1 && localProjectUploadFiles[0].name.toLowerCase().endsWith(".zip")
+    : Boolean(selectedRepo?.name?.toLowerCase().endsWith(".zip"));
+
+  const projectName = isLocalProjectSelected
+    ? (isZip
+        ? localProjectUploadFiles[0].name
+        : (localProjectUploadFiles[0].webkitRelativePath?.split("/")[0] || localProjectUploadFiles[0].name))
+    : (selectedRepo?.name || "Local Project");
+
+  const projectDetailsText = React.useMemo(() => {
+    if (isLocalProjectSelected) {
+      const totalBytes = localProjectUploadFiles.reduce((acc, f) => acc + (f.size || 0), 0);
+      const sizeStr = totalBytes >= 1024 * 1024
+        ? `${(totalBytes / (1024 * 1024)).toFixed(1)} MB`
+        : `${Math.round(totalBytes / 1024)} KB`;
+      return `${localProjectUploadFiles.length} file${localProjectUploadFiles.length === 1 ? "" : "s"} (${sizeStr})`;
+    }
+    if (isLocalProjectUploaded) {
+      return "Uploaded project";
+    }
+    return "";
+  }, [isLocalProjectSelected, isLocalProjectUploaded, localProjectUploadFiles]);
+
+  const handleRemove = () => {
+    handleRemoveLocalProject();
+    if (folderInputRef.current) {
+      folderInputRef.current.value = "";
+    }
+    if (zipInputRef.current) {
+      zipInputRef.current.value = "";
+    }
+    onClearRepoAnalysis();
+    onError("");
+  };
+
+  const handleChange = () => {
+    if (isZip) {
+      zipInputRef.current?.click();
+    } else {
+      folderInputRef.current?.click();
+    }
+  };
 
   const tokenStatusColor =
     accessTokenValidationState === "valid"
@@ -127,12 +179,12 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
   React.useEffect(() => {
     if (repoUrl.trim()) {
       setActiveCard("github");
-    } else if (localProjectUploadFiles.length > 0) {
+    } else if (localProjectUploadFiles.length > 0 || (selectedRepo && isLocalRepoRef?.(selectedRepo.url))) {
       setActiveCard("upload");
     } else {
       setActiveCard(null);
     }
-  }, [repoUrl, localProjectUploadFiles]);
+  }, [repoUrl, localProjectUploadFiles, selectedRepo, isLocalRepoRef]);
 
   const isGithubDisabled = activeCard === "upload";
   const isUploadDisabled = activeCard === "github";
@@ -572,35 +624,65 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
               accept=".zip"
               style={{ display: "none" }}
              onChange={(e) => { handleLocalProjectFilesChange(e.target.files); }}
-            />
-
-           {/* Wrapped in same class as GitHub URL input box for vertical alignment */}
-                       <div className="connect-card-input-box" style={{ marginBottom: 43 }}>
-                         <div className="connect-upload-options" style={{ marginBottom: 0 }}>
-                           <button
-                             type="button"
-                             className="connect-upload-pill"
-                             onClick={() => folderInputRef.current?.click()}
-                           >
-                             <FaFolderOpen />
-                             <span>Select Folder</span>
-                           </button>
-                           <button
-                             type="button"
-                             className="connect-upload-pill"
-                             onClick={() => zipInputRef.current?.click()}
-                           >
-                             <FaFileAlt />
-                             <span>Select ZIP</span>
-                           </button>
-                         </div>
+            />            {/* Wrapped in same class as GitHub URL input box for vertical alignment */}
+            <div className="connect-card-input-box" style={{ marginBottom: hasLocalProject ? 20 : 43 }}>
+              {hasLocalProject ? (
+                <div className="connect-uploaded-preview">
+                  <div className="connect-uploaded-info">
+                    <div className={`connect-uploaded-icon ${isZip ? "is-zip" : "is-folder"}`}>
+                      {isZip ? <FaFileAlt /> : <FaFolderOpen />}
+                    </div>
+                    <div className="connect-uploaded-text">
+                      <span className="connect-uploaded-name" title={projectName}>
+                        {projectName}
+                      </span>
+                      <span className="connect-uploaded-sub">
+                        {projectDetailsText}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="connect-uploaded-actions">
+                    <button
+                      type="button"
+                      className="connect-uploaded-btn is-change"
+                      onClick={handleChange}
+                      title="Change to another local project"
+                    >
+                      Change
+                    </button>
+                    <button
+                      type="button"
+                      className="connect-uploaded-btn is-remove"
+                      onClick={handleRemove}
+                      title="Remove local project"
+                    >
+                      <FaTrashAlt size={11} />
+                      <span>Remove</span>
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="connect-upload-options" style={{ marginBottom: 0 }}>
+                  <button
+                    type="button"
+                    className="connect-upload-pill"
+                    onClick={() => folderInputRef.current?.click()}
+                  >
+                    <FaFolderOpen />
+                    <span>Select Folder</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="connect-upload-pill"
+                    onClick={() => zipInputRef.current?.click()}
+                  >
+                    <FaFileAlt />
+                    <span>Select ZIP</span>
+                  </button>
+                </div>
+              )}
             </div>
 
-            {localProjectUploadFiles.length > 0 && (
-              <div style={{ fontSize: 12, color: "#166534", marginBottom: 10, fontWeight: 600 }}>
-                ✓ Selected {localProjectUploadFiles.length} file{localProjectUploadFiles.length === 1 ? "" : "s"}
-              </div>
-            )}
             {localProjectUploadWarning && (
               <div style={{ fontSize: 11, color: "#b45309", marginBottom: 8 }}>{localProjectUploadWarning}</div>
             )}
