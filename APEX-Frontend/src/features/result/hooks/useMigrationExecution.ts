@@ -43,10 +43,10 @@ export function useMigrationExecution() {
   const [migrationJob, setMigrationJob] = useState<MigrationResult | null>(() => {
     const currentJobId = readPersistedValue(WIZARD_JOB_ID_KEY);
     const saved = readSessionJson<MigrationResult>(WIZARD_MIGRATION_JOB_KEY);
-    if (saved && currentJobId && (saved.job_id === currentJobId || (saved as any).jobId === currentJobId)) {
+    if (saved && currentJobId && (saved.job_id === currentJobId || (saved as MigrationResult & { jobId?: string }).jobId === currentJobId)) {
       return {
         ...saved,
-        job_id: saved.job_id || (saved as any).jobId || currentJobId,
+        job_id: saved.job_id || (saved as MigrationResult & { jobId?: string }).jobId || currentJobId,
       };
     }
     if (saved) {

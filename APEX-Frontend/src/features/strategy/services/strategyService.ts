@@ -57,13 +57,16 @@ export interface RiskExplanationResponse {
 
 export function getDefaultRiskExplanation(level: string): string {
   const normalized = (level || "").trim().toLowerCase();
-  if (normalized === "low") {
-    return "The project is already on a modern migration path with build tooling and tests detected.";
+  if (normalized === "critical") {
+    return "The project contains critical dependency compatibility warnings requiring explicit migration attention.";
+  }
+  if (normalized === "high") {
+    return "The project contains high-risk dependencies, legacy view technologies (JSP/JSF), or major framework upgrades.";
   }
   if (normalized === "medium") {
-    return "The project has build tooling, but tests are missing or limited.";
+    return "The project has build tooling, but tests are missing or dependencies require version alignment.";
   }
-  return "The project needs extra review because build tooling or Java metadata was not detected.";
+  return "The project is on a modern migration path with build tooling and tests detected.";
 }
 
 // Canonical Java release list used to populate the source/target dropdowns.

@@ -94,15 +94,6 @@ def find_files(root: Path, suffix: str, *, limit: int | None = 2000) -> list[str
 
 _SKIP_DIRS = {
     ".git",
-    "node_modules",
-    "target",
-    "build",
-    "dist",
-    ".gradle",
-    ".idea",
-    ".mvn",
-    "out",
-    "bin",
 }
 
 

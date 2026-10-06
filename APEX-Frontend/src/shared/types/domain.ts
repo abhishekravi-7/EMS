@@ -207,7 +207,7 @@ export interface RepoAnalysis {
   spring_boot_eligibility?: SpringBootConversionEligibility;
   // backend-provided dynamic framework target version recommendations
   framework_recommendations?: FrameworkRecommendations;
-  discovery_stages?: Record<string, any>;
+  discovery_stages?: Record<string, unknown>;
   services?: Array<Record<string, unknown>>;
   classes?: Array<Record<string, unknown>>;
   ui_workflows?: Array<Record<string, unknown>>;

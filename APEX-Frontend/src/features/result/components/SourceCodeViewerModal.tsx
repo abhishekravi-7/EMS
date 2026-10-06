@@ -1,11 +1,9 @@
 import React, { useState, useEffect, useRef } from "react";
 import {
   FaTimes,
-  FaCode,
   FaFileCode,
   FaExchangeAlt,
   FaListUl,
-  FaExternalLinkAlt,
   FaCheck,
   FaCopy,
 } from "react-icons/fa";

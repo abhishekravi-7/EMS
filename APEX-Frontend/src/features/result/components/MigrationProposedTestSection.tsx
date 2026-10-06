@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   FaSpinner,
-  FaRedo,
   FaDownload,
   FaTerminal,
   FaTimes,
@@ -17,7 +16,6 @@ import {
   FaTimesCircle,
   FaHourglassHalf,
   FaMinusCircle,
-  FaClock,
   FaFileCode,
   FaChevronDown,
   FaChevronUp,
@@ -54,7 +52,7 @@ export function MigrationProposedTestSection({
   const jobId = migrationJob?.job_id || "";
   const [proposals, setProposals] = useState<ProposedTestCase[]>([]);
   const [metrics, setMetrics] = useState<ProposedTestMetrics | null>(null);
-  const [comparison, setComparison] = useState<ProposedTestComparisonResponse | null>(null);
+  const [_comparison, setComparison] = useState<ProposedTestComparisonResponse | null>(null);
   const [logs, setLogs] = useState<Array<{ ts?: string; msg?: string; level?: string }>>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -200,7 +198,7 @@ export function MigrationProposedTestSection({
         .map((p) => p.id);
       setSelectedTestIds(new Set(validIds.length > 0 ? validIds : proposals.map((p) => p.id)));
     }
-  }, [proposals]);
+  }, [proposals, selectedTestIds.size]);
 
   const handleToggleSelectAll = () => {
     if (selectedTestIds.size === proposals.length) {
@@ -309,8 +307,8 @@ export function MigrationProposedTestSection({
   const executedCount = metrics?.executed ?? proposals.filter((p) => p.status === "PASSED" || p.status === "FAILED" || p.status === "SKIPPED").length;
   const passedCount = metrics?.passed ?? proposals.filter((p) => p.status === "PASSED").length;
   const failedCount = metrics?.failed ?? proposals.filter((p) => p.status === "FAILED").length;
-  const skippedCount = metrics?.skipped ?? proposals.filter((p) => p.status === "SKIPPED").length;
-  const notExecutedCount = metrics?.not_executed ?? Math.max(0, totalProposed - executedCount);
+  const _skippedCount = metrics?.skipped ?? proposals.filter((p) => p.status === "SKIPPED").length;
+  const _notExecutedCount = metrics?.not_executed ?? Math.max(0, totalProposed - executedCount);
 
   // Validation Breakdown Counts (Inventory is fully preserved)
   const validCount = proposals.filter((p) => !p.validation || p.validation.status === "VALID" || p.validation.status === "PARTIALLY_VALID").length;
@@ -320,7 +318,7 @@ export function MigrationProposedTestSection({
 
   const passRateNum = executedCount > 0 ? Math.round((passedCount / executedCount) * 100) : 0;
   const passRateDisplay = `${passRateNum}%`;
-  const durationDisplay = metrics?.duration || "0.0s";
+  const _durationDisplay = metrics?.duration || "0.0s";
 
   // Dynamic source breakdown counts
   const functionalDocCount = proposals.filter(
@@ -344,8 +342,8 @@ export function MigrationProposedTestSection({
 
   const llmCount = Math.max(0, totalProposed - functionalDocCount - existingCount);
 
-  const statusLabel = isRunning ? "running baseline tests" : executedCount > 0 ? "completed" : "ready for baseline run";
-  const statusColor = isRunning ? "#0284c7" : executedCount > 0 ? (failedCount === 0 ? "#10b981" : "#ef4444") : "#d97706";
+  const _statusLabel = isRunning ? "running baseline tests" : executedCount > 0 ? "completed" : "ready for baseline run";
+  const _statusColor = isRunning ? "#0284c7" : executedCount > 0 ? (failedCount === 0 ? "#10b981" : "#ef4444") : "#d97706";
 
   // Breakdown Calculations
   const apiCount = proposals.filter(p => p.type === "API").length;
@@ -696,7 +694,7 @@ export function MigrationProposedTestSection({
                       <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 6, padding: "8px 12px" }}>
                         <div style={{ fontSize: 11, fontWeight: 700, color: "#475569", marginBottom: 6 }}>Assertion Verifications:</div>
                         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                          {apiTrace.assertions.map((a: any, aIdx: number) => (
+                          {apiTrace.assertions.map((a: { passed?: boolean; assertion?: string; expected?: unknown; actual?: unknown }, aIdx: number) => (
                             <div key={aIdx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11, fontFamily: "monospace", background: "#ffffff", border: "1px solid #f1f5f9", padding: "4px 8px", borderRadius: 4 }}>
                               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                                 {a.passed ? <FaCheckCircle size={11} color="#059669" /> : <FaTimesCircle size={11} color="#dc2626" />}

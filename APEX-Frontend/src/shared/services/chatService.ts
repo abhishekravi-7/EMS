@@ -728,7 +728,7 @@ export function determineThinkingState(question: string, intent?: QuestionIntent
  * 3. Does it contain unsupported project claims?
  * 4. Is it unnecessarily generic?
  */
-export function validateAnswer(answer: string, context: CentralizedProjectContext): string {
+export function validateAnswer(answer: string, _context: CentralizedProjectContext): string {
   let validated = answer.trim();
 
   // Strip accidental internal technical leaks
@@ -1026,8 +1026,10 @@ export async function sendMessage({
 
     if (!response.ok) {
       const errText = await response.text();
-      let errObj: any = {};
-      try { errObj = JSON.parse(errText); } catch (e) {}
+      let errObj: Record<string, unknown> = {};
+      try { errObj = JSON.parse(errText); } catch {
+        // invalid JSON response, fallback to default empty object
+      }
 
       if (
         errObj.error === "LLM_NOT_CONFIGURED" ||

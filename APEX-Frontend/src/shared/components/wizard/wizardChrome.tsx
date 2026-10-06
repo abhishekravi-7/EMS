@@ -1,4 +1,4 @@
-import { FaArrowLeft, FaArrowRight } from "react-icons/fa";
+import React from "react";
 import { buildWizardAccentVars } from "./wizardUi";
 
 export const renderWizardIconBadge = (
