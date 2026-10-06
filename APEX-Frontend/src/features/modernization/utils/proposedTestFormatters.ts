@@ -44,7 +44,7 @@ export function formatProposedTestDisplayName(test?: ProposedTestLike | null): s
 
   // 2. If no structured api_spec method/endpoint, attempt extraction from title if it matches HTTP pattern
   if (!method || !endpoint) {
-    const titleMatch = rawTitle.match(/(?:^|\b)(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+(\/[^\s–—\-]*)/i);
+    const titleMatch = rawTitle.match(/(?:^|\b)(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+(\/[^\s–—-]*)/i);
     if (titleMatch) {
       if (!method) method = titleMatch[1].toUpperCase();
       if (!endpoint) endpoint = titleMatch[2].trim();
@@ -91,7 +91,7 @@ function extractApiScenario(title: string, method: string, endpoint: string): st
     .trim();
 
   // Remove leading separator if present
-  cleaned = cleaned.replace(/^[–—\-\:\.]\s*/, "").trim();
+  cleaned = cleaned.replace(/^[–—\-:.]\s*/, "").trim();
 
   // Remove common generic success / happy-path boilerplate
   const genericSuccessPatterns = [

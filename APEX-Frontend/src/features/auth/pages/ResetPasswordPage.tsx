@@ -35,9 +35,10 @@ const ResetPasswordPage: React.FC = () => {
     try {
       await confirmPasswordReset(token, password);
       setStatus("success");
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Failed to reset password:", err);
-      setErrorMsg(err.message || "Failed to reset password. The link might be expired.");
+      const errMsg = err instanceof Error ? err.message : "Failed to reset password. The link might be expired.";
+      setErrorMsg(errMsg);
       setStatus("error");
     }
   };

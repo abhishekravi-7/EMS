@@ -142,7 +142,7 @@ function renderDonutChart(
 
 export type ProposedTestSourceCategory = "AI_GENERATED" | "BRD_DOCUMENT";
 
-export function getProposedTestSourceCategory(p: ProposedTestCase): ProposedTestSourceCategory {
+function getProposedTestSourceCategory(p: ProposedTestCase): ProposedTestSourceCategory {
   const genSource = (p.generation_source || "").toUpperCase();
   const source = (p.source || "").toLowerCase();
   const id = (p.id || "").toUpperCase();
@@ -161,7 +161,7 @@ export function getProposedTestSourceCategory(p: ProposedTestCase): ProposedTest
   return "AI_GENERATED";
 }
 
-export function filterAndDeduplicateProposals(list: ProposedTestCase[]): ProposedTestCase[] {
+function filterAndDeduplicateProposals(list: ProposedTestCase[]): ProposedTestCase[] {
   const seen = new Set<string>();
   const unique: ProposedTestCase[] = [];
   for (const item of list) {

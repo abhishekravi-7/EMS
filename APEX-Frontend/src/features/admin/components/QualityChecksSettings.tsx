@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { FaPlus, FaTrash } from "react-icons/fa";
 
 interface FieldConfig {
@@ -95,7 +95,10 @@ export default function QualityChecksSettings({ configString, onChange }: Qualit
     return DEFAULT_CONFIG;
   });
 
-  useEffect(() => {
+  const [prevConfigString, setPrevConfigString] = useState(configString);
+
+  if (configString !== prevConfigString) {
+    setPrevConfigString(configString);
     try {
       if (configString) {
         const parsed = JSON.parse(configString);
@@ -104,7 +107,7 @@ export default function QualityChecksSettings({ configString, onChange }: Qualit
     } catch (e) {
       console.error("Failed to sync quality checks config", e);
     }
-  }, [configString]);
+  }
 
   const updateConfig = (key: string, updates: Partial<QualityCheckConfig>) => {
     const currentCheck = configs[key] || DEFAULT_CONFIG[key] || { name: key, description: "", enabled: true, required: false, execution_enabled: true, fields: [] };

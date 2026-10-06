@@ -1,7 +1,5 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
-import apexLogo from "../../../assets/logo.jpg";
-import { FaBolt, FaCogs, FaBullseye } from "react-icons/fa";
 import IsometricHeroDiagram from "./IsometricHeroDiagram";
 import TransparentLogo from "./TransparentLogo";
 import "../landing_exact.css";

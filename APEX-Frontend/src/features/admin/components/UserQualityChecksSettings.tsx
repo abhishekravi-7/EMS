@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars, react-hooks/exhaustive-deps */
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 import React, { useState, useEffect } from "react";
 import { FaShieldAlt, FaEye, FaEyeSlash, FaFlask, FaSpinner, FaLightbulb, FaCheckCircle } from "react-icons/fa";
 import { getQualityChecksAdminConfig, analyzeTestingPrompt, testUserPlaywrightConnection, type FullUserSettings, type TestingPromptAnalysisResult } from "../services/adminService";

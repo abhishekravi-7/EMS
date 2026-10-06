@@ -7,8 +7,6 @@ import {
   FaFolder,
   FaJava,
   FaCodeBranch,
-  FaClock,
-  FaCircle,
   FaGithub,
   FaInfoCircle,
   FaLock,
@@ -66,7 +64,6 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
     urlValidation,
     showEnterpriseToken,
     repoVisibility,
-    isPatModeOpen,
     setIsPatModeOpen,
     shouldShowPatInput,
     resetAccessTokenValidationState,
@@ -123,6 +120,7 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
       });
     }
     return () => { isMounted = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser, setRepoUrl, setPatToken, setIsPrivateRepo]); // Intentionally not including repoUrl/patToken to avoid infinite fetching loops
 
   // Update active card based on inputs

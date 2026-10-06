@@ -516,7 +516,7 @@ export function useRepositoryConnect({
     const totalSize = fileArray.reduce((sum, file) => sum + file.size, 0);
 
     // If single file selected, check if user tried to upload non-zip
-    if (fileArray.length === 1 && !fileArray[0].name.toLowerCase().endsWith(".zip") && !(fileArray[0] as any).webkitRelativePath) {
+    if (fileArray.length === 1 && !fileArray[0].name.toLowerCase().endsWith(".zip") && !(fileArray[0] as File & { webkitRelativePath?: string }).webkitRelativePath) {
       setLocalProjectUploadFiles([]);
       setLocalProjectUploadError("Please select a valid ZIP archive (.zip) or a project folder.");
       setLocalProjectUploadWarning("");
@@ -606,7 +606,7 @@ export function useRepositoryConnect({
         formData.append("zip_file", zipBlob, "local-project.zip");
         setLocalProjectUploadCompressing(false);
       } else {
-        localFiles.forEach((file) => formData.append("files", file, (file as any).webkitRelativePath || file.name));
+        localFiles.forEach((file) => formData.append("files", file, (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name));
       }
 
       return uploadLocalProject(formData);

@@ -434,8 +434,8 @@ export const CANONICAL_REPO_FILES: Record<string, CanonicalFileData> = {
 export function resolveSourceReference(
   fileNameOrPath: string,
   options?: {
-    codeChanges?: any[];
-    migrationJob?: any;
+    codeChanges?: Record<string, unknown>[];
+    migrationJob?: Record<string, unknown> | null;
     startLine?: number;
     endLine?: number;
     changeType?: SourceLocationReference["changeType"];
@@ -487,15 +487,15 @@ export function resolveSourceReference(
         endLine: endLine ?? (startLine ?? 1),
         beforeCode,
         afterCode,
-        changeType: options?.changeType || (matched.changeType?.toUpperCase() as any) || "MODIFIED",
+        changeType: options?.changeType || (matched.changeType?.toUpperCase() as SourceLocationReference["changeType"]) || "MODIFIED",
         title: options?.customTitle,
       };
     }
   }
 
   // 2. Check migrationJob.file_diffs
-  if (Array.isArray(migrationJob?.file_diffs)) {
-    const matchedDiff = migrationJob.file_diffs.find((d: any) => {
+  if (Array.isArray((migrationJob as { file_diffs?: unknown[] })?.file_diffs)) {
+    const matchedDiff = ((migrationJob as { file_diffs: Record<string, string>[] }).file_diffs).find((d) => {
       const p = d.filePath || d.file_path || "";
       return p.endsWith(baseName);
     });

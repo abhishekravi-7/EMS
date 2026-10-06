@@ -27,7 +27,7 @@ export interface MigrationStepperProps {
  */
 export const MigrationStepper: React.FC<MigrationStepperProps> = ({
   steps,
-  currentStep,
+  currentStep: _currentStep,
   selectedStepId,
   onStepClick,
 }) => {

@@ -3,13 +3,11 @@ import {
   FaCheckCircle,
   FaShieldAlt,
   FaExclamationTriangle,
-  FaRedo,
   FaDownload,
   FaTerminal,
   FaStopwatch,
   FaFileAlt,
   FaCode,
-  FaLayerGroup,
   FaFileArchive,
   FaFileCode,
   FaExternalLinkAlt,
@@ -25,7 +23,6 @@ import {
   FaTimesCircle
 } from "react-icons/fa";
 export { MigrationProposedTestSection } from "./MigrationProposedTestSection";
-import { API_BASE_URL } from "@/services/config/env";
 import {
   type MigrationResult,
   downloadMigratedProject,
@@ -45,7 +42,7 @@ interface MigrationUnitTestSectionProps {
   migrationJob: MigrationResult;
   testSummaryReportDate: string;
   migrationJavaVersion: string | null;
-  summaryItems: any[];
+  summaryItems: Record<string, unknown>[];
   testsRun: number;
   runTests?: boolean;
   onDownloadUnitTestReport: () => Promise<void> | void;
@@ -59,7 +56,7 @@ export function MigrationUnitTestSection({
   onDownloadUnitTestReport,
 }: MigrationUnitTestSectionProps) {
   const [showAllModal, setShowAllModal] = useState(false);
-  const [savedPrompt, setSavedPrompt] = useState<string | null>(null);
+  const [_savedPrompt, setSavedPrompt] = useState<string | null>(null);
   const [selectedPromptTab, setSelectedPromptTab] = useState<string | null>(null);
 
   useEffect(() => {
@@ -104,7 +101,7 @@ export function MigrationUnitTestSection({
   }
 
   const getValueByLabel = (pattern: string, fallback: string | number = 0) => {
-    const found = summaryItems.find((i: any) => i.label.toUpperCase().includes(pattern.toUpperCase()));
+    const found = (summaryItems as { label: string; value: string | number }[]).find((i) => i.label.toUpperCase().includes(pattern.toUpperCase()));
     return found ? found.value : fallback;
   };
 
@@ -119,11 +116,13 @@ export function MigrationUnitTestSection({
     ? parseFloat(jacocoCoverageRaw.toString().replace("%", ""))
     : null;
 
-  const testPipeline = migrationJob?.test_pipeline ?? {};
-  const executedDetails = (testPipeline as any)?.executed_test_details ?? [];
-  const generatedFiles = (testPipeline as any)?.generated_test_files ?? [];
-  const genExec = (testPipeline as any)?.generated_test_execution ?? {};
-  const covResult = (testPipeline as any)?.coverage_result || (migrationJob as any)?.coverage_result || (migrationJob as any)?.coverage;
+  type TestPipe = { executed_test_details?: unknown[]; generated_test_files?: unknown[]; generated_test_execution?: unknown; coverage_result?: Record<string, unknown> };
+  const testPipeline = (migrationJob?.test_pipeline as TestPipe | undefined) ?? {};
+  const executedDetails = testPipeline?.executed_test_details ?? [];
+  const generatedFiles = testPipeline?.generated_test_files ?? [];
+  const genExec = testPipeline?.generated_test_execution ?? {};
+  type CovData = { available?: boolean; original?: { line_coverage_pct?: number }; final?: { line_coverage_pct?: number }; line_coverage_pct?: number };
+  const covResult = (testPipeline?.coverage_result || (migrationJob as typeof migrationJob & { coverage_result?: CovData; coverage?: CovData })?.coverage_result || (migrationJob as typeof migrationJob & { coverage_result?: CovData; coverage?: CovData })?.coverage) as CovData | undefined;
   const isCovAvailable = Boolean(covResult?.available);
   const originalCov = isCovAvailable && typeof covResult?.original?.line_coverage_pct === "number" ? covResult.original.line_coverage_pct : null;
   const finalCov = isCovAvailable
@@ -168,11 +167,11 @@ export function MigrationUnitTestSection({
 
   const genMethodCount = Number(genExec.generated_test_methods ?? parseInt(String(generatedTestCases).replace("+", "")) ?? 0) || 0;
   const execGenCount = Number(genExec.executed_generated_test_methods ?? genExec.executed ?? executedDetails.length) || 0;
-  const passedGenCount = Number(genExec.passed_generated_test_methods ?? genExec.passed ?? executedDetails.filter((d: any) => d.status === "PASSED").length) || 0;
-  const failedGenCount = Number(genExec.failed_generated_test_methods ?? genExec.failed ?? executedDetails.filter((d: any) => d.status === "FAILED").length) || 0;
-  const skippedGenCount = Number(genExec.skipped_generated_test_methods ?? genExec.skipped ?? executedDetails.filter((d: any) => d.status === "SKIPPED").length) || 0;
+  const passedGenCount = Number(genExec.passed_generated_test_methods ?? genExec.passed ?? (executedDetails as Record<string, unknown>[]).filter((d) => d.status === "PASSED").length) || 0;
+  const failedGenCount = Number(genExec.failed_generated_test_methods ?? genExec.failed ?? (executedDetails as Record<string, unknown>[]).filter((d) => d.status === "FAILED").length) || 0;
+  const skippedGenCount = Number(genExec.skipped_generated_test_methods ?? genExec.skipped ?? (executedDetails as Record<string, unknown>[]).filter((d) => d.status === "SKIPPED").length) || 0;
 
-  const rawExecStatus = (testPipeline as any)?.execution_status || (execGenCount > 0 ? (failedGenCount === 0 ? "EXECUTED" : (passedGenCount > 0 ? "PARTIAL" : "FAILED")) : "NOT_EXECUTED");
+  const rawExecStatus = (testPipeline as Record<string, unknown>)?.execution_status || (execGenCount > 0 ? (failedGenCount === 0 ? "EXECUTED" : (passedGenCount > 0 ? "PARTIAL" : "FAILED")) : "NOT_EXECUTED");
   const execStatusLabel =
     rawExecStatus === "EXECUTED"
       ? "EXECUTED"
@@ -393,14 +392,16 @@ export function MigrationUnitTestSection({
 
       {/* PROMPT COMPLIANCE ANALYSIS */}
       {(() => {
-        const promptCompliance = (testPipeline as any)?.prompt_compliance;
+        type CompItem = { prompt_id?: string; prompt_name?: string; compliance_percentage?: number };
+        type PromptComp = { compliance_items?: CompItem[]; overall_compliance_percentage?: number };
+        const promptCompliance = (testPipeline as { prompt_compliance?: PromptComp })?.prompt_compliance;
         if (!promptCompliance || !promptCompliance.compliance_items || promptCompliance.compliance_items.length === 0) {
           return null;
         }
 
         const items = promptCompliance.compliance_items;
         const activeTabId = selectedPromptTab || items[0]?.prompt_id;
-        const activeItem = items.find((i: any) => i.prompt_id === activeTabId) || items[0];
+        const activeItem = items.find((i) => i.prompt_id === activeTabId) || items[0];
         const overallPct = promptCompliance.overall_compliance_percentage ?? 0;
         const isPassed = overallPct >= 80;
 
@@ -523,7 +524,7 @@ export function MigrationUnitTestSection({
                 borderRadius: 10,
               }}
             >
-              {items.map((it: any) => {
+              {items.map((it) => {
                 const isSelected = it.prompt_id === activeTabId;
                 return (
                   <button
@@ -743,7 +744,7 @@ export function MigrationUnitTestSection({
                 </tr>
               </thead>
               <tbody>
-                {generatedFiles.map((gf: any, idx: number) => {
+                {(generatedFiles as Record<string, unknown>[]).map((gf, idx: number) => {
                   const statusRaw = (gf.execution_status || (gf.status === "CREATED" ? (execGenCount > 0 ? "EXECUTED" : "NOT EXECUTED") : gf.status || "NOT EXECUTED")).toUpperCase();
                   let statusLabel = "NOT EXECUTED";
                   let statusBg = "#f1f5f9";
@@ -822,7 +823,7 @@ export function MigrationUnitTestSection({
           </thead>
           <tbody>
             {executedDetails.length > 0 ? (
-              executedDetails.map((row: any, i: number) => (
+              (executedDetails as Record<string, unknown>[]).map((row, i: number) => (
                 <tr key={i} style={{ borderBottom: "1px solid #f1f5f9", background: i % 2 === 0 ? "#fff" : "#fafbfc" }}>
                   <td style={{ padding: "12px 20px", color: "#2563eb", fontWeight: 600 }}>{row.test_class}</td>
                   <td style={{ padding: "12px 20px", color: "#475569" }}>{row.test_method}</td>
@@ -900,7 +901,7 @@ export function MigrationUnitTestSection({
                     </tr>
                   </thead>
                   <tbody>
-                    {executedDetails.map((row: any, i: number) => (
+                    {(executedDetails as Record<string, unknown>[]).map((row, i: number) => (
                       <tr key={i} style={{ borderBottom: "1px solid #f1f5f9", background: i % 2 === 0 ? "#fff" : "#fafbfc" }}>
                         <td style={{ padding: "14px 20px", color: "#2563eb", fontWeight: 600 }}>{row.test_class}</td>
                         <td style={{ padding: "14px 20px", color: "#475569" }}>{row.test_method}</td>
@@ -966,7 +967,8 @@ export function MigrationSonarSection({
       </div>
     );
   }
-  const sonarReport = (migrationJob?.sonar_report as any) || {};
+  type SonarRep = { quality_gate?: string; coverage?: string | number; bugs?: number; vulnerabilities?: number; code_smells?: number; security_hotspots?: number; analysis_url?: string; dashboard_url?: string; project_key?: string };
+  const sonarReport = (migrationJob?.sonar_report as SonarRep | undefined) || {};
   const qualityGateStatus = sonarReport?.quality_gate || "UNAVAILABLE";
   const qualityGateColor = qualityGateStatus === "PASSED" || qualityGateStatus === "OK" ? "#22c55e" : "#f59e0b";
 
@@ -985,16 +987,17 @@ export function MigrationSonarSection({
   const codeSmellsCount = sonarReport?.code_smells || 0;
   const hotspotsCount = sonarReport?.security_hotspots || 0;
 
+  type JobExtraProps = { sonar_project_url?: string; project_key?: string };
   const rawSonarUrl =
     migrationJob?.sonar_analysis_url ||
-    (migrationJob?.sonar_report as any)?.analysis_url ||
-    (migrationJob?.sonar_report as any)?.dashboard_url ||
-    (migrationJob as any)?.sonar_project_url;
+    (migrationJob?.sonar_report as SonarRep | undefined)?.analysis_url ||
+    (migrationJob?.sonar_report as SonarRep | undefined)?.dashboard_url ||
+    (migrationJob as typeof migrationJob & JobExtraProps)?.sonar_project_url;
 
   const projectKey =
     migrationJob?.sonar_project_key ||
-    (migrationJob?.sonar_report as any)?.project_key ||
-    (migrationJob as any)?.project_key;
+    (migrationJob?.sonar_report as SonarRep | undefined)?.project_key ||
+    (migrationJob as typeof migrationJob & JobExtraProps)?.project_key;
 
   const effectiveSonarUrl =
     rawSonarUrl ||
@@ -1481,7 +1484,7 @@ export function MigrationLogSection({ styles, migrationLogs }: MigrationLogSecti
 
 interface MigrationIssuesSectionProps {
   styles: StyleMap;
-  issues: any[];
+  issues: MigrationIssue[];
   isOpen: boolean;
   onToggle: () => void;
 }

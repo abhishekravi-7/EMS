@@ -1,11 +1,11 @@
 import React, { useState } from "react";
 import type { SystemSettings } from "../services/adminService";
 import { testAdminPlaywrightConnection } from "../services/adminService";
-import { FaSpinner, FaPlay, FaCheckCircle, FaTimesCircle, FaShieldAlt } from "react-icons/fa";
+import { FaSpinner, FaPlay, FaCheckCircle, FaTimesCircle } from "react-icons/fa";
 
 interface TestCasesAdminSettingsProps {
   settings: SystemSettings;
-  onChange: (key: keyof SystemSettings, value: any) => void;
+  onChange: (key: keyof SystemSettings, value: unknown) => void;
 }
 
 export function TestCasesAdminSettings({ settings, onChange }: TestCasesAdminSettingsProps) {
@@ -27,8 +27,9 @@ export function TestCasesAdminSettings({ settings, onChange }: TestCasesAdminSet
     try {
       const res = await testAdminPlaywrightConnection();
       setTestResult({ status: "success", message: res.message || "Playwright is configured correctly." });
-    } catch (err: any) {
-      setTestResult({ status: "error", message: err.message || "Test connection failed." });
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : "Test connection failed.";
+      setTestResult({ status: "error", message: errMsg });
     } finally {
       setTesting(false);
     }

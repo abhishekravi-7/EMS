@@ -1,11 +1,11 @@
 import React, { useState } from "react";
 import type { FullUserSettings, SystemSettings } from "../services/adminService";
 import { testUserPlaywrightConnection } from "../services/adminService";
-import { FaSpinner, FaPlay, FaCheckCircle, FaTimesCircle, FaShieldAlt } from "react-icons/fa";
+import { FaSpinner, FaPlay, FaCheckCircle, FaTimesCircle } from "react-icons/fa";
 
 interface TestCasesUserSettingsProps {
   settings: FullUserSettings;
-  onChange: (key: keyof FullUserSettings, value: any) => void;
+  onChange: (key: keyof FullUserSettings, value: unknown) => void;
   adminSettings: SystemSettings;
 }
 
@@ -50,8 +50,9 @@ export function TestCasesUserSettings({ settings, onChange, adminSettings }: Tes
     try {
       const res = await testUserPlaywrightConnection(playwrightBaseUrl);
       setTestResult({ status: "success", message: res.message || "Connected to application successfully." });
-    } catch (err: any) {
-      setTestResult({ status: "error", message: err.message || "Connection failed." });
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : "Connection failed.";
+      setTestResult({ status: "error", message: errMsg });
     } finally {
       setTesting(false);
     }

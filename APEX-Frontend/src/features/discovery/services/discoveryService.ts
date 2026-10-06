@@ -203,7 +203,7 @@ export function mapDiscoveryToRepoAnalysis(response: DiscoveryResponse): RepoAna
     versionSource: dep.versionSource,
   }));
 
-    const rawOtherFiles: string[] = project.otherFiles ?? (project as any).other_files ?? [];
+    const rawOtherFiles: string[] = project.otherFiles ?? (project as { other_files?: string[] }).other_files ?? [];
     const cleanOtherFiles = rawOtherFiles.filter((f: string) => {
       const lower = (typeof f === "string" ? f : "").toLowerCase();
       return (
@@ -219,6 +219,15 @@ export function mapDiscoveryToRepoAnalysis(response: DiscoveryResponse): RepoAna
         ? cleanOtherFiles.length
         : (project.otherFileCount ?? cleanOtherFiles.length);
 
+    type ExtraProjectFields = {
+      java_files?: string[];
+      config_files?: string[];
+      file_metrics?: unknown;
+      viewTechnologies?: unknown;
+      view_technologies?: unknown;
+    };
+    const extraProj = project as ExtraProjectFields;
+
     return {
       name: repository.repoName,
       full_name: `${repository.owner}/${repository.repoName}`,
@@ -228,19 +237,19 @@ export function mapDiscoveryToRepoAnalysis(response: DiscoveryResponse): RepoAna
       java_version: javaVersion,
       java_version_from_build: javaVersion,
       spring_boot_version: project.springBootVersion ?? null,
-      java_files: project.javaFiles ?? (project as any).java_files ?? [],
+      java_files: project.javaFiles ?? extraProj.java_files ?? [],
       java_file_count: project.javaFileCount ?? (project.javaFiles?.length || 0),
-      config_files: project.configFiles ?? (project as any).config_files ?? [],
+      config_files: project.configFiles ?? extraProj.config_files ?? [],
       config_file_count: project.configFileCount ?? (project.configFiles?.length || 0),
       other_files: cleanOtherFiles,
       other_file_count: cleanOtherCount,
       total_file_count: project.totalFileCount,
-      file_metrics: project.fileMetrics ?? (project as any).file_metrics,
+      file_metrics: (project.fileMetrics ?? extraProj.file_metrics) as RepoAnalysis["file_metrics"],
       jsp_count: project.jspFileCount,
       jsf_count: project.jsfFileCount,
       jsp_files: project.jspFiles ?? [],
       jsf_files: project.jsfFiles ?? [],
-      view_technologies: (project as any).viewTechnologies ?? (project as any).view_technologies ?? undefined,
+      view_technologies: (extraProj.viewTechnologies ?? extraProj.view_technologies ?? undefined) as RepoAnalysis["view_technologies"],
     has_tests: Boolean(project.hasTests),
     dependencies,
     api_endpoints: project.apiEndpoints ?? [],
