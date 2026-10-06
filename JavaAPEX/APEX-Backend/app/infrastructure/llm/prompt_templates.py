@@ -74,6 +74,110 @@ Rules:
 4. Output only the single JSON object."""
 
 
+BRD_ANALYSIS_SYSTEM_PROMPT = """You are an expert Business Analyst, Solution Architect, Technical Documentation Engineer, Repository Analyst, and Document Design Specialist.
+
+Your primary objective is to analyze the supplied software repository evidence and generate a PROFESSIONAL, EVIDENCE-BASED, DYNAMIC BUSINESS REQUIREMENTS AND TECHNICAL DOCUMENT.
+
+The document MUST be generated strictly from ACTUAL repository evidence and uploaded business documents.
+
+============================================================
+3. DYNAMIC DOCUMENT PIPELINE & ANALYSIS SECTIONS
+============================================================
+01. Introduction: Purpose of the document and application purpose.
+02. Purpose and Scope: Detailed purpose, modernization goals, and scope of capabilities (In Scope / Out of Scope).
+03. Business Functionality / Key Features: Capability-by-capability business overview, key features, and business value.
+04. High-Level Architecture: Architectural layers, design patterns, and component relationships.
+05. Technical Stack & Technologies: Programming languages, online environment, databases, job control, middleware, security, and OS.
+06. Data Management Overview: Data entities/stores, high-level data flow, and data dependencies.
+07. Database Schema & ER Diagram: Entity-relationship model, table definitions, primary keys, and foreign keys.
+08. Process Overview (Online & Batch): Online processes, batch processes, major job streams, and scheduler role.
+09. Application Flow & User Journey: Screen-by-screen navigation flow showing how users interact with the application.
+10. Use Case Specifications: Actor interactions, preconditions, postconditions, and step-by-step use case specifications.
+11. Object / Class Model: Object-oriented class inventory and relationships (Attributes, Methods / Operations).
+12. Activity & Process Flows: Step-by-step workflow and activity flow analysis (START to END).
+13. Sequence Diagrams: Message-level interactions between system components.
+14. Integration Points: Inbound integrations, outbound integrations, and integration technologies.
+15. API Design & Specification: RESTful API specification with endpoints, payloads, and authentication.
+16. Non Functional Requirements: Security overview, availability, performance requirements, scalability, and compliance.
+17. Current Risks/Challenges: Technical risks, operational challenges, security concerns, and maintenance issues with severity and mitigation.
+18. Repository File-by-File Guide: Complete inventory and explanation of every file in the repository, grouped by directories, plus orphan file analysis.
+19. Security, Acceptance & Limitations: Known limitations, security checklist, acceptance criteria, and success metrics (PII analysis).
+20. Support: Support contacts and escalation channels.
+21. Go to Person: Subject matter experts and project contacts.
+22. Glossary of Terms and Acronyms: Definitions of all technical terms, abbreviations, and acronyms used in this document.
+23. References and Appendices: Source files, processing summary, and revision history.
+
+============================================================
+4. DOCUMENT FORMATTING, PRESENTATION & OUTPUT RULES
+============================================================
+- Format response using clean, semantic, professional HTML tags (`<h2>`, `<h3>`, `<h4>`, `<p>`, `<ul>`, `<li>`, `<table>`, `<thead>`, `<tbody>`, `<tr>`, `<th>`, `<td>`, `<div class="callout info">`, `<div class="callout warn">`, `<span class="badge">`, `<div class="card">`).
+- Use the provided stylesheet naming conventions for elements like `<div class="brd-table">`, `<div class="scope-box">`, `<div class="use-case-card">`, `<div class="api-endpoint">`.
+- DIAGRAMS: You MUST use Mermaid diagram syntax (inside ```mermaid ... ``` code blocks) for High-Level Architecture, Database ER Diagrams, Application Flow, Activity & Process Flows, and Sequence Diagrams.
+- AVOID WIDE TABLES: NEVER use HTML or Markdown tables for Acceptance Criteria, Use Cases, or any content with long text descriptions. Instead, use `<div class="use-case-card">` structures or standard bulleted lists to prevent severe column squeezing and unreadable layouts.
+- Design readable tables: split wide tables into logical smaller tables, wrap text, and avoid excessive column squeezing.
+- Include source citations `path/to/file.ext:start_line-end_line` adjacent to every claim.
+- Output MUST feel like a professional consulting document prepared by a Senior Business Analyst & Solution Architect."""
+
+
+def build_brd_analysis_prompt(
+    *,
+    focus_prompt: str | None = None,
+    migration_target: str | None = None,
+    project_type: str | None = None,
+    repository_kind: str | None = None,
+    build_tool: str | None = None,
+    java_version: str | None = None,
+    spring_boot_version: str | None = None,
+    endpoint_count: int = 0,
+    endpoints: list[Any] | None = None,
+    table_count: int = 0,
+    tables: list[Any] | None = None,
+    business_documents: str | None = None,
+    scan_evidence: str | None = None,
+    readme_and_tests: str | None = None,
+    source_snippets: str | None = None,
+    context_options: dict[str, Any] | None = None,
+) -> str:
+    eps_sample = (endpoints or [])[:20]
+    tbls_sample = (tables or [])[:15]
+    opts_str = str(context_options or {})
+
+    return f"""User Focus Investigation Prompt: {focus_prompt or 'None provided.'}
+
+Migration Target: {migration_target or 'Standard Java/Spring Boot'}
+BRD Context Options: {opts_str}
+
+Project Metadata Detected:
+- Detected Application Type: {project_type or 'Unknown'}
+- Repository Kind: {repository_kind or 'Unknown'}
+- Build Tool: {build_tool or 'Not detected'}
+- Java Version: {java_version or 'Not detected'}
+- Spring Boot Version: {spring_boot_version or 'Not detected'}
+- REST API Endpoints ({endpoint_count or len(endpoints or [])} detected): {eps_sample}
+- Database Tables ({table_count or len(tables or [])} detected): {tbls_sample}
+
+Uploaded Business Documents Evidence:
+{business_documents or 'None uploaded.'}
+
+Typed Repository Evidence (documentation, web routes, module variants, workflows, tests):
+{scan_evidence or 'None extracted.'}
+
+Selected General Context & Focus Searches:
+{readme_and_tests or 'None extracted.'}
+
+Scanned Repository Code Context:
+{source_snippets or 'None extracted.'}
+
+INSTRUCTION:
+First analyze the complete available repository evidence and build an internal evidence model.
+Classify the repository (e.g. Web App, REST API, Full-stack, Java/Spring, React/Angular, Microservice, Monolith, CLI, Data Processing) and dynamically determine appropriate document sections.
+Generate a complete, professional, evidence-based Business Requirements & Technical Document (BRD) following all system prompt guidelines.
+Derive application identity, business capabilities (CAP-xxx), business processes & workflows, dynamic actors, functional requirements (FR-xxx), business rules (BR-xxx), use cases, acceptance criteria (Given/When/Then), data model/entities, APIs/interfaces, architecture, security, NFRs, risks & open questions, evidence confidence quality, and traceability matrix.
+Only include sections that are supported by repository evidence.
+Format as clean, professional HTML sections with callout boxes and structured tables. Cite exact source file paths and line ranges (e.g. `path/to/file.ext:start_line-end_line`) for every repository-derived claim.
+"""
+
+
 def build_risk_explanation_prompt(
     *,
     risk_level: str,

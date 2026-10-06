@@ -2799,9 +2799,8 @@ class GenerateTechnicalDocumentUseCase:
             if len(ui_route_rows) >= 15:
                 break
         marker_rows = [
-            f"<li>{html.escape(item['label'])} is indicated in source at "
-            f"{self._source_reference(item['file'], item['line_start'], item['line_end'])}. "
-            "This establishes code presence, not successful runtime behavior.</li>"
+            f"<li><b>{html.escape(item['label'])}</b> detected at "
+            f"{self._source_reference(item['file'], item['line_start'], item['line_end'])}.</li>"
             for item in marker_evidence
         ]
         secret_evidence = self._find_secret_evidence(
