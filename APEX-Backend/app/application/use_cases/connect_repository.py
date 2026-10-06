@@ -55,6 +55,8 @@ class ConnectResult:
     access_status: str
     message: str
     created_at: str
+    is_already_migrated: bool = False
+    migration_state: dict | None = None
 
 
 def parse_github_url(repo_url: str) -> ParsedRepo:
@@ -117,8 +119,27 @@ class ConnectRepositoryUseCase:
             access.access_status,
         )
 
-        # 3. Create a unique job id.
-        job_id = self._new_job_id()
+        # 2.5 Check if it's already a migrated repository (Resume Flow)
+        is_already_migrated = False
+        migration_state = None
+        try:
+            from app.infrastructure.github.github_client import GithubClient
+            gh_client = GithubClient()
+            content_resp = await gh_client.get_contents(access.owner, access.repo_name, ".apex-migration-state.json", token=github_token)
+            if content_resp.status_code == 200 and content_resp.data and isinstance(content_resp.data, dict):
+                import base64
+                import json
+                content_b64 = content_resp.data.get("content", "")
+                if content_b64:
+                    decoded = base64.b64decode(content_b64).decode("utf-8")
+                    migration_state = json.loads(decoded)
+                    is_already_migrated = True
+                    logger.info("[CONNECT] Detected already migrated repository: %s", migration_state.get("job_id"))
+        except Exception as e:
+            logger.debug("[CONNECT] No migration state marker found or failed to parse: %s", e)
+
+        # 3. Create a unique job id (or reuse if already migrated).
+        job_id = migration_state.get("job_id") if is_already_migrated and migration_state.get("job_id") else self._new_job_id()
         created_at = datetime.now(timezone.utc).isoformat()
 
         # 4. Persist the connect report locally.
@@ -130,6 +151,8 @@ class ConnectRepositoryUseCase:
             "repoVisibility": access.visibility,
             "accessStatus": access.access_status,
             "createdAt": created_at,
+            "isAlreadyMigrated": is_already_migrated,
+            "migrationState": migration_state,
         }
         self._job_repository.save_connect_report(job_id, report)
         logger.info("[CONNECT REPORT PERSISTED] - JobID: %s", job_id)
@@ -141,6 +164,8 @@ class ConnectRepositoryUseCase:
             repo_name=access.repo_name,
             repo_visibility=access.visibility,
             access_status=access.access_status,
-            message=self._success_message(access.is_private),
+            message="Already Migrated Repository detected." if is_already_migrated else self._success_message(access.is_private),
             created_at=created_at,
+            is_already_migrated=is_already_migrated,
+            migration_state=migration_state,
         )

@@ -101,7 +101,7 @@ const MIGRATION_STEPS_CONFIG: MigrationStepConfig[] = [
   {
     id: 4,
     stepId: "quality-check",
-    title: "4. Quality check (Sonar, FOSSA, Unit check - JUnit)",
+    title: "4. Quality check (Sonar, FOSSA)",
     description: "Running static analysis and unit tests",
     icon: LuShieldCheck,
     targetProgress: 66,

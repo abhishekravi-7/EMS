@@ -20,7 +20,8 @@ import {
   FaTasks,
   FaLightbulb,
   FaTimes,
-  FaTimesCircle
+  FaTimesCircle,
+  FaSpinner
 } from "react-icons/fa";
 export { MigrationProposedTestSection } from "./MigrationProposedTestSection";
 import {
@@ -46,6 +47,8 @@ interface MigrationUnitTestSectionProps {
   testsRun: number;
   runTests?: boolean;
   onDownloadUnitTestReport: () => Promise<void> | void;
+  onGenerateUnitTests?: () => void;
+  isGenerating?: boolean;
 }
 
 export function MigrationUnitTestSection({
@@ -54,6 +57,8 @@ export function MigrationUnitTestSection({
   summaryItems,
   runTests,
   onDownloadUnitTestReport,
+  onGenerateUnitTests,
+  isGenerating,
 }: MigrationUnitTestSectionProps) {
   const [showAllModal, setShowAllModal] = useState(false);
   const [_savedPrompt, setSavedPrompt] = useState<string | null>(null);
@@ -81,20 +86,45 @@ export function MigrationUnitTestSection({
             </div>
             Unit Test Information
           </h3>
-          <span style={{ padding: "6px 16px", borderRadius: 20, background: "#f1f5f9", color: "#475569", fontSize: 12, fontWeight: 700, border: "1px solid #e2e8f0" }}>
-            NOT EXECUTED
+          <span style={{ padding: "6px 16px", borderRadius: 20, background: isGenerating ? "#fef3c7" : "#f1f5f9", color: isGenerating ? "#d97706" : "#475569", fontSize: 12, fontWeight: 700, border: "1px solid " + (isGenerating ? "#fde68a" : "#e2e8f0") }}>
+            {isGenerating ? "GENERATING..." : "NOT EXECUTED"}
           </span>
         </div>
         <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: "28px 24px", textAlign: "center", flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
           <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 44, height: 44, borderRadius: "50%", background: "#f1f5f9", color: "#64748b", marginBottom: 12, fontSize: 20 }}>
-            <FaFileAlt />
+            {isGenerating ? <FaSpinner className="animate-spin" /> : <FaFileAlt />}
           </div>
           <div style={{ fontSize: 15, fontWeight: 700, color: "#334155", marginBottom: 6 }}>
-            Unit test suite was not executed for this migration.
+            {isGenerating ? "Generating Unit Tests..." : "Unit test suite was not executed for this migration."}
           </div>
-          <div style={{ fontSize: 13, color: "#64748b", maxWidth: 520, margin: "0 auto" }}>
-            Automated unit test execution was not enabled during the migration configuration.
+          <div style={{ fontSize: 13, color: "#64748b", maxWidth: 520, margin: "0 auto", marginBottom: 20 }}>
+            {isGenerating 
+              ? "Please wait while unit tests are being generated and executed. This may take a few minutes."
+              : "Automated unit test execution was not enabled during the migration configuration."}
           </div>
+          {!isGenerating && onGenerateUnitTests && (
+            <button
+              onClick={onGenerateUnitTests}
+              style={{
+                background: "#2563eb",
+                color: "#ffffff",
+                border: "none",
+                borderRadius: 8,
+                padding: "10px 24px",
+                fontSize: 14,
+                fontWeight: 700,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                transition: "background 0.2s"
+              }}
+              onMouseOver={(e) => (e.currentTarget.style.background = "#1d4ed8")}
+              onMouseOut={(e) => (e.currentTarget.style.background = "#2563eb")}
+            >
+              <FaCode /> Generate Unit Tests
+            </button>
+          )}
         </div>
       </div>
     );
@@ -353,17 +383,44 @@ export function MigrationUnitTestSection({
             Execution Status:
           </div>
           <span style={{
-            background: execStatusColor.bg,
-            color: execStatusColor.text,
-            border: `1px solid ${execStatusColor.border}`,
+            background: isGenerating ? "#fef3c7" : execStatusColor.bg,
+            color: isGenerating ? "#d97706" : execStatusColor.text,
+            border: `1px solid ${isGenerating ? "#fde68a" : execStatusColor.border}`,
             padding: "3px 10px",
             borderRadius: 14,
             fontSize: 11,
             fontWeight: 800,
-            letterSpacing: "0.02em"
+            letterSpacing: "0.02em",
+            display: "flex",
+            alignItems: "center",
+            gap: 6
           }}>
-            {execStatusLabel}
+            {isGenerating && <FaSpinner className="animate-spin" />}
+            {isGenerating ? "GENERATING..." : execStatusLabel}
           </span>
+          {(!execGenCount || execGenCount === 0) && !isGenerating && onGenerateUnitTests && (
+            <button
+              onClick={onGenerateUnitTests}
+              style={{
+                background: "#2563eb",
+                color: "#ffffff",
+                border: "none",
+                borderRadius: 14,
+                padding: "4px 12px",
+                fontSize: 11,
+                fontWeight: 700,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                transition: "background 0.2s"
+              }}
+              onMouseOver={(e) => (e.currentTarget.style.background = "#1d4ed8")}
+              onMouseOut={(e) => (e.currentTarget.style.background = "#2563eb")}
+            >
+              <FaCode /> Generate Tests
+            </button>
+          )}
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap" }}>

@@ -44,6 +44,8 @@ class ConnectResponse(BaseModel):
     repo_visibility: str = Field(..., alias="repoVisibility")
     access_status: str = Field(..., alias="accessStatus")
     message: str
+    is_already_migrated: Optional[bool] = Field(default=False, alias="isAlreadyMigrated")
+    migration_state: Optional[dict] = Field(default=None, alias="migrationState")
 
     model_config = {"populate_by_name": True}
 
