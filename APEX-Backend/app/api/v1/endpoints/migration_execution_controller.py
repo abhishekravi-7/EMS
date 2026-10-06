@@ -285,6 +285,26 @@ async def rerun_migration_tests(
                 paths.migration_report_path.write_text(json.dumps(rep, indent=2), encoding="utf-8")
             except (OSError, json.JSONDecodeError, KeyError) as err:
                 logger.debug("Could not persist test_pipeline to report for %s: %s", job_id, err)
+                
+            # --- Push JUnit Tests as a Second Commit ---
+            try:
+                rep = json.loads(paths.migration_report_path.read_text(encoding="utf-8"))
+                target_repo_url = rep.get("targetRepo")
+                if target_repo_url:
+                    from app.infrastructure.github.repo_pusher import RepoPusher
+                    from app.core.config import settings
+                    pusher = RepoPusher()
+                    token = (settings.github_target_token or "").strip() or (settings.github_token or "").strip() or None
+                    logger.info("Pushing generated JUnit tests to %s for job %s", target_repo_url, job_id)
+                    pusher.push(
+                        mig_repo,
+                        target_repo_url,
+                        commit_message="Add generated JUnit tests",
+                        token=token,
+                        incremental=True,
+                    )
+            except Exception as e:
+                logger.error("Failed to push JUnit tests to target repository for job %s: %s", job_id, e)
 
         return JSONResponse(
             status_code=200,
