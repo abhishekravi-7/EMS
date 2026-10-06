@@ -186,6 +186,82 @@ export function StrategyStepView({
     { label: "Expression Language", detected: vt.hasExpressionLanguage },
   ].filter((c) => c.detected) : [];
 
+  const calculatedRiskLevel = useMemo(() => {
+    const depOverall = effectiveDependencyAnalysis?.overall_risk?.toLowerCase();
+    
+    let depCriticalCount = 0;
+    let depHighCount = 0;
+    let depMediumCount = 0;
+
+    if (effectiveDependencyAnalysis?.categories) {
+      const categories = effectiveDependencyAnalysis.categories;
+      Object.values(categories).forEach((cat: any) => {
+        if (cat.items && Array.isArray(cat.items)) {
+          cat.items.forEach((item: any) => {
+            const r = item.risk?.toLowerCase();
+            if (r === "critical") depCriticalCount++;
+            else if (r === "high") depHighCount++;
+            else if (r === "medium") depMediumCount++;
+          });
+        }
+      });
+    }
+
+    if (repoAnalysis?.dependencies && Array.isArray(repoAnalysis.dependencies)) {
+      repoAnalysis.dependencies.forEach((dep: any) => {
+        const r = dep.risk?.toLowerCase() || dep.risk_level?.toLowerCase();
+        if (r === "critical") depCriticalCount++;
+        else if (r === "high") depHighCount++;
+        else if (r === "medium") depMediumCount++;
+      });
+    }
+
+    const normPropRisk = (riskLevel || "").toLowerCase();
+
+    if (
+      depOverall === "critical" ||
+      depCriticalCount > 0 ||
+      normPropRisk === "critical"
+    ) {
+      return "CRITICAL";
+    }
+
+    if (
+      depOverall === "high" ||
+      depHighCount > 0 ||
+      hasJsp ||
+      hasJsf ||
+      normPropRisk === "high"
+    ) {
+      return "HIGH";
+    }
+
+    if (
+      depOverall === "medium" ||
+      depMediumCount > 0 ||
+      repoAnalysis?.has_tests === false ||
+      normPropRisk === "medium"
+    ) {
+      return "MEDIUM";
+    }
+
+    return "LOW";
+  }, [effectiveDependencyAnalysis, repoAnalysis, hasJsp, hasJsf, riskLevel]);
+
+  const riskBadgeStyle = useMemo(() => {
+    const r = calculatedRiskLevel.toLowerCase();
+    if (r === "critical") {
+      return { backgroundColor: "#fee2e2", color: "#991b1b" };
+    }
+    if (r === "high") {
+      return { backgroundColor: "#ffedd5", color: "#c2410c" };
+    }
+    if (r === "medium") {
+      return { backgroundColor: "#fef3c7", color: "#92400e" };
+    }
+    return { backgroundColor: "#dcfce7", color: "#166534" };
+  }, [calculatedRiskLevel]);
+
   useEffect(() => {
     if (!isAssessmentLoaded) return;
 
@@ -335,22 +411,12 @@ export function StrategyStepView({
             <div
               style={{
                 ...styles.riskBadge,
-                backgroundColor:
-                  riskLevel === "low"
-                    ? "#dcfce7"
-                    : riskLevel === "medium"
-                      ? "#fef3c7"
-                      : "#fee2e2",
-                color:
-                  riskLevel === "low"
-                    ? "#166534"
-                    : riskLevel === "medium"
-                      ? "#92400e"
-                      : "#991b1b",
+                backgroundColor: riskBadgeStyle.backgroundColor,
+                color: riskBadgeStyle.color,
                 marginBottom: 0,
               }}
             >
-              Risk Level: {riskLevel.toUpperCase()}
+              Risk Level: {calculatedRiskLevel}
             </div>
 
             <WizardInfoTooltip
@@ -363,13 +429,7 @@ export function StrategyStepView({
                 ANALYSIS
               </div>
               <div style={{ fontSize: 15, fontWeight: 600, lineHeight: 1.45 }}>
-                {effectiveRiskExplanationLoading ? (
-                  <span style={{ color: "#94a3b8", fontStyle: "italic" }}>
-                    Generating risk analysis...
-                  </span>
-                ) : (
-                  effectiveRiskExplanation || getDefaultRiskExplanation(riskLevel)
-                )}
+                {effectiveRiskExplanation || getDefaultRiskExplanation(calculatedRiskLevel)}
               </div>
             </WizardInfoTooltip>
 

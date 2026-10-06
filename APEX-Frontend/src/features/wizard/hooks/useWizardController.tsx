@@ -3246,9 +3246,22 @@ export function useWizardController() {
 
     const hasTests = analysis.has_tests;
     const hasBuildTool = analysis.build_tool !== null;
-    if (hasTests && hasBuildTool) setRiskLevel("low");
-    else if (hasBuildTool) setRiskLevel("medium");
-    else setRiskLevel("high");
+    const hasJspOrJsf = Boolean(
+      analysis.structure?.has_jsp ||
+      analysis.structure?.has_jsf ||
+      (analysis as any)?.jsp_count > 0 ||
+      (analysis as any)?.jsf_count > 0
+    );
+
+    if (hasJspOrJsf) {
+      setRiskLevel("high");
+    } else if (!hasTests) {
+      setRiskLevel("medium");
+    } else if (hasTests && hasBuildTool) {
+      setRiskLevel("low");
+    } else {
+      setRiskLevel("medium");
+    }
   }, [
     setDetectedFrameworks,
     setIsHighRiskProject,
@@ -4465,6 +4478,13 @@ export function useWizardController() {
             summary: serviceFitSummary,
             status: "complete",
           },
+          {
+            id: "llm_risk_analysis",
+            label: "LLM Risk Analysis",
+            detail: "Generating risk analysis...",
+            summary: "Analyzing risk level & generating LLM risk assessment...",
+            status: "in_progress",
+          },
         ]);
 
         setIsJavaProject(true);
@@ -4698,7 +4718,7 @@ export function useWizardController() {
   }, [step, repoAnalysis, detectedSourceVersionForTargets, detectedJavaVersion, riskLevel]);
 
   useEffect(() => {
-    if (step !== 3 || !repoAnalysis || !repoAnalysis.dependencies || repoAnalysis.dependencies.length === 0) {
+    if ((step !== 2 && step !== 3) || !repoAnalysis || !repoAnalysis.dependencies || repoAnalysis.dependencies.length === 0) {
       return;
     }
 
@@ -4725,6 +4745,26 @@ export function useWizardController() {
         if (cancelled) return;
         if (res && res.dependencies && res.dependencies.length > 0) {
           setDependencyAnalysis(res);
+          const overall = res.overall_risk?.toLowerCase();
+          let criticalCount = 0;
+          if (res.categories) {
+            Object.values(res.categories).forEach((cat: any) => {
+              if (cat.items && Array.isArray(cat.items)) {
+                cat.items.forEach((i: any) => {
+                  if (i.risk?.toLowerCase() === "critical") criticalCount++;
+                });
+              }
+            });
+          }
+          if (overall === "critical" || criticalCount > 0) {
+            setRiskLevel("critical");
+          } else if (overall === "high") {
+            setRiskLevel("high");
+          } else if (overall === "medium") {
+            setRiskLevel("medium");
+          } else if (overall === "low") {
+            setRiskLevel("low");
+          }
         }
       })
       .catch((err) => {
@@ -4753,6 +4793,7 @@ export function useWizardController() {
     dependencyAnalysis,
     setDependencyAnalysis,
     setDependencyAnalysisLoading,
+    setRiskLevel,
   ]);
 
 
