@@ -1,10 +1,9 @@
-import React, { useState } from "react";
-import { FaBrain } from "react-icons/fa";
+import React from "react";
 import type { SystemSettings } from "../services/adminService";
 
 interface LlmAdminSettingsProps {
   settings: SystemSettings;
-  onChange: (key: keyof SystemSettings, value: any) => void;
+  onChange: (key: keyof SystemSettings, value: string) => void;
 }
 
 const AVAILABLE_FEATURES = [
@@ -33,21 +32,21 @@ export function LlmAdminSettings({ settings, onChange }: LlmAdminSettingsProps) 
   let llmFeatures: string[] = [];
   try {
     llmFeatures = settings?.llm_features ? JSON.parse(settings.llm_features) : [];
-  } catch (e) {
+  } catch (_e) {
     llmFeatures = [];
   }
 
   let groqModels: string[] = [];
   try {
     groqModels = settings?.groq_models ? JSON.parse(settings.groq_models) : [];
-  } catch (e) {
+  } catch (_e) {
     groqModels = [];
   }
 
   let huggingfaceModels: string[] = [];
   try {
     huggingfaceModels = settings?.huggingface_models ? JSON.parse(settings.huggingface_models) : [];
-  } catch (e) {
+  } catch (_e) {
     huggingfaceModels = [];
   }
 

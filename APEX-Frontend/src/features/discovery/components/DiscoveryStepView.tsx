@@ -14,10 +14,7 @@ import {
   FaFolderOpen,
   FaChevronDown,
   FaChevronRight,
-  FaRedoAlt,
   FaRegClock,
-  FaLightbulb,
-  FaArrowRight,
   FaArrowLeft,
   FaTimes,
   FaDatabase,
@@ -27,7 +24,6 @@ import {
   FaEye,
 } from "react-icons/fa";
 import {
-  renderWizardIconBadge,
   renderForwardButtonLabel,
 } from "@/shared/components/wizard";
 import { wizardStyles as styles } from "@/shared/components/wizard/wizardStyles";
@@ -440,10 +436,10 @@ interface DiscoveryStepViewProps {
   onChooseDifferentRepository: () => void;
   onContinueToStrategy: () => void;
   onError: (message: string) => void;
-  onHandleJobError?: (err: any) => boolean;
+  onHandleJobError?: (err: unknown) => boolean;
 }
 
-interface FileTreeItem {
+export interface FileTreeItem {
   id: string;
   name: string;
   type: "dir" | "file";
@@ -477,18 +473,18 @@ export function DiscoveryStepView({
   handleCheckMicroserviceEligibility: _handleCheckMicroserviceEligibility,
   handleGenerateBrdDocument,
   handleOpenFrameworkFile: _handleOpenFrameworkFile,
-  handleRerunAnalysis,
+  handleRerunAnalysis: _handleRerunAnalysis,
   isDiscoveryPending,
   formattedAnalysisElapsed,
-  formattedAnalysisCompleted,
+  formattedAnalysisCompleted: _formattedAnalysisCompleted,
   detectedJavaStructureLabel: _detectedJavaStructureLabel,
   technicalSpecificationButtonLabel,
-  technicalSpecificationHelperText,
+  technicalSpecificationHelperText: _technicalSpecificationHelperText,
   onBack,
   onChooseDifferentRepository,
   onContinueToStrategy,
-  onError,
-  onHandleJobError,
+  onError: _onError,
+  onHandleJobError: _onHandleJobError,
 }: DiscoveryStepViewProps) {
   const {
     repoAnalysis,
@@ -497,9 +493,9 @@ export function DiscoveryStepView({
     setSelectedFile,
     fileContent,
     setFileContent,
-    editedContent,
+    editedContent: _editedContent,
     setEditedContent,
-    isEditing,
+    isEditing: _isEditing,
     setIsEditing,
     fileLoading,
     setFileLoading,
@@ -542,14 +538,17 @@ export function DiscoveryStepView({
   const categories = fileMetrics?.categories;
   const categoryFiles = fileMetrics?.category_files;
 
-  // 17 Primary Category File Lists from backend (with fallback)
-  const javaFileList = useMemo(
+  const rawJavaFileList = useMemo(
     () => categoryFiles?.java ?? repoAnalysis?.java_files ?? [],
     [categoryFiles?.java, repoAnalysis?.java_files]
   );
   const javaTestFileList = useMemo(
     () => categoryFiles?.java_test ?? [],
     [categoryFiles?.java_test]
+  );
+  const javaFileList = useMemo(
+    () => Array.from(new Set([...rawJavaFileList, ...javaTestFileList])),
+    [rawJavaFileList, javaTestFileList]
   );
   const reactFileList = useMemo(
     () => categoryFiles?.react ?? [],
@@ -924,14 +923,13 @@ export function DiscoveryStepView({
       const cat = pathCategoryMap.get(norm);
       const lower = filepath.toLowerCase();
 
-      if (fileCategoryFilter === "JAVA") return cat === "java" || (not(cat) && lower.endsWith(".java") && !lower.includes("test"));
-      if (fileCategoryFilter === "JAVA_TEST") return cat === "java_test" || (not(cat) && lower.endsWith(".java") && lower.includes("test"));
+      if (fileCategoryFilter === "JAVA") return cat === "java" || cat === "java_test" || (not(cat) && lower.endsWith(".java"));
       if (fileCategoryFilter === "REACT") return cat === "react" || (not(cat) && (lower.endsWith(".jsx") || lower.endsWith(".tsx")));
       if (fileCategoryFilter === "ANGULAR") return cat === "angular" || (not(cat) && lower.includes("component"));
       if (fileCategoryFilter === "JSP") return cat === "jsp" || (not(cat) && (lower.endsWith(".jsp") || lower.endsWith(".jspf") || lower.endsWith(".jspx")));
       if (fileCategoryFilter === "JSF") return cat === "jsf" || (not(cat) && (lower.endsWith(".xhtml") || lower.endsWith(".jsf")));
       if (fileCategoryFilter === "CONFIG") return cat === "xml" || cat === "configuration" || (not(cat) && (lower.endsWith(".xml") || lower.endsWith(".properties") || lower.endsWith(".yml") || lower.endsWith(".json")));
-      if (fileCategoryFilter === "OTHERS") return cat === "other" || (!cat && !lower.endsWith(".java") && !lower.endsWith(".jsp") && !lower.endsWith(".xhtml") && !lower.endsWith(".jsf") && !lower.endsWith(".xml") && !lower.endsWith(".jsx") && !lower.endsWith(".tsx"));
+      if (fileCategoryFilter === "OTHERS") return cat === "other" || cat === "javascript" || cat === "typescript" || cat === "css" || cat === "html" || cat === "resources" || cat === "documentation" || cat === "scripts" || cat === "sql" || (!cat && !lower.endsWith(".java") && !lower.endsWith(".jsp") && !lower.endsWith(".xhtml") && !lower.endsWith(".jsf") && !lower.endsWith(".xml") && !lower.endsWith(".jsx") && !lower.endsWith(".tsx"));
       return true;
     };
 
@@ -969,7 +967,7 @@ export function DiscoveryStepView({
     }
 
     return { visibleTree: filterList(fileTree || []), filteredFileCount: count };
-  }, [fileTree, searchQuery, fileCategoryFilter, allDiscoveredPaths.length, pathCategoryMap]);
+  }, [fileTree, query, fileCategoryFilter, allDiscoveredPaths.length, pathCategoryMap]);
 
   const isFolderOpen = (folderId: string): boolean => {
     if (searchQuery || fileCategoryFilter !== "ALL") return true;
@@ -1129,6 +1127,51 @@ export function DiscoveryStepView({
     );
   };
 
+  const kpiCategoryBreakdown = useMemo(() => {
+    const list = [
+      {
+        label: "Java",
+        count: javaFiles,
+        color: "#9333ea",
+        subText: javaTestFiles > 0 ? `includes ${javaTestFiles} test files` : undefined,
+      },
+      { label: "React", count: reactFiles, color: "#06b6d4" },
+      { label: "Angular", count: angularFiles, color: "#dc2626" },
+      { label: "JSP", count: jspFiles, color: "#db2777" },
+      { label: "JSF", count: jsfFiles, color: "#7c3aed" },
+      { label: "JavaScript", count: jsFiles, color: "#ca8a04" },
+      { label: "TypeScript", count: tsFiles, color: "#2563eb" },
+      { label: "CSS / Styles", count: cssFiles, color: "#0d9488" },
+      { label: "HTML", count: htmlFiles, color: "#ea580c" },
+      { label: "XML", count: xmlFiles, color: "#d97706" },
+      { label: "Configuration", count: configFiles, color: "#b45309" },
+      { label: "Resources", count: resourceFiles, color: "#059669" },
+      { label: "Documentation", count: docFiles, color: "#475569" },
+      { label: "Scripts", count: scriptFiles, color: "#16a34a" },
+      { label: "SQL", count: sqlFiles, color: "#0284c7" },
+      { label: "Other", count: otherFiles, color: "#94a3b8" },
+    ];
+    return list.filter((item) => item.count > 0);
+  }, [
+    javaFiles,
+    javaTestFiles,
+    reactFiles,
+    angularFiles,
+    jspFiles,
+    jsfFiles,
+    jsFiles,
+    tsFiles,
+    cssFiles,
+    htmlFiles,
+    xmlFiles,
+    configFiles,
+    resourceFiles,
+    docFiles,
+    scriptFiles,
+    sqlFiles,
+    otherFiles,
+  ]);
+
   if (!selectedRepo || !selectedRepo.url) {
     return (
       <div className="discovery-dashboard-wrapper">
@@ -1192,51 +1235,6 @@ export function DiscoveryStepView({
       </div>
     );
   }
-
-  const kpiCategoryBreakdown = useMemo(() => {
-    const list = [
-      {
-        label: "Java",
-        count: javaFiles,
-        color: "#9333ea",
-        subText: javaTestFiles > 0 ? `includes ${javaTestFiles} test files` : undefined,
-      },
-      { label: "React", count: reactFiles, color: "#06b6d4" },
-      { label: "Angular", count: angularFiles, color: "#dc2626" },
-      { label: "JSP", count: jspFiles, color: "#db2777" },
-      { label: "JSF", count: jsfFiles, color: "#7c3aed" },
-      { label: "JavaScript", count: jsFiles, color: "#ca8a04" },
-      { label: "TypeScript", count: tsFiles, color: "#2563eb" },
-      { label: "CSS / Styles", count: cssFiles, color: "#0d9488" },
-      { label: "HTML", count: htmlFiles, color: "#ea580c" },
-      { label: "XML", count: xmlFiles, color: "#d97706" },
-      { label: "Configuration", count: configFiles, color: "#b45309" },
-      { label: "Resources", count: resourceFiles, color: "#059669" },
-      { label: "Documentation", count: docFiles, color: "#475569" },
-      { label: "Scripts", count: scriptFiles, color: "#16a34a" },
-      { label: "SQL", count: sqlFiles, color: "#0284c7" },
-      { label: "Other", count: otherFiles, color: "#94a3b8" },
-    ];
-    return list.filter((item) => item.count > 0);
-  }, [
-    javaFiles,
-    javaTestFiles,
-    reactFiles,
-    angularFiles,
-    jspFiles,
-    jsfFiles,
-    jsFiles,
-    tsFiles,
-    cssFiles,
-    htmlFiles,
-    xmlFiles,
-    configFiles,
-    resourceFiles,
-    docFiles,
-    scriptFiles,
-    sqlFiles,
-    otherFiles,
-  ]);
 
   const hasViewTechnology = jspFiles > 0 || jsfFiles > 0;
 
@@ -2102,15 +2100,7 @@ export function DiscoveryStepView({
                         Java ({javaFiles})
                       </button>
                     )}
-                    {javaTestFiles > 0 && (
-                      <button
-                        type="button"
-                        className={`discovery-filter-tab ${fileCategoryFilter === "JAVA_TEST" ? "is-active" : ""}`}
-                        onClick={() => setFileCategoryFilter("JAVA_TEST")}
-                      >
-                        Java Tests ({javaTestFiles})
-                      </button>
-                    )}
+
                     {reactFiles > 0 && (
                       <button
                         type="button"

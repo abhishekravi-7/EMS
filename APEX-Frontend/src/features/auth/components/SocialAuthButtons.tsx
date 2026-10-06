@@ -1,5 +1,4 @@
 import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { FaGithub } from "react-icons/fa";
 import { signInWithGoogle, signInWithGithub } from "../services/authService";
 
@@ -19,7 +18,6 @@ export interface SocialAuthButtonsProps {
 type Provider = "google" | "github";
 
 const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({ mode }) => {
-  const navigate = useNavigate();
   const isSignIn = mode === "signin";
   const [redirectingTo, setRedirectingTo] = useState<Provider | null>(null);
   const [error, setError] = useState<string | null>(null);

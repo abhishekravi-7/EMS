@@ -16,16 +16,13 @@ import {
 import {
   analyzeRepoUrl,
   analyzeLocalProject,
-  getRepoVisibility,
   listLocalProjectFiles,
   getLocalProjectFileContent,
 } from "@/features/connect/services/connectService";
 import {
   listRepoFiles,
   getFileContent,
-  getDiscoveryFileContent,
   listDiscoveryFiles,
-  getMicroserviceEligibility,
   getDiscoveryMicroserviceEligibility,
   getLocalProjectMicroserviceEligibility,
   generateGithubDocument,
@@ -154,9 +151,12 @@ const mergeMigrationSummaryIntoJob = (
     ? 100
     : Math.max(previous?.progress_percent ?? 0, summary.progress_percent ?? 0);
 
+  const summaryObj = summary as Record<string, unknown>;
+  const prevObj = (previous || {}) as Record<string, unknown>;
+
   const effectiveStages = summaryIsCompleted
-    ? ((summary as any).stages || previous?.stages)?.map((st: any) => ({ ...st, status: "completed", progress: 100 })) || (summary as any).stages || previous?.stages
-    : (summary as any).stages ?? previous?.stages;
+    ? ((summaryObj.stages as Array<Record<string, unknown>>) || previous?.stages)?.map((st) => ({ ...st, status: "completed", progress: 100 })) || (summaryObj.stages as Array<Record<string, unknown>>) || previous?.stages
+    : (summaryObj.stages as Array<Record<string, unknown>>) ?? previous?.stages;
 
   return {
     ...(previous ?? {
@@ -191,11 +191,11 @@ const mergeMigrationSummaryIntoJob = (
       status: effectiveStatus,
       progress_percent: effectiveProgress,
       current_step: summary.current_step,
-      current_stage: (summary as any).current_stage ?? (previous as any)?.current_stage,
-      current_stage_name: (summary as any).current_stage_name ?? (previous as any)?.current_stage_name,
+      current_stage: (summaryObj.current_stage as number) ?? (prevObj.current_stage as number),
+      current_stage_name: (summaryObj.current_stage_name as string) ?? (prevObj.current_stage_name as string),
       stages: effectiveStages,
-      files_modified: summary.files_modified ?? (previous as any)?.files_modified ?? 0,
-      issues_fixed: summary.issues_fixed ?? (previous as any)?.issues_fixed ?? 0,
+      files_modified: summary.files_modified ?? (prevObj.files_modified as number) ?? 0,
+      issues_fixed: summary.issues_fixed ?? (prevObj.issues_fixed as number) ?? 0,
       api_endpoints_validated: summary.api_endpoints_validated,
       api_endpoints_working: summary.api_endpoints_working,
       sonar_bugs: summary.sonar_bugs,
@@ -224,8 +224,8 @@ const mergeMigrationSummaryIntoJob = (
     completed_at: summary.completed_at,
     progress_percent: effectiveProgress,
     current_step: summary.current_step,
-    current_stage: (summary as any).current_stage ?? previous?.current_stage,
-    current_stage_name: (summary as any).current_stage_name ?? previous?.current_stage_name,
+    current_stage: (summaryObj.current_stage as number) ?? previous?.current_stage,
+    current_stage_name: (summaryObj.current_stage_name as string) ?? previous?.current_stage_name,
     stages: effectiveStages,
     files_modified: summary.files_modified ?? previous?.files_modified ?? 0,
     issues_fixed: summary.issues_fixed ?? previous?.issues_fixed ?? 0,
@@ -249,7 +249,7 @@ const mergeMigrationSummaryIntoJob = (
     fossa_policy_status: summary.fossa_policy_status ?? null,
     fossa_total_dependencies: summary.fossa_total_dependencies,
     fossa_license_issues: summary.fossa_license_issues,
-    fossa_total_licenses: summary.fossa_total_licenses ?? (summary.fossa_report as any)?.total_licenses ?? (summary.fossa_report as any)?.license_count ?? 0,
+    fossa_total_licenses: summary.fossa_total_licenses ?? ((summary.fossa_report as Record<string, unknown>)?.total_licenses as number) ?? ((summary.fossa_report as Record<string, unknown>)?.license_count as number) ?? 0,
     fossa_vulnerabilities: summary.fossa_vulnerabilities,
     fossa_outdated_dependencies: summary.fossa_outdated_dependencies,
     fossa_scan_mode: summary.fossa_scan_mode ?? null,
@@ -557,12 +557,13 @@ const buildCodeChangesFromPreviewDiffs = (fileDiffs: PreviewFileDiff[]): CodeCha
   return fileDiffs.flatMap((fileDiff) => {
     if (!fileDiff) return [];
 
+    const fdObj = fileDiff as unknown as Record<string, unknown>;
     const rawDiff = typeof fileDiff.diff === "string"
       ? fileDiff.diff
-      : typeof (fileDiff as any).diff_content === "string"
-        ? (fileDiff as any).diff_content
-        : typeof (fileDiff as any).patch === "string"
-          ? (fileDiff as any).patch
+      : typeof fdObj.diff_content === "string"
+        ? (fdObj.diff_content as string)
+        : typeof fdObj.patch === "string"
+          ? (fdObj.patch as string)
           : "";
 
     const diffLinesRaw: string[] = rawDiff ? rawDiff.split(/\r?\n/) : [];
@@ -693,6 +694,15 @@ const parseVersionParts = (version: string | null | undefined) => {
     patch: Number.parseInt(match[3] || "0", 10),
     raw: normalized,
   };
+};
+
+const isLocalRepoRef = (value: string | null | undefined) => Boolean(value && value.startsWith("local://"));
+const buildLocalRepoRef = (value: string) => `local://${value.trim()}`;
+const extractLocalRepoPath = (value: string) => value.replace(/^local:\/\//, "");
+const getPathBasename = (value: string | null | undefined) => {
+  const normalized = (value || "").replace(/[\\/]+$/, "");
+  const parts = normalized.split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] || "local-project";
 };
 
 const classifyDependencyCategory = (dep: DependencyInfo): DependencyCategory => {
@@ -1045,8 +1055,8 @@ export function useWizardController() {
   const buildTargetRepoUrl = (
     repoName: string,
     timestamp: string,
-    owner?: string,
-    host?: string
+    _owner?: string,
+    _host?: string
   ) => `${repoName || "repo"}-Migrated${timestamp}`;
 
   const buildTargetBranchName = (repoName: string, timestamp: string) =>
@@ -1064,15 +1074,6 @@ export function useWizardController() {
       cleaned = parts[parts.length - 1] || cleaned;
     }
     return cleaned;
-  };
-
-  const isLocalRepoRef = (value: string | null | undefined) => Boolean(value && value.startsWith("local://"));
-  const buildLocalRepoRef = (value: string) => `local://${value.trim()}`;
-  const extractLocalRepoPath = (value: string) => value.replace(/^local:\/\//, "");
-  const getPathBasename = (value: string | null | undefined) => {
-    const normalized = (value || "").replace(/[\\/]+$/, "");
-    const parts = normalized.split(/[\\/]/).filter(Boolean);
-    return parts[parts.length - 1] || "local-project";
   };
 
   const parseRepositoryContext = (value: string | null | undefined) => {
@@ -1136,14 +1137,14 @@ export function useWizardController() {
   const {
     repoAnalysis,
     setRepoAnalysis,
-    discoveryStages,
+    discoveryStages: _discoveryStages,
     setDiscoveryStages,
-    repoFiles,
+    repoFiles: _repoFiles,
     setRepoFiles,
     setRepoFilesLoading,
     setRepoFilesError,
     currentPath,
-    setCurrentPath,
+    setCurrentPath: _setCurrentPath,
     analysisLoading,
     setAnalysisLoading,
     analysisElapsedSeconds,
@@ -1169,13 +1170,13 @@ export function useWizardController() {
     setSelectedFrameworks,
     isJavaProject,
     setIsJavaProject,
-    setSelectedFile,
-    setFileContent,
-    setEditedContent,
-    setIsEditing,
+    setSelectedFile: _setSelectedFile,
+    setFileContent: _setFileContent,
+    setEditedContent: _setEditedContent,
+    setIsEditing: _setIsEditing,
     pathHistory,
-    setPathHistory,
-    setShowFileExplorer,
+    setPathHistory: _setPathHistory,
+    setShowFileExplorer: _setShowFileExplorer,
     isHighRiskProject,
     setIsHighRiskProject,
     highRiskConfirmed,
@@ -1186,7 +1187,7 @@ export function useWizardController() {
     setDetectedFrameworks,
     setViewingFrameworkFile,
     setFrameworkFileLoading,
-    repoPreviewInitialized,
+    repoPreviewInitialized: _repoPreviewInitialized,
     setRepoPreviewInitialized,
     microserviceAssessmentResolved,
     setMicroserviceAssessmentResolved,
@@ -1291,18 +1292,18 @@ export function useWizardController() {
 
   const fetchedRiskExplanationKeyRef = useRef<string>("");
   const fetchedDependencyAnalysisKeyRef = useRef<string>("");
-  const fetchedRecommendationKeyRef = useRef<string>("");
+  const _fetchedRecommendationKeyRef = useRef<string>("");
   const modernizationState = useModernizationState(persistedFormState);
   const {
     runTests,
-    setRunTests,
+    setRunTests: _setRunTests,
     useLLMTests,
     selectedLLMProvider,
     runSonar,
-    setRunSonar,
+    setRunSonar: _setRunSonar,
     runFossa,
     runCycode,
-    setRunFossa,
+    setRunFossa: _setRunFossa,
     fixBusinessLogic,
   } = modernizationState;
 
@@ -1362,13 +1363,13 @@ export function useWizardController() {
     isPrivateRepo,
     setIsPrivateRepo,
     patToken,
-    setRepoAccessCheckLoading,
+    setRepoAccessCheckLoading: _setRepoAccessCheckLoading,
     setAccessTokenValidationState,
     setAccessTokenValidationMessage,
-    urlValidation,
-    showEnterpriseToken,
+    urlValidation: _urlValidation,
+    showEnterpriseToken: _showEnterpriseToken,
     currentToken,
-    resetAccessTokenValidationState,
+    resetAccessTokenValidationState: _resetAccessTokenValidationState,
     jobId,
   } = connectState;
   const currentMigrationApproach =
@@ -1692,9 +1693,9 @@ export function useWizardController() {
   }, [repoAnalysis]);
 
   const localApiTestCases = useMemo(() => {
-    const eps = repoAnalysis?.api_endpoints || [];
-    return eps.slice(0, 50).map((ep: any, idx: number) => {
-      const method = (ep.method || ep.httpMethod || "GET").toUpperCase();
+    const eps = (repoAnalysis?.api_endpoints || []) as Array<Record<string, unknown>>;
+    return eps.slice(0, 50).map((ep, idx) => {
+      const method = String(ep.method || ep.httpMethod || "GET").toUpperCase();
       const path = ep.path || "/";
       const parts = (path || "").split("/").filter((p: string) => p && !p.startsWith("{") && !p.startsWith(":"));
       const resource = parts[parts.length - 1] || "resource";
@@ -3404,7 +3405,7 @@ export function useWizardController() {
     }
 
     // If current migrationJob belongs to a different job, purge it immediately
-    if (migrationJob && migrationJob.job_id !== activeJobId && (migrationJob as any).jobId !== activeJobId) {
+    if (migrationJob && migrationJob.job_id !== activeJobId && (migrationJob as unknown as Record<string, unknown>).jobId !== activeJobId) {
       setMigrationJob(null);
       setMigrationLogs([]);
       setFossaResult(null);
@@ -3414,6 +3415,7 @@ export function useWizardController() {
       setMigrationDetailLoadedJobId(null);
       removeSessionValue(WIZARD_MIGRATION_JOB_KEY);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- Purge inactive job state only when activeJobId or job_id changes
   }, [activeJobId, migrationJob?.job_id]);
 
   const continueToStrategy = useCallback(() => {
@@ -3467,7 +3469,7 @@ export function useWizardController() {
   // Step 4: Migration completed (strictly when migration actually completed or finished for THIS job)
   const isJobTerminalSuccess = Boolean(
     migrationJob &&
-    (migrationJob.job_id === activeJobId || (migrationJob as any).jobId === activeJobId) &&
+    (migrationJob.job_id === activeJobId || (migrationJob as unknown as Record<string, unknown>).jobId === activeJobId) &&
     isCompletedStatus(migrationJob.status)
   );
 
@@ -3475,7 +3477,7 @@ export function useWizardController() {
     (isStrategyCompleted || isMigrationFinishedState || isJobTerminalSuccess || persistedMigrationCompletedFlag) &&
     activeJobId &&
     (isJobTerminalSuccess ||
-      (isMigrationFinishedState && migrationJob && (migrationJob.job_id === activeJobId || (migrationJob as any).jobId === activeJobId)) ||
+      (isMigrationFinishedState && migrationJob && (migrationJob.job_id === activeJobId || (migrationJob as unknown as Record<string, unknown>).jobId === activeJobId)) ||
       persistedMigrationCompletedFlag)
   );
 
@@ -3556,6 +3558,7 @@ export function useWizardController() {
     }
 
     setStepState((current) => (current !== routeStep ? routeStep : current));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- Synchronize route step with highest completed step
   }, [location.pathname, highestCompletedStep, navigate]);
 
   useEffect(() => {
@@ -3761,7 +3764,7 @@ export function useWizardController() {
   }, [migrationJob?.dependencies?.length, migrationJob?.job_id, setReportDependencyPage]);
 
   useEffect(() => {
-    const effectiveJobId = migrationJob?.job_id || (migrationJob as any)?.jobId || activeJobId;
+    const effectiveJobId = migrationJob?.job_id || (migrationJob as unknown as Record<string, unknown>)?.jobId || activeJobId;
     if (step !== 7 || !effectiveJobId) {
       return;
     }
@@ -3775,6 +3778,7 @@ export function useWizardController() {
         setMigrationDetailLoadedJobId(job.job_id);
       })
       .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- Fetch detail report on mount or step change
   }, [migrationJob?.job_id, migrationJob?.status, setMigrationDetailLoadedJobId, setMigrationJob, step]);
 
   useEffect(() => {
@@ -4435,7 +4439,7 @@ export function useWizardController() {
         window.clearTimeout(stageTimer2);
         window.clearTimeout(stageTimer3);
 
-        const stagesData = (analysis as any).discovery_stages;
+        const stagesData = (analysis as unknown as Record<string, unknown>).discovery_stages as Record<string, { summary?: string }> | undefined;
         const repoMapSummary = stagesData?.repositoryMap?.summary ||
           `Mapped ${analysis.total_file_count ?? 0} files (${analysis.java_file_count ?? 0} Java, ${analysis.config_file_count ?? 0} Config, ${analysis.other_file_count ?? 0} Other).`;
         const depGraphSummary = stagesData?.dependencyGraph?.summary ||
@@ -4485,83 +4489,12 @@ export function useWizardController() {
 
         setIsJavaProject(true);
         applyRepositoryAnalysis(analysis);
-
-        // Pre-fetch LLM Risk Level, Dependency Analysis, AND Risk Explanation in background
-        if (analysis && analysis.dependencies && Array.isArray(analysis.dependencies) && analysis.dependencies.length > 0) {
-          setDependencyAnalysisLoading(true);
-          setVersionRecommendationLoading(true);
-
-          const sourceVer = analysis.java_version || analysis.java_version_from_build || "17";
-          const targetVer = effectiveTargetVersion || "25";
-          const currentJob = jobId || effectiveJobId || undefined;
-
-          Promise.allSettled([
-            analyzeDependencies({
-              dependencies: analysis.dependencies,
-              source_java_version: sourceVer,
-              target_java_version: targetVer,
-              build_tool: analysis.build_tool || "maven",
-              frameworks: analysis.frameworks || [],
-              testing_frameworks: (analysis.testing_frameworks as unknown[]) || [],
-              api_endpoint_count: analysis.api_endpoints?.length ?? 0,
-              job_id: currentJob,
-            }),
-            getJavaVersionRecommendation({
-              source_java_version: sourceVer,
-              detected_java_version: sourceVer,
-              build_tool: analysis.build_tool,
-              dependencies: analysis.dependencies || [],
-              has_tests: analysis.has_tests,
-              api_endpoint_count: analysis.api_endpoints?.length ?? 0,
-              risk_level: riskLevel || "unknown",
-              llm_provider: "huggingface",
-            }),
-          ]).then(([depResult, recResult]) => {
-            if (depResult.status === "fulfilled" && depResult.value?.dependencies) {
-              const depRes = depResult.value;
-              setDependencyAnalysis(depRes);
-              const overall = depRes.overall_risk?.toLowerCase();
-              let criticalCount = 0;
-              if (depRes.categories) {
-                Object.values(depRes.categories).forEach((cat: any) => {
-                  if (cat.items && Array.isArray(cat.items)) {
-                    cat.items.forEach((i: any) => {
-                      if (i.risk?.toLowerCase() === "critical") criticalCount++;
-                    });
-                  }
-                });
-              }
-              if (overall === "critical" || criticalCount > 0) {
-                setRiskLevel("critical");
-              } else if (overall === "high") {
-                setRiskLevel("high");
-              } else if (overall === "medium") {
-                setRiskLevel("medium");
-              } else if (overall === "low") {
-                setRiskLevel("low");
-              }
-            }
-
-            if (recResult.status === "fulfilled" && recResult.value) {
-              const rec = recResult.value;
-              setVersionRecommendation(rec);
-              if (rec.risk_explanation) {
-                setRiskExplanation(rec.risk_explanation);
-              }
-            }
-          }).catch((depErr) => {
-            console.warn("Pre-fetch LLM risk analysis error:", depErr);
-          }).finally(() => {
-            setDependencyAnalysisLoading(false);
-            setVersionRecommendationLoading(false);
-          });
-        }
-      } catch (err: any) {
+      } catch (err: unknown) {
         window.clearTimeout(stageTimer1);
         window.clearTimeout(stageTimer2);
         window.clearTimeout(stageTimer3);
 
-        const message = err?.message || "Failed to analyze repository.";
+        const message = (err as Error)?.message || "Failed to analyze repository.";
         setDiscoveryStages((prev) =>
           prev.map((s) => {
             if (s.status === "in_progress") {
@@ -4601,7 +4534,7 @@ export function useWizardController() {
         if (
           message.toLowerCase().includes("unsupported") ||
           message.toLowerCase().includes("no maven or gradle") ||
-          err?.status === "UNSUPPORTED_PROJECT"
+          (err as Record<string, unknown>)?.status === "UNSUPPORTED_PROJECT"
         ) {
           setIsJavaProject(false);
         }
@@ -4618,8 +4551,6 @@ export function useWizardController() {
       connectState?.jobId,
       currentToken,
       enrichAnalysisWithPomVersion,
-      extractLocalRepoPath,
-      isLocalRepoRef,
       jobId,
       selectedRepo,
       setAccessTokenValidationMessage,
@@ -4636,6 +4567,8 @@ export function useWizardController() {
       setRepoAnalysis,
       setRepoPreviewInitialized,
       setStep,
+      location.pathname,
+      step,
     ]
   );
 
@@ -4731,6 +4664,7 @@ export function useWizardController() {
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- Fetch recommendation
   }, [step, repoAnalysis, detectedSourceVersionForTargets, detectedJavaVersion, riskLevel, availableTargetVersions.length]);
 
   useEffect(() => {
@@ -4754,7 +4688,7 @@ export function useWizardController() {
       build_tool: repoAnalysis.build_tool,
       dependencies: repoAnalysis.dependencies || [],
       has_tests: repoAnalysis.has_tests,
-      test_frameworks: (Array.isArray(repoAnalysis.testing_frameworks) ? repoAnalysis.testing_frameworks : Object.keys(repoAnalysis.testing_frameworks || {})) as any,
+      test_frameworks: (Array.isArray(repoAnalysis.testing_frameworks) ? repoAnalysis.testing_frameworks : Object.keys(repoAnalysis.testing_frameworks || {})) as string[],
       frameworks: repoAnalysis.frameworks || [],
       api_endpoint_count: repoAnalysis.api_endpoints?.length ?? 0,
       llm_provider: "huggingface",
@@ -4780,6 +4714,7 @@ export function useWizardController() {
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- Fetch risk explanation
   }, [step, repoAnalysis, detectedSourceVersionForTargets, detectedJavaVersion, riskLevel]);
 
   useEffect(() => {
@@ -5103,7 +5038,7 @@ export function useWizardController() {
   ]);
 
   useEffect(() => {
-    const effectiveJobId = migrationJob?.job_id || (migrationJob as any)?.jobId || activeJobId;
+    const effectiveJobId = migrationJob?.job_id || (migrationJob as unknown as Record<string, unknown>)?.jobId || activeJobId;
 
     if (
       step < 5 ||
@@ -5194,8 +5129,9 @@ export function useWizardController() {
         }
 
         scheduleNextPoll(getMigrationPollingDelayMs(summary.status, summary.started_at));
-      } catch (err: any) {
-        if (cancelled || err?.name === "AbortError" || err?.message?.includes("aborted")) {
+      } catch (err: unknown) {
+        const errObj = err as Error;
+        if (cancelled || errObj?.name === "AbortError" || errObj?.message?.includes("aborted")) {
           return;
         }
 
@@ -5238,7 +5174,7 @@ export function useWizardController() {
       clearScheduledPoll();
       migrationPollingInFlightRef.current = false;
     };
-  }, [activeJobId, migrationJob?.job_id, migrationJob?.status, navigateToResults, setMigrationDetailLoadedJobId, setMigrationJob, setMigrationLogs, step]);
+  }, [activeJobId, migrationJob, migrationJob?.job_id, migrationJob?.status, navigateToResults, setMigrationDetailLoadedJobId, setMigrationJob, setMigrationLogs, step]);
 
   /* useEffect(() => {
 
@@ -5278,7 +5214,7 @@ export function useWizardController() {
     if (modernizationState.selectedTestSources.functionalDoc) selectedSourcesList.push("FUNCTIONAL_DOC");
     if (modernizationState.selectedTestSources.existing) selectedSourcesList.push("EXISTING");
 
-    const cachedSettings = (typeof window !== "undefined" && (window as any).__javaapex_user_settings) || {};
+    const cachedSettings = ((typeof window !== "undefined" && (window as unknown as Record<string, unknown>).__javaapex_user_settings) || {}) as Record<string, Record<string, unknown>>;
     const qcVals = cachedSettings.quality_checks_values || {};
     const tcVals = cachedSettings.test_cases_values || {};
 
@@ -5309,11 +5245,11 @@ export function useWizardController() {
       selected_test_sources: selectedSourcesList,
       quality_checks_values: qcVals,
       test_cases_values: tcVals,
-      testing_prompt: tcVals.testing_prompt || qcVals.testing_prompt || "",
-      selected_predefined_prompts: tcVals.selected_predefined_prompts || qcVals.selected_predefined_prompts || [],
-      functional_testing_prompt: qcVals.functional_testing_prompt || "",
-      functional_custom_prompt: qcVals.functional_custom_prompt || "",
-      functional_testing_suggestions: qcVals.functional_testing_suggestions || [],
+      testing_prompt: (tcVals.testing_prompt as string) || (qcVals.testing_prompt as string) || "",
+      selected_predefined_prompts: (tcVals.selected_predefined_prompts as string[]) || (qcVals.selected_predefined_prompts as string[]) || [],
+      functional_testing_prompt: (qcVals.functional_testing_prompt as string) || "",
+      functional_custom_prompt: (qcVals.functional_custom_prompt as string) || "",
+      functional_testing_suggestions: (qcVals.functional_testing_suggestions as string[]) || [],
     };
   }, [
     sourceRepositoryName,
@@ -5338,6 +5274,7 @@ export function useWizardController() {
     runSonar,
     runFossa,
     runCycode,
+    modernizationState.runFunctionalTests,
     fixBusinessLogic,
     functionalTestToolMethod,
     modernizationState.selectedTestSources,
@@ -5454,11 +5391,12 @@ export function useWizardController() {
 
     try {
       const job = await startMigration(currentJobId, migrationRequest);
+      const jobObj = (job || {}) as Record<string, unknown>;
       const normalizedJob: MigrationResult = {
-        ...(job || {}),
-        job_id: (job as any)?.job_id || (job as any)?.jobId || currentJobId,
-        status: (job as any)?.status || "running",
-      } as MigrationResult;
+        ...jobObj,
+        job_id: (jobObj.job_id as string) || (jobObj.jobId as string) || currentJobId,
+        status: (jobObj.status as string) || "running",
+      } as unknown as MigrationResult;
 
       setMigrationJob(normalizedJob);
       writeSessionJson(WIZARD_MIGRATION_JOB_KEY, normalizedJob);
@@ -5473,24 +5411,25 @@ export function useWizardController() {
       if (isCompletedStatus(normalizedJob.status)) {
         getMigrationLogs(currentJobId).then((logs) => setMigrationLogs(logs.logs || [])).catch(() => { });
       }
-    } catch (err: any) {
-      if (err?.name === "AbortError" || err?.message?.includes("aborted")) {
+    } catch (err: unknown) {
+      const errObj = err as Record<string, unknown>;
+      if ((err as Error)?.name === "AbortError" || (err as Error)?.message?.includes("aborted")) {
         return;
       }
       console.error("Migration start notice:", err);
 
       const isAlreadyActive =
-        err?.status === 409 ||
-        err?.status === 400 ||
-        String(err?.message || "").toLowerCase().includes("already") ||
-        String(err?.message || "").toLowerCase().includes("active") ||
-        String(err?.message || "").toLowerCase().includes("in progress");
+        errObj?.status === 409 ||
+        errObj?.status === 400 ||
+        String((err as Error)?.message || "").toLowerCase().includes("already") ||
+        String((err as Error)?.message || "").toLowerCase().includes("active") ||
+        String((err as Error)?.message || "").toLowerCase().includes("in progress");
 
       if (isAlreadyActive) {
         const fallbackJob: MigrationResult = {
           job_id: currentJobId,
           status: "running",
-        } as any;
+        } as unknown as MigrationResult;
         setMigrationJob(fallbackJob);
         writeSessionJson(WIZARD_MIGRATION_JOB_KEY, fallbackJob);
         writeSessionValue(WIZARD_JOB_ID_KEY, currentJobId);

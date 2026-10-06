@@ -4,7 +4,6 @@ import React from "react";
 import {
   FaCheckCircle,
   FaCode,
-  FaCogs,
   FaExclamationTriangle,
   FaFolderOpen,
   FaShieldAlt,
@@ -19,7 +18,7 @@ import {
   FaExternalLinkAlt,
 } from "react-icons/fa";
 import { wizardStyles as styles } from "@/shared/components/wizard/wizardStyles";
-import { renderWizardIconBadge } from "@/shared/components/wizard";
+import { renderWizardIconBadge as _renderWizardIconBadge } from "@/shared/components/wizard";
 import {
   downloadUnitTestReport,
   getMigrationFileDiff,
@@ -90,7 +89,7 @@ const MigrationProposedTestSection = React.lazy(async () => {
 
 interface ResultReportViewProps {
   resultExec: ReturnType<typeof useMigrationExecution>;
-  repoAnalysis?: any;
+  repoAnalysis?: Record<string, unknown>;
   runSonar: boolean;
   runFossa: boolean;
   runTests?: boolean;
@@ -105,7 +104,7 @@ interface ResultReportViewProps {
 export function ResultReportView({
   resultExec,
   repoAnalysis,
-  runSonar,
+  runSonar: _runSonar,
   runFossa,
   runTests,
   runFunctionalTests,
@@ -116,62 +115,27 @@ export function ResultReportView({
   onError,
 }: ResultReportViewProps) {
   // Derive file counts from repoAnalysis using same logic as DiscoveryStepView
-  const discoveryJavaFiles: number = repoAnalysis?.java_file_count ?? repoAnalysis?.java_files?.length ?? 0;
-  const discoveryJspFiles: number = repoAnalysis?.jsp_file_count ?? repoAnalysis?.jsp_count ?? repoAnalysis?.structure?.jsp_count ?? repoAnalysis?.jsp_files?.length ?? 0;
-  const discoveryJsfFiles: number = repoAnalysis?.jsf_file_count ?? repoAnalysis?.jsf_count ?? repoAnalysis?.structure?.jsf_count ?? repoAnalysis?.jsf_files?.length ?? 0;
-  const discoveryXmlFiles: number = repoAnalysis?.config_file_count ?? repoAnalysis?.config_files?.length ?? 0;
-  const discoveryOtherFiles: number = repoAnalysis?.other_file_count ?? repoAnalysis?.other_files?.length ?? 0;
-  const discoveryTotalFiles: number = (repoAnalysis?.total_file_count ?? (discoveryJavaFiles + discoveryXmlFiles + discoveryJspFiles + discoveryJsfFiles + discoveryOtherFiles)) || 0;
+  const repoAnalysisObj = (repoAnalysis || {}) as Record<string, unknown>;
+  const discoveryJavaFiles: number = (repoAnalysisObj.java_file_count as number) ?? (repoAnalysisObj.java_files as unknown[])?.length ?? 0;
+  const discoveryJspFiles: number = (repoAnalysisObj.jsp_file_count as number) ?? (repoAnalysisObj.jsp_count as number) ?? ((repoAnalysisObj.structure as Record<string, unknown>)?.jsp_count as number) ?? (repoAnalysisObj.jsp_files as unknown[])?.length ?? 0;
+  const discoveryJsfFiles: number = (repoAnalysisObj.jsf_file_count as number) ?? (repoAnalysisObj.jsf_count as number) ?? ((repoAnalysisObj.structure as Record<string, unknown>)?.jsf_count as number) ?? (repoAnalysisObj.jsf_files as unknown[])?.length ?? 0;
+  const discoveryXmlFiles: number = (repoAnalysisObj.config_file_count as number) ?? (repoAnalysisObj.config_files as unknown[])?.length ?? 0;
+  const discoveryOtherFiles: number = (repoAnalysisObj.other_file_count as number) ?? (repoAnalysisObj.other_files as unknown[])?.length ?? 0;
+  const discoveryTotalFiles: number = ((repoAnalysisObj.total_file_count as number) ?? (discoveryJavaFiles + discoveryXmlFiles + discoveryJspFiles + discoveryJsfFiles + discoveryOtherFiles)) || 0;
   const {
     migrationJob,
     setMigrationJob,
     migrationLogs,
     setMigrationLogs,
     fossaResult,
-    fossaLoading,
-    rerunTestsLoading,
+    fossaLoading: _fossaLoading,
+    rerunTestsLoading: _rerunTestsLoading,
     setRerunTestsLoading,
     reportAccordionState,
     setReportAccordionState,
     reportDependencyPage,
-    setReportDependencyPage,
+    setReportDependencyPage: _setReportDependencyPage,
   } = resultExec;
-
-  if (!migrationJob) {
-    return (
-      <div style={{
-        padding: "60px 40px",
-        textAlign: "center",
-        color: "#64748b",
-        background: "#fff",
-        borderRadius: 16,
-        border: "1px solid #e2e8f0",
-        boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
-        maxWidth: 600,
-        margin: "40px auto"
-      }}>
-        <div style={{ fontSize: 48, marginBottom: 20 }}>📊</div>
-        <h3 style={{ fontSize: 20, fontWeight: 700, color: "#1e293b", marginBottom: 12 }}>Report Data Unavailable</h3>
-        <p style={{ lineHeight: 1.6, marginBottom: 24 }}>
-          The migration report data could not be loaded. This may happen if the session expired or the migration was not completed successfully.
-        </p>
-        <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
-          <button
-            style={styles.secondaryBtn}
-            onClick={onBack}
-          >
-            Go Back
-          </button>
-          <button
-            style={styles.primaryBtn}
-            onClick={resetWizard}
-          >
-            Restart Migration
-          </button>
-        </div>
-      </div>
-    );
-  }
 
   const [selectedDiffIndex, setSelectedDiffIndex] = useState<number>(0);
   const [loadedFileDiffs, setLoadedFileDiffs] = useState<Record<string, {
@@ -223,44 +187,44 @@ export function ResultReportView({
         ...prev,
         [category]: details,
       }));
-    } catch (err: any) {
-      setDetailModalError(err?.message || "Failed to load migration details.");
+    } catch (err: unknown) {
+      setDetailModalError((err as Error)?.message || "Failed to load migration details.");
     } finally {
       setDetailModalLoading(false);
     }
   };
 
   const diffData = React.useMemo(() => {
-    const rawFileDiffs: any[] = migrationJob?.file_diffs ?? [];
-    const javaFileDiffEntries = rawFileDiffs.map((fd: any) => {
-      const changeType: string = (fd.changeType ?? "MODIFIED").toUpperCase();
-      const relativePath = (fd.relativePath ?? fd.fileName ?? "").replace(/\\/g, "/");
+    const rawFileDiffs: Array<Record<string, unknown>> = (migrationJob?.file_diffs ?? []) as Array<Record<string, unknown>>;
+    const javaFileDiffEntries = rawFileDiffs.map((fd) => {
+      const changeType: string = String(fd.changeType ?? "MODIFIED").toUpperCase();
+      const relativePath = String(fd.relativePath ?? fd.fileName ?? "").replace(/\\/g, "/");
       const loadedDiff = loadedFileDiffs[relativePath];
       const status: "Modified" | "Added" | "Removed" =
         changeType === "ADDED" ? "Added" :
         changeType === "DELETED" ? "Removed" :
         "Modified";
       return {
-        file: fd.fileName ?? fd.relativePath ?? "",
+        file: String(fd.fileName ?? fd.relativePath ?? ""),
         relativePath,
-        label: fd.label,
+        label: fd.label as string | undefined,
         status,
-        additions: fd.addedLineCount ?? 0,
-        deletions: fd.removedLineCount ?? 0,
+        additions: (fd.addedLineCount as number) ?? 0,
+        deletions: (fd.removedLineCount as number) ?? 0,
         beforeLines: (loadedDiff?.beforeLines ?? fd.beforeLines ?? []) as Array<{ num: number; text: string; type: string }>,
         afterLines: (loadedDiff?.afterLines ?? fd.afterLines ?? []) as Array<{ num: number; text: string; type: string }>,
       };
     });
 
-    const rawUiTransformations: any[] = migrationJob?.uiTransformations ?? [];
-    const uiDiffEntries = rawUiTransformations.map((t: any) => ({
-      file: t.targetSourceFile ?? t.file ?? "",
-      sourceFile: t.sourceFile ?? t.file ?? "",
-      category: t.category ?? "",
-      icon: t.icon ?? "⚛️",
+    const rawUiTransformations: Array<Record<string, unknown>> = (migrationJob?.uiTransformations ?? []) as Array<Record<string, unknown>>;
+    const uiDiffEntries = rawUiTransformations.map((t) => ({
+      file: String(t.targetSourceFile ?? t.file ?? ""),
+      sourceFile: String(t.sourceFile ?? t.file ?? ""),
+      category: String(t.category ?? ""),
+      icon: String(t.icon ?? "⚛️"),
       status: (t.status ?? "Added") as "Modified" | "Added" | "Removed",
-      additions: t.additions ?? (t.afterLines?.length ?? 0),
-      deletions: t.deletions ?? 0,
+      additions: (t.additions as number) ?? ((t.afterLines as unknown[])?.length ?? 0),
+      deletions: (t.deletions as number) ?? 0,
       beforeLines: (t.beforeLines ?? []) as Array<{ num: number; text: string; type: string }>,
       afterLines: (t.afterLines ?? []) as Array<{ num: number; text: string; type: string }>,
     }));
@@ -272,7 +236,7 @@ export function ResultReportView({
       deletions: number;
       beforeLines: Array<{ num: number; text: string; type: string }>;
       afterLines: Array<{ num: number; text: string; type: string }>;
-      [key: string]: any;
+      [key: string]: unknown;
     }> = [];
     const seenFileKeys = new Set<string>();
 
@@ -392,6 +356,42 @@ export function ResultReportView({
     });
   }, [migrationJob?.job_id, sonarReportKey, migrationJob?.sonar_scan_mode]);
 
+  if (!migrationJob) {
+    return (
+      <div style={{
+        padding: "60px 40px",
+        textAlign: "center",
+        color: "#64748b",
+        background: "#fff",
+        borderRadius: 16,
+        border: "1px solid #e2e8f0",
+        boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
+        maxWidth: 600,
+        margin: "40px auto"
+      }}>
+        <div style={{ fontSize: 48, marginBottom: 20 }}>📊</div>
+        <h3 style={{ fontSize: 20, fontWeight: 700, color: "#1e293b", marginBottom: 12 }}>Report Data Unavailable</h3>
+        <p style={{ lineHeight: 1.6, marginBottom: 24 }}>
+          The migration report data could not be loaded. This may happen if the session expired or the migration was not completed successfully.
+        </p>
+        <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
+          <button
+            style={styles.secondaryBtn}
+            onClick={onBack}
+          >
+            Go Back
+          </button>
+          <button
+            style={styles.primaryBtn}
+            onClick={resetWizard}
+          >
+            Restart Migration
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   const toggleReportAccordion = (section: "sonar" | "fossa" | "issues") => {
     setReportAccordionState((prev) => ({
       ...prev,
@@ -399,7 +399,7 @@ export function ResultReportView({
     }));
   };
 
-  const handleRerunTests = async () => {
+  const _handleRerunTests = async () => {
     if (!migrationJob) return;
     setRerunTestsLoading(true);
     try {
@@ -446,8 +446,8 @@ export function ResultReportView({
       return;
     }
 
-    const allUiFiles = (migrationJob?.uiTransformations ?? []).map((t: any) => ({
-      fileName: t.targetSourceFile ?? t.file ?? "MigratedPage.tsx",
+    const allUiFiles = ((migrationJob?.uiTransformations ?? []) as Array<Record<string, unknown>>).map((t) => ({
+      fileName: String(t.targetSourceFile ?? t.file ?? "MigratedPage.tsx"),
       code: (t.afterLines ?? []) as Array<{ text: string }>,
     }));
 
@@ -456,7 +456,7 @@ export function ResultReportView({
 
     // If a stylesheet was passed, route to first actual UI component
     if (rawTarget.toLowerCase().endsWith(".css")) {
-      const firstComponent = allUiFiles.find((f: any) => !f.fileName.toLowerCase().endsWith(".css"));
+      const firstComponent = allUiFiles.find((f) => !f.fileName.toLowerCase().endsWith(".css"));
       if (firstComponent && firstComponent.code.length > 0) {
         targetFileName = firstComponent.fileName;
         targetCode = firstComponent.code;
@@ -470,9 +470,9 @@ export function ResultReportView({
     const mainEl = document.querySelector(".wizard-main-content");
     const prevScrollTop = mainEl ? mainEl.scrollTop : 0;
 
-    const cssFromUi = (migrationJob.uiTransformations ?? [])
-      .filter((transformation: any) => String(transformation.targetSourceFile ?? transformation.file ?? "").toLowerCase().endsWith(".css"))
-      .flatMap((transformation: any) => transformation.afterLines ?? [])
+    const cssFromUi = ((migrationJob.uiTransformations ?? []) as Array<Record<string, unknown>>)
+      .filter((transformation) => String(transformation.targetSourceFile ?? transformation.file ?? "").toLowerCase().endsWith(".css"))
+      .flatMap((transformation) => (transformation.afterLines ?? []) as Array<{ text?: string }>)
       .map((line: { text?: string }) => line.text ?? "")
       .join("\n");
 
@@ -857,7 +857,7 @@ export function ResultReportView({
       group_id: source.group_id || source.groupId || source.coordinate?.split(":")[0] || "dependency",
       artifact_id: source.artifact_id || source.artifactId || source.coordinate?.split(":")[1] || "artifact",
       current_version: source.current_version || source.old_version || source.oldVersion || source.sourceVersion || "managed version",
-      new_version: (source.new_version || source.newVersion || (source as any).resolvedTargetVersion || "updated version") as string,
+      new_version: (source.new_version || source.newVersion || (source as Record<string, unknown>).resolvedTargetVersion || "updated version") as string,
       status: source.status || "UPGRADED",
     };
   });
@@ -970,18 +970,19 @@ export function ResultReportView({
     migrationJob.framework_migrations.forEach((fm) => {
       let filesMigrated = fm.files_migrated;
       if (migrationJob.uiTransformations && migrationJob.uiTransformations.length > 0) {
+        const transformations = (migrationJob.uiTransformations ?? []) as Array<Record<string, unknown>>;
         if (fm.source_framework.toUpperCase() === "JSP") {
-          const jspCount = migrationJob.uiTransformations.filter((t: any) => {
-            const filename = (t.sourceFile || t.file || "").toLowerCase();
+          const jspCount = transformations.filter((t) => {
+            const filename = (String(t.sourceFile ?? t.file ?? "")).toLowerCase();
             if (filename) return filename.endsWith(".jsp") || filename.endsWith(".jspf") || filename.endsWith(".jspx");
-            return t.category?.startsWith("JSP");
+            return String(t.category ?? "").startsWith("JSP");
           }).length;
           if (jspCount > 0) filesMigrated = jspCount;
         } else if (fm.source_framework.toUpperCase() === "JSF") {
-          const jsfCount = migrationJob.uiTransformations.filter((t: any) => {
-            const filename = (t.sourceFile || t.file || "").toLowerCase();
+          const jsfCount = transformations.filter((t) => {
+            const filename = (String(t.sourceFile ?? t.file ?? "")).toLowerCase();
             if (filename) return filename.endsWith(".jsf") || filename.endsWith(".xhtml");
-            return t.category?.startsWith("JSF");
+            return String(t.category ?? "").startsWith("JSF");
           }).length;
           if (jsfCount > 0) filesMigrated = jsfCount;
         }
@@ -1016,6 +1017,30 @@ export function ResultReportView({
     dependencyStartIndex + REPORT_DEPENDENCIES_PAGE_SIZE,
     dependencyUpdates.length || 0
   );
+
+  void testSummaryText;
+  void testInsights;
+  void testModel;
+  void testStatusIcon;
+  void testStatusColors;
+  void codeSmellSeverityCounts;
+  void sonarDetailsAvailable;
+  void sonarCategoryCards;
+  void visibleSonarSections;
+  void renderSonarFindingSection;
+  void fossaLicenseIssueCount;
+  void fossaOutdatedCount;
+  void fossaEnrichmentErrorMessage;
+  void fossaDetailsAvailable;
+  void fossaSeverityCounts;
+  void fossaScanModeLabel;
+  void fossaStatusColor;
+  void reportStatusLabel;
+  void reportStatusTone;
+  void reportHeroSummary;
+  void paginatedDependencies;
+  void dependencyRangeStart;
+  void dependencyRangeEnd;
 
   return (
     <div style={{ ...styles.card, background: "#f8fafc", padding: "0px", border: "none", boxShadow: "none", width: "100%", maxWidth: "100%" }}>
@@ -1865,19 +1890,19 @@ export function ResultReportView({
                         styles={{...styles, reportSection: { padding: 0, border: 'none', background: 'transparent', boxShadow: 'none' }}}
                         migrationJob={migrationJob}
                         runFossa={Boolean(migrationJob.run_fossa ?? migrationJob.runFossa ?? runFossa)}
-                        fossaLicenseIssueCount={migrationJob.fossa_license_issues ?? (migrationJob.fossa_report as any)?.license_issues ?? (migrationJob as any)?.license_issues}
-                        fossaVulnerabilityTotal={migrationJob.fossa_vulnerabilities ?? (migrationJob.fossa_report as any)?.vulnerabilities ?? (migrationJob.fossa_report as any)?.vulnerability_count}
-                        fossaOutdatedCount={migrationJob.fossa_outdated_dependencies ?? (migrationJob.fossa_report as any)?.outdated_dependencies ?? (migrationJob as any)?.outdated_packages}
+                        fossaLicenseIssueCount={migrationJob.fossa_license_issues ?? (migrationJob.fossa_report as Record<string, unknown>)?.license_issues as number ?? (migrationJob as Record<string, unknown>)?.license_issues as number}
+                        fossaVulnerabilityTotal={migrationJob.fossa_vulnerabilities ?? (migrationJob.fossa_report as Record<string, unknown>)?.vulnerabilities as number ?? (migrationJob.fossa_report as Record<string, unknown>)?.vulnerability_count as number}
+                        fossaOutdatedCount={migrationJob.fossa_outdated_dependencies ?? (migrationJob.fossa_report as Record<string, unknown>)?.outdated_dependencies as number ?? (migrationJob as Record<string, unknown>)?.outdated_packages as number}
  
-                        fossaTotalDependencies={migrationJob.fossa_total_dependencies ?? (migrationJob.fossa_report as any)?.total_dependencies ?? (migrationJob as any)?.dependencies}
+                        fossaTotalDependencies={migrationJob.fossa_total_dependencies ?? (migrationJob.fossa_report as Record<string, unknown>)?.total_dependencies as number ?? (migrationJob as Record<string, unknown>)?.dependencies as number}
  
-                        fossaTotalLicenses={(migrationJob as any)?.fossa_total_licenses ?? (migrationJob.fossa_report as any)?.total_licenses ?? (migrationJob.fossa_report as any)?.license_count ?? (migrationJob.fossa_report as any)?.licenses ?? (migrationJob as any)?.licenses}
+                        fossaTotalLicenses={(migrationJob as Record<string, unknown>)?.fossa_total_licenses as number ?? (migrationJob.fossa_report as Record<string, unknown>)?.total_licenses as number ?? (migrationJob.fossa_report as Record<string, unknown>)?.license_count as number ?? (migrationJob.fossa_report as Record<string, unknown>)?.licenses as number ?? (migrationJob as Record<string, unknown>)?.licenses as number}
  
-                        fossaPolicyStatus={migrationJob.fossa_policy_status || (migrationJob.fossa_report as any)?.policy_status || (migrationJob as any)?.status}
-                        fossaScanMode={migrationJob.fossa_scan_mode || (migrationJob.fossa_report as any)?.scan_mode}
-                        fossaErrorMessage={migrationJob.fossa_error_message || (migrationJob.fossa_report as any)?.error_message}
-                        fossaAnalysisUrl={fossaAnalysisUrl || migrationJob.fossa_analysis_url || (migrationJob.fossa_report as any)?.analysis_url || (migrationJob as any)?.project_url}
-                        fossaRealScan={Boolean(fossaIsRealScan || migrationJob.fossa_real_scan || (migrationJob.fossa_report as any)?.real_scan)}
+                        fossaPolicyStatus={migrationJob.fossa_policy_status || (migrationJob.fossa_report as Record<string, unknown>)?.policy_status as string || (migrationJob as Record<string, unknown>)?.status as string}
+                        fossaScanMode={migrationJob.fossa_scan_mode || (migrationJob.fossa_report as Record<string, unknown>)?.scan_mode as string}
+                        fossaErrorMessage={migrationJob.fossa_error_message || (migrationJob.fossa_report as Record<string, unknown>)?.error_message as string}
+                        fossaAnalysisUrl={fossaAnalysisUrl || migrationJob.fossa_analysis_url || (migrationJob.fossa_report as Record<string, unknown>)?.analysis_url as string || (migrationJob as Record<string, unknown>)?.project_url as string}
+                        fossaRealScan={Boolean(fossaIsRealScan || migrationJob.fossa_real_scan || (migrationJob.fossa_report as Record<string, unknown>)?.real_scan)}
                       />
                    </div>
 
@@ -1973,8 +1998,8 @@ export function ResultReportView({
             fileName={sandboxEntry.fileName}
             code={sandboxEntry.code}
             css={sandboxEntry.css}
-            allFiles={(migrationJob?.uiTransformations ?? []).map((t: any) => ({
-              fileName: t.targetSourceFile ?? t.file ?? "MigratedPage.tsx",
+            allFiles={((migrationJob?.uiTransformations ?? []) as Array<Record<string, unknown>>).map((t) => ({
+              fileName: String(t.targetSourceFile ?? t.file ?? "MigratedPage.tsx"),
               code: (t.afterLines ?? []) as Array<{ text: string }>,
             }))}
             onClose={() => setSandboxEntry(null)}

@@ -9,7 +9,7 @@ export function useModernizationState(persistedFormState: PersistedWizardFormSta
   const [runCycode, setRunCycode] = useState(persistedFormState?.runCycode ?? false);
   const [runFossa, setRunFossa] = useState(persistedFormState?.runFossa ?? false);
   const [runFunctionalTests, setRunFunctionalTests] = useState(
-    (persistedFormState as any)?.runFunctionalTests ?? true
+    (persistedFormState as { runFunctionalTests?: boolean } | null)?.runFunctionalTests ?? true
   );
   const [fixBusinessLogic, setFixBusinessLogic] = useState(
     persistedFormState?.fixBusinessLogic ?? true

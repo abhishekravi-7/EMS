@@ -379,7 +379,7 @@ export interface ProposedTestReportResponse {
   ui_spec?: UiTestSpec | null;
   execution_result?: ExecutionResult | null;
   baseline_execution_result?: ExecutionResult | null;
-  api_trace?: any;
+  api_trace?: unknown;
   browser_log?: string | null;
   has_artifacts: boolean;
   report_available: boolean;

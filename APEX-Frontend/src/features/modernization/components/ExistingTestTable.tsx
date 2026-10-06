@@ -41,8 +41,8 @@ type SortOrder = "ASC" | "DESC";
 
 export function ExistingTestTable({
   testResults,
-  frameworkInfo,
-  onSelectTest,
+  frameworkInfo: _frameworkInfo,
+  onSelectTest: _onSelectTest,
   title = "Existing Tests Validation Report",
   hideHeader = false,
 }: ExistingTestTableProps) {

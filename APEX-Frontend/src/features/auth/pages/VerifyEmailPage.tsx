@@ -12,7 +12,7 @@ const VerifyEmailPage: React.FC = () => {
   const [searchParams] = useSearchParams();
   const location = useLocation();
   const navigate = useNavigate();
-  const { login } = useAuth();
+  useAuth();
 
   // Extract email from React Router state -> URL search param -> sessionStorage
   const stateEmail = (location.state as { email?: string } | null)?.email || "";
@@ -125,8 +125,8 @@ const VerifyEmailPage: React.FC = () => {
       setTimeout(() => {
         navigate("/signin?verified=true", { replace: true });
       }, 1200);
-    } catch (err: any) {
-      const msg = err.message || "Invalid verification code.";
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Invalid verification code.";
       setErrorMessage(msg);
     } finally {
       setIsVerifying(false);
@@ -154,8 +154,9 @@ const VerifyEmailPage: React.FC = () => {
       if (inputRefs.current[0]) {
         inputRefs.current[0].focus();
       }
-    } catch (err: any) {
-      setErrorMessage(err.message || "Failed to resend verification code. Please try again later.");
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : "Failed to resend verification code. Please try again later.";
+      setErrorMessage(errMsg);
     } finally {
       setIsResending(false);
     }

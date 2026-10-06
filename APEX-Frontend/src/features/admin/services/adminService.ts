@@ -98,9 +98,9 @@ export interface UserGitHubConfig {
 
 export interface UserSettingsResponse {
   github_config: UserGitHubConfig;
-  quality_checks_values?: Record<string, any>;
-  test_cases_values?: Record<string, any>;
-  llm_values?: Record<string, any>;
+  quality_checks_values?: Record<string, unknown>;
+  test_cases_values?: Record<string, unknown>;
+  llm_values?: Record<string, unknown>;
   system_llm_config?: {
     llm_enabled?: boolean | string;
     groq_models?: string;
@@ -116,9 +116,9 @@ export interface UserSettingsResponse {
 
 export interface FullUserSettings {
   github_config: UserGitHubConfig;
-  quality_checks_values: Record<string, any>;
-  test_cases_values: Record<string, any>;
-  llm_values: Record<string, any>;
+  quality_checks_values: Record<string, unknown>;
+  test_cases_values: Record<string, unknown>;
+  llm_values: Record<string, unknown>;
   system_llm_config?: {
     llm_enabled?: boolean | string;
     groq_models?: string;
@@ -150,11 +150,11 @@ export async function getUserSettings(): Promise<FullUserSettings> {
 
 export async function updateUserSettings(
   github_config: UserGitHubConfig,
-  quality_checks_values?: Record<string, any>,
-  test_cases_values?: Record<string, any>,
-  llm_values?: Record<string, any>
+  quality_checks_values?: Record<string, unknown>,
+  test_cases_values?: Record<string, unknown>,
+  llm_values?: Record<string, unknown>
 ): Promise<FullUserSettings> {
-  const body: any = { github_config };
+  const body: Record<string, unknown> = { github_config };
   if (quality_checks_values) {
     body.quality_checks_values = quality_checks_values;
   }

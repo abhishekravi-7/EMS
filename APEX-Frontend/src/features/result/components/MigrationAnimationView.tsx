@@ -5,7 +5,6 @@ import {
   FaTerminal,
   FaEraser,
   FaTools,
-  FaArrowRight,
   FaRedo,
 } from "react-icons/fa";
 import {
@@ -19,8 +18,8 @@ import type { MigrationResult, FossaScanResult } from "../services/resultService
 import {
   buildMigrationState,
   generateStepLogs,
-  generateStepCompletionLog,
-  generateFinalCompletionLog,
+  generateStepCompletionLog as _generateStepCompletionLog,
+  generateFinalCompletionLog as _generateFinalCompletionLog,
   STEP_NUMBER_TO_ID,
   type MigrationStepId,
   type MigrationLogEvent,
@@ -58,8 +57,8 @@ export interface MigrationAnimationViewProps {
   repoUrl?: string;
   selectedSourceVersion?: string;
   effectiveTargetVersion?: string;
-  repoAnalysis?: any;
-  codeChanges?: any[];
+  repoAnalysis?: Record<string, unknown>;
+  codeChanges?: Record<string, unknown>[];
   fossaResult?: FossaScanResult | null;
   backendLogs?: string[];
   onMigrationComplete?: () => void;
@@ -316,7 +315,7 @@ export function MigrationAnimationView({
       derivedActiveStep: actStep,
       derivedProgress: isCompleted ? 100 : backendPct,
     };
-  }, [migrationJob?.status, migrationJob?.error_message, migrationJob?.progress_percent, migrationJob?.stages]);
+  }, [migrationJob]);
 
   const activeStep = derivedActiveStep;
   const stepStates = derivedStepStates;
@@ -324,6 +323,13 @@ export function MigrationAnimationView({
 
   const [selectedStepId, setSelectedStepId] = useState<MigrationStepId>("code-version-update");
   const [hasUserSelectedStepManually, setHasUserSelectedStepManually] = useState<boolean>(false);
+
+  if (!hasUserSelectedStepManually && activeStep <= 6) {
+    const autoStepId = STEP_NUMBER_TO_ID[activeStep];
+    if (autoStepId && selectedStepId !== autoStepId) {
+      setSelectedStepId(autoStepId);
+    }
+  }
 
   const [activeSourceRef, setActiveSourceRef] = useState<SourceLocationReference | null>(null);
   const [selectedLogId, setSelectedLogId] = useState<string | null>(null);
@@ -367,16 +373,6 @@ export function MigrationAnimationView({
       window.removeEventListener("resize", updateHeight);
     };
   }, []);
-
-  // When activeStep advances, automatically follow if user hasn't clicked a step manually
-  useEffect(() => {
-    if (!hasUserSelectedStepManually && activeStep <= 6) {
-      const autoStepId = STEP_NUMBER_TO_ID[activeStep];
-      if (autoStepId) {
-        setSelectedStepId(autoStepId);
-      }
-    }
-  }, [activeStep, hasUserSelectedStepManually]);
 
   // Handle clicking any migration step
   const handleSelectStep = (clickedStepId: string) => {
@@ -438,10 +434,12 @@ export function MigrationAnimationView({
   const countdownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hasStartedCountdownRef = useRef<boolean>(false);
   const onViewReportRef = useRef(onViewReport);
-  onViewReportRef.current = onViewReport;
-
   const onMigrationCompleteRef = useRef(onMigrationComplete);
-  onMigrationCompleteRef.current = onMigrationComplete;
+
+  useEffect(() => {
+    onViewReportRef.current = onViewReport;
+    onMigrationCompleteRef.current = onMigrationComplete;
+  }, [onViewReport, onMigrationComplete]);
 
   // Dedicated navigation function using existing router mechanism
   const navigateToResults = () => {
@@ -470,7 +468,9 @@ export function MigrationAnimationView({
     if (hasStartedCountdownRef.current) return;
 
     hasStartedCountdownRef.current = true;
-    setRedirectCountdown(5);
+    Promise.resolve().then(() => {
+      setRedirectCountdown(5);
+    });
 
     countdownTimerRef.current = setInterval(() => {
       setRedirectCountdown((prev) => {
@@ -561,7 +561,7 @@ export function MigrationAnimationView({
       return bLogs;
     }
     return [];
-  }, [migrationJob?.migration_log, backendLogs]);
+  }, [migrationJob, backendLogs]);
 
   // Parsed structured logs
   const logs = useMemo(() => {

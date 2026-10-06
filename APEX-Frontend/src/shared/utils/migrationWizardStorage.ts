@@ -141,7 +141,7 @@ export const clearWizardStorage = () => {
 
 export const buildPersistedMigrationJob = (job: MigrationResult): MigrationResult => ({
   ...job,
-  job_id: job.job_id || (job as any).jobId || "",
+  job_id: job.job_id || (job as MigrationResult & { jobId?: string }).jobId || "",
   dependencies: [],
   migration_log: [],
   file_diffs: [],

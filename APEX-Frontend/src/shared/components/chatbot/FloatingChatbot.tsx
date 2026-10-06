@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useRef, useState, useCallback, useMemo } from "react";
+import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useChatbot } from "@/shared/context/ChatbotContext";
 import { sendMessage, determineThinkingState } from "@/shared/services/chatService";
 import { getUserSettings } from "@/features/admin/services/adminService";

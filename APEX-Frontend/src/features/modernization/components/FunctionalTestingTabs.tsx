@@ -1,5 +1,5 @@
 import React from "react";
-import { FaSpinner, FaVial } from "react-icons/fa";
+import { FaSpinner } from "react-icons/fa";
 
 interface FunctionalTestingTabsProps {
   title?: string;

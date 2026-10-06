@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import type { FullUserSettings } from "../services/adminService";
 import { requestJson } from "@/services/http/client";
-import { FaSpinner, FaPlay, FaCheckCircle, FaTimesCircle, FaEye, FaEyeSlash, FaBrain } from "react-icons/fa";
+import { FaSpinner, FaPlay, FaCheckCircle, FaTimesCircle, FaEye, FaEyeSlash } from "react-icons/fa";
 
 const GROQ_MODELS = [
   { id: "gpt-4o", label: "gpt-4o" },
@@ -18,13 +18,13 @@ const HUGGINGFACE_MODELS = [
 
 interface LlmUserSettingsProps {
   settings: FullUserSettings;
-  onChange: (key: keyof FullUserSettings, value: any) => void;
+  onChange: (key: keyof FullUserSettings, value: unknown) => void;
   isAdminEnabled: boolean;
   allowedGroqModelsStr?: string;
   allowedHuggingFaceModelsStr?: string;
 }
 
-export async function testUserLlmConnection(payload: { provider: string; api_key: string; selected_model: string }): Promise<{ status: string; message: string }> {
+async function testUserLlmConnection(payload: { provider: string; api_key: string; selected_model: string }): Promise<{ status: string; message: string }> {
   return requestJson<{ status: string; message: string }>(
     "/v1/user/settings/llm/test",
     "Failed to test User LLM connection",
@@ -50,14 +50,14 @@ export function LlmUserSettings({ settings, onChange, isAdminEnabled, allowedGro
   let allowedGroqModels: string[] = [];
   try {
     allowedGroqModels = allowedGroqModelsStr ? JSON.parse(allowedGroqModelsStr) : [];
-  } catch (e) {
+  } catch (_e) {
     allowedGroqModels = [];
   }
 
   let allowedHuggingFaceModels: string[] = [];
   try {
     allowedHuggingFaceModels = allowedHuggingFaceModelsStr ? JSON.parse(allowedHuggingFaceModelsStr) : [];
-  } catch (e) {
+  } catch (_e) {
     allowedHuggingFaceModels = [];
   }
 
@@ -100,11 +100,12 @@ export function LlmUserSettings({ settings, onChange, isAdminEnabled, allowedGro
       } else {
         setTestResultHF({ status: "success", message: res.message || "Connected to HuggingFace successfully." });
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : "Connection failed.";
       if (provider === "groq") {
-        setTestResultGroq({ status: "error", message: err.message || "Connection failed." });
+        setTestResultGroq({ status: "error", message: errMsg });
       } else {
-        setTestResultHF({ status: "error", message: err.message || "Connection failed." });
+        setTestResultHF({ status: "error", message: errMsg });
       }
     } finally {
       if (provider === "groq") {

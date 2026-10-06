@@ -1,12 +1,9 @@
 import React, { useEffect, useState, useRef, useMemo, type Dispatch, type SetStateAction } from "react";
 import { createPortal } from "react-dom";
-import { FaRocket, FaInfoCircle, FaSearch, FaShieldAlt, FaVial, FaPen, FaFileAlt, FaFlask } from "react-icons/fa";
+import { FaRocket, FaSearch, FaShieldAlt, FaFileAlt, FaFlask } from "react-icons/fa";
 import {
   scanExistingTests,
   getCachedExistingTests,
-  runExistingTests,
-  getExistingTestsStatus,
-  stopExistingTests,
   classifyTestType,
   type TestResult,
   type TestSelectionItem,
@@ -14,21 +11,13 @@ import {
   type ApiEvidence,
 } from "../services/existingTestService";
 import { ExistingTestCasesPanel } from "./ExistingTestCasesPanel";
-import { ExistingTestCoverage } from "./ExistingTestCoverage";
-import { ExistingTestTable } from "./ExistingTestTable";
-import { ExistingTestLogs } from "./ExistingTestLogs";
 import { ExistingTestValidationReport } from "./ExistingTestValidationReport";
-import { FunctionalTestingTabs } from "./FunctionalTestingTabs";
 import { FunctionalTestingDocumentCard } from "./FunctionalTestingDocumentCard";
-import { ProposedTestCasesPanel } from "./ProposedTestCasesPanel";
-import { runApprovedProposedTests } from "../services/proposedTestService";
 import { TestReportsModal, type TestReportData } from "./TestReportsModal";
 import { wizardStyles as styles } from "@/shared/components/wizard/wizardStyles";
 import { renderWizardIconBadge, renderForwardButtonLabel } from "@/shared/components/wizard";
 import type { RepoAnalysis, RepoInfo } from "@/shared/types/domain";
 import type { FunctionalTestScopePreview } from "../services/modernizationService";
-import { getLocalProjectFileContent } from "@/features/connect/services/connectService";
-import { getFileContent } from "@/features/discovery/services/discoveryService";
 import type { useModernizationState } from "../hooks/useModernizationState";
 import { getUserSettings, saveUserSettings, getQualityChecksAdminConfig, type FullUserSettings } from "@/features/admin/services/adminService";
 
@@ -173,18 +162,18 @@ export function ModernizationStepView({
   jobId,
   modernization,
   repoAnalysis,
-  selectedRepo,
+  selectedRepo: _selectedRepo,
   repoUrl: _repoUrl,
-  currentToken,
+  currentToken: _currentToken,
   functionalTestToolMethod: _functionalTestToolMethod,
   setFunctionalTestToolMethod: _setFunctionalTestToolMethod,
   functionalTestingTools: _functionalTestingTools,
-  hasUI,
-  localApiTestCases,
+  hasUI: _hasUI,
+  localApiTestCases: _localApiTestCases,
   loading,
   startMigrationStatusText,
   repoUtils,
-  onBack,
+  onBack: _onBack,
   onStartMigration,
 }: ModernizationStepViewProps) {
   const {
@@ -204,9 +193,9 @@ export function ModernizationStepView({
     setRunFunctionalTests,
   } = modernization;
 
-  const { isLocalRepoRef, extractLocalRepoPath } = repoUtils;
+  const { isLocalRepoRef: _isLocalRepoRef, extractLocalRepoPath: _extractLocalRepoPath } = repoUtils;
   const [viewingTestFile, setViewingTestFile] = useState<{ name: string; path: string; content?: string } | null>(null);
-  const [testFileLoading, setTestFileLoading] = useState(false);
+  const [_testFileLoading, _setTestFileLoading] = useState(false);
 
   // --- Existing Test execution states replicated from Prova ---
   const cachedScan = jobId ? getCachedExistingTests(jobId) : null;
@@ -222,7 +211,7 @@ export function ModernizationStepView({
   const [isCycodeConfigured, setIsCycodeConfigured] = useState(false);
   const [isFossaConfigured, setIsFossaConfigured] = useState(false);
   const [isLlmConfiguredMod, setIsLlmConfiguredMod] = useState<boolean | null>(null);
-  const [adminConfig, setAdminConfig] = useState<any[]>([]);
+  const [adminConfig, setAdminConfig] = useState<Record<string, unknown>[]>([]);
   const [isAdminConfigLoading, setIsAdminConfigLoading] = useState(true);
   const [isUserSettingsLoading, setIsUserSettingsLoading] = useState(true);
   const [adminConfigError, setAdminConfigError] = useState<string | null>(null);
@@ -233,11 +222,11 @@ export function ModernizationStepView({
 
 
   // Proposed tests
-  const [proposedTests, setProposedTests] = useState<any[]>([]);
-  const [existingElapsedTime, setExistingElapsedTime] = useState(0);
+  const [_proposedTests, _setProposedTests] = useState<Record<string, unknown>[]>([]);
+  const [_existingElapsedTime, setExistingElapsedTime] = useState(0);
   const [existingLogs, setExistingLogs] = useState<{ ts: string; msg: string; level: string }[]>([]);
   const [existingExecResult, setExistingExecResult] = useState<ExistingTestRunResponse | null>(null);
-  const [_showExistingLogs, setShowExistingLogs] = useState(false);
+  const [_showExistingLogs, _setShowExistingLogs] = useState(false);
   const [showValidationReport, setShowValidationReport] = useState(false);
   const [_validationFilter, _setValidationFilter] = useState("ALL");
   const [_validationSearch, _setValidationSearch] = useState("");
@@ -272,7 +261,7 @@ export function ModernizationStepView({
   }, [showQualityGateReminder]);
 
   const existingLogRef = useRef<HTMLDivElement | null>(null);
-  const existingPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const _existingPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Live timer for existing test execution / analysis
   useEffect(() => {
@@ -301,7 +290,7 @@ export function ModernizationStepView({
     /^\[\d+\/\d+\]/.test(log.msg || "")
   ).length;
 
-  const testProgressPercent = (existingTotal && existingTotal - 1 > 0)
+  const _testProgressPercent = (existingTotal && existingTotal - 1 > 0)
     ? Math.min(100, Math.round((executedTestLogsCount / existingTotal) * 100))
     : (isRunningExisting ? 10 : 0);
 
@@ -640,9 +629,9 @@ export function ModernizationStepView({
       });
   }, [jobId]);
 
-  const [fullUserSettings, setFullUserSettings] = useState<FullUserSettings | null>(null);
+  const [_fullUserSettings, setFullUserSettings] = useState<FullUserSettings | null>(null);
 
-  const handleUserSettingsChange: Dispatch<SetStateAction<FullUserSettings>> = (action) => {
+  const _handleUserSettingsChange: Dispatch<SetStateAction<FullUserSettings>> = (action) => {
     setFullUserSettings((prev) => {
       const base = prev || ({
         user_id: "default",
@@ -657,7 +646,7 @@ export function ModernizationStepView({
       if (next) {
         saveUserSettings(next).catch((err) => console.warn("Auto-saving prompt settings notice:", err));
         if (typeof window !== "undefined") {
-          (window as any).__javaapex_user_settings = next;
+          (window as unknown as { __javaapex_user_settings?: FullUserSettings }).__javaapex_user_settings = next;
         }
       }
       return next;
@@ -677,7 +666,7 @@ export function ModernizationStepView({
         if (!isMounted) return;
         setFullUserSettings(settings);
         if (typeof window !== "undefined") {
-          (window as any).__javaapex_user_settings = settings;
+          (window as unknown as { __javaapex_user_settings?: FullUserSettings }).__javaapex_user_settings = settings;
         }
         const qc = settings.quality_checks_values || {};
         const sonarUrl = qc.sonarqube_url || qc.sonar_url || qc.sonar_host_url || qc.host_url || qc.url;
@@ -737,7 +726,7 @@ setIsLlmConfiguredMod(
  
 );
  
-      } catch (err: any) {
+      } catch (err: unknown) {
         if (!isMounted) return;
         console.warn("Failed to fetch user settings (fallback to defaults):", err);
       } finally {
@@ -752,7 +741,7 @@ setIsLlmConfiguredMod(
         if (!isMounted) return;
         const rawConfig = res.quality_checks_config;
         if (rawConfig) {
-          let parsed: any = rawConfig;
+          let parsed: unknown = rawConfig;
           if (typeof parsed === "string") {
             try {
               parsed = JSON.parse(parsed);
@@ -770,7 +759,7 @@ setIsLlmConfiguredMod(
           const configArray = Array.isArray(parsed)
             ? parsed
             : (typeof parsed === "object" && parsed !== null ? Object.values(parsed) : []);
-          setAdminConfig(configArray);
+          setAdminConfig(configArray as Record<string, unknown>[]);
           const ciIsEnabled = String(res.ci_enabled ?? "true").toLowerCase() !== "false";
           const cdIsEnabled = String(res.cd_enabled ?? "true").toLowerCase() !== "false";
           setCiEnabled(ciIsEnabled);
@@ -786,19 +775,20 @@ setIsLlmConfiguredMod(
           }
 
           // Auto-disable state if not authorized globally
-          const sonarGlobal = configArray.find((c: any) => c.name === "SonarQube")?.enabled;
-          const fossaGlobal = configArray.find((c: any) => c.name === "FOSSA")?.enabled;
-          const testsGlobal = configArray.find((c: any) => c.name === "Run Unit Test Suite")?.enabled;
+          type CheckItem = { name?: string; enabled?: boolean; execution_enabled?: boolean };
+          const sonarGlobal = (configArray as CheckItem[]).find((c) => c.name === "SonarQube")?.enabled;
+          const fossaGlobal = (configArray as CheckItem[]).find((c) => c.name === "FOSSA")?.enabled;
+          const testsGlobal = (configArray as CheckItem[]).find((c) => c.name === "Run Unit Test Suite")?.enabled;
 
           if (sonarGlobal === false) setRunSonar(false);
           if (fossaGlobal === false) setRunFossa(false);
-          const cycodeConfig = configArray.find((c: any) => c.name === "Cycode");
+          const cycodeConfig = (configArray as CheckItem[]).find((c) => c.name === "Cycode");
           if (!cycodeConfig?.enabled || cycodeConfig.execution_enabled === false) setRunCycode(false);
           if (testsGlobal === false) setRunTests(false);
         } else {
           setAdminConfig([]);
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         if (!isMounted) return;
         console.warn("Failed to fetch quality checks admin config (fallback to defaults):", err);
       } finally {
@@ -817,12 +807,14 @@ setIsLlmConfiguredMod(
       isMounted = false;
       window.removeEventListener("javaapex:settings-saved", handleSettingsSaved);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional fetch on mount
   }, []);
 
+  type CheckConfig = { name?: string; enabled?: boolean; execution_enabled?: boolean };
   const isQualityChecksLoading = isAdminConfigLoading || isUserSettingsLoading;
-  const isSonarEnabledGlobally = Boolean(adminConfig.find((c: any) => c.name === "SonarQube")?.enabled);
-  const isFossaEnabledGlobally = Boolean(adminConfig.find((c: any) => c.name === "FOSSA")?.enabled);
-  const isTestsEnabledGlobally = Boolean(adminConfig.find((c: any) => c.name === "Run Unit Test Suite")?.enabled);
+  const isSonarEnabledGlobally = Boolean((adminConfig as CheckConfig[]).find((c) => c.name === "SonarQube")?.enabled);
+  const isFossaEnabledGlobally = Boolean((adminConfig as CheckConfig[]).find((c) => c.name === "FOSSA")?.enabled);
+  const isTestsEnabledGlobally = Boolean((adminConfig as CheckConfig[]).find((c) => c.name === "Run Unit Test Suite")?.enabled);
 
   const isQualityChecksPermitted = fullUserSettings?.settings_permissions?.quality_checks !== false;
   const isUnitTestPermitted = fullUserSettings?.settings_permissions?.unit_testing !== false;
@@ -842,7 +834,7 @@ setIsLlmConfiguredMod(
     return "Static analysis for bug and vulnerability detection.";
   };
 
-  const cycodeConfig = adminConfig.find((c: any) => c.name === "Cycode");
+  const cycodeConfig = (adminConfig as CheckConfig[]).find((c) => c.name === "Cycode");
   const isCycodeAvailable = !isQualityChecksLoading && !adminConfigError && !userSettingsError &&
     isQualityChecksPermitted && Boolean(cycodeConfig?.enabled) && cycodeConfig?.execution_enabled !== false && isCycodeConfigured;
 
