@@ -90,7 +90,7 @@ export function StrategyStepView({
   selectedRepo,
   riskLevel,
   riskExplanation: propRiskExplanation,
-  riskExplanationLoading: propRiskExplanationLoading,
+  // Removed riskExplanationLoading
   dependencyAnalysis: propDependencyAnalysis,
   dependencyAnalysisLoading: _propDependencyAnalysisLoading,
   stepSummary: _stepSummary = "",
@@ -130,7 +130,7 @@ export function StrategyStepView({
     userSelectedVersion,
     setUserSelectedVersion,
     riskExplanation,
-    riskExplanationLoading,
+    // Removed riskExplanationLoading
     dependencyAnalysis: strategyDependencyAnalysis,
     uiFrameworkTarget,
     setUiFrameworkTarget,
@@ -144,10 +144,6 @@ export function StrategyStepView({
     propDependencyAnalysis !== undefined ? propDependencyAnalysis : strategyDependencyAnalysis;
   const effectiveRiskExplanation =
     propRiskExplanation !== undefined ? propRiskExplanation : riskExplanation;
-  const effectiveRiskExplanationLoading =
-    propRiskExplanationLoading !== undefined
-      ? propRiskExplanationLoading
-      : riskExplanationLoading;
 
   const isAssessmentLoaded =
     repoAnalysis !== null &&
@@ -195,9 +191,9 @@ export function StrategyStepView({
 
     if (effectiveDependencyAnalysis?.categories) {
       const categories = effectiveDependencyAnalysis.categories;
-      Object.values(categories).forEach((cat: any) => {
+      Object.values(categories).forEach((cat: { items?: Array<{ risk?: string }> }) => {
         if (cat.items && Array.isArray(cat.items)) {
-          cat.items.forEach((item: any) => {
+          cat.items.forEach((item: { risk?: string }) => {
             const r = item.risk?.toLowerCase();
             if (r === "critical") depCriticalCount++;
             else if (r === "high") depHighCount++;
@@ -208,7 +204,7 @@ export function StrategyStepView({
     }
 
     if (repoAnalysis?.dependencies && Array.isArray(repoAnalysis.dependencies)) {
-      repoAnalysis.dependencies.forEach((dep: any) => {
+      repoAnalysis.dependencies.forEach((dep: { risk?: string, risk_level?: string }) => {
         const r = dep.risk?.toLowerCase() || dep.risk_level?.toLowerCase();
         if (r === "critical") depCriticalCount++;
         else if (r === "high") depHighCount++;
@@ -599,7 +595,11 @@ export function StrategyStepView({
             <div style={{ height: 1, background: "#dbe3ef", marginBottom: 18 }} />
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 14 }}>
-              {[
+              {(() => {
+                const isJavaUpgradeSelected = selectedConversions.includes("java_version");
+                const isSpringBootForced = isJavaUpgradeSelected && springBootPathwayStatus !== "disabled" && springBootPathwayStatus !== "loading";
+
+                const options = [
                 {
                   key: "java_version",
                   title: "Java Version Upgrade",
@@ -645,20 +645,25 @@ export function StrategyStepView({
                   title: springBootTitle,
                   desc: springBootDesc,
                   icon: <FaLeaf />,
-                  color: springBootPathwayStatus === "disabled" || springBootPathwayStatus === "loading" ? "#94a3b8" : "#22c55e",
-                  disabled: springBootPathwayStatus === "disabled" || springBootPathwayStatus === "loading",
-                  badgeLabel: springBootBadgeLabel,
+                  color: springBootPathwayStatus === "disabled" || springBootPathwayStatus === "loading"
+                    ? "#94a3b8"
+                    : isSpringBootForced
+                      ? "#d97706"   // Amber highlight when forced as required dependency
+                      : "#22c55e",
+                  disabled: springBootPathwayStatus === "disabled" || springBootPathwayStatus === "loading" || isSpringBootForced,
+                  badgeLabel: isSpringBootForced ? "Required Dependency" : springBootBadgeLabel,
                   detail: (
                     <span
                       style={{
                         fontWeight: 600,
-                        color:
-                          springBootPathwayStatus === "conversion" || springBootPathwayStatus === "upgrade"
+                        color: isSpringBootForced
+                          ? "#d97706"
+                          : (springBootPathwayStatus === "conversion" || springBootPathwayStatus === "upgrade"
                             ? "#166534"
-                            : "#64748b",
+                            : "#64748b"),
                       }}
                     >
-                      {springBootReason}
+                      {isSpringBootForced ? "Mandatory: Spring Boot 3.x is required for modern Java." : springBootReason}
                     </span>
                   ) as React.ReactNode,
                 },
@@ -727,45 +732,82 @@ export function StrategyStepView({
                     })(),
                   };
                 })(),
-              ].map((pathway) => {
+              ];
+
+              return options.map((pathway) => {
                 const isActivePathway = selectedConversions.includes(pathway.key);
-                const isDisabledPathway = pathway.disabled;
                 const isSpringBootPathway = pathway.key === "spring_boot";
                 const isUiModPathway = pathway.key === "ui_modernization";
+
+                // When Spring Boot is forced, don't treat it as "disabled" for styling —
+                // it should look highlighted/locked, not grayed out.
+                const isForcedSpringBoot = isSpringBootPathway && isSpringBootForced;
+                const isDisabledPathway = isForcedSpringBoot ? false : pathway.disabled;
+
                 const pathwayBadgeLabel =
-                  (isSpringBootPathway || isUiModPathway) && !isDisabledPathway && isActivePathway
+                  (isSpringBootPathway || isUiModPathway) && !pathway.disabled && isActivePathway && pathway.key !== "spring_boot"
                     ? "Active"
-                    : pathway.badgeLabel;
+                    : (isForcedSpringBoot ? "Required Dependency" : (isActivePathway && isSpringBootPathway ? "Active" : pathway.badgeLabel));
+                    
                 const pathwayBadgeStyle: React.CSSProperties | undefined =
-                  isSpringBootPathway && !isDisabledPathway
-                    ? isActivePathway
-                      ? { backgroundColor: "#22c55e", color: "#ffffff", boxShadow: "none" }
-                      : { backgroundColor: "#fef3c7", color: "#92400e", boxShadow: "none" }
-                    : isUiModPathway && !isDisabledPathway
+                  isForcedSpringBoot
+                    ? { backgroundColor: "#fef3c7", color: "#92400e", boxShadow: "none", fontWeight: 700 }
+                    : isSpringBootPathway && !pathway.disabled
                       ? isActivePathway
                         ? { backgroundColor: "#22c55e", color: "#ffffff", boxShadow: "none" }
-                        : { backgroundColor: "#e0f2fe", color: "#0369a1", boxShadow: "none" }
-                      : { boxShadow: "none" };
+                        : { backgroundColor: "#fef3c7", color: "#92400e", boxShadow: "none" }
+                      : isUiModPathway && !pathway.disabled
+                        ? isActivePathway
+                          ? { backgroundColor: "#22c55e", color: "#ffffff", boxShadow: "none" }
+                          : { backgroundColor: "#e0f2fe", color: "#0369a1", boxShadow: "none" }
+                        : { boxShadow: "none" };
 
                 return (
                   <WizardOptionCard
                     key={pathway.key}
                     onClick={() => {
-                      if (isDisabledPathway) return;
+                      if (isDisabledPathway || isForcedSpringBoot) return;
                       if (pathway.key === "ui_modernization" && (!isAssessmentLoaded || !isUiModEligible)) {
                         return;
                       }
-                      if (pathway.key === "java_version") {
-                        setSelectedConversions(["java_version"]);
-                        return;
-                      }
+                      
                       setSelectedConversions((prev) => {
-                        const base = prev.includes("java_version") ? ["java_version"] : [];
-                        return prev.includes(pathway.key) ? base : [...base, pathway.key];
+                        let next = [...prev];
+                        const isCurrentlySelected = next.includes(pathway.key);
+
+                        if (pathway.key === "java_version") {
+                          if (isCurrentlySelected) {
+                            next = next.filter(k => k !== "java_version");
+                          } else {
+                            next.push("java_version");
+                            if (springBootPathwayStatus !== "disabled" && springBootPathwayStatus !== "loading" && !next.includes("spring_boot")) {
+                              next.push("spring_boot");
+                            }
+                          }
+                          return next;
+                        }
+
+                        if (pathway.key === "spring_boot") {
+                          if (isCurrentlySelected) {
+                            if (next.includes("java_version")) {
+                              // Cannot deselect because Java upgrade mandates it
+                              return prev;
+                            }
+                            next = next.filter(k => k !== "spring_boot");
+                          } else {
+                            next.push("spring_boot");
+                          }
+                          return next;
+                        }
+
+                        if (isCurrentlySelected) {
+                          return next.filter((k) => k !== pathway.key);
+                        }
+                        return [...next, pathway.key];
                       });
                     }}
                     accent={pathway.color}
-                    selected={isActivePathway}
+                    selected={isActivePathway || isForcedSpringBoot}
                     disabled={isDisabledPathway}
                     iconBadge={renderWizardIconBadge(pathway.icon, pathway.color, "sm")}
                     title={pathway.title}
@@ -776,18 +818,27 @@ export function StrategyStepView({
                         className={`wizard-pathway-status${isDisabledPathway ? " is-disabled" : ""}`}
                         style={pathwayBadgeStyle}
                       >
+                        {isForcedSpringBoot && (
+                          <span style={{ marginRight: 4, fontSize: 11 }}>🔒</span>
+                        )}
                         {pathwayBadgeLabel}
                       </div>
                     }
                     containerStyle={{
                       minHeight: 140,
                       justifyContent: "flex-start",
+                      ...(isForcedSpringBoot ? {
+                        background: "#fffbeb",
+                        boxShadow: "0 0 0 1px #fbbf24, 0 4px 14px rgba(217, 119, 6, 0.15)",
+                        cursor: "not-allowed",
+                      } : {}),
                     }}
-                    titleStyle={{ color: isActivePathway ? pathway.color : "#1e293b" }}
+                    titleStyle={{ color: isActivePathway || isForcedSpringBoot ? pathway.color : "#1e293b" }}
                     descriptionStyle={{ color: isDisabledPathway ? "#475569" : "#334155" }}
                   />
                 );
-              })}
+              })
+              })()}
             </div>
           </div>
 
