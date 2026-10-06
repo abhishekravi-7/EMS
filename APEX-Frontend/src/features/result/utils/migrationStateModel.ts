@@ -378,8 +378,8 @@ export function buildMigrationState(params: BuildMigrationStateParams): Migratio
   // 7. Unit Tests
   type TestPipe = { test_summary_metrics?: Record<string, unknown>; coverage_result?: Record<string, unknown>; executed_test_details?: Record<string, unknown>[] };
   const testPipeline = migrationJob?.test_pipeline as TestPipe | undefined;
-  const _summaryMetrics = testPipeline?.test_summary_metrics;
-  const _coverageResult = testPipeline?.coverage_result;
+  const summaryMetrics = testPipeline?.test_summary_metrics;
+  const coverageResult = testPipeline?.coverage_result;
 
   // Check if real unit-test data exists
   const hasUnitTestData = Boolean(

@@ -629,7 +629,7 @@ export function ModernizationStepView({
       });
   }, [jobId]);
 
-  const [_fullUserSettings, setFullUserSettings] = useState<FullUserSettings | null>(null);
+  const [fullUserSettings, setFullUserSettings] = useState<FullUserSettings | null>(null);
 
   const _handleUserSettingsChange: Dispatch<SetStateAction<FullUserSettings>> = (action) => {
     setFullUserSettings((prev) => {

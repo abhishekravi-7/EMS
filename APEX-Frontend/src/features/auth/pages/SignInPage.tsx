@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { signInWithGoogle, signInWithGithub, resetPassword, signIn, resendVerification } from "../services/authService";
 import AuthLayout from "../components/AuthLayout";
 import { useAuth } from "@/shared/context/AuthContext";
-import { FaRegEnvelope, FaCheckCircle } from "react-icons/fa";
+import { FaRegEnvelope, FaCheckCircle, FaUser, FaLock, FaEye, FaEyeSlash, FaGithub } from "react-icons/fa";
 import { getOAuthErrorMessage } from "../oauthErrorMessages";
 
 const GoogleIcon: React.FC = () => (
