@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from app.domain.models.brd_models import (
+from app.brd.models.brd_models import (
     BrdExtractionResult,
     BrdRequirement,
     BrdWorkflow,

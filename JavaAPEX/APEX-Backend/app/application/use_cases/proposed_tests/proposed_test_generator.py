@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from app.domain.models.brd_models import BrdExtractionResult, BrdWorkflow
+from app.brd.models.brd_models import BrdExtractionResult, BrdWorkflow
 from app.domain.models.proposed_test_models import (
     ApiTestSpec,
     ProposedTestCase,

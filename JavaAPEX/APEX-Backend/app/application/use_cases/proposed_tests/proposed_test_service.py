@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from app.application.use_cases.existing_test_runner_service import ExistingTestDetector
-from app.application.use_cases.proposed_tests.brd_analyzer import BrdAnalyzer
+from app.brd.use_cases.brd_analyzer import BrdAnalyzer
 from app.application.use_cases.proposed_tests.proposed_test_analyzer import ProposedTestAnalyzer
 from app.application.use_cases.proposed_tests.proposed_test_executor import ProposedTestExecutor
 from app.application.use_cases.proposed_tests.proposed_test_generator import ProposedTestGenerator

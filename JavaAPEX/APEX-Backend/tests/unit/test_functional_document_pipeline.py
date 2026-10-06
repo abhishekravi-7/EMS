@@ -3,7 +3,7 @@
 from pathlib import Path
 import pytest
 
-from app.application.use_cases.proposed_tests.brd_analyzer import BrdAnalyzer
+from app.brd.use_cases.brd_analyzer import BrdAnalyzer
 from app.application.use_cases.proposed_tests.proposed_test_generator import ProposedTestGenerator
 from app.application.use_cases.proposed_tests.proposed_test_service import ProposedTestService
 from app.domain.models.proposed_test_models import (

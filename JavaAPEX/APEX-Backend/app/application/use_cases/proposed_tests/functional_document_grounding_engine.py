@@ -989,7 +989,7 @@ class FunctionalDocumentGroundingEngine:
         if log_fn:
             log_fn(f"[PROPOSED TESTS] Functional document detected: {p.name}, {file_size_kb} KB")
 
-        from app.application.use_cases.proposed_tests.brd_analyzer import BrdAnalyzer
+        from app.brd.use_cases.brd_analyzer import BrdAnalyzer
         analyzer = BrdAnalyzer(p)
         try:
             text = analyzer._extract_raw_text()
