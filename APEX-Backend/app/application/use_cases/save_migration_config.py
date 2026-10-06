@@ -16,7 +16,7 @@ from app.core.exceptions import InvalidMigrationConfigError, MigrationJobNotFoun
 from app.core.config import settings
 from app.infrastructure.persistence.job_repository import JobRepository
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("migration")
 
 MODE_CREATE_NEW_REPO = "CREATE_NEW_REPO"
 MODE_EXISTING_REPO_BRANCH = "EXISTING_REPO_BRANCH"
@@ -80,12 +80,11 @@ class SaveMigrationConfigUseCase:
         self._job_repository.save_migration_config_report(job_id, report)
 
         logger.info(
-            "Migration config saved for job %s: mode=%s owner=%s target=%s",
+            "[MIGRATION CONFIG SAVED] - JobID: %s - ConversionTypes: %s - DestinationMode: %s - TargetRepoName: %s",
             job_id,
+            ", ".join(conversion_types) if conversion_types else "None",
             destination.get("mode"),
-            destination.get("targetOwner"),
-            destination.get("targetRepoName") or destination.get("targetBranch")
-            or destination.get("localFolder"),
+            destination.get("targetRepoName") or destination.get("targetBranch") or destination.get("localFolder") or "N/A",
         )
 
         response = {

@@ -14,7 +14,7 @@ from app.application.use_cases.existing_test_runner_service import (
 from app.infrastructure.persistence.mongodb import get_mongodb
 from app.infrastructure.persistence.mongodb_ownership_repository import record_job_owner as record_mongo_owner
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("migration")
 
 router = APIRouter(tags=["existing-tests"])
 
@@ -26,14 +26,74 @@ async def scan_existing_tests_total(
     """Fast scan — returns total test count before execution (no run)."""
     await verify_job_ownership(job_id, current_user)
     try:
+        logger.info("[MIGRATION TESTS SCAN START] - JobID: %s", job_id)
         res = await asyncio.to_thread(
             existing_test_runner_service.scan_total, job_id
+        )
+        
+        unit_cnt = 0
+        func_cnt = 0
+        unit_fw = "JUnit"
+        func_fw = "Playwright"
+        api_cnt = 0
+        ui_cnt = 0
+        
+        if isinstance(res, dict):
+            tests_list = res.get("test_cases") or res.get("tests") or []
+            framework_str = str(res.get("framework") or "")
+            
+            if "JUnit" in framework_str or "TestNG" in framework_str or "Jest" in framework_str:
+                unit_fw = [f for f in ["JUnit", "TestNG", "Jest", "PyTest"] if f in framework_str]
+                unit_fw = unit_fw[0] if unit_fw else "JUnit"
+            if "Playwright" in framework_str or "Cypress" in framework_str or "Selenium" in framework_str:
+                func_fw = [f for f in ["Playwright", "Cypress", "Selenium"] if f in framework_str]
+                func_fw = func_fw[0] if func_fw else "Playwright"
+
+            for t in tests_list:
+                cat = str(t.get("category", "")).upper()
+                t_type = str(t.get("type", "")).upper()
+                f_type = str(t.get("framework", "")).upper()
+
+                if cat == "UI" or "UI" in t_type or "PLAYWRIGHT" in f_type or "CYPRESS" in f_type or "SELENIUM" in f_type:
+                    if cat == "API" or "API" in t_type:
+                        api_cnt += 1
+                    else:
+                        ui_cnt += 1
+                    func_cnt += 1
+                elif cat == "API" or "API" in t_type:
+                    api_cnt += 1
+                    func_cnt += 1
+                else:
+                    unit_cnt += 1
+
+            if res.get("total", 0) > 0 and (unit_cnt + func_cnt == 0):
+                unit_cnt = res.get("total", 0)
+
+        logger.info(
+            "[MIGRATION UNIT TESTS DISCOVERED] - JobID: %s - Total: %d - Framework: %s",
+            job_id,
+            unit_cnt,
+            unit_fw,
+        )
+        logger.info(
+            "[MIGRATION FUNCTIONAL TESTS DISCOVERED] - JobID: %s - Total: %d - Framework: %s - APITests: %d - UITests: %d",
+            job_id,
+            func_cnt,
+            func_fw,
+            api_cnt,
+            ui_cnt,
+        )
+        logger.info(
+            "[MIGRATION TESTS SCAN SUCCESS] - JobID: %s - TotalUnitTests: %d - TotalFunctionalTests: %d",
+            job_id,
+            unit_cnt,
+            func_cnt,
         )
         return JSONResponse(content=res)
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("[EXISTING-TEST-JOB] Scan error for %s: %s", job_id, e, exc_info=True)
+        logger.error("[MIGRATION TESTS SCAN FAILED] - JobID: %s - Error: %s", job_id, e, exc_info=True)
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 @router.post("/existing-tests/run/{job_id}")
