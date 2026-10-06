@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { FaCode, FaCogs, FaJava, FaLeaf, FaProjectDiagram, FaCheckCircle, FaTimesCircle, FaBoxOpen, FaLayerGroup, FaCubes, FaWrench, FaCoffee, FaChevronDown, FaChevronUp, FaTimes, FaInfoCircle, FaFile, FaReact, FaAngular } from "react-icons/fa";
 import { wizardStyles as styles } from "@/shared/components/wizard/wizardStyles";
 import {
@@ -140,7 +140,7 @@ export function StrategyStepView({
     setUiModMode,
   } = strategy;
 
-  const _effectiveDependencyAnalysis =
+  const effectiveDependencyAnalysis =
     propDependencyAnalysis !== undefined ? propDependencyAnalysis : strategyDependencyAnalysis;
   const effectiveRiskExplanation =
     propRiskExplanation !== undefined ? propRiskExplanation : riskExplanation;
