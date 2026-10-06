@@ -459,8 +459,19 @@ async def get_user_quality_checks_config(
             value = _get_live_env_values().get(name.upper())
         return str(value if value is not None else "true").strip().lower() in {"1", "true", "yes", "on"}
 
+    qc_res = quality_checks_config(raw_qc)
+    migration_logger = logging.getLogger("migration")
+    migration_logger.info(
+        "[MIGRATION QUALITY GATES FETCH] - SonarQube: %s - FOSSA: %s - Cycode: %s - RunUnitTestSuite: %s - FunctionalTesting: %s",
+        "Enabled" if qc_res.get("sonarqube", {}).get("enabled", True) else "Disabled",
+        "Configured" if qc_res.get("fossa", {}).get("configured", False) else "Not Configured",
+        "Configured" if qc_res.get("cycode", {}).get("configured", False) else "Not Configured",
+        "Enabled" if qc_res.get("unit_tests", {}).get("enabled", True) else "Disabled",
+        "Enabled" if qc_res.get("functional_testing", {}).get("enabled", True) else "Disabled",
+    )
+
     return {
-        "quality_checks_config": quality_checks_config(raw_qc),
+        "quality_checks_config": qc_res,
         "ci_enabled": enabled("ci_enabled"),
         "cd_enabled": enabled("cd_enabled"),
     }
