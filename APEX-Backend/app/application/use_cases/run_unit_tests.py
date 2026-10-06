@@ -248,6 +248,32 @@ class RunUnitTestSuiteUseCase:
                 except Exception as comp_err:  # noqa: BLE001
                     logger.warning(f"Error computing prompt compliance in execute: {comp_err}")
 
+            # Publish JUnit Checkpoint
+            if req.job_id:
+                try:
+                    from app.infrastructure.workspace.workspace_paths import WorkspacePaths
+                    from app.application.services.status_service import MigrationReportStore
+                    from app.application.use_cases.start_migration import StartMigrationUseCase
+                    
+                    paths = WorkspacePaths(req.job_id)
+                    store = MigrationReportStore(paths)
+                    report = store.read() or {}
+                    target_java = report.get("targetJavaVersion") or "17"
+                    
+                    logger.info("[JUnit] Publishing JUnit Checkpoint to Git...")
+                    mig_use_case = StartMigrationUseCase()
+                    mig_use_case._publish(
+                        store=store,
+                        report=report,
+                        paths=paths,
+                        target_java=target_java,
+                        incremental=True,
+                        commit_message="Add JUnit Tests (JUnit Checkpoint)"
+                    )
+                    logger.info("[JUnit] Successfully published JUnit Checkpoint.")
+                except Exception as pub_exc:
+                    logger.warning("[JUnit] Failed to publish JUnit Checkpoint: %s", pub_exc)
+
             return res
         finally:
             if db:
@@ -642,6 +668,32 @@ class RunUnitTestSuiteUseCase:
                     logger.info("[JUnit] Prompt compliance completed.")
                 except Exception as comp_err:  # noqa: BLE001
                     logger.warning(f"Error computing prompt compliance in execute_project_suite: {comp_err}")
+
+            # Publish JUnit Checkpoint
+            if req.job_id:
+                try:
+                    from app.infrastructure.workspace.workspace_paths import WorkspacePaths
+                    from app.application.services.status_service import MigrationReportStore
+                    from app.application.use_cases.start_migration import StartMigrationUseCase
+                    
+                    paths = WorkspacePaths(req.job_id)
+                    store = MigrationReportStore(paths)
+                    report = store.read() or {}
+                    target_java = report.get("targetJavaVersion") or "17"
+                    
+                    logger.info("[JUnit] Publishing JUnit Checkpoint to Git...")
+                    mig_use_case = StartMigrationUseCase()
+                    mig_use_case._publish(
+                        store=store,
+                        report=report,
+                        paths=paths,
+                        target_java=target_java,
+                        incremental=True,
+                        commit_message="Add JUnit Tests (JUnit Checkpoint)"
+                    )
+                    logger.info("[JUnit] Successfully published JUnit Checkpoint.")
+                except Exception as pub_exc:
+                    logger.warning("[JUnit] Failed to publish JUnit Checkpoint: %s", pub_exc)
 
             return final_res
 

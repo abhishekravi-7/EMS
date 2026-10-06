@@ -466,6 +466,8 @@ export function useRepositoryConnect({
         setConnecting(false);
       }
     }
+    const finalResult = lastConnectRef.current?.result;
+    
     setSelectedRepo({
       name: normalizedUrl.split("/").pop() || "",
       full_name: normalizedUrl
@@ -476,7 +478,12 @@ export function useRepositoryConnect({
       language: "Java",
       description: "",
     });
-    setStep(2);
+
+    if (finalResult?.isAlreadyMigrated) {
+      setStep(7);
+    } else {
+      setStep(2);
+    }
   };
 
   const shouldCompressLocalProjectUpload = (files: File[]) => {

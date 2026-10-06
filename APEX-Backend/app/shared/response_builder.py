@@ -18,6 +18,8 @@ def build_connect_success(
     repo_visibility: str,
     access_status: str,
     message: str,
+    is_already_migrated: bool = False,
+    migration_state: dict | None = None,
 ) -> dict[str, Any]:
     """Build the success payload returned after a repository is verified."""
     return {
@@ -28,6 +30,8 @@ def build_connect_success(
         "repoVisibility": repo_visibility,
         "accessStatus": access_status,
         "message": message,
+        "isAlreadyMigrated": is_already_migrated,
+        "migrationState": migration_state,
     }
 
 

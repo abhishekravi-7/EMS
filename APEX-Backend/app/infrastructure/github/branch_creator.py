@@ -29,6 +29,7 @@ class BranchCreator:
         *,
         commit_message: str,
         token: str | None = None,
+        incremental: bool = False,
     ) -> str:
         """Commit ``repo_dir`` and push it as ``branch`` to an existing repo."""
         effective_token = (
@@ -48,19 +49,24 @@ class BranchCreator:
         self._pusher._cleanup_build_artifacts(repo_dir)
 
         try:
-            for args in (
-                ["init", "-q"],
-                ["config", "core.longpaths", "true"],
-                ["config", "http.postBuffer", "524288000"],
-                ["config", "http.version", "HTTP/1.1"],
-                ["symbolic-ref", "HEAD", f"refs/heads/{branch}"],
-                ["config", "user.name", settings.migration_commit_author_name],
-                ["config", "user.email", settings.migration_commit_author_email],
+            commands = []
+            if not incremental:
+                commands.extend([
+                    ["init", "-q"],
+                    ["config", "core.longpaths", "true"],
+                    ["config", "http.postBuffer", "524288000"],
+                    ["config", "http.version", "HTTP/1.1"],
+                    ["symbolic-ref", "HEAD", f"refs/heads/{branch}"],
+                    ["config", "user.name", settings.migration_commit_author_name],
+                    ["config", "user.email", settings.migration_commit_author_email],
+                ])
+            commands.extend([
                 ["add", "-A"],
                 ["commit", "-q", "-m", commit_message],
                 ["remote", "add", "origin", auth_url],
                 ["push", "-u", "origin", branch],
-            ):
+            ])
+            for args in commands:
                 cmd = [
                     git,
                     "-c",
