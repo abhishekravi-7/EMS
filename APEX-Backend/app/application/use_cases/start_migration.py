@@ -1317,7 +1317,7 @@ class StartMigrationUseCase:
             sync_db = sync_client[settings.mongodb_database]
             user_doc = None
             if active_user_id:
-                user_doc = sync_db.users.find_one({"_id": _get_query_id(str(active_user_id))})
+                user_doc = sync_db.users.find_one(_get_query_id(str(active_user_id)))
             if not user_doc:
                 user_doc = sync_db.users.find_one({}, sort=[("_id", -1)])
             if user_doc:
