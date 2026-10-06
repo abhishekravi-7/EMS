@@ -274,20 +274,13 @@ export function mapDiscoveryToRepoAnalysis(response: DiscoveryResponse): RepoAna
       other_files: cleanOtherFiles,
       other_file_count: cleanOtherCount,
       total_file_count: project.totalFileCount,
-<<<<<<< HEAD:JavaAPEX/APEX-Frontend/src/features/discovery/services/discoveryService.ts
+      file_metrics: project.fileMetrics ?? (project as any).file_metrics,
       jsp_count: jspCount,
       jsf_count: jsfCount,
       jsp_file_count: jspCount,
       jsf_file_count: jsfCount,
       jsp_files: finalJspFiles,
       jsf_files: finalJsfFiles,
-=======
-      file_metrics: project.fileMetrics ?? (project as any).file_metrics,
-      jsp_count: project.jspFileCount,
-      jsf_count: project.jsfFileCount,
-      jsp_files: project.jspFiles ?? [],
-      jsf_files: project.jsfFiles ?? [],
->>>>>>> a93bf51312839e990eb02dfa110009a33d609c98:APEX-Frontend/src/features/discovery/services/discoveryService.ts
       view_technologies: (project as any).viewTechnologies ?? (project as any).view_technologies ?? undefined,
       has_tests: Boolean(project.hasTests),
       dependencies,
