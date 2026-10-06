@@ -52,7 +52,7 @@ from app.application.pipelines.frontend_migration.ui_migration_handler import (
 )
 from app.shared import file_utils
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("migration")
 
 MODE_CREATE_NEW_REPO = "CREATE_NEW_REPO"
 MODE_EXISTING_REPO_BRANCH = "EXISTING_REPO_BRANCH"
@@ -264,6 +264,19 @@ class StartMigrationUseCase:
             t_owner = destination.get("targetOwner") or settings.github_target_owner or "JavaAPEX"
             t_host = destination.get("targetHost") or "github.com"
             initial_target_repo = f"https://{t_host}/{t_owner}/{t_name}"
+
+        logger.info(
+            "[MIGRATION DESTINATION] - JobID: %s - DestinationMode: %s - TargetRepoName: %s - TargetRepoUrl: %s",
+            job_id,
+            destination.get("mode"),
+            destination.get("targetRepoName") or "N/A",
+            initial_target_repo or "N/A",
+        )
+        logger.info(
+            "[MIGRATION CONVERSION TYPES] - JobID: %s - SelectedTypes: %s",
+            job_id,
+            ", ".join(conversion_types) if conversion_types else "None",
+        )
 
         # Explicit request parameters take precedence over stored config options
         run_sonar = (
