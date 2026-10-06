@@ -35,6 +35,8 @@ CACHE_TTL_SECONDS = 3600  # 1 hour cache
 _FALLBACK_VERSIONS: dict[str, str] = {
     "org.springframework.boot:spring-boot-starter-parent": "3.2.5",
     "org.springframework.boot:spring-boot-gradle-plugin": "3.2.5",
+    "org.projectlombok:lombok": "1.18.36",
+    "org.projectlombok:lombok-mapstruct-binding": "0.2.0",
     "jakarta.persistence:jakarta.persistence-api": "3.1.0",
     "jakarta.servlet:jakarta.servlet-api": "6.0.0",
     "jakarta.annotation:jakarta.annotation-api": "2.1.1",
