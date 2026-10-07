@@ -120,6 +120,8 @@ async def connect_repository(
             repo_visibility=result.repo_visibility,
             access_status=result.access_status,
             message=result.message,
+            is_already_migrated=result.is_already_migrated,
+            migration_state=result.migration_state,
         ),
     )
 

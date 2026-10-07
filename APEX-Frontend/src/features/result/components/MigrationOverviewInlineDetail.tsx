@@ -8,7 +8,6 @@ import {
 } from "react-icons/fa";
 import type { MigrationResult } from "../services/resultService";
 import { getMigrationFileDiff } from "../services/resultService";
-import type { PreviewFileDiff } from "@/features/modernization/services/modernizationService";
 import "./MigrationOverviewInlineDetail.css";
 
 export type OverviewDetailCategory = "files" | "transformations" | "dependencies";
@@ -36,6 +35,45 @@ interface DiffDisplayRow {
   type: "normal" | "added" | "removed";
   text: string;
 }
+
+interface DiffItem {
+  relativePath?: string;
+  fileName?: string;
+  file_path?: string;
+  path?: string;
+  changeType?: string;
+  status?: string;
+  type?: string;
+  addedLineCount?: number;
+  additions?: number;
+  removedLineCount?: number;
+  deletions?: number;
+  label?: string;
+  old_content?: string;
+  new_content?: string;
+  beforeLines?: Array<{ num: number; text: string; type: string }>;
+  afterLines?: Array<{ num: number; text: string; type: string }>;
+}
+
+interface ImportChangeItem {
+  file?: string;
+  added?: string[];
+  removed?: string[];
+}
+
+interface SourceChangeItem {
+  file?: string;
+  linesChanged?: number;
+  lines_changed?: number;
+}
+
+interface IssueItem {
+  file_path?: string;
+  suggested_fix?: string;
+  code_snippet?: string;
+  line_number?: number;
+}
+
 
 function buildDiffDisplayRows(
   beforeLines: Array<{ num: number; text: string; type: string }>,
@@ -118,7 +156,7 @@ function buildDiffDisplayRows(
         rows.push({
           beforeNum: b.num,
           sign: b.type === "removed" ? "-" : " ",
-          type: (b.type as any) || "normal",
+          type: (b.type as "added" | "removed" | "normal") || "normal",
           text: b.text,
         });
         bIdx++;
@@ -127,7 +165,7 @@ function buildDiffDisplayRows(
         rows.push({
           afterNum: a.num,
           sign: a.type === "added" ? "+" : " ",
-          type: (a.type as any) || "normal",
+          type: (a.type as "added" | "removed" | "normal") || "normal",
           text: a.text,
         });
         aIdx++;
@@ -165,7 +203,7 @@ export const MigrationOverviewInlineDetail: React.FC<MigrationOverviewInlineDeta
     if (!migrationJob) return [];
 
     if (migrationJob.file_diffs && migrationJob.file_diffs.length > 0) {
-      return migrationJob.file_diffs.map((diff: any) => {
+      return (migrationJob.file_diffs as DiffItem[]).map((diff) => {
         const relPath = diff.relativePath || diff.fileName || diff.file_path || diff.path || "";
         const parts = relPath.split(/[/\\]/);
         const fileName = diff.fileName || parts[parts.length - 1] || relPath;
@@ -231,7 +269,7 @@ export const MigrationOverviewInlineDetail: React.FC<MigrationOverviewInlineDeta
 
     // 1. file_diffs from report
     if (migrationJob.file_diffs && migrationJob.file_diffs.length > 0) {
-      migrationJob.file_diffs.forEach((diff: any) => {
+      (migrationJob.file_diffs as DiffItem[]).forEach((diff) => {
         const relPath = diff.relativePath || diff.fileName || diff.file_path || "";
         if (!relPath) return;
         const parts = relPath.split(/[/\\]/);
@@ -292,7 +330,7 @@ export const MigrationOverviewInlineDetail: React.FC<MigrationOverviewInlineDeta
 
     // 3. import_changes
     if (migrationJob.import_changes && migrationJob.import_changes.length > 0) {
-      migrationJob.import_changes.forEach((ic: any) => {
+      (migrationJob.import_changes as ImportChangeItem[]).forEach((ic) => {
         const filePath = ic.file;
         if (!filePath) return;
         const parts = filePath.split(/[/\\]/);
@@ -323,7 +361,7 @@ export const MigrationOverviewInlineDetail: React.FC<MigrationOverviewInlineDeta
 
     // 4. source_changes
     if (migrationJob.source_changes && migrationJob.source_changes.length > 0) {
-      migrationJob.source_changes.forEach((sc: any) => {
+      (migrationJob.source_changes as SourceChangeItem[]).forEach((sc) => {
         const filePath = sc.file;
         if (!filePath || fileMap.has(filePath)) return;
         const parts = filePath.split(/[/\\]/);
@@ -340,7 +378,7 @@ export const MigrationOverviewInlineDetail: React.FC<MigrationOverviewInlineDeta
 
     // 5. issues
     if (migrationJob.issues && migrationJob.issues.length > 0) {
-      migrationJob.issues.forEach((issue: any) => {
+      (migrationJob.issues as IssueItem[]).forEach((issue) => {
         const filePath = issue.file_path;
         if (!filePath || filePath === "Project source" || fileMap.has(filePath)) return;
         const parts = filePath.split(/[/\\]/);
@@ -397,16 +435,6 @@ export const MigrationOverviewInlineDetail: React.FC<MigrationOverviewInlineDeta
     );
   }, [changedFilesList, searchQuery]);
 
-  // Keep selection synchronized with current list
-  useEffect(() => {
-    if (filteredChangedFiles.length > 0) {
-      const stillExists = filteredChangedFiles.some((f) => f.path === selectedFilePath);
-      if (!stillExists) {
-        setSelectedFilePath(filteredChangedFiles[0].path);
-      }
-    }
-  }, [filteredChangedFiles, selectedFilePath]);
-
   const activeFile = useMemo(() => {
     if (filteredChangedFiles.length === 0) return null;
     return (
@@ -428,9 +456,13 @@ export const MigrationOverviewInlineDetail: React.FC<MigrationOverviewInlineDeta
       return;
     }
 
-    setLoadingDiffPath(filePath);
+    let isMounted = true;
+    Promise.resolve().then(() => {
+      if (isMounted) setLoadingDiffPath(filePath);
+    });
     getMigrationFileDiff(migrationJob.job_id, filePath)
       .then((res) => {
+        if (!isMounted) return;
         if (res && (res.beforeLines || res.afterLines)) {
           setDiffCache((prev) => ({
             ...prev,
@@ -447,22 +479,24 @@ export const MigrationOverviewInlineDetail: React.FC<MigrationOverviewInlineDeta
         console.warn("Could not load diff for", filePath, err);
       })
       .finally(() => {
-        setLoadingDiffPath(null);
+        if (isMounted) setLoadingDiffPath(null);
       });
+
+    return () => {
+      isMounted = false;
+    };
   }, [activeFile, migrationJob?.job_id, diffCache]);
 
-  const currentBeforeLines =
-    diffCache[activeFile?.path || ""]?.beforeLines || activeFile?.beforeLines || [];
-  const currentAfterLines =
-    diffCache[activeFile?.path || ""]?.afterLines || activeFile?.afterLines || [];
   const currentAdditions =
     diffCache[activeFile?.path || ""]?.additions ?? activeFile?.additions ?? 0;
   const currentDeletions =
     diffCache[activeFile?.path || ""]?.deletions ?? activeFile?.deletions ?? 0;
 
   const diffRows = useMemo(() => {
-    return buildDiffDisplayRows(currentBeforeLines, currentAfterLines);
-  }, [currentBeforeLines, currentAfterLines]);
+    const before = diffCache[activeFile?.path || ""]?.beforeLines || activeFile?.beforeLines || [];
+    const after = diffCache[activeFile?.path || ""]?.afterLines || activeFile?.afterLines || [];
+    return buildDiffDisplayRows(before, after);
+  }, [diffCache, activeFile]);
 
   // ==========================================
   // 3. DEPENDENCIES UPDATED DATA
@@ -472,8 +506,8 @@ export const MigrationOverviewInlineDetail: React.FC<MigrationOverviewInlineDeta
       return dependencyUpdates;
     }
     const fromJob = migrationJob?.dependency_upgrades || migrationJob?.dependencies || [];
-    return fromJob.map((dep: any) => ({
-      group_id: dep.group_id || dep.groupId || dep.coordinate?.split(":")[0] || "dependency",
+    return (fromJob as Record<string, unknown>[]).map((dep) => ({
+      group_id: (dep.group_id || dep.groupId || (typeof dep.coordinate === "string" ? dep.coordinate.split(":")[0] : "")) as string || "dependency",
       artifact_id: dep.artifact_id || dep.artifactId || dep.coordinate?.split(":")[1] || "artifact",
       current_version:
         dep.current_version ||

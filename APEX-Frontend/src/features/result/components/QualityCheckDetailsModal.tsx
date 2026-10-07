@@ -2,12 +2,10 @@ import React, { useEffect } from "react";
 import {
   FaTimes,
   FaShieldAlt,
-  FaBug,
   FaExclamationTriangle,
   FaCheckCircle,
   FaExternalLinkAlt,
   FaCode,
-  FaFlask,
   FaHistory,
   FaFileContract,
 } from "react-icons/fa";
@@ -125,7 +123,8 @@ export const QualityCheckDetailsModal: React.FC<QualityCheckDetailsModalProps> =
     migrationJob?.tests_run ??
     migrationState.unitTests.testCaseCount ??
     (testsPassed + testsFailed);
-  const covObj = (migrationJob as any)?.coverage_result || (migrationJob as any)?.coverage;
+  type CoverageData = { line_coverage_pct?: number; instruction_coverage_pct?: number; line?: number };
+  const covObj = (migrationJob as typeof migrationJob & { coverage_result?: CoverageData; coverage?: CoverageData })?.coverage_result || (migrationJob as typeof migrationJob & { coverage_result?: CoverageData; coverage?: CoverageData })?.coverage;
   const testCoveragePct =
     typeof covObj?.line_coverage_pct === "number"
       ? covObj.line_coverage_pct
@@ -689,7 +688,7 @@ export const QualityCheckDetailsModal: React.FC<QualityCheckDetailsModalProps> =
                     endLine: 25,
                     changeType: "TEST",
                     customTitle: "JUnit 5 Test Suite Source",
-                  } as any);
+                  } as SourceLocationReference);
                 }}
               >
                 <FaCode size={13} />

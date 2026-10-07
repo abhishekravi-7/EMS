@@ -187,7 +187,7 @@ async def resolve_github_token(token: str | None, current_user: User) -> str | N
             mongo_db = await get_mongodb()
             if mongo_db is None:
                 return None
-            user_doc = await mongo_db.users.find_one({"_id": _get_query_id(str(current_user.id))})
+            user_doc = await mongo_db.users.find_one(_get_query_id(str(current_user.id)))
             if not user_doc and getattr(current_user, "email", None):
                 user_doc = await mongo_db.users.find_one({"email": current_user.email.strip().lower()})
             user_doc = user_doc or {}

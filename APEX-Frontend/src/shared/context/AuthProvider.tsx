@@ -17,7 +17,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const userProfile = await getMe();
       setCurrentUser(userProfile);
-    } catch (err) {
+    } catch (_err) {
       // 401 or network error - user is not logged in
       setCurrentUser(null);
     } finally {

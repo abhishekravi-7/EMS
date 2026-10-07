@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
 import {
-  FaVial,
   FaFlask,
   FaDesktop,
   FaFileAlt,
@@ -116,7 +115,7 @@ interface ExistingTestCoverageProps {
 
 export function ExistingTestCoverage({
   jobId,
-  title,
+  title: _title,
   filterMode = "all",
   metrics = {},
   discoveredTests = [],
@@ -206,9 +205,6 @@ export function ExistingTestCoverage({
 
     return { apiCount: api, uiCount: ui, unitCount: unit };
   }, [allTests]);
-
-  const headerTitle = title || (filterMode === "unit" ? "Existing Unit Tests" : filterMode === "functional" ? "Existing Functional Tests" : "Existing Tests");
-  const iconColor = filterMode === "functional" ? "#6366f1" : "#2563eb";
 
   return (
     <div

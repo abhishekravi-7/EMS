@@ -69,7 +69,7 @@ export interface MigrationLogEvent {
   message: string;
   status?: "pending" | "in_progress" | "completed" | "failed";
   timestamp?: number | string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
   sourceReference?: SourceLocationReference;
 
   // Rich metadata for clickable interactive console
@@ -77,7 +77,7 @@ export interface MigrationLogEvent {
   clickable?: boolean;
   action?: LogActionType | string;
   target?: string;
-  data?: any;
+  data?: unknown;
 }
 
 export interface DependencyItem {
@@ -157,15 +157,15 @@ export interface MigrationState {
   report: {
     generated: boolean;
   };
-  rawCodeChanges?: any[];
-  rawIssues?: any[];
-  rawJob?: any;
+  rawCodeChanges?: Record<string, unknown>[];
+  rawIssues?: Record<string, unknown>[];
+  rawJob?: MigrationResult | Record<string, unknown>;
 }
 
 export interface BuildMigrationStateParams {
   migrationJob: MigrationResult | null;
-  repoAnalysis?: any;
-  codeChanges?: any[];
+  repoAnalysis?: Record<string, unknown>;
+  codeChanges?: Record<string, unknown>[];
   fossaResult?: FossaScanResult | null;
   selectedRepoName?: string;
   repoUrl?: string;
@@ -300,30 +300,30 @@ export function buildMigrationState(params: BuildMigrationStateParams): Migratio
     migrationJob?.dependency_upgrades || migrationJob?.dependencyUpgrades || [];
 
   if (Array.isArray(rawUpgrades) && rawUpgrades.length > 0) {
-    rawUpgrades.forEach((u: any) => {
-      const group = u.group_id || u.groupId || "";
-      const art = u.artifact_id || u.artifactId || u.name || "";
-      const coord = u.coordinate || (group && art ? `${group}:${art}` : art || "dependency");
+    (rawUpgrades as Record<string, unknown>[]).forEach((u) => {
+      const group = (u.group_id || u.groupId || "") as string;
+      const art = (u.artifact_id || u.artifactId || u.name || "") as string;
+      const coord = (u.coordinate || (group && art ? `${group}:${art}` : art || "dependency")) as string;
       const name = art || (coord.includes(":") ? coord.split(":")[1] : coord);
       depItems.push({
         coordinate: coord,
         name,
-        beforeVersion: u.old_version || u.oldVersion || u.current_version || null,
-        afterVersion: u.new_version || u.newVersion || null,
-        status: (u.status || "UPGRADED").toUpperCase(),
+        beforeVersion: (u.old_version || u.oldVersion || u.current_version || null) as string | null,
+        afterVersion: (u.new_version || u.newVersion || null) as string | null,
+        status: String(u.status || "UPGRADED").toUpperCase(),
       });
     });
   } else if (Array.isArray(migrationJob?.dependencies) && migrationJob.dependencies.length > 0) {
-    migrationJob.dependencies.forEach((d: any) => {
-      const group = d.group_id || d.groupId || "";
-      const art = d.artifact_id || d.artifactId || d.name || "";
-      const coord = group && art ? `${group}:${art}` : (d.coordinate || art);
+    (migrationJob.dependencies as Record<string, unknown>[]).forEach((d) => {
+      const group = (d.group_id || d.groupId || "") as string;
+      const art = (d.artifact_id || d.artifactId || d.name || "") as string;
+      const coord = group && art ? `${group}:${art}` : ((d.coordinate || art) as string);
       depItems.push({
         coordinate: coord,
         name: art || coord,
-        beforeVersion: d.current_version || d.old_version || null,
-        afterVersion: d.new_version || null,
-        status: (d.status || "UPGRADED").toUpperCase(),
+        beforeVersion: (d.current_version || d.old_version || null) as string | null,
+        afterVersion: (d.new_version || null) as string | null,
+        status: String(d.status || "UPGRADED").toUpperCase(),
       });
     });
   } else {
@@ -338,14 +338,14 @@ export function buildMigrationState(params: BuildMigrationStateParams): Migratio
   const modifiedFilesList: string[] = [];
   if (Array.isArray(codeChanges) && codeChanges.length > 0) {
     codeChanges.forEach((c) => {
-      const path = c.filePath || c.file_path || c.fileName || "";
+      const path = (c.filePath || c.file_path || c.fileName || "") as string;
       const name = path.split("/").pop()?.split("\\").pop();
       if (name && !modifiedFilesList.includes(name)) modifiedFilesList.push(name);
     });
   }
   if (Array.isArray(migrationJob?.file_diffs) && migrationJob.file_diffs.length > 0) {
     migrationJob.file_diffs.forEach((d) => {
-      const path = (d as any).filePath || d.file_path || "";
+      const path = (d as { filePath?: string; file_path?: string }).filePath || d.file_path || "";
       const name = path.split("/").pop()?.split("\\").pop();
       if (name && !modifiedFilesList.includes(name)) modifiedFilesList.push(name);
     });
@@ -376,9 +376,10 @@ export function buildMigrationState(params: BuildMigrationStateParams): Migratio
     (fossaResult?.license_issues ?? 0);
 
   // 7. Unit Tests
-  const testPipeline = migrationJob?.test_pipeline as any;
-  const summaryMetrics = testPipeline?.test_summary_metrics as any;
-  const coverageResult = testPipeline?.coverage_result as any;
+  type TestPipe = { test_summary_metrics?: Record<string, unknown>; coverage_result?: Record<string, unknown>; executed_test_details?: Record<string, unknown>[] };
+  const testPipeline = migrationJob?.test_pipeline as TestPipe | undefined;
+  const summaryMetrics = testPipeline?.test_summary_metrics;
+  const coverageResult = testPipeline?.coverage_result;
 
   // Check if real unit-test data exists
   const hasUnitTestData = Boolean(
@@ -407,12 +408,12 @@ export function buildMigrationState(params: BuildMigrationStateParams): Migratio
 
   const executedDetails: UnitTestDetail[] = [];
   if (testPipeline?.executed_test_details && Array.isArray(testPipeline.executed_test_details)) {
-    testPipeline.executed_test_details.forEach((d: any) => {
+    testPipeline.executed_test_details.forEach((d: Record<string, unknown>) => {
       executedDetails.push({
-        testClass: d.test_class || "TestClass",
-        testMethod: d.test_method || "testMethod",
-        status: d.status || "PASSED",
-        duration: d.duration || (d.execution_time_seconds ? `${d.execution_time_seconds}s` : "0.012s"),
+        testClass: (d.test_class as string) || "TestClass",
+        testMethod: (d.test_method as string) || "testMethod",
+        status: (d.status as "PASSED" | "FAILED" | "SKIPPED") || "PASSED",
+        duration: (d.duration as string) || (d.execution_time_seconds ? `${d.execution_time_seconds}s` : "0.012s"),
       });
     });
   }
@@ -539,14 +540,14 @@ export function generateStepLogs(stepId: number, state: MigrationState): Migrati
   const addLog = (
     type: MigrationLogEvent["type"],
     message: string,
-    metadata?: Record<string, any>,
+    metadata?: Record<string, unknown>,
     sourceReference?: SourceLocationReference,
     options?: {
       category?: string;
       clickable?: boolean;
       action?: LogActionType | string;
       target?: string;
-      data?: any;
+      data?: unknown;
     }
   ) => {
     let category = options?.category;
@@ -1094,8 +1095,8 @@ export function generateStepLogs(stepId: number, state: MigrationState): Migrati
       addLog("INFO", "Generating deprecation summary...");
 
       if (Array.isArray(state.rawIssues) && state.rawIssues.length > 0) {
-        state.rawIssues.slice(0, 3).forEach((issue: any) => {
-          const rawFile = issue.file_path || issue.file || "EmployeeService.java";
+        state.rawIssues.slice(0, 3).forEach((issue: Record<string, unknown>) => {
+          const rawFile = (issue.file_path || issue.file || "EmployeeService.java") as string;
           const baseName = rawFile.split("/").pop()?.split("\\").pop() || rawFile;
           const line = issue.line_number || issue.line || 42;
           const ref = resolveSourceReference(baseName, {

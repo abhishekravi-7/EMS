@@ -49,7 +49,7 @@ function selectGeneratedFile(source: string, fileName: string): string {
     if (i <= markerIndex) return false;
     const trimmed = l.trim();
     if (!trimmed.startsWith("//") && !trimmed.startsWith("/*")) return false;
-    return /\b[\w\/-]+\.(tsx|jsx|ts|js|css|scss|html)\b/i.test(trimmed);
+    return /\b[\w/-]+\.(tsx|jsx|ts|js|css|scss|html)\b/i.test(trimmed);
   });
 
   return lines.slice(markerIndex + 1, nextMarkerIndex < 0 ? lines.length : nextMarkerIndex).join("\n");
@@ -1069,9 +1069,9 @@ function angularToHtml(source: string): string {
       if (listName.includes("todo") || itemName.includes("todo")) {
         const renderTodoRow = (name: string, category: string, id: number) => {
           return innerTemplate
-            .replace(new RegExp(`\\{\\\{\\s*${itemVar}\\.name\\s*\\}\\}`, "gi"), name)
-            .replace(new RegExp(`\\{\\\{\\s*${itemVar}\\.category\\s*\\}\\}`, "gi"), category)
-            .replace(new RegExp(`\\{\\\{\\s*${itemVar}\\.id\\s*\\}\\}`, "gi"), String(id))
+            .replace(new RegExp(`{{\\s*${itemVar}\\.name\\s*}}`, "gi"), name)
+            .replace(new RegExp(`{{\\s*${itemVar}\\.category\\s*}}`, "gi"), category)
+            .replace(new RegExp(`{{\\s*${itemVar}\\.id\\s*}}`, "gi"), String(id))
             .replace(/\bhref=["'][^"']*delete[^"']*["']/gi, 'href="#delete"')
             .replace(/<a\b[^>]*\bclass=["'][^"']*btn-danger[^"']*["']\s*(?:href=[^>]*)?(?:>)?\s*(?:<\/a>)?/gi,
               '<button type="button" class="btn btn-danger btn-sm text-white delete-action-btn"><i class="fa fa-trash me-1"></i> Delete</button>')
@@ -1088,17 +1088,17 @@ function angularToHtml(source: string): string {
       // Check if it is Doctor/Patient/Appointment
       if (listName.includes("doctor") || listName.includes("patient") || listName.includes("appointment")) {
         const row1 = innerTemplate
-          .replace(new RegExp(`\\{\\\{\\s*${itemVar}\\.(fullName|name)\\s*\\}\\}`, "gi"), "Dr. Alexander Smith")
-          .replace(new RegExp(`\\{\\\{\\s*${itemVar}\\.(specialist|category)\\s*\\}\\}`, "gi"), "Cardiology")
-          .replace(new RegExp(`\\{\\\{\\s*${itemVar}\\.email\\s*\\}\\}`, "gi"), "dr.smith@hospital.org");
+          .replace(new RegExp(`{{\\s*${itemVar}\\.(fullName|name)\\s*}}`, "gi"), "Dr. Alexander Smith")
+          .replace(new RegExp(`{{\\s*${itemVar}\\.(specialist|category)\\s*}}`, "gi"), "Cardiology")
+          .replace(new RegExp(`{{\\s*${itemVar}\\.email\\s*}}`, "gi"), "dr.smith@hospital.org");
         const row2 = innerTemplate
-          .replace(new RegExp(`\\{\\\{\\s*${itemVar}\\.(fullName|name)\\s*\\}\\}`, "gi"), "Dr. Emily Chen")
-          .replace(new RegExp(`\\{\\\{\\s*${itemVar}\\.(specialist|category)\\s*\\}\\}`, "gi"), "Neurology")
-          .replace(new RegExp(`\\{\\\{\\s*${itemVar}\\.email\\s*\\}\\}`, "gi"), "dr.chen@hospital.org");
+          .replace(new RegExp(`{{\\s*${itemVar}\\.(fullName|name)\\s*}}`, "gi"), "Dr. Emily Chen")
+          .replace(new RegExp(`{{\\s*${itemVar}\\.(specialist|category)\\s*}}`, "gi"), "Neurology")
+          .replace(new RegExp(`{{\\s*${itemVar}\\.email\\s*}}`, "gi"), "dr.chen@hospital.org");
         const row3 = innerTemplate
-          .replace(new RegExp(`\\{\\\{\\s*${itemVar}\\.(fullName|name)\\s*\\}\\}`, "gi"), "Dr. David Wilson")
-          .replace(new RegExp(`\\{\\\{\\s*${itemVar}\\.(specialist|category)\\s*\\}\\}`, "gi"), "General Medicine")
-          .replace(new RegExp(`\\{\\\{\\s*${itemVar}\\.email\\s*\\}\\}`, "gi"), "dr.wilson@hospital.org");
+          .replace(new RegExp(`{{\\s*${itemVar}\\.(fullName|name)\\s*}}`, "gi"), "Dr. David Wilson")
+          .replace(new RegExp(`{{\\s*${itemVar}\\.(specialist|category)\\s*}}`, "gi"), "General Medicine")
+          .replace(new RegExp(`{{\\s*${itemVar}\\.email\\s*}}`, "gi"), "dr.wilson@hospital.org");
         return `${row1}\n${row2}\n${row3}`;
       }
 
@@ -1136,7 +1136,7 @@ function angularToHtml(source: string): string {
 
       const expandRow = (idx: number) => {
         return innerTemplate
-          .replace(new RegExp(`\\{\\\{\\s*${itemVar}\\.([a-zA-Z0-9_$]+)\\s*\\}\\}`, "gi"), (_m, p) => resolveGenericProp(p, idx))
+          .replace(new RegExp(`{{\\s*${itemVar}\\.([a-zA-Z0-9_$]+)\\s*}}`, "gi"), (_m, p) => resolveGenericProp(p, idx))
           .replace(/<button\b[^>]*\bdelete[^>]*>[\s\S]*?<\/button>/gi, '<button type="button" class="btn btn-danger btn-sm text-white delete-action-btn"><i class="fa fa-trash me-1"></i> Delete</button>');
       };
 
@@ -1155,8 +1155,8 @@ function angularToHtml(source: string): string {
       if (listName.includes("todo") || itemName.includes("todo")) {
         const renderRow = (name: string, category: string) => {
           const cells = innerCells
-            .replace(new RegExp(`\\{\\\{\\s*${itemVar}\\.name\\s*\\}\\}`, "gi"), name)
-            .replace(new RegExp(`\\{\\\{\\s*${itemVar}\\.category\\s*\\}\\}`, "gi"), category)
+            .replace(new RegExp(`{{\\s*${itemVar}\\.name\\s*}}`, "gi"), name)
+            .replace(new RegExp(`{{\\s*${itemVar}\\.category\\s*}}`, "gi"), category)
             .replace(/<button\b[^>]*\bdelete[^>]*>[\s\S]*?<\/button>/gi, '<button type="button" class="btn btn-danger btn-sm text-white delete-action-btn"><i class="fa fa-trash me-1"></i> Delete</button>');
           return `<tr ${attrs}>${cells}</tr>`;
         };
@@ -2096,21 +2096,13 @@ export function FrameworkPageSandbox({
   const [navHistory, setNavHistory] = useState<string[]>([]);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Keep internal sandbox state updated if initial props change
-  useEffect(() => {
-    if (fileName.toLowerCase().endsWith(".css") && allFiles.length > 0) {
-      const firstValid = allFiles.find((f) => !f.fileName.toLowerCase().endsWith(".css"));
-      if (firstValid) {
-        setActiveFileName(firstValid.fileName);
-        setActiveCode(firstValid.code);
-        setNavHistory([]);
-        return;
-      }
-    }
-    setActiveFileName(fileName);
-    setActiveCode(code);
+  const [prevProps, setPrevProps] = useState({ fileName, code, allFiles });
+  if (prevProps.fileName !== fileName || prevProps.code !== code || prevProps.allFiles !== allFiles) {
+    setPrevProps({ fileName, code, allFiles });
+    setActiveFileName(initialResolved.fileName);
+    setActiveCode(initialResolved.code);
     setNavHistory([]);
-  }, [fileName, code, allFiles]);
+  }
 
   const showToast = (msg: string) => {
     setToastMessage(msg);

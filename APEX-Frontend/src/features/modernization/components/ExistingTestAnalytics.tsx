@@ -155,7 +155,7 @@ export function ExistingTestAnalytics({
   testResults = [],
   frameworkInfo: _frameworkInfo,
   onViewSuite,
-  onSelectTest,
+  onSelectTest: _onSelectTest,
 }: ExistingTestAnalyticsProps) {
   const [riskMode, setRiskMode] = useState<"PRIORITY" | "TYPE">("TYPE");
   const [selectedSuiteModal, setSelectedSuiteModal] = useState<{ name: string; tests: DiscoveredOrExecutedTest[] } | null>(null);
@@ -253,7 +253,7 @@ export function ExistingTestAnalytics({
       let p3 = 0;
 
       canonicalTests.forEach((t) => {
-        const p = String((t as any).priority || "").toUpperCase();
+        const p = String((t as { priority?: string }).priority || "").toUpperCase();
         if (p === "P0" || p.includes("CRITICAL")) p0++;
         else if (p === "P1" || p.includes("HIGH")) p1++;
         else if (p === "P2" || p.includes("MEDIUM")) p2++;
@@ -641,7 +641,8 @@ export function ExistingTestAnalytics({
                 selectedSuiteModal.tests.map((st, sIdx) => {
                   const testTitle = (st.test_name || st.name || st.title || st.methodname || `scenario_${sIdx + 1}`).replace(/\(\s*\)$/, "");
                   const filePath = st.file || st.spec || (st.classname ? `${st.classname}.java` : "") || selectedSuiteModal.name;
-                  const description = (st as any).description || (st as any).summary || null;
+                  const item = st as { description?: string; summary?: string };
+                  const description = item.description || item.summary || null;
                   const displayType = classifyTestType(st);
 
                   return (

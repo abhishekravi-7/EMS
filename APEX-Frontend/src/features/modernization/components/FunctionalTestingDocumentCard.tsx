@@ -86,6 +86,7 @@ export function FunctionalTestingDocumentCard({
     return () => {
       isMounted = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobId]);
 
   const validateFile = (file: File): string | null => {

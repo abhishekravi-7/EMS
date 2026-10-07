@@ -104,16 +104,24 @@ class RepositoryFileCategorizer:
         normalized_root = file_utils._long_path(root)
         root_str = str(normalized_root)
 
+        seen_paths: set[str] = set()
         for dirpath, dirnames, filenames in os.walk(root_str):
-            # Prune excluded noise directories in-place
-            dirnames[:] = [d for d in dirnames if d not in _EXCLUDED_DIRS]
+            # Exclude .git VCS metadata directory and everything inside it
+            dirnames[:] = [d for d in dirnames if d.lower() != ".git"]
             for name in filenames:
                 abs_path = Path(dirpath) / name
+                if not abs_path.is_file():
+                    continue
                 try:
                     rel_path = abs_path.relative_to(normalized_root).as_posix()
                 except ValueError:
                     rel_path = abs_path.as_posix()
-                all_files.append((rel_path, abs_path))
+                norm_rel = rel_path.strip().replace("\\", "/").lstrip("/")
+                if norm_rel.startswith(".git/") or norm_rel == ".git":
+                    continue
+                if norm_rel and norm_rel not in seen_paths:
+                    seen_paths.add(norm_rel)
+                    all_files.append((norm_rel, abs_path))
 
         # Check project-level indicators for React & Angular
         package_json_deps: set[str] = set()

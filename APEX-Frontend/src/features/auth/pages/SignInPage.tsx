@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { useNavigate, useSearchParams, Link } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { signInWithGoogle, signInWithGithub, resetPassword, signIn, resendVerification } from "../services/authService";
 import AuthLayout from "../components/AuthLayout";
 import { useAuth } from "@/shared/context/AuthContext";
-import { FaUser, FaRegEnvelope, FaLock, FaEye, FaEyeSlash, FaGithub, FaCheckCircle, FaExclamationCircle } from "react-icons/fa";
+import { FaRegEnvelope, FaCheckCircle, FaUser, FaLock, FaEye, FaEyeSlash, FaGithub } from "react-icons/fa";
 import { getOAuthErrorMessage } from "../oauthErrorMessages";
 
 const GoogleIcon: React.FC = () => (
@@ -42,9 +42,10 @@ const ForgotPasswordModal: React.FC<{ onClose: () => void }> = ({ onClose }) => 
       const cleanEmail = email.trim().toLowerCase();
       await resetPassword(cleanEmail);
       setStatus("sent");
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Password reset error details:", err);
-      setErrorMsg(err.message || "Unable to send reset email. Please ensure the email is correct.");
+      const errMsg = err instanceof Error ? err.message : "Unable to send reset email. Please ensure the email is correct.";
+      setErrorMsg(errMsg);
       setStatus("error");
     }
   };
@@ -215,10 +216,11 @@ const SignInPage: React.FC = () => {
       console.log("[SignIn] Email sign in success:", user.email);
       login(user);
       navigate("/connect", { replace: true });
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("[SignIn] Email sign in error:", err);
-      const errMsg = err.message || "Invalid email or password.";
-      if (errMsg.toLowerCase().includes("verify your email") || errMsg.toLowerCase().includes("not verified") || err.status === "EMAIL_NOT_VERIFIED") {
+      const errorObj = err as { message?: string; status?: string };
+      const errMsg = errorObj.message || "Invalid email or password.";
+      if (errMsg.toLowerCase().includes("verify your email") || errMsg.toLowerCase().includes("not verified") || errorObj.status === "EMAIL_NOT_VERIFIED") {
         const cleanEmail = trimmedEmail.toLowerCase();
         sessionStorage.setItem("apex_pending_verification_email", cleanEmail);
         navigate("/verify-email", { state: { email: cleanEmail } });
@@ -236,9 +238,10 @@ const SignInPage: React.FC = () => {
     try {
       await resendVerification(email.trim().toLowerCase());
       setResendStatus("sent");
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Resend verification error:", err);
-      setError(err.message || "Failed to resend verification code. Please try again.");
+      const errMsg = err instanceof Error ? err.message : "Failed to resend verification code. Please try again.";
+      setError(errMsg);
     }
   };
 
@@ -246,9 +249,10 @@ const SignInPage: React.FC = () => {
     setError(null);
     try {
       await signInWithGoogle("signin");
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("[SignIn] Google sign in error:", err);
-      setError(err.message);
+      const errMsg = err instanceof Error ? err.message : "Google sign in failed.";
+      setError(errMsg);
     }
   };
 
@@ -256,9 +260,10 @@ const SignInPage: React.FC = () => {
     setError(null);
     try {
       await signInWithGithub("signin");
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("[SignIn] GitHub sign in error:", err);
-      setError(err.message);
+      const errMsg = err instanceof Error ? err.message : "GitHub sign in failed.";
+      setError(errMsg);
     }
   };
 

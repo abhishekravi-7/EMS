@@ -43,8 +43,8 @@ export default function MigrationWizardPage() {
     error,
     setError,
     selectedRepo,
-    setSelectedRepo,
-    setRepoUrl,
+    setSelectedRepo: _setSelectedRepo,
+    setRepoUrl: _setRepoUrl,
     repoUrl,
     strategyAssistantContext,
     connectState,
@@ -124,10 +124,10 @@ export default function MigrationWizardPage() {
     useLLMTests,
     continueToStrategy,
     navigateToResults,
-    setDiscoveryCompleted,
-    setStrategyCompleted,
-    maxVisitedIndicatorStep,
-    highestCompletedStep,
+    setDiscoveryCompleted: _setDiscoveryCompleted,
+    setStrategyCompleted: _setStrategyCompleted,
+    maxVisitedIndicatorStep: _maxVisitedIndicatorStep,
+    highestCompletedStep: _highestCompletedStep,
     isStepCompleted,
     isStepAccessible,
     setIsMigrationFinishedState,
@@ -256,7 +256,7 @@ export default function MigrationWizardPage() {
     const outdatedList = allDependencies
       .filter((d) => d.status === "review" || d.status === "outdated" || d.status === "upgrade_needed")
       .map((d) => ({
-        name: d.artifact_id || (d as any).group_id || "dependency",
+        name: d.artifact_id || (d as typeof d & { group_id?: string }).group_id || "dependency",
         currentVersion: d.current_version,
         status: d.status,
       }));
@@ -348,6 +348,7 @@ export default function MigrationWizardPage() {
       appContext: nextAppContext,
       hideChatbot: step === 1,
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional sync of Chatbot context when key wizard state objects change
   }, [repoUrl, strategyAssistantContext, migrationJob, setContext, step, animationProgress, migrationTimerNow]);
 
   // Scroll to top of the wizard container whenever step changes
@@ -367,7 +368,7 @@ export default function MigrationWizardPage() {
 
   const activeSidebarStepId = step === 7 ? 5 : step >= 4 ? 4 : step;
   const { isSidebarExpanded } = useSidebar();
-  const projectName =
+  const _projectName =
     selectedRepo?.name?.toUpperCase() ||
     (repoUrl ? (repoUrl || "").split("/").pop()?.replace(/\.git$/i, "").toUpperCase() : "") ||
     "ESSL";

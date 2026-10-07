@@ -349,7 +349,7 @@ export interface MigrationResult {
  
   fossa_error_message?: string | null;
   fossa_report?: FossaScanResult | null;
-  fossa?: any;
+  fossa?: Record<string, unknown>;
   error_message: string | null;
   migration_log: string[];
   file_diffs?: PreviewFileDiff[];
@@ -359,7 +359,7 @@ export interface MigrationResult {
   errors_fixed: number;
   warnings_fixed: number;
   dependency_count?: number;
-  uiTransformations?: any[];
+  uiTransformations?: Record<string, unknown>[];
   // --- migration engine report fields (recipe selection, dependency/import changes) ---
   recipes_executed?: string[];
   recipe_selection_reasons?: string[];
@@ -372,7 +372,7 @@ export interface MigrationResult {
     resolvedTargetVersion: string | null;
     status: string;
     reason: string;
-    [key: string]: any;
+    [key: string]: unknown;
   }>;
   dependencyUpgrades?: Array<{
     groupId: string;
@@ -382,7 +382,7 @@ export interface MigrationResult {
     resolvedTargetVersion: string | null;
     status: string;
     reason: string;
-    [key: string]: any;
+    [key: string]: unknown;
   }>;
   used_fallback?: boolean;
   already_compatible?: boolean;
@@ -515,7 +515,7 @@ export interface MigrationJobSummary {
     files_migrated: number;
   }>;
   modified_files?: string[];
-  uiTransformations?: any[];
+  uiTransformations?: Record<string, unknown>[];
   run_functional_tests?: boolean;
 }
 
@@ -551,8 +551,8 @@ export async function getMigrationLogs(jobId: string): Promise<{ job_id: string;
   );
 }
 
-export async function getMigrationFileDiff(jobId: string, path: string): Promise<any> {
-  return requestJson<any>(
+export async function getMigrationFileDiff(jobId: string, path: string): Promise<PreviewFileDiff | Record<string, unknown>> {
+  return requestJson<PreviewFileDiff | Record<string, unknown>>(
     `/v1/migration/${jobId}/diff`,
     "Failed to get file diff",
     { query: { path } }
@@ -866,7 +866,7 @@ export async function downloadTestCaseHtmlReport(jobId: string, testId: string):
 }
 
 export interface ReportDetailItem {
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface ReportDetailsResponse {

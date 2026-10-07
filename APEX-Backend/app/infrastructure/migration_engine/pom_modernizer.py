@@ -139,6 +139,12 @@ class PomModernizer:
         spring_boot_before: str | None = None
         spring_boot_after: str | None = None
 
+        # Resolve Lombok version dynamically from Maven Central (fallback: 1.18.36)
+        lombok_version = resolver.resolve_version("org.projectlombok", "lombok", default_fallback="1.18.36")
+        lombok_mapstruct_binding_version = resolver.resolve_version(
+            "org.projectlombok", "lombok-mapstruct-binding", default_fallback="0.2.0"
+        )
+
         module_prefix = f"[{rel_path}] " if not is_root else ""
 
         # 1. Update Spring Boot Parent Version dynamically if target Java requires Spring Boot 3
@@ -186,41 +192,74 @@ class PomModernizer:
                 lombok_match = re.search(r"<lombok\.version>(.*?)</lombok\.version>", content)
                 if lombok_match:
                     cur_lombok = lombok_match.group(1).strip()
-                    if cur_lombok and cur_lombok != "1.18.36":
-                        content = re.sub(r"<lombok\.version>.*?</lombok\.version>", "<lombok.version>1.18.36</lombok.version>", content)
-                        logs.append(f"{module_prefix}Upgraded <lombok.version> property from {cur_lombok} to 1.18.36 for Java {target_java} compatibility.")
+                    if cur_lombok and cur_lombok != lombok_version:
+                        content = re.sub(r"<lombok\.version>.*?</lombok\.version>", f"<lombok.version>{lombok_version}</lombok.version>", content)
+                        logs.append(f"{module_prefix}Upgraded <lombok.version> property from {cur_lombok} to {lombok_version} for Java {target_java} compatibility.")
                         upgrades.append({
                             "group_id": "org.projectlombok",
                             "artifact_id": "lombok",
                             "old_version": cur_lombok,
-                            "new_version": "1.18.36",
+                            "new_version": lombok_version,
                             "status": "UPGRADED",
                         })
             direct_lombok = re.search(r"<groupId>\s*org\.projectlombok\s*</groupId>\s*<artifactId>\s*lombok\s*</artifactId>\s*<version>(.*?)</version>", content, re.DOTALL)
             if direct_lombok:
                 cur_v = direct_lombok.group(1).strip()
-                if cur_v and not cur_v.startswith("$") and cur_v != "1.18.36":
+                if cur_v and not cur_v.startswith("$") and cur_v != lombok_version:
                     content = re.sub(
                         r"(<groupId>\s*org\.projectlombok\s*</groupId>\s*<artifactId>\s*lombok\s*</artifactId>\s*<version>)(.*?)(</version>)",
-                        r"\g<1>1.18.36\g<3>",
+                        rf"\g<1>{lombok_version}\g<3>",
                         content,
                     )
-                    logs.append(f"{module_prefix}Upgraded org.projectlombok:lombok dependency version from {cur_v} to 1.18.36 for Java {target_java} compatibility.")
+                    logs.append(f"{module_prefix}Upgraded org.projectlombok:lombok dependency version from {cur_v} to {lombok_version} for Java {target_java} compatibility.")
                     upgrades.append({
                         "group_id": "org.projectlombok",
                         "artifact_id": "lombok",
                         "old_version": cur_v,
-                        "new_version": "1.18.36",
+                        "new_version": lombok_version,
                         "status": "UPGRADED",
                     })
 
         # 3. Synchronize maven-compiler-plugin configuration (source, target, release)
         if "maven-compiler-plugin" in content:
+            uses_lombok = "org.projectlombok" in content or "<lombok.version>" in content
+            uses_mapstruct = "org.mapstruct" in content
+
             def _fix_compiler_plugin(match: re.Match) -> str:
                 plugin_block = match.group(0)
                 plugin_block = re.sub(r"<source>.*?</source>", f"<source>{target_java}</source>", plugin_block)
                 plugin_block = re.sub(r"<target>.*?</target>", f"<target>{target_java}</target>", plugin_block)
                 plugin_block = re.sub(r"<release>.*?</release>", f"<release>{target_java}</release>", plugin_block)
+                
+                if uses_lombok and target_major >= 17:
+                    if "<annotationProcessorPaths>" not in plugin_block:
+                        paths = f"""
+                            <annotationProcessorPaths>
+                                <path>
+                                    <groupId>org.projectlombok</groupId>
+                                    <artifactId>lombok</artifactId>
+                                    <version>{lombok_version}</version>
+                                </path>"""
+                        if uses_mapstruct:
+                            paths += f"""
+                                <path>
+                                    <groupId>org.projectlombok</groupId>
+                                    <artifactId>lombok-mapstruct-binding</artifactId>
+                                    <version>{lombok_mapstruct_binding_version}</version>
+                                </path>
+                                <path>
+                                    <groupId>org.mapstruct</groupId>
+                                    <artifactId>mapstruct-processor</artifactId>
+                                    <version>${{org.mapstruct.version}}</version>
+                                </path>"""
+                        paths += """
+                            </annotationProcessorPaths>"""
+                        
+                        if "<configuration>" in plugin_block:
+                            plugin_block = re.sub(r"(<configuration>)", r"\1" + paths, plugin_block)
+                        else:
+                            plugin_block = re.sub(r"(</artifactId>)", r"\1\n                    <configuration>" + paths + "\n                    </configuration>", plugin_block)
+
                 return plugin_block
 
             content = re.sub(
@@ -230,6 +269,8 @@ class PomModernizer:
                 flags=re.DOTALL,
             )
             logs.append(f"{module_prefix}Aligned maven-compiler-plugin <source>, <target>, and <release> configurations to {target_java}.")
+            if uses_lombok and target_major >= 17:
+                logs.append(f"{module_prefix}Injected Lombok annotation processor paths into maven-compiler-plugin for Java {target_java} compatibility.")
 
         # 4. Modernize Javax to Jakarta Dependencies dynamically in pom.xml
         for legacy_art in _LEGACY_JAVAX_ARTIFACTS:

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import os
+import json
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -670,451 +671,47 @@ class StartMigrationUseCase:
             self._run_quality_gates(store, job_id, result.project_dir or paths.migrated_repo_dir, report)
             store.update(progressPercent=75)
 
+            # --- Migration Checkpoint ---
+            progress_service.set_stage(
+                store,
+                stage_id="migration-checkpoint",
+                stage_name="Migration Checkpoint",
+                percent=76,
+                status=MigrationStatus.RUNNING.value,
+                log_message="[CHECKPOINT] Creating migration checkpoint and publishing migrated repository...",
+            )
+            self._run_cycode_gate(store, job_id, paths.migrated_repo_dir, report)
+            
+            publish_target_java = result.effective_target_java_version or target_java
+            build_success_flag = (store.read() or {}).get("buildSuccess", False)
+            build_status_flag = (store.read() or {}).get("buildStatus", "UNKNOWN")
+            if not build_success_flag:
+                store.append_logs([
+                    f"[WARNING] Build validation status: {build_status_flag}. "
+                    "Migrated repository will still be published as a checkpoint, "
+                    "but may contain compilation errors."
+                ])
+                
+            # Create a marker file for the "Resume Flow"
+            try:
+                state_file_path = os.path.join(paths.migrated_repo_dir, ".apex-migration-state.json")
+                migration_state = {
+                    "job_id": job_id,
+                    "sourceRepoUrl": report.get("sourceRepoUrl") or "",
+                    "targetJavaVersion": publish_target_java,
+                    "status": "MIGRATION_CHECKPOINT",
+                    "migration_date": report.get("createdAt") or report.get("created_at") or ""
+                }
+                with open(state_file_path, "w") as f:
+                    json.dump(migration_state, f, indent=2)
+                store.append_logs(["[STATE] Created .apex-migration-state.json marker in repository root."])
+            except Exception as e:
+                logger.warning("Failed to write .apex-migration-state.json marker: %s", e)
 
-            # --- Step 5: Automatically generate and run Unit Test Suite ---
-            if report.get("runTests"):
-                try:
-                    store.append_logs(["[QUALITY CHECK] ===== AUTOMATED UNIT TEST SUITE EXECUTION ====="])
-                    import asyncio
-                    from app.application.use_cases.run_unit_tests import RunUnitTestSuiteUseCase
-                    from app.schemas.unit_test import TestExecutionDetail, UnitTestGenerateAndRunRequest, UnitTestSuiteResult
-                    from app.infrastructure.analyzers.junit_prompt_compliance_analyzer import JUnitPromptComplianceAnalyzer
-                    from app.infrastructure.quality_gates.unit_test_runner import UnitTestRunner
+            target_repo = self._publish(store, report, paths, publish_target_java, github_token=github_token, incremental=False, commit_message=f"Migrate to Java {target_java} (Migration Checkpoint)")
+            store.append_logs(["[CHECKPOINT] Migration Checkpoint created successfully."])
+            store.update(progressPercent=77)
 
-                    UNIT_TEST_SUITE_TIMEOUT_SECONDS = 600
-                    
-                    quality_checks_values = {}
-                    test_cases_values = {}
-                    active_user_id = user_id_ctx.get()
-                    if active_user_id:
-                        import pymongo
-                        from app.core.config import settings
-                        try:
-                            sync_client = pymongo.MongoClient(settings.mongodb_uri, serverSelectionTimeoutMS=5000)
-                            sync_db = sync_client[settings.mongodb_database]
-                            user_doc = sync_db.users.find_one({"_id": str(active_user_id)})
-                            if user_doc:
-                                quality_checks_values = user_doc.get("quality_checks_values", {})
-                                test_cases_values = user_doc.get("test_cases_values", {})
-                            sync_client.close()
-                        except Exception:
-                            pass
-
-                    unit_test_use_case = RunUnitTestSuiteUseCase()
-                    from app.core.junit_prompts import combine_junit_prompts
-                    store_data = store.read() or {}
-                    job_tc = store_data.get("test_cases_values") or {}
-                    job_qc = store_data.get("quality_checks_values") or {}
-                    selected_predefined = (
-                        store_data.get("selected_predefined_prompts") or
-                        store_data.get("selectedPredefinedPrompts") or
-                        job_tc.get("selected_predefined_prompts") or
-                        job_tc.get("selectedPredefinedPrompts") or
-                        test_cases_values.get("selected_predefined_prompts") or
-                        test_cases_values.get("selectedPredefinedPrompts") or
-                        job_qc.get("selected_predefined_prompts") or
-                        job_qc.get("selectedPredefinedPrompts") or
-                        quality_checks_values.get("selected_predefined_prompts") or
-                        quality_checks_values.get("selectedPredefinedPrompts") or
-                        []
-                    )
-                    manual_prompt_val = (
-                        store_data.get("testing_prompt") or
-                        store_data.get("testingPrompt") or
-                        job_tc.get("testing_prompt") or
-                        job_tc.get("testingPrompt") or
-                        test_cases_values.get("testing_prompt") or
-                        test_cases_values.get("testingPrompt") or
-                        job_qc.get("testing_prompt") or
-                        job_qc.get("testingPrompt") or
-                        job_qc.get("junit_prompt") or
-                        job_qc.get("junitPrompt") or
-                        quality_checks_values.get("testing_prompt") or 
-                        quality_checks_values.get("testingPrompt") or
-                        quality_checks_values.get("junit_prompt") or
-                        quality_checks_values.get("junitPrompt")
-                    )
-                    testing_prompt_val = combine_junit_prompts(
-                        selected_prompt_ids=selected_predefined if isinstance(selected_predefined, list) else [],
-                        manual_prompt=manual_prompt_val,
-                    )
-                    if not testing_prompt_val and manual_prompt_val:
-                        testing_prompt_val = manual_prompt_val.strip()
-
-                    if testing_prompt_val and testing_prompt_val.strip():
-                        store.append_logs([
-                            f"[QUALITY CHECK] Active Dynamic Testing Focus Prompt: \"{testing_prompt_val.strip()[:120]}...\"",
-                            "[QUALITY CHECK] LLM analyzing prompt to dynamically prioritize target classes & scenarios..."
-                        ])
-
-                    req = UnitTestGenerateAndRunRequest(
-                        job_id=job_id,
-                        project_dir=str(paths.migrated_repo_dir),
-                        relative_source_path="",
-                        build_tool="maven" if (paths.migrated_repo_dir / "pom.xml").exists() else "gradle",
-                        java_version=str(target_java or "17"),
-                        enable_validation_agent=True,
-                        test_command=quality_checks_values.get("test_command"),
-                        testing_prompt=testing_prompt_val,
-                        selected_predefined_prompts=selected_predefined if isinstance(selected_predefined, list) else [],
-                        manual_prompt=manual_prompt_val,
-                    )
-                    
-                    store.append_logs(["[JUnit] Test suite execution started"])
-                    test_timed_out = False
-                    test_exec_error = None
-                    test_result = None
-
-                    import concurrent.futures
-                    try:
-                        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                            test_result = executor.submit(
-                                asyncio.run,
-                                asyncio.wait_for(unit_test_use_case.execute_project_suite(req, db=None), timeout=float(UNIT_TEST_SUITE_TIMEOUT_SECONDS))
-                            ).result()
-                    except asyncio.TimeoutError:
-                        test_timed_out = True
-                        test_exec_error = f"Test suite execution timed out after {UNIT_TEST_SUITE_TIMEOUT_SECONDS} seconds"
-                        logger.warning(f"[JUnit] {test_exec_error}")
-                        store.append_logs([f"[JUnit] {test_exec_error}"])
-                    except Exception as suite_err:
-                        test_exec_error = str(suite_err)
-                        logger.warning(f"[JUnit] Test suite execution notice: {suite_err}")
-                        store.append_logs([f"[JUnit] Test suite execution notice: {suite_err}"])
-
-                    # Fallback recovery on timeout or unexpected interruption — do NOT replace real results with empty mock objects
-                    mig_repo = paths.migrated_repo_dir
-                    orig_repo = paths.original_repo_dir if paths.original_repo_dir.exists() else mig_repo
-                    if test_result is None or test_timed_out:
-                        surefire_dir = mig_repo / "target" / "surefire-reports" if req.build_tool == "maven" else mig_repo / "build" / "test-results" / "test"
-                        runner_inst = getattr(unit_test_use_case, "_runner", None) or UnitTestRunner()
-                        parsed_sf = runner_inst.parse_junit_reports(surefire_dir, exit_code=1 if test_timed_out else 0) if surefire_dir.exists() else None
-                        
-                        cov_sum = {"available": False, "line_coverage_pct": None}
-                        is_cov_av = False
-                        
-                        test_result = UnitTestSuiteResult(
-                            project_dir=str(mig_repo),
-                            build_tool=req.build_tool,
-                            total_run=parsed_sf.total_run if parsed_sf else 0,
-                            passed=parsed_sf.passed if parsed_sf else 0,
-                            failed=parsed_sf.failed if parsed_sf else 0,
-                            skipped=parsed_sf.skipped if parsed_sf else 0,
-                            execution_status="TIMED_OUT" if test_timed_out else (parsed_sf.execution_status if parsed_sf else "FAILED"),
-                            existing_test_results=parsed_sf.existing_test_results if parsed_sf else [],
-                            generated_test_results=parsed_sf.generated_test_results if parsed_sf else [],
-                            line_coverage_pct=float(cov_sum["line_coverage_pct"]) if is_cov_av else None,
-                            branch_coverage_pct=float(cov_sum.get("branch_coverage_pct") or 0.0) if is_cov_av else None,
-                            instruction_coverage_pct=float(cov_sum.get("instruction_coverage_pct") or 0.0) if is_cov_av else None,
-                            method_coverage_pct=float(cov_sum.get("method_coverage_pct") or 0.0) if is_cov_av else None,
-                            class_coverage_pct=float(cov_sum.get("class_coverage_pct") or 0.0) if is_cov_av else None,
-                            final_coverage=cov_sum,
-                            original_coverage=None,
-                        )
-
-                    if getattr(test_result, "prompt_analysis", None):
-                        pa = test_result.prompt_analysis
-                        focus_str = getattr(pa, "testing_focus", str(pa))
-                        t_areas = getattr(pa, "target_areas", []) or getattr(pa, "target_classes", [])
-                        prompt_log_list = [
-                            f"[QUALITY CHECK] Dynamic Testing Focus: {focus_str}",
-                            f"[QUALITY CHECK] Dynamically Prioritized Target Classes: {', '.join(t_areas) if t_areas else 'All repository classes'}",
-                        ]
-                        store.append_logs(prompt_log_list)
-
-                    if getattr(test_result, "prompt_coverage_evaluation", None):
-                        pe = test_result.prompt_coverage_evaluation
-                        matched = getattr(pe, "focus_matched", True)
-                        assessment = getattr(pe, "coverage_assessment", "")
-                        status_str = "Focus Target Covered" if matched else "Needs Additional Coverage"
-                        store.append_logs([
-                            f"[QUALITY CHECK] Prompt Coverage Assessment: [{status_str}] {assessment}",
-                        ])
-
-                    orig_test_dir = orig_repo / "src" / "test" / "java"
-                    orig_test_files = list(orig_test_dir.rglob("*.java")) if orig_test_dir.exists() else []
-                    existing_test_files = len(orig_test_files)
-
-                    mig_test_dir = mig_repo / "src" / "test" / "java"
-                    mig_test_files = list(mig_test_dir.rglob("*.java")) if mig_test_dir.exists() else []
-
-                    orig_rel_set = {str(f.relative_to(orig_repo)).replace("\\", "/") for f in orig_test_files}
-                    new_test_files_list = [f for f in mig_test_files if str(f.relative_to(mig_repo)).replace("\\", "/") not in orig_rel_set]
-
-                    generated_files_meta = getattr(test_result, "generated_test_files", []) or []
-                    created_gen_files = [f for f in generated_files_meta if f.get("status") == "CREATED"]
-                    new_test_files = len(created_gen_files) if generated_files_meta else len(new_test_files_list)
-
-                    total_repo_files = len(list(mig_repo.rglob("*.java")))
-                    exist_count = len(getattr(test_result, "existing_test_results", []))
-                    if exist_count == 0 and orig_test_files:
-                        ast_analyzer = JavaASTAnalyzer()
-                        for tf in orig_test_files:
-                            code = tf.read_text(encoding="utf-8", errors="ignore")
-                            parsed = ast_analyzer.analyze_test_file(code, filename=tf.name)
-                            exist_count += len(parsed.get("test_methods", []))
-
-                    target_names = [f.stem for f in orig_test_files] if orig_test_files else []
-                    gen_exec_info = getattr(test_result, "generated_test_execution", None) or {}
-                    gen_count = int(gen_exec_info.get("generated_test_methods", 0))
-                    if gen_count == 0 and getattr(test_result, "generated_test_results", None):
-                        gen_count = len(test_result.generated_test_results)
-                    total_cases = exist_count + gen_count
-
-                    # Build detailed execution list from actual test execution results only
-                    executed_details = []
-                    all_details = list(getattr(test_result, "existing_test_results", [])) + list(getattr(test_result, "generated_test_results", []))
-                    for d in all_details:
-                        c_name = d.test_class.split(".")[-1]
-                        executed_details.append({
-                            "test_class": c_name,
-                            "test_method": d.test_method,
-                            "status": d.status,
-                            "execution_time_seconds": round(float(getattr(d, "execution_time_seconds", 0.0) or 0.0), 3),
-                            "error_message": getattr(d, "error_message", None),
-                        })
-
-                    final_cov = getattr(test_result, "final_coverage", None) or {}
-                    orig_cov = getattr(test_result, "original_coverage", None) or {}
-                    cov_improv = getattr(test_result, "coverage_improvement", None) or {}
-
-                    final_available = bool(final_cov.get("available", False) and final_cov.get("line_coverage_pct") is not None)
-                    final_line_cov = float(final_cov.get("line_coverage_pct")) if final_available else None
-                    final_branch_cov = float(final_cov.get("branch_coverage_pct")) if (final_available and final_cov.get("branch_coverage_pct") is not None) else None
-                    final_inst_cov = float(final_cov.get("instruction_coverage_pct")) if (final_available and final_cov.get("instruction_coverage_pct") is not None) else None
-                    final_method_cov = float(final_cov.get("method_coverage_pct")) if (final_available and final_cov.get("method_coverage_pct") is not None) else None
-                    final_class_cov = float(final_cov.get("class_coverage_pct")) if (final_available and final_cov.get("class_coverage_pct") is not None) else None
-
-                    coverage_result_data = {
-                        "available": final_available,
-                        "coverage_available": final_available,
-                        "line_coverage": final_line_cov,
-                        "branch_coverage": final_branch_cov,
-                        "instruction_coverage": final_inst_cov,
-                        "method_coverage": final_method_cov,
-                        "class_coverage": final_class_cov,
-                        "line_coverage_pct": final_line_cov,
-                        "branch_coverage_pct": final_branch_cov,
-                        "instruction_coverage_pct": final_inst_cov,
-                        "method_coverage_pct": final_method_cov,
-                        "class_coverage_pct": final_class_cov,
-                        "report_path": final_cov.get("report_path") or orig_cov.get("report_path"),
-                        "jacoco_xml_path": final_cov.get("report_path"),
-                        "jacoco_exec_path": final_cov.get("exec_path"),
-                        "error": final_cov.get("error"),
-                        "original": orig_cov,
-                        "final": final_cov,
-                        "improvement": cov_improv,
-                    }
-
-                    actual_tests_run = getattr(test_result, "total_run", 0)
-                    actual_tests_passed = getattr(test_result, "passed", 0)
-                    actual_tests_failed = getattr(test_result, "failed", 0)
-                    actual_tests_skipped = getattr(test_result, "skipped", 0)
-                    overall_exec_status = getattr(test_result, "execution_status", "NOT_EXECUTED")
-
-                    # Structured logging for verified test execution and JaCoCo coverage
-                    log_entries = [
-                        "[JUnit] Test execution completed",
-                        f"[JUnit] Tests run: {actual_tests_run}",
-                        f"[JUnit] Passed: {actual_tests_passed}",
-                        f"[JUnit] Failed: {actual_tests_failed}",
-                        f"[JUnit] Errors: 0",
-                        f"[JUnit] Skipped: {actual_tests_skipped}",
-                    ]
-                    for g_file in generated_files_meta:
-                        if g_file.get("status") == "CREATED":
-                            log_entries.append(
-                                f"[JUnit] Generated test file: {g_file.get('path')} ({g_file.get('test_method_count', 0)} @Test methods via {g_file.get('generator', 'LLM')})"
-                            )
-                        else:
-                            log_entries.append(
-                                f"[JUnit] Generation failed for target class: {g_file.get('source_class')} ({g_file.get('error', 'Unknown error')})"
-                            )
-
-
-
-                    if getattr(test_result, "raw_logs", None):
-                        log_entries.extend(test_result.raw_logs)
-
-                    store.append_logs(log_entries)
-
-                    publish_target_java = result.effective_target_java_version or target_java
-                    actual_tests_run = getattr(test_result, "total_run", 0)
-                    actual_tests_passed = getattr(test_result, "passed", 0)
-                    actual_tests_failed = getattr(test_result, "failed", 0)
-                    actual_tests_skipped = getattr(test_result, "skipped", 0)
-                    overall_exec_status = getattr(test_result, "execution_status", "NOT_EXECUTED")
-
-                    test_pipeline_data = {
-                        "execution_status": overall_exec_status,
-                        "test_execution": {
-                            "total": actual_tests_run,
-                            "passed": actual_tests_passed,
-                            "failed": actual_tests_failed,
-                            "errors": 0,
-                            "skipped": actual_tests_skipped,
-                        },
-                        "test_cases": {
-                            "existing": exist_count,
-                            "generated": gen_count,
-                            "total": total_cases,
-                            "executed": actual_tests_run,
-                        },
-                        "coverage": {
-                            "available": final_available,
-                            "coverage_available": final_available,
-                            "line": final_line_cov,
-                            "branch": final_branch_cov,
-                            "instruction": final_inst_cov,
-                            "method": final_method_cov,
-                            "class": final_class_cov,
-                            "line_coverage_pct": final_line_cov,
-                            "branch_coverage_pct": final_branch_cov,
-                            "instruction_coverage_pct": final_inst_cov,
-                            "method_coverage_pct": final_method_cov,
-                            "class_coverage_pct": final_class_cov,
-                            "report_path": final_cov.get("report_path"),
-                            "jacoco_xml_path": final_cov.get("report_path"),
-                            "jacoco_exec_path": final_cov.get("exec_path"),
-                        },
-                        "test_summary_metrics": {
-                            "repo_total_files": total_repo_files,
-                            "existing_test_files": existing_test_files,
-                            "generated_test_files": new_test_files,
-                            "new_test_files": new_test_files,
-                            "existing_test_cases": exist_count,
-                            "existing_test_methods": exist_count,
-                            "generated_test_cases": gen_count,
-                            "generated_test_methods": gen_count,
-                            "total_test_cases": total_cases,
-                            "executed_total_test_methods": actual_tests_run,
-                            "java_migration_version": publish_target_java,
-                        },
-                        "generated_test_files": generated_files_meta,
-                        "generated_test_execution": gen_exec_info,
-                        "executed_test_details": executed_details,
-                        "coverage_result": coverage_result_data,
-                        "prompt_analysis": (
-                            test_result.prompt_analysis.model_dump() if getattr(test_result, "prompt_analysis", None) and hasattr(test_result.prompt_analysis, "model_dump")
-                            else (test_result.prompt_analysis.dict() if getattr(test_result, "prompt_analysis", None) and hasattr(test_result.prompt_analysis, "dict")
-                            else (test_result.prompt_analysis if isinstance(getattr(test_result, "prompt_analysis", None), dict)
-                            else ({
-                                "user_prompt": testing_prompt_val.strip(),
-                                "testing_focus": f"Testing Focus: {testing_prompt_val.strip()}",
-                                "target_areas": target_names,
-                                "target_classes": target_names,
-                                "target_methods": [],
-                                "priority": target_names,
-                                "scenarios": [f"Validate {testing_prompt_val.strip()} security & business logic", "Test boundary conditions & null parameters"],
-                                "edge_cases": ["Invalid credentials / tokens", "Boundary values & null payloads"],
-                            } if (testing_prompt_val and testing_prompt_val.strip()) else None)))
-                        ),
-                        "prompt_coverage_evaluation": (
-                            test_result.prompt_coverage_evaluation.model_dump() if getattr(test_result, "prompt_coverage_evaluation", None) and hasattr(test_result.prompt_coverage_evaluation, "model_dump")
-                            else (test_result.prompt_coverage_evaluation.dict() if getattr(test_result, "prompt_coverage_evaluation", None) and hasattr(test_result.prompt_coverage_evaluation, "dict")
-                            else (test_result.prompt_coverage_evaluation if isinstance(getattr(test_result, "prompt_coverage_evaluation", None), dict)
-                            else ({
-                                "user_prompt": testing_prompt_val.strip(),
-                                "focus_matched": True,
-                                "coverage_assessment": "Executed unit test suite in alignment with user testing prompt.",
-                                "covered_scenarios": [testing_prompt_val.strip()],
-                                "uncovered_scenarios": [],
-                                "recommendations": ["Maintain ongoing test suite execution"],
-                            } if (testing_prompt_val and testing_prompt_val.strip()) else None)))
-                        ),
-                        "prompt_compliance": (
-                            test_result.prompt_compliance.model_dump() if getattr(test_result, "prompt_compliance", None) and hasattr(test_result.prompt_compliance, "model_dump")
-                            else (test_result.prompt_compliance.dict() if getattr(test_result, "prompt_compliance", None) and hasattr(test_result.prompt_compliance, "dict")
-                            else (test_result.prompt_compliance if isinstance(getattr(test_result, "prompt_compliance", None), dict)
-                            else (
-                                # Re-evaluate compliance cleanly using analyzer if executed details exist
-                                JUnitPromptComplianceAnalyzer().evaluate_compliance(
-                                    test_files=list((mig_repo / "src" / "test" / "java").rglob("*.java")) if (mig_repo / "src" / "test" / "java").exists() else None,
-                                    executed_test_details=[
-                                        TestExecutionDetail(test_class=d["test_class"], test_method=d["test_method"], status=d["status"], execution_time_seconds=d.get("execution_time_seconds", 0.03))
-                                        for d in executed_details
-                                    ],
-                                    selected_prompt_ids=selected_predefined if isinstance(selected_predefined, list) else [],
-                                    manual_prompt=manual_prompt_val,
-                                    manual_prompt_analysis=getattr(test_result, "prompt_analysis", None),
-                                    line_coverage_pct=final_line_cov,
-                                    branch_coverage_pct=final_branch_cov,
-                                ).model_dump() if executed_details else None
-                            )))
-                        ),
-                    }
-                    store.update(
-                        test_pipeline=test_pipeline_data,
-                        tests_run=actual_tests_run,
-                        tests_passed=actual_tests_passed,
-                        tests_failed=actual_tests_failed,
-                        tests_skipped=actual_tests_skipped,
-                        coverage_available=final_available,
-                        line_coverage=final_line_cov,
-                        branch_coverage=final_branch_cov,
-                        instruction_coverage=final_inst_cov,
-                        method_coverage=final_method_cov,
-                        class_coverage=final_class_cov,
-                        jacoco_xml_path=final_cov.get("report_path"),
-                        jacoco_exec_path=final_cov.get("exec_path"),
-                        test_summary=(
-                            f"Executed unit test suite cleanly ({actual_tests_passed}/{actual_tests_run} passed)."
-                            if actual_tests_run > 0
-                            else f"Generated {gen_count} test method(s) across {new_test_files} test file(s) ({overall_exec_status.replace('_', ' ')})."
-                        ),
-                        progressPercent=80,
-                    )
-                    if actual_tests_run > 0:
-                        store.append_logs([f"[QUALITY CHECK] Unit tests executed: {actual_tests_run} test cases ({actual_tests_passed} passed, {actual_tests_failed} failed, {actual_tests_skipped} skipped)."])
-                    else:
-                        store.append_logs([f"[QUALITY CHECK] Generated {gen_count} test methods ({new_test_files} files). Execution status: {overall_exec_status}."])
-                except Exception as test_exc:
-                    logger.warning(f"Post-migration unit test execution notice for job {job_id}: {test_exc}")
-                    try:
-                        orig_repo = paths.original_repo_dir if paths.original_repo_dir.exists() else paths.migrated_repo_dir
-                        mig_repo = paths.migrated_repo_dir if paths.migrated_repo_dir.exists() else orig_repo
-                        total_repo_files = len(list(mig_repo.rglob("*.java")))
-                        orig_test_files = list((orig_repo / "src" / "test" / "java").rglob("*.java")) if (orig_repo / "src" / "test" / "java").exists() else []
-                        ast_analyzer = JavaASTAnalyzer()
-                        measured_exist_tests = 0
-                        for tf in orig_test_files:
-                            code = tf.read_text(encoding="utf-8", errors="ignore")
-                            parsed = ast_analyzer.analyze_test_file(code, filename=tf.name)
-                            measured_exist_tests += len(parsed.get("test_methods", []))
-
-                        publish_target_java = str(result.effective_target_java_version or target_java)
-                        fallback_test_pipeline = {
-                            "status": "FAILED",
-                            "error": str(test_exc),
-                            "test_summary_metrics": {
-                                "repo_total_files": total_repo_files,
-                                "existing_test_files": len(orig_test_files),
-                                "new_test_files": 0,
-                                "existing_test_cases": measured_exist_tests,
-                                "generated_test_cases": 0,
-                                "total_test_cases": measured_exist_tests,
-                                "java_migration_version": publish_target_java,
-                            },
-                            "generated_test_files": [],
-                            "executed_test_details": [],
-                            "coverage_result": {
-                                "available": False,
-                                "line_coverage_pct": None,
-                                "error": f"Coverage calculation unavailable: {test_exc}",
-                            },
-                            "prompt_compliance": None,
-                        }
-                        store.update(
-                            test_pipeline=fallback_test_pipeline,
-                            tests_run=measured_exist_tests,
-                            tests_passed=measured_exist_tests,
-                            test_summary=f"Unit test pipeline notice: {test_exc}",
-                            progressPercent=80,
-                        )
-                    except Exception as inner_err:
-                        logger.warning(f"Failed to record measured fallback metrics: {inner_err}")
-                        store.update(progressPercent=80)
 
             # --- Stage 5: Code Deprecation ---
 
@@ -1124,22 +721,8 @@ class StartMigrationUseCase:
                 stage_name="5. Code Deprecation",
                 percent=83,
                 status=MigrationStatus.RUNNING.value,
-                log_message="[DEPRECATION] Scanning for deprecated APIs and publishing migrated repository...",
+                log_message="[DEPRECATION] Code Deprecation and cleanup phase...",
             )
-            self._run_cycode_gate(store, job_id, paths.migrated_repo_dir, report)
-            file_utils.remove_tree(paths.migrated_repo_dir / ".git")
-            publish_target_java = result.effective_target_java_version or target_java
-            # Build-gate: warn if publishing a repo with build failures
-            build_success_flag = (store.read() or {}).get("buildSuccess", False)
-            build_status_flag = (store.read() or {}).get("buildStatus", "UNKNOWN")
-            if not build_success_flag:
-                store.append_logs([
-                    f"[WARNING] Build validation status: {build_status_flag}. "
-                    "Migrated repository will still be published for inspection, "
-                    "but may contain compilation errors."
-                ])
-            target_repo = self._publish(store, report, paths, publish_target_java)
-            store.append_logs([f"[DEPRECATION] Published migrated repository to: {target_repo}"])
             store.update(progressPercent=90)
 
             # --- Stage 6: Generating Migration Report ---
@@ -1276,23 +859,6 @@ class StartMigrationUseCase:
 
             store.update(progressPercent=97)
 
-            # --- Publish ---
-            progress_service.set_phase(
-                store, status=MigrationStatus.RUNNING.value,
-                step=MigrationStep.PUBLISHING.value, percent=95,
-            )
-            file_utils.remove_tree(paths.migrated_repo_dir / ".git")
-            publish_target_java = result.effective_target_java_version or target_java
-            # Build-gate: warn if publishing a repo with build failures
-            build_success_flag = (store.read() or {}).get("buildSuccess", False)
-            build_status_flag = (store.read() or {}).get("buildStatus", "UNKNOWN")
-            if not build_success_flag:
-                store.append_logs([
-                    f"[WARNING] Build validation status: {build_status_flag}. "
-                    "Migrated repository will still be published for inspection, "
-                    "but may contain compilation errors."
-                ])
-            target_repo = self._publish(store, report, paths, publish_target_java, github_token=github_token)
 
             # --- Done ---
             store.update(
@@ -1733,10 +1299,13 @@ class StartMigrationUseCase:
         paths: WorkspacePaths,
         target_java: str,
         github_token: str | None = None,
+        incremental: bool = False,
+        commit_message: str | None = None,
     ) -> str:
         destination = report.get("destination") or {}
         mode = destination.get("mode", MODE_CREATE_NEW_REPO)
-        commit_message = f"Migrate to Java {target_java}"
+        if commit_message is None:
+            commit_message = f"Migrate to Java {target_java}"
 
         user_pat = None
         active_user_id = user_id_ctx.get()
@@ -1748,7 +1317,7 @@ class StartMigrationUseCase:
             sync_db = sync_client[settings.mongodb_database]
             user_doc = None
             if active_user_id:
-                user_doc = sync_db.users.find_one({"_id": _get_query_id(str(active_user_id))})
+                user_doc = sync_db.users.find_one(_get_query_id(str(active_user_id)))
             if not user_doc:
                 user_doc = sync_db.users.find_one({}, sort=[("_id", -1)])
             if user_doc:
@@ -1777,7 +1346,7 @@ class StartMigrationUseCase:
                 branch = destination.get("targetBranch") or "migration"
                 source_url = report.get("sourceRepoUrl") or ""
                 self._branch_creator.push_branch(
-                    paths.migrated_repo_dir, source_url, branch, commit_message=commit_message, token=effective_token
+                    paths.migrated_repo_dir, source_url, branch, commit_message=commit_message, token=effective_token, incremental=incremental
                 )
                 return f"{source_url.rstrip('/').removesuffix('.git')}/tree/{branch}"
 
@@ -1797,6 +1366,7 @@ class StartMigrationUseCase:
                 commit_message=commit_message,
                 token=effective_token,
                 allow_force_update_existing=True,
+                incremental=incremental,
             )
             return created.html_url
         except Exception as pub_exc:  # noqa: BLE001

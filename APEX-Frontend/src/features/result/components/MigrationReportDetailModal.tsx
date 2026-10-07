@@ -86,10 +86,13 @@ export const MigrationReportDetailModal: React.FC<MigrationReportDetailModalProp
   onSelectFileForDiff,
 }) => {
   const [searchQuery, setSearchQuery] = useState("");
-
-  useEffect(() => {
-    setSearchQuery("");
-  }, [category, isOpen]);
+  const [prevKey, setPrevKey] = useState<{ category: string | null; isOpen: boolean }>({ category: null, isOpen: false });
+  if (prevKey.category !== category || prevKey.isOpen !== isOpen) {
+    setPrevKey({ category, isOpen });
+    if (searchQuery !== "") {
+      setSearchQuery("");
+    }
+  }
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -102,7 +105,7 @@ export const MigrationReportDetailModal: React.FC<MigrationReportDetailModalProp
   }, [isOpen, onClose]);
 
   const config = category ? CATEGORY_CONFIG[category] || CATEGORY_CONFIG.files : CATEGORY_CONFIG.files;
-  const items = data?.items || [];
+  const items = useMemo(() => data?.items || [], [data?.items]);
 
   const filteredItems = useMemo(() => {
     if (!searchQuery.trim()) return items;

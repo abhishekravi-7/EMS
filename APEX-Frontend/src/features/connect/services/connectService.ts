@@ -24,6 +24,8 @@ export interface ConnectRepositoryResult {
   repoVisibility: RepoVisibility;
   accessStatus: ConnectAccessStatus;
   message: string;
+  isAlreadyMigrated?: boolean;
+  migrationState?: unknown;
 }
 
 export class ConnectRepositoryApiError extends Error {

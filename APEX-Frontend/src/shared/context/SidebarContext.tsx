@@ -22,6 +22,7 @@ export const SidebarProvider: React.FC<{ children: React.ReactNode }> = ({ child
   );
 };
 
+// eslint-disable-next-line react-refresh/only-export-components -- Context file exports both Provider component and custom hook
 export const useSidebar = () => {
   const context = useContext(SidebarContext);
   if (!context) {

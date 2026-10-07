@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { createPortal } from "react-dom";
 import {
   FaSpinner,
-  FaRedo,
   FaDownload,
   FaTerminal,
   FaTimes,
@@ -18,13 +16,11 @@ import {
   FaTimesCircle,
   FaHourglassHalf,
   FaMinusCircle,
-  FaClock,
   FaFileCode,
   FaChevronDown,
   FaChevronUp,
   FaImage,
   FaVideo,
-  FaDesktop,
 } from "react-icons/fa";
 import {
   getProposedTestsStatus,
@@ -33,19 +29,12 @@ import {
   formatProposedTestDisplayName,
   getProposedTestComparison,
   getProposedTestReport,
-  previewInlinePrompt,
-  applyInlinePrompt,
   type ProposedTestCase,
   type ProposedTestMetrics,
   type ProposedTestComparisonResponse,
   type ProposedTestReportResponse,
-  type InlinePromptDiff,
 } from "@/features/modernization/services/proposedTestService";
-import {
-  downloadProposedTestReport,
-  downloadProposedTestHtmlReport,
-  downloadTestCaseHtmlReport,
-} from "@/features/result/services/resultService";
+import { downloadProposedTestReport } from "@/features/result/services/resultService";
 import { triggerBlobDownload } from "@/features/result/utils/migrationWizardPdf";
 import type { MigrationResult } from "@/features/result/services/resultService";
 
@@ -63,13 +52,11 @@ export function MigrationProposedTestSection({
   const jobId = migrationJob?.job_id || "";
   const [proposals, setProposals] = useState<ProposedTestCase[]>([]);
   const [metrics, setMetrics] = useState<ProposedTestMetrics | null>(null);
-  const [comparison, setComparison] = useState<ProposedTestComparisonResponse | null>(null);
+  const [_comparison, setComparison] = useState<ProposedTestComparisonResponse | null>(null);
   const [logs, setLogs] = useState<Array<{ ts?: string; msg?: string; level?: string }>>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isDownloading, setIsDownloading] = useState(false);
-  const [isDownloadingHtml, setIsDownloadingHtml] = useState(false);
-  const [downloadingTestId, setDownloadingTestId] = useState<string | null>(null);
   const [selectedTest, setSelectedTest] = useState<ProposedTestCase | null>(null);
   const [showLogs, setShowLogs] = useState(true);
   const [selectedSources, setSelectedSources] = useState<string[] | null>(null);
@@ -78,71 +65,13 @@ export function MigrationProposedTestSection({
   const [playwrightReportAvailable, setPlaywrightReportAvailable] = useState(false);
   const [playwrightReportUrl, setPlaywrightReportUrl] = useState<string | null>(null);
   const [isLogsCopied, setIsLogsCopied] = useState(false);
-  const [progress, setProgress] = useState<{ total: number; completed: number }>({ total: 0, completed: 0 });
 
-  // ── Inline Prompt Refinement State ──
-  const [isPromptExpanded, setIsPromptExpanded] = useState(true);
-  const [inlinePromptText, setInlinePromptText] = useState("");
-  const [isPreviewing, setIsPreviewing] = useState(false);
-  const [isApplying, setIsApplying] = useState(false);
-  const [previewDiff, setPreviewDiff] = useState<InlinePromptDiff | null>(null);
-  const [previewError, setPreviewError] = useState<string | null>(null);
-  const [showDiffDetails, setShowDiffDetails] = useState(false);
+  // Single-expanded HTML Report state
+  const [expandedReportTestId, setExpandedReportTestId] = useState<string | null>(null);
+  const [loadingReportTestId, setLoadingReportTestId] = useState<string | null>(null);
+  const [testReports, setTestReports] = useState<Record<string, ProposedTestReportResponse>>({});
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
 
-  const handlePreviewPrompt = async () => {
-    if (!inlinePromptText.trim()) {
-      setPreviewDiff({
-        intent: "CLARIFICATION_NEEDED",
-        added: [],
-        modified: [],
-        removed: [],
-        skipped_as_duplicate: [],
-        unmet_requests: [],
-        clarification_needed: "Prompt instruction is empty. Please enter an instruction (e.g. 'add 5 negative tests for the employee form').",
-      });
-      return;
-    }
-    setIsPreviewing(true);
-    setPreviewError(null);
-    try {
-      const diff = await previewInlinePrompt(jobId, inlinePromptText.trim());
-      setPreviewDiff(diff);
-    } catch (err: any) {
-      setPreviewError(err?.message || "Failed to preview inline prompt diff");
-    } finally {
-      setIsPreviewing(false);
-    }
-  };
-
-  const handleApplyPrompt = async () => {
-    if (!previewDiff) return;
-    setIsApplying(true);
-    setPreviewError(null);
-    try {
-      const updated = await applyInlinePrompt(jobId, previewDiff);
-      setProposals(updated);
-      const freshResults = await getProposedTestsResults(jobId).catch(() => null);
-      if (freshResults?.metrics) {
-        setMetrics(freshResults.metrics);
-      }
-      setPreviewDiff(null);
-      setInlinePromptText("");
-      setIsPromptExpanded(false);
-      setShowDiffDetails(false);
-    } catch (err: any) {
-      setPreviewError(err?.message || "Failed to apply prompt diff");
-    } finally {
-      setIsApplying(false);
-    }
-  };
-
-  const handleCancelPrompt = () => {
-    setPreviewDiff(null);
-    setInlinePromptText("");
-    setPreviewError(null);
-    setIsPromptExpanded(false);
-    setShowDiffDetails(false);
-  };
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const logBoxRef = useRef<HTMLDivElement | null>(null);
 
@@ -170,24 +99,11 @@ export function MigrationProposedTestSection({
     }
   }, [logs]);
 
-  // Prevent body scrolling when modal is open
-  useEffect(() => {
-    if (selectedTest) {
-      document.body.style.overflow = "hidden";
-    } else {
-      document.body.style.overflow = "auto";
-    }
-    return () => {
-      document.body.style.overflow = "auto";
-    };
-  }, [selectedTest]);
-
   const startPolling = useCallback(() => {
     if (pollRef.current) clearInterval(pollRef.current);
     pollRef.current = setInterval(async () => {
       try {
         const statusData = await getProposedTestsStatus(jobId);
-        if (statusData.progress) setProgress(statusData.progress);
         if (statusData.proposals) setProposals(statusData.proposals);
         if (statusData.metrics) setMetrics(statusData.metrics);
         if (statusData.logs) setLogs(statusData.logs);
@@ -195,10 +111,6 @@ export function MigrationProposedTestSection({
         if (statusData.allure_report_available !== undefined) {
           setAllureReportAvailable(statusData.allure_report_available);
           if (statusData.allure_report_url) setAllureReportUrl(statusData.allure_report_url);
-        }
-        if (statusData.playwright_report_available !== undefined) {
-          setPlaywrightReportAvailable(statusData.playwright_report_available);
-          if (statusData.playwright_report_url) setPlaywrightReportUrl(statusData.playwright_report_url);
         }
 
         if (statusData.status === "COMPLETED" || statusData.status === "FAILED") {
@@ -213,10 +125,6 @@ export function MigrationProposedTestSection({
           if (finalResults?.allure_report_available !== undefined) {
             setAllureReportAvailable(finalResults.allure_report_available);
             if (finalResults.allure_report_url) setAllureReportUrl(finalResults.allure_report_url);
-          }
-          if (finalResults?.playwright_report_available !== undefined) {
-            setPlaywrightReportAvailable(finalResults.playwright_report_available);
-            if (finalResults.playwright_report_url) setPlaywrightReportUrl(finalResults.playwright_report_url);
           }
 
           // Fetch comparison against pre-migration baseline
@@ -247,7 +155,6 @@ export function MigrationProposedTestSection({
         if (compData) setComparison(compData);
 
         if (res) {
-          if (res.progress) setProgress(res.progress);
           if (res.proposals) setProposals(res.proposals);
           if (res.metrics) setMetrics(res.metrics);
           if (res.logs) setLogs(res.logs);
@@ -255,9 +162,9 @@ export function MigrationProposedTestSection({
           if (res.allure_report_available !== undefined) {
             setAllureReportAvailable(res.allure_report_available);
             if (res.allure_report_url) setAllureReportUrl(res.allure_report_url);
-          }
-          if (res.playwright_report_available !== undefined) {
-            setPlaywrightReportAvailable(res.playwright_report_available);
+            
+            // Note: Using allure_report_available to also trigger playwright since they generate together
+            setPlaywrightReportAvailable(res.playwright_report_available || res.allure_report_available);
             if (res.playwright_report_url) setPlaywrightReportUrl(res.playwright_report_url);
           }
 
@@ -291,7 +198,7 @@ export function MigrationProposedTestSection({
         .map((p) => p.id);
       setSelectedTestIds(new Set(validIds.length > 0 ? validIds : proposals.map((p) => p.id)));
     }
-  }, [proposals]);
+  }, [proposals, selectedTestIds.size]);
 
   const handleToggleSelectAll = () => {
     if (selectedTestIds.size === proposals.length) {
@@ -318,6 +225,8 @@ export function MigrationProposedTestSection({
     if (!jobId || isRunning || selectedTestIds.size === 0) return;
     setIsRunning(true);
     setLogs([]);
+    setExpandedReportTestId(null);
+    setTestReports({});
     try {
       await runApprovedProposedTests(jobId, {
         test_ids: Array.from(selectedTestIds),
@@ -333,6 +242,8 @@ export function MigrationProposedTestSection({
     if (!jobId || isRunning) return;
     setIsRunning(true);
     setLogs([]);
+    setExpandedReportTestId(null);
+    setTestReports({});
     try {
       await runApprovedProposedTests(jobId, {
         test_ids: selectedTestIds.size > 0 ? Array.from(selectedTestIds) : undefined,
@@ -345,7 +256,29 @@ export function MigrationProposedTestSection({
     }
   };
 
+  const handleToggleReport = async (testId: string) => {
+    // If clicking currently expanded report, collapse it
+    if (expandedReportTestId === testId) {
+      setExpandedReportTestId(null);
+      return;
+    }
 
+    // Switch to new test ID
+    setExpandedReportTestId(testId);
+
+    // Lazy load: only fetch if not already in local cache
+    if (!testReports[testId]) {
+      setLoadingReportTestId(testId);
+      try {
+        const report = await getProposedTestReport(jobId, testId);
+        setTestReports((prev) => ({ ...prev, [testId]: report }));
+      } catch (err) {
+        console.error(`Failed to fetch report for test ${testId}:`, err);
+      } finally {
+        setLoadingReportTestId(null);
+      }
+    }
+  };
 
   const handleViewAllureReport = () => {
     const url = allureReportUrl || `/api/v1/migration/${encodeURIComponent(jobId)}/proposed-tests/allure-report/index.html`;
@@ -370,28 +303,12 @@ export function MigrationProposedTestSection({
     }
   };
 
-  const handleDownloadHtmlReport = async () => {
-    if (!jobId || isDownloadingHtml) return;
-    setIsDownloadingHtml(true);
-    try {
-      const blob = await downloadProposedTestHtmlReport(jobId);
-      triggerBlobDownload(blob, `functional-tests-report-${jobId}.html`);
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to download functional tests HTML report.");
-    } finally {
-      setIsDownloadingHtml(false);
-    }
-  };
-
-
-
   const totalProposed = metrics?.total ?? proposals.length;
   const executedCount = metrics?.executed ?? proposals.filter((p) => p.status === "PASSED" || p.status === "FAILED" || p.status === "SKIPPED").length;
   const passedCount = metrics?.passed ?? proposals.filter((p) => p.status === "PASSED").length;
   const failedCount = metrics?.failed ?? proposals.filter((p) => p.status === "FAILED").length;
-  const skippedCount = metrics?.skipped ?? proposals.filter((p) => p.status === "SKIPPED").length;
-  const blockedCount = metrics?.blocked ?? proposals.filter((p) => p.status === "BLOCKED").length;
-  const notExecutedCount = metrics?.not_executed ?? Math.max(0, totalProposed - executedCount - blockedCount);
+  const _skippedCount = metrics?.skipped ?? proposals.filter((p) => p.status === "SKIPPED").length;
+  const _notExecutedCount = metrics?.not_executed ?? Math.max(0, totalProposed - executedCount);
 
   // Validation Breakdown Counts (Inventory is fully preserved)
   const validCount = proposals.filter((p) => !p.validation || p.validation.status === "VALID" || p.validation.status === "PARTIALLY_VALID").length;
@@ -401,25 +318,7 @@ export function MigrationProposedTestSection({
 
   const passRateNum = executedCount > 0 ? Math.round((passedCount / executedCount) * 100) : 0;
   const passRateDisplay = `${passRateNum}%`;
-  const durationDisplay = metrics?.duration || "0.0s";
-
-  // Dynamic execution summary text (Prompt requirements)
-  // Before execution: "23 test cases ready"
-  // During execution: "Running 7/19..."
-  // After successful execution: "19 Executed · 15 Passed · 4 Failed"
-  // If application startup fails: "0 Executed · 19 Blocked. Application could not be started. See execution logs."
-  let executionSummaryText = "";
-  if (isRunning) {
-    const runningCompleted = progress.completed || proposals.filter((p) => p.status === "PASSED" || p.status === "FAILED" || p.status === "SKIPPED").length;
-    const runningTotal = progress.total || selectedTestIds.size || validCount;
-    executionSummaryText = `Running ${runningCompleted}/${runningTotal}...`;
-  } else if (blockedCount > 0 && executedCount === 0) {
-    executionSummaryText = `0 Executed · ${blockedCount} Blocked. Application could not be started. See execution logs.`;
-  } else if (executedCount > 0) {
-    executionSummaryText = `${executedCount} Executed · ${passedCount} Passed · ${failedCount} Failed${blockedCount > 0 ? ` · ${blockedCount} Blocked` : ""}`;
-  } else {
-    executionSummaryText = `${proposals.length} test cases ready`;
-  }
+  const _durationDisplay = metrics?.duration || "0.0s";
 
   // Dynamic source breakdown counts
   const functionalDocCount = proposals.filter(
@@ -428,10 +327,8 @@ export function MigrationProposedTestSection({
       p.generation_source === "BRD_AND_AI" ||
       p.generation_source === "FUNCTIONAL_DOC" ||
       p.id.includes("BRD") ||
-      p.source === "Functional Doc" ||
       p.source === "BRD Document" ||
-      p.source === "BRD Business Requirement" ||
-      p.source === "Functional Testing Document Generated"
+      p.source === "BRD Business Requirement"
   ).length;
 
   const existingCount = proposals.filter(
@@ -445,8 +342,8 @@ export function MigrationProposedTestSection({
 
   const llmCount = Math.max(0, totalProposed - functionalDocCount - existingCount);
 
-  const statusLabel = isRunning ? "running baseline tests" : (blockedCount > 0 && executedCount === 0) ? "blocked" : executedCount > 0 ? "completed" : "ready for baseline run";
-  const statusColor = isRunning ? "#0284c7" : (blockedCount > 0 && executedCount === 0) ? "#dc2626" : executedCount > 0 ? (failedCount === 0 ? "#10b981" : "#ef4444") : "#d97706";
+  const _statusLabel = isRunning ? "running baseline tests" : executedCount > 0 ? "completed" : "ready for baseline run";
+  const _statusColor = isRunning ? "#0284c7" : executedCount > 0 ? (failedCount === 0 ? "#10b981" : "#ef4444") : "#d97706";
 
   // Breakdown Calculations
   const apiCount = proposals.filter(p => p.type === "API").length;
@@ -463,7 +360,7 @@ export function MigrationProposedTestSection({
     const method = t.api_spec?.method || (t.type === "API" ? "GET" : "--");
     const endpoint = t.api_spec?.endpoint || t.ui_spec?.target_route || "";
     const execStatus = t.execution_result?.status || t.baseline_execution_result?.status || t.status || "NOT_EXECUTED";
-    const isDoc = t.generation_source === "BRD_DOCUMENT" || t.generation_source === "BRD_AND_AI" || t.generation_source === "FUNCTIONAL_DOC" || t.id.includes("BRD") || t.source === "Functional Doc" || t.source === "BRD Document" || t.source === "BRD Business Requirement" || t.source === "Functional Testing Document Generated";
+    const isDoc = t.generation_source === "BRD_DOCUMENT" || t.generation_source === "BRD_AND_AI" || t.generation_source === "FUNCTIONAL_DOC" || t.id.includes("BRD") || t.source === "BRD Document";
     const isExisting = t.generation_source === "EXISTING" || t.generation_source === "EXISTING_TESTS" || t.id.includes("EXT") || t.source === "Existing Repository";
     const sourceLbl = isExisting ? "existing" : isDoc ? "doc" : "llm";
 
@@ -494,24 +391,442 @@ export function MigrationProposedTestSection({
     }
     const isPassed = s === "PASSED";
     const isFailed = s === "FAILED";
-    const isBlocked = s === "BLOCKED";
-    const isQueued = s === "QUEUED";
     const isAppUnavailable = s === "APPLICATION_UNAVAILABLE";
     const isSkipped = s === "SKIPPED";
     const isRunningRow = s === "RUNNING";
-    const bg = isPassed ? "rgba(16,185,129,0.12)" : (isFailed || isBlocked) ? "rgba(239,68,68,0.12)" : isQueued ? "rgba(2,132,199,0.12)" : isAppUnavailable ? "rgba(245,158,11,0.12)" : isRunningRow ? "rgba(2,132,199,0.12)" : "rgba(100,116,139,0.12)";
-    const color = isPassed ? "#059669" : (isFailed || isBlocked) ? "#dc2626" : isQueued ? "#0284c7" : isAppUnavailable ? "#d97706" : isRunningRow ? "#0284c7" : "#64748b";
-    const border = `1px solid ${isPassed ? "rgba(16,185,129,0.3)" : (isFailed || isBlocked) ? "rgba(239,68,68,0.3)" : isQueued ? "rgba(2,132,199,0.3)" : isAppUnavailable ? "rgba(245,158,11,0.4)" : isRunningRow ? "rgba(2,132,199,0.3)" : "rgba(100,116,139,0.3)"}`;
+    const bg = isPassed ? "rgba(16,185,129,0.12)" : isFailed ? "rgba(239,68,68,0.12)" : isAppUnavailable ? "rgba(245,158,11,0.12)" : isRunningRow ? "rgba(2,132,199,0.12)" : "rgba(100,116,139,0.12)";
+    const color = isPassed ? "#059669" : isFailed ? "#dc2626" : isAppUnavailable ? "#d97706" : isRunningRow ? "#0284c7" : "#64748b";
+    const border = `1px solid ${isPassed ? "rgba(16,185,129,0.3)" : isFailed ? "rgba(239,68,68,0.3)" : isAppUnavailable ? "rgba(245,158,11,0.4)" : isRunningRow ? "rgba(2,132,199,0.3)" : "rgba(100,116,139,0.3)"}`;
     return (
       <span style={{ display: "inline-flex", alignItems: "center", gap: 3, padding: "2px 6px", borderRadius: 4, fontSize: 10, fontWeight: 800, background: bg, color, border }}>
         {isRunningRow && <FaSpinner className="animate-spin" size={7} />}
-        {isQueued && <FaHourglassHalf size={7} />}
-        {isPassed ? "✓ PASSED" : isBlocked ? "⛔ BLOCKED" : isFailed ? "✕ FAILED" : isQueued ? "QUEUED" : isAppUnavailable ? "⊘ UNAVAIL" : isSkipped ? "⚠ SKIPPED" : s}
+        {isPassed ? "✓ PASSED" : isFailed ? "✕ FAILED" : isAppUnavailable ? "⊘ UNAVAIL" : isSkipped ? "⚠ SKIPPED" : s}
       </span>
     );
   };
 
+  const renderInlineReportPanel = (t: ProposedTestCase) => {
+    const report = testReports[t.id];
+    const isLoading = loadingReportTestId === t.id;
+    const execResult = report?.execution_result || t.execution_result;
+    const isUi = t.type === "UI" || report?.type === "UI";
+    const evidence = report?.evidence || execResult?.evidence;
+    const apiTrace = report?.api_trace;
+    const browserLog = report?.browser_log || execResult?.stdout;
+    const duration = execResult?.duration || t.execution_result?.duration || "--";
 
+    return (
+      <div style={{
+        background: "#ffffff",
+        borderTop: "1px solid #bfdbfe",
+        borderBottom: "2px solid #3b82f6",
+        boxShadow: "inset 0 3px 8px rgba(0,0,0,0.03)",
+        padding: "16px 20px",
+      }}>
+        {/* Panel Header */}
+        <div style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 14,
+          paddingBottom: 10,
+          borderBottom: "1px solid #e2e8f0",
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <div style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              background: "#eff6ff",
+              border: "1px solid #bfdbfe",
+              padding: "4px 9px",
+              borderRadius: 6,
+              fontFamily: "monospace",
+              fontWeight: 800,
+              fontSize: 12,
+              color: "#1d4ed8",
+            }}>
+              <FaFileCode size={12} />
+              <span>Playwright Report: {t.id}</span>
+            </div>
+            <span style={{ fontWeight: 700, fontSize: 13, color: "#0f172a" }}>
+              {formatProposedTestDisplayName(t)}
+            </span>
+            <span style={{
+              fontSize: 10,
+              fontWeight: 800,
+              padding: "2px 7px",
+              borderRadius: 4,
+              background: isUi ? "#fdf4ff" : "#f0fdf4",
+              color: isUi ? "#9333ea" : "#15803d",
+              border: `1px solid ${isUi ? "#f0abfc" : "#86efac"}`
+            }}>
+              {isUi ? "UI TEST" : "API TEST"}
+            </span>
+            {renderStatusBadge(execResult?.status || t.status)}
+            <span style={{ fontSize: 11, color: "#64748b", fontFamily: "monospace" }}>
+              ⏱ {duration}
+            </span>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setExpandedReportTestId(null)}
+            style={{
+              background: "#f1f5f9",
+              border: "1px solid #cbd5e1",
+              color: "#475569",
+              borderRadius: 6,
+              padding: "4px 9px",
+              cursor: "pointer",
+              fontSize: 11,
+              fontWeight: 600,
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+            }}
+            title="Collapse HTML Report"
+          >
+            <FaTimes size={10} />
+            <span>Collapse</span>
+          </button>
+        </div>
+
+        {/* Loading state */}
+        {isLoading ? (
+          <div style={{ padding: "32px 16px", textAlign: "center", color: "#64748b" }}>
+            <FaSpinner className="animate-spin" size={20} style={{ marginBottom: 8, color: "#2563eb" }} />
+            <div style={{ fontSize: 13, fontWeight: 600 }}>Loading Playwright execution report for {t.id}...</div>
+          </div>
+        ) : !report || !report.report_available ? (
+          <div style={{
+            padding: "24px 16px",
+            textAlign: "center",
+            color: "#64748b",
+            background: "#f8fafc",
+            borderRadius: 8,
+            border: "1px dashed #cbd5e1",
+            fontSize: 13,
+            fontWeight: 500,
+          }}>
+            HTML report is not available for this test.
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {/* Failure Alert Banner (if error exists) */}
+            {(execResult?.error || execResult?.stderr) && (
+              <div style={{
+                background: "#fef2f2",
+                border: "1px solid #fca5a5",
+                borderRadius: 8,
+                padding: "10px 14px",
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, color: "#b91c1c", fontWeight: 700, fontSize: 12, marginBottom: 3 }}>
+                  <FaTimesCircle size={13} />
+                  <span>Execution Failure / Assertion Mismatch</span>
+                </div>
+                <div style={{ fontFamily: "monospace", fontSize: 11, color: "#991b1b", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                  {execResult.error || execResult.stderr}
+                </div>
+              </div>
+            )}
+
+            {/* Test Overview Metadata Cards */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10 }}>
+              <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, padding: "8px 12px" }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>Target Endpoint / Route</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#0f172a", fontFamily: "monospace", marginTop: 2 }}>
+                  {t.api_spec?.endpoint || t.ui_spec?.target_route || "--"}
+                </div>
+              </div>
+              <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, padding: "8px 12px" }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>Executed At</div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#0f172a", marginTop: 2 }}>
+                  {execResult?.executed_at ? new Date(execResult.executed_at).toLocaleString() : "--"}
+                </div>
+              </div>
+              <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, padding: "8px 12px" }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>Assertions</div>
+                <div style={{ fontSize: 12, fontWeight: 700, marginTop: 2, display: "flex", gap: 8 }}>
+                  <span style={{ color: "#059669" }}>✓ {execResult?.assertions_passed ?? 0} Passed</span>
+                  {(execResult?.assertions_failed ?? 0) > 0 && (
+                    <span style={{ color: "#dc2626" }}>✕ {execResult?.assertions_failed} Failed</span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* UI Test: Real Playwright Visual Artifacts (Screenshot, Video, Trace) */}
+            {isUi && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <div style={{ fontSize: 12, fontWeight: 800, color: "#334155", display: "flex", alignItems: "center", gap: 6 }}>
+                  <FaImage size={13} color="#2563eb" />
+                  <span>Playwright Visual Artifacts (Chromium Browser)</span>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 12 }}>
+                  {/* Screenshot */}
+                  <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+                    <div style={{ padding: "8px 12px", borderBottom: "1px solid #e2e8f0", background: "#f1f5f9", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: "#475569", display: "flex", alignItems: "center", gap: 5 }}>
+                        <FaImage size={11} /> Captured Screenshot
+                      </span>
+                      {evidence?.screenshot_url && (
+                        <button
+                          type="button"
+                          onClick={() => setPreviewImageUrl(evidence.screenshot_url!)}
+                          style={{ fontSize: 10, color: "#2563eb", background: "none", border: "none", cursor: "pointer", fontWeight: 700 }}
+                        >
+                          Enlarge ↗
+                        </button>
+                      )}
+                    </div>
+                    <div style={{ padding: 8, display: "flex", justifyContent: "center", alignItems: "center", background: "#0f172a", minHeight: 200 }}>
+                      {evidence?.screenshot_url ? (
+                        <img
+                          src={evidence.screenshot_url}
+                          alt={`Screenshot for ${t.id}`}
+                          onClick={() => setPreviewImageUrl(evidence.screenshot_url!)}
+                          style={{ maxWidth: "100%", maxHeight: 240, objectFit: "contain", borderRadius: 4, cursor: "zoom-in", border: "1px solid #334155" }}
+                        />
+                      ) : (
+                        <span style={{ color: "#94a3b8", fontSize: 12 }}>No screenshot captured for this test</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Video */}
+                  <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+                    <div style={{ padding: "8px 12px", borderBottom: "1px solid #e2e8f0", background: "#f1f5f9", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: "#475569", display: "flex", alignItems: "center", gap: 5 }}>
+                        <FaVideo size={11} /> Browser Session Recording (.webm)
+                      </span>
+                      {evidence?.video_url && (
+                        <a
+                          href={evidence.video_url}
+                          download={`${t.id}-recording.webm`}
+                          style={{ fontSize: 10, color: "#2563eb", textDecoration: "none", fontWeight: 700 }}
+                        >
+                          Download ⬇
+                        </a>
+                      )}
+                    </div>
+                    <div style={{ padding: 8, display: "flex", justifyContent: "center", alignItems: "center", background: "#0f172a", minHeight: 200 }}>
+                      {evidence?.video_url ? (
+                        <video
+                          controls
+                          playsInline
+                          preload="metadata"
+                          src={evidence.video_url}
+                          style={{ maxWidth: "100%", maxHeight: 240, borderRadius: 4, border: "1px solid #334155" }}
+                        />
+                      ) : (
+                        <span style={{ color: "#94a3b8", fontSize: 12 }}>No video recorded for this test</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Trace Download Button (if trace.zip available) */}
+                {evidence?.trace_url && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 6 }}>
+                    <FaDownload size={12} color="#2563eb" />
+                    <span style={{ fontSize: 11, color: "#1e40af", fontWeight: 600 }}>Playwright Trace Archive Available:</span>
+                    <a
+                      href={evidence.trace_url}
+                      download={`${t.id}-trace.zip`}
+                      style={{ fontSize: 11, fontWeight: 700, color: "#2563eb", textDecoration: "underline" }}
+                    >
+                      Download trace.zip for Playwright Trace Viewer
+                    </a>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* API Test: Request, Response, Status, Headers, Assertions (NO fake screenshot/video) */}
+            {!isUi && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <div style={{ fontSize: 12, fontWeight: 800, color: "#334155", display: "flex", alignItems: "center", gap: 6 }}>
+                  <FaCode size={13} color="#2563eb" />
+                  <span>Playwright APIRequestContext Execution Details</span>
+                </div>
+
+                {apiTrace ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {/* Endpoint & Status header */}
+                    <div style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      background: "#0f172a",
+                      color: "#f8fafc",
+                      padding: "8px 12px",
+                      borderRadius: 6,
+                      fontFamily: "monospace",
+                      fontSize: 12,
+                    }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{
+                          background: apiTrace.method === "GET" ? "#16a34a" : apiTrace.method === "POST" ? "#2563eb" : apiTrace.method === "DELETE" ? "#dc2626" : "#d97706",
+                          color: "#ffffff",
+                          padding: "2px 6px",
+                          borderRadius: 4,
+                          fontWeight: 800,
+                          fontSize: 10,
+                        }}>
+                          {apiTrace.method}
+                        </span>
+                        <span style={{ color: "#38bdf8" }}>{apiTrace.target_url || apiTrace.resolved_endpoint}</span>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <span style={{ color: apiTrace.actual_status >= 200 && apiTrace.actual_status < 300 ? "#4ade80" : "#f87171", fontWeight: 700 }}>
+                          HTTP {apiTrace.actual_status || "ERR"}
+                        </span>
+                        {apiTrace.response_time_ms && (
+                          <span style={{ color: "#94a3b8", fontSize: 11 }}>({apiTrace.response_time_ms}ms)</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Assertions Table (if available) */}
+                    {Array.isArray(apiTrace.assertions) && apiTrace.assertions.length > 0 && (
+                      <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 6, padding: "8px 12px" }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "#475569", marginBottom: 6 }}>Assertion Verifications:</div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                          {apiTrace.assertions.map((a: { passed?: boolean; assertion?: string; expected?: unknown; actual?: unknown }, aIdx: number) => (
+                            <div key={aIdx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11, fontFamily: "monospace", background: "#ffffff", border: "1px solid #f1f5f9", padding: "4px 8px", borderRadius: 4 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                {a.passed ? <FaCheckCircle size={11} color="#059669" /> : <FaTimesCircle size={11} color="#dc2626" />}
+                                <span style={{ color: "#334155" }}>{a.assertion}</span>
+                              </div>
+                              <span style={{ color: a.passed ? "#059669" : "#dc2626", fontWeight: 700, fontSize: 10 }}>
+                                {a.passed ? "PASSED" : `FAILED (Expected: ${JSON.stringify(a.expected)}, Actual: ${JSON.stringify(a.actual)})`}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Request & Response Side by Side */}
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 10 }}>
+                      {/* Request Details */}
+                      <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 6, padding: 8, display: "flex", flexDirection: "column" }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: "#475569", marginBottom: 4 }}>Request Payload & Headers</span>
+                        <pre style={{
+                          background: "#0f172a",
+                          color: "#e2e8f0",
+                          padding: 8,
+                          borderRadius: 4,
+                          fontSize: 11,
+                          fontFamily: "monospace",
+                          overflowX: "auto",
+                          maxHeight: 180,
+                          margin: 0,
+                        }}>
+                          {JSON.stringify({ headers: apiTrace.request_headers, body: apiTrace.request_body }, null, 2)}
+                        </pre>
+                      </div>
+
+                      {/* Response Details */}
+                      <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 6, padding: 8, display: "flex", flexDirection: "column" }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: "#475569", marginBottom: 4 }}>Response Body</span>
+                        <pre style={{
+                          background: "#0f172a",
+                          color: "#38bdf8",
+                          padding: 8,
+                          borderRadius: 4,
+                          fontSize: 11,
+                          fontFamily: "monospace",
+                          overflowX: "auto",
+                          maxHeight: 180,
+                          margin: 0,
+                        }}>
+                          {typeof apiTrace.response_body === "object" ? JSON.stringify(apiTrace.response_body, null, 2) : String(apiTrace.response_body || "Empty")}
+                        </pre>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 6, padding: 8 }}>
+                    <pre style={{ margin: 0, fontSize: 11, fontFamily: "monospace", color: "#334155", whiteSpace: "pre-wrap" }}>
+                      {execResult?.stdout || "API test execution output recorded."}
+                    </pre>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Test Steps Timeline */}
+            {((execResult?.steps_execution && execResult.steps_execution.length > 0) || (report.steps && report.steps.length > 0) || (t.steps && t.steps.length > 0)) && (
+              <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, padding: "10px 14px" }}>
+                <div style={{ fontSize: 11, fontWeight: 800, color: "#475569", marginBottom: 8, display: "flex", alignItems: "center", gap: 5 }}>
+                  <FaListUl size={11} /> Test Execution Steps
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {execResult?.steps_execution && execResult.steps_execution.length > 0 ? (
+                    execResult.steps_execution.map((step, sIdx) => (
+                      <div key={sIdx} style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 11, background: "#ffffff", border: "1px solid #f1f5f9", padding: "6px 10px", borderRadius: 6 }}>
+                        <span style={{
+                          width: 18,
+                          height: 18,
+                          borderRadius: "50%",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          fontSize: 10,
+                          fontWeight: 700,
+                          background: step.status === "PASSED" ? "#dcfce7" : "#fee2e2",
+                          color: step.status === "PASSED" ? "#15803d" : "#b91c1c",
+                          flexShrink: 0,
+                        }}>
+                          {step.status === "PASSED" ? "✓" : "✕"}
+                        </span>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 600, color: "#1e293b" }}>{step.description}</div>
+                          {step.error && <div style={{ color: "#dc2626", fontSize: 10, marginTop: 2 }}>Error: {step.error}</div>}
+                        </div>
+                        {step.duration && <span style={{ fontSize: 10, color: "#64748b", fontFamily: "monospace" }}>{step.duration}</span>}
+                      </div>
+                    ))
+                  ) : (
+                    (report.steps || t.steps || []).map((stepStr, sIdx) => (
+                      <div key={sIdx} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "#334155" }}>
+                        <span style={{ width: 18, height: 18, borderRadius: "50%", background: "#eff6ff", color: "#2563eb", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700 }}>{sIdx + 1}</span>
+                        <span>{stepStr}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Browser Console Logs (if available) */}
+            {browserLog && (
+              <div style={{ background: "#0f172a", borderRadius: 8, padding: "10px 14px", overflow: "hidden" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, color: "#94a3b8", fontSize: 11, fontWeight: 700, marginBottom: 6 }}>
+                  <FaTerminal size={11} /> Playwright Execution Log
+                </div>
+                <pre style={{
+                  color: "#cbd5e1",
+                  fontFamily: "monospace",
+                  fontSize: 11,
+                  margin: 0,
+                  maxHeight: 140,
+                  overflowY: "auto",
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-all",
+                }}>
+                  {browserLog}
+                </pre>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div style={{ ...styles.reportSection, background: "#ffffff", border: "1px solid #eef2f6", borderRadius: 16, padding: "24px", boxShadow: "0 4px 20px rgba(0,0,0,0.03)" }}>
@@ -522,31 +837,12 @@ export function MigrationProposedTestSection({
         <div style={{ display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap" }}>
 
           {/* Title block */}
-          <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0, minWidth: 240 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0, minWidth: 220 }}>
             <div style={{ background: "linear-gradient(135deg, #2563eb, #7c3aed)", color: "#fff", width: 40, height: 40, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>
               <FaFileAlt />
             </div>
             <div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#0f172a", lineHeight: 1.2 }}>Proposed Test Case Information</h3>
-                {executionSummaryText && (
-                  <span style={{
-                    fontSize: 11,
-                    fontWeight: 700,
-                    padding: "3px 9px",
-                    borderRadius: 6,
-                    background: isRunning ? "#eff6ff" : (blockedCount > 0 && executedCount === 0) ? "#fef2f2" : executedCount > 0 ? (failedCount === 0 ? "#ecfdf5" : "#fff1f2") : "#f8fafc",
-                    color: isRunning ? "#1d4ed8" : (blockedCount > 0 && executedCount === 0) ? "#dc2626" : executedCount > 0 ? (failedCount === 0 ? "#059669" : "#e11d48") : "#475569",
-                    border: `1px solid ${isRunning ? "#bfdbfe" : (blockedCount > 0 && executedCount === 0) ? "#fecaca" : executedCount > 0 ? (failedCount === 0 ? "#a7f3d0" : "#fecdd3") : "#e2e8f0"}`,
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 5
-                  }}>
-                    {isRunning && <FaSpinner className="animate-spin" size={10} />}
-                    {executionSummaryText}
-                  </span>
-                )}
-              </div>
+              <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#0f172a", lineHeight: 1.2 }}>Proposed Test Case Information</h3>
               <p style={{ margin: "3px 0 0 0", fontSize: 12, color: "#64748b", fontWeight: 500 }}>Automatically generated test cases from your application using LLM.</p>
             </div>
           </div>
@@ -559,7 +855,6 @@ export function MigrationProposedTestSection({
               { label: "Duplicate", value: duplicateCount, color: "#d97706", bg: "#fffbeb", icon: <FaHourglassHalf size={13} /> },
               { label: "Hallucinated", value: hallucinatedCount, color: "#7c3aed", bg: "#f5f3ff", icon: <FaMinusCircle size={13} /> },
               { label: "Invalid", value: invalidCount, color: "#dc2626", bg: "#fef2f2", icon: <FaTimesCircle size={13} /> },
-              ...(blockedCount > 0 ? [{ label: "Blocked", value: blockedCount, color: "#dc2626", bg: "#fef2f2", icon: <FaMinusCircle size={13} /> }] : []),
             ].map((kpi, i) => (
               <div key={i} style={{ background: kpi.bg, border: `1px solid ${kpi.color}22`, borderRadius: 10, padding: "10px 14px", display: "flex", alignItems: "center", gap: 10, minWidth: 110 }}>
                 <div style={{ color: kpi.color }}>{kpi.icon}</div>
@@ -601,108 +896,30 @@ export function MigrationProposedTestSection({
               </button>
               <button
                 onClick={handleViewAllureReport}
-                disabled={!allureReportAvailable || executedCount === 0}
-                style={{
-                  background: allureReportAvailable && executedCount > 0 ? "#2563eb" : "#94a3b8",
-                  color: "#fff",
-                  border: "none",
-                  padding: "9px 18px",
-                  borderRadius: 8,
-                  fontSize: 13,
-                  fontWeight: 700,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  cursor: allureReportAvailable && executedCount > 0 ? "pointer" : "not-allowed",
-                  whiteSpace: "nowrap",
-                  opacity: allureReportAvailable && executedCount > 0 ? 1 : 0.6
-                }}
+                disabled={!allureReportAvailable && executedCount === 0}
+                style={{ background: allureReportAvailable || executedCount > 0 ? "#2563eb" : "#94a3b8", color: "#fff", border: "none", padding: "9px 18px", borderRadius: 8, fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 8, cursor: "pointer", whiteSpace: "nowrap" }}
               >
                 <FaExternalLinkAlt size={11} /> View Allure Report
               </button>
               <button
                 onClick={handleViewPlaywrightReport}
-                disabled={!playwrightReportAvailable || executedCount === 0}
-                style={{
-                  background: playwrightReportAvailable && executedCount > 0 ? "#10b981" : "#94a3b8",
-                  color: "#fff",
-                  border: "none",
-                  padding: "9px 18px",
-                  borderRadius: 8,
-                  fontSize: 13,
-                  fontWeight: 700,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  cursor: playwrightReportAvailable && executedCount > 0 ? "pointer" : "not-allowed",
-                  whiteSpace: "nowrap",
-                  opacity: playwrightReportAvailable && executedCount > 0 ? 1 : 0.6
-                }}
+                disabled={!playwrightReportAvailable && executedCount === 0}
+                style={{ background: playwrightReportAvailable || executedCount > 0 ? "#10b981" : "#94a3b8", color: "#fff", border: "none", padding: "9px 18px", borderRadius: 8, fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 8, cursor: "pointer", whiteSpace: "nowrap" }}
               >
-                <FaExternalLinkAlt size={11} /> Open Real Playwright Report
-              </button>
-              <button
-                onClick={handleDownloadHtmlReport}
-                disabled={isDownloadingHtml || executedCount === 0}
-                style={{
-                  background: executedCount > 0 ? "#ffffff" : "#f8fafc",
-                  border: `1px solid ${executedCount > 0 ? "#cbd5e1" : "#e2e8f0"}`,
-                  padding: "9px 18px",
-                  borderRadius: 8,
-                  fontSize: 13,
-                  fontWeight: 700,
-                  color: executedCount > 0 ? "#0f172a" : "#94a3b8",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  cursor: executedCount > 0 ? "pointer" : "not-allowed",
-                  whiteSpace: "nowrap",
-                  boxShadow: executedCount > 0 ? "0 1px 2px rgba(0,0,0,0.05)" : "none",
-                  opacity: executedCount > 0 ? 1 : 0.6,
-                }}
-                title={executedCount > 0 ? "Download full functional test suite HTML report" : "Execute tests to download HTML report"}
-              >
-                {isDownloadingHtml ? <FaSpinner className="animate-spin" size={11} /> : <FaFileCode size={12} color={executedCount > 0 ? "#059669" : "#94a3b8"} />}
-                <span>{isDownloadingHtml ? "Downloading HTML..." : "Download HTML Report"}</span>
+                <FaExternalLinkAlt size={11} /> View Playwright Report
               </button>
               <button
                 onClick={handleDownloadReport}
                 disabled={isDownloading}
                 style={{ background: "#ffffff", border: "1px solid #e2e8f0", padding: "9px 18px", borderRadius: 8, fontSize: 13, fontWeight: 700, color: "#0f172a", display: "flex", alignItems: "center", gap: 8, cursor: "pointer", whiteSpace: "nowrap" }}
-                title="Download full proposed tests report as JSON"
               >
                 {isDownloading ? <FaSpinner className="animate-spin" size={11} /> : <FaDownload size={11} />}
-                {isDownloading ? "Downloading..." : "Download JSON Report"}
+                {isDownloading ? "Downloading..." : "Download Report"}
               </button>
             </div>
           </div>
         </div>
       </div>
-
-      {/* Startup Failure Banner */}
-      {blockedCount > 0 && executedCount === 0 && (
-        <div style={{
-          background: "#fef2f2",
-          border: "1px solid #fecaca",
-          borderRadius: 12,
-          padding: "14px 18px",
-          marginBottom: 16,
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          boxShadow: "0 1px 3px rgba(0,0,0,0.05)"
-        }}>
-          <div style={{ background: "#dc2626", color: "#fff", width: 32, height: 32, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-            <FaTimesCircle size={16} />
-          </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: "#991b1b" }}>Application Execution Blocked</div>
-            <div style={{ fontSize: 12, color: "#b91c1c", marginTop: 2 }}>
-              Application could not be started or build failed. Tests were safely marked as <strong>BLOCKED</strong> without false execution. Check execution logs below for build / startup diagnostic details.
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ── SECTION 2: BREAKDOWNS ──────────────────────────────────────────── */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
@@ -784,226 +1001,6 @@ export function MigrationProposedTestSection({
           </div>
         </div>
 
-        {/* ── INLINE PROMPT REFINEMENT STRIP ── */}
-        {!isPromptExpanded && !previewDiff && (
-          <div style={{ padding: "9px 20px", borderBottom: "1px solid #f1f5f9", background: "#f8fafc", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 700, color: "#475569" }}>
-              <span>✨</span>
-              <span>Refine with a prompt</span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setIsPromptExpanded(true)}
-              style={{ background: "transparent", border: "none", color: "#6366f1", fontSize: 12, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 4 }}
-            >
-              Expand ▾
-            </button>
-          </div>
-        )}
-
-        {isPromptExpanded && !previewDiff && (
-          <div style={{ padding: "14px 20px", borderBottom: "1px solid #f1f5f9", background: "#f8fafc", display: "flex", flexDirection: "column", gap: 10 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 700, color: "#1e293b" }}>
-                <span>✨</span>
-                <span>Refine with a prompt</span>
-              </div>
-              <button
-                type="button"
-                onClick={handleCancelPrompt}
-                style={{ background: "transparent", border: "none", color: "#94a3b8", fontSize: 12, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
-              >
-                Collapse ▴
-              </button>
-            </div>
-            <textarea
-              rows={2}
-              value={inlinePromptText}
-              onChange={(e) => setInlinePromptText(e.target.value)}
-              placeholder="e.g. Add 5 negative tests for the employee form, or make PTC-003 also check the error message text..."
-              style={{ width: "100%", padding: "10px 12px", borderRadius: 6, fontSize: 13, border: "1px solid #cbd5e1", backgroundColor: "#ffffff", outline: "none", boxSizing: "border-box", fontFamily: "inherit" }}
-            />
-            <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8 }}>
-              <button
-                type="button"
-                onClick={handleCancelPrompt}
-                style={{ background: "#f1f5f9", color: "#475569", border: "1px solid #e2e8f0", padding: "6px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer" }}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handlePreviewPrompt}
-                disabled={isPreviewing}
-                style={{ display: "flex", alignItems: "center", gap: 6, background: "#6366f1", color: "#ffffff", border: "none", padding: "6px 16px", borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: isPreviewing ? "default" : "pointer" }}
-              >
-                {isPreviewing ? <FaSpinner className="animate-spin" size={11} /> : null}
-                {isPreviewing ? "Previewing..." : "Preview"}
-              </button>
-            </div>
-            {previewError && (
-              <div style={{ padding: "8px 12px", borderRadius: 6, background: "#fef2f2", border: "1px solid #fca5a5", color: "#991b1b", fontSize: 12 }}>
-                {previewError}
-              </div>
-            )}
-          </div>
-        )}
-
-        {previewDiff && previewDiff.clarification_needed && (
-          <div style={{ padding: "14px 20px", borderBottom: "1px solid #f1f5f9", background: "#fffbeb", borderLeft: "4px solid #f59e0b", display: "flex", flexDirection: "column", gap: 8 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 700, color: "#92400e" }}>
-                <span>⚠️ Clarification Needed</span>
-              </div>
-              <button
-                type="button"
-                onClick={handleCancelPrompt}
-                style={{ background: "transparent", border: "none", color: "#92400e", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
-              >
-                ✕
-              </button>
-            </div>
-            <div style={{ fontSize: 12, color: "#78350f", lineHeight: 1.4 }}>
-              {previewDiff.clarification_needed}
-            </div>
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 4 }}>
-              <button
-                type="button"
-                onClick={() => setPreviewDiff(null)}
-                style={{ background: "#ffffff", border: "1px solid #d97706", color: "#92400e", padding: "5px 12px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer" }}
-              >
-                Edit Prompt
-              </button>
-              <button
-                type="button"
-                onClick={handleCancelPrompt}
-                style={{ background: "#f1f5f9", border: "1px solid #e2e8f0", color: "#475569", padding: "5px 12px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer" }}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        )}
-
-        {previewDiff && !previewDiff.clarification_needed && (
-          <div style={{ padding: "14px 20px", borderBottom: "1px solid #f1f5f9", background: "#f0fdf4", borderLeft: "4px solid #10b981", display: "flex", flexDirection: "column", gap: 10 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-                <span style={{ fontSize: 13, fontWeight: 800, color: "#065f46", display: "flex", alignItems: "center", gap: 4 }}>
-                  <span>✨</span> Diff Preview ({previewDiff.intent})
-                </span>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 700 }}>
-                  <span style={{ background: "rgba(16,185,129,0.15)", color: "#059669", padding: "2px 8px", borderRadius: 4 }}>
-                    +{previewDiff.added.length} Added
-                  </span>
-                  <span style={{ background: "rgba(2,132,199,0.15)", color: "#0284c7", padding: "2px 8px", borderRadius: 4 }}>
-                    ~{previewDiff.modified.length} Modified
-                  </span>
-                  <span style={{ background: "rgba(239,68,68,0.15)", color: "#dc2626", padding: "2px 8px", borderRadius: 4 }}>
-                    -{previewDiff.removed.length} Removed
-                  </span>
-                  {(previewDiff.skipped_as_duplicate?.length || 0) > 0 && (
-                    <span style={{ background: "rgba(245,158,11,0.15)", color: "#d97706", padding: "2px 8px", borderRadius: 4 }}>
-                      {previewDiff.skipped_as_duplicate.length} Duplicates Skipped
-                    </span>
-                  )}
-                  {(previewDiff.unmet_requests?.length || 0) > 0 && (
-                    <span style={{ background: "rgba(100,116,139,0.15)", color: "#475569", padding: "2px 8px", borderRadius: 4 }}>
-                      {previewDiff.unmet_requests.length} Unmet
-                    </span>
-                  )}
-                </div>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <button
-                  type="button"
-                  onClick={() => setShowDiffDetails(!showDiffDetails)}
-                  style={{ background: "transparent", border: "none", color: "#059669", fontSize: 12, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
-                >
-                  {showDiffDetails ? "Hide details ▴" : "View details ▾"}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleCancelPrompt}
-                  disabled={isApplying}
-                  style={{ background: "#ffffff", border: "1px solid #cbd5e1", color: "#475569", padding: "5px 12px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer" }}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleApplyPrompt}
-                  disabled={isApplying}
-                  style={{ display: "flex", alignItems: "center", gap: 6, background: "#10b981", color: "#ffffff", border: "none", padding: "5px 16px", borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: isApplying ? "default" : "pointer" }}
-                >
-                  {isApplying ? <FaSpinner className="animate-spin" size={11} /> : <FaCheck size={11} />}
-                  {isApplying ? "Applying..." : "Apply"}
-                </button>
-              </div>
-            </div>
-
-            {showDiffDetails && (
-              <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 8, padding: "12px", fontSize: 12, display: "flex", flexDirection: "column", gap: 8, maxHeight: 220, overflowY: "auto" }}>
-                {previewDiff.added.length > 0 && (
-                  <div>
-                    <div style={{ fontWeight: 700, color: "#059669", marginBottom: 4 }}>Added Test Cases:</div>
-                    <ul style={{ margin: 0, paddingLeft: 18, color: "#334155" }}>
-                      {previewDiff.added.map((t, idx) => (
-                        <li key={idx} style={{ marginBottom: 2 }}>
-                          <strong>{t.id}:</strong> {t.title} <span style={{ color: "#64748b" }}>({t.type} · {t.api_spec?.endpoint || t.ui_spec?.target_route || "--"})</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                {previewDiff.modified.length > 0 && (
-                  <div>
-                    <div style={{ fontWeight: 700, color: "#0284c7", marginBottom: 4 }}>Modified Test Cases:</div>
-                    <ul style={{ margin: 0, paddingLeft: 18, color: "#334155" }}>
-                      {previewDiff.modified.map((m, idx) => (
-                        <li key={idx} style={{ marginBottom: 2 }}>
-                          <strong>{m.id}:</strong> {Object.keys(m.changed_fields || {}).join(", ")} updated
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                {previewDiff.removed.length > 0 && (
-                  <div>
-                    <div style={{ fontWeight: 700, color: "#dc2626", marginBottom: 4 }}>Removed Test Cases:</div>
-                    <div style={{ color: "#334155", paddingLeft: 18 }}>{previewDiff.removed.join(", ")}</div>
-                  </div>
-                )}
-                {(previewDiff.skipped_as_duplicate?.length || 0) > 0 && (
-                  <div>
-                    <div style={{ fontWeight: 700, color: "#d97706", marginBottom: 4 }}>Skipped as Duplicate of Existing Inventory:</div>
-                    <ul style={{ margin: 0, paddingLeft: 18, color: "#64748b" }}>
-                      {previewDiff.skipped_as_duplicate.map((s, idx) => (
-                        <li key={idx}>"{s.attempted_scenario}" (duplicate of {s.duplicate_of_id})</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                {(previewDiff.unmet_requests?.length || 0) > 0 && (
-                  <div>
-                    <div style={{ fontWeight: 700, color: "#64748b", marginBottom: 4 }}>Unmet Requests (No Repository Evidence):</div>
-                    <ul style={{ margin: 0, paddingLeft: 18, color: "#64748b" }}>
-                      {previewDiff.unmet_requests.map((u, idx) => (
-                        <li key={idx}><strong>{u.requested}:</strong> {u.reason_not_fulfilled}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            )}
-            {previewError && (
-              <div style={{ padding: "8px 12px", borderRadius: 6, background: "#fef2f2", border: "1px solid #fca5a5", color: "#991b1b", fontSize: 12 }}>
-                {previewError}
-              </div>
-            )}
-          </div>
-        )}
-
         {/* Search & Filter Toolbar */}
         <div style={{ padding: "12px 20px", borderBottom: "1px solid #f1f5f9", background: "#fafbfc", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           {/* Search */}
@@ -1022,7 +1019,7 @@ export function MigrationProposedTestSection({
           {[
             { label: "All Types", value: filterType, setter: setFilterType, opts: [["all", "All Types"], ["api", "API"], ["ui", "UI"]] },
             { label: "All Methods", value: filterMethod, setter: setFilterMethod, opts: [["all", "All Methods"], ["get", "GET"], ["post", "POST"], ["put", "PUT"], ["delete", "DELETE"]] },
-            { label: "All Status", value: filterStatus, setter: setFilterStatus, opts: [["all", "All Status"], ["not_executed", "NOT_EXECUTED"], ["passed", "PASSED"], ["failed", "FAILED"], ["skipped", "SKIPPED"], ["blocked", "BLOCKED"]] },
+            { label: "All Status", value: filterStatus, setter: setFilterStatus, opts: [["all", "All Status"], ["not_executed", "NOT_EXECUTED"], ["passed", "PASSED"], ["failed", "FAILED"], ["skipped", "SKIPPED"]] },
             { label: "All Sources", value: filterSource, setter: setFilterSource, opts: [["all", "All Sources"], ["llm", "LLM Generated"], ["doc", "Functional Doc"], ["existing", "Existing"]] },
           ].map((f, i) => (
             <select
@@ -1061,37 +1058,35 @@ export function MigrationProposedTestSection({
                 <th style={{ padding: "10px 12px", width: 160, fontWeight: 700, fontSize: 11 }}>Endpoint / Route</th>
                 <th style={{ padding: "10px 12px", width: 100, fontWeight: 700, fontSize: 11 }}>Validation</th>
                 <th style={{ padding: "10px 12px", width: 120, fontWeight: 700, fontSize: 11 }}>Execution Status</th>
-                <th style={{ padding: "10px 12px", width: 80, fontWeight: 700, fontSize: 11 }}>Duration</th>
-                <th style={{ padding: "10px 12px", width: 90, fontWeight: 700, fontSize: 11, textAlign: "center" }}>Details</th>
+                <th style={{ padding: "10px 12px", width: 70, fontWeight: 700, fontSize: 11 }}>Duration</th>
+                <th style={{ padding: "10px 12px", width: 95, fontWeight: 700, fontSize: 11, textAlign: "center" }}>HTML Report</th>
+                <th style={{ padding: "10px 12px", width: 52, fontWeight: 700, fontSize: 11, textAlign: "center" }}>Details</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={11} style={{ padding: "40px 12px", textAlign: "center", color: "#64748b" }}>
+                  <td colSpan={12} style={{ padding: "40px 12px", textAlign: "center", color: "#64748b" }}>
                     <FaSpinner className="animate-spin" size={18} style={{ marginBottom: 8 }} />
                     <div style={{ fontSize: 13 }}>Loading proposed test execution data...</div>
                   </td>
                 </tr>
               ) : filteredProposals.length === 0 ? (
                 <tr>
-                  <td colSpan={11} style={{ padding: "36px 12px", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>
+                  <td colSpan={12} style={{ padding: "36px 12px", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>
                     {proposals.length === 0 ? "No proposed test cases found for this migration." : "No test cases match the current filters."}
                   </td>
                 </tr>
               ) : (
                 filteredProposals.map((t, idx) => {
-                  const isDoc = t.generation_source === "BRD_DOCUMENT" || t.generation_source === "BRD_AND_AI" || t.generation_source === "FUNCTIONAL_DOC" || t.id.includes("BRD") || t.source === "Functional Doc" || t.source === "BRD Document" || t.source === "BRD Business Requirement" || t.source === "Functional Testing Document Generated";
+                  const isDoc = t.generation_source === "BRD_DOCUMENT" || t.generation_source === "BRD_AND_AI" || t.generation_source === "FUNCTIONAL_DOC" || t.id.includes("BRD") || t.source === "BRD Document" || t.source === "BRD Business Requirement";
                   const isExisting = t.generation_source === "EXISTING" || t.generation_source === "EXISTING_TESTS" || t.id.includes("EXT") || t.source === "Existing Repository" || t.source === "Existing Repository Tests";
                   const sourceBadgeLabel = isExisting ? "Existing" : isDoc ? "Functional Doc" : "LLM Generated";
                   const sourceBadgeColor = isExisting ? "#059669" : isDoc ? "#7c3aed" : "#0284c7";
                   const sourceBadgeBg = isExisting ? "#ecfdf5" : isDoc ? "#faf5ff" : "#f0f9ff";
                   const sourceBadgeBorder = isExisting ? "#a7f3d0" : isDoc ? "#d8b4fe" : "#bae6fd";
 
-                  const rawExecStatus = t.execution_result?.status || t.baseline_execution_result?.status || t.status || "NOT_EXECUTED";
-                  const execStatus = (isRunning && (rawExecStatus === "NOT_EXECUTED" || rawExecStatus === "VALID" || rawExecStatus === "READY" || rawExecStatus === "PROPOSED") && selectedTestIds.has(t.id))
-                    ? "QUEUED"
-                    : rawExecStatus;
+                  const execStatus = t.execution_result?.status || t.baseline_execution_result?.status || t.status || "NOT_EXECUTED";
                   const method = t.api_spec?.method || (t.type === "API" ? "GET" : "--");
                   const endpoint = t.api_spec?.endpoint || t.ui_spec?.target_route || "--";
 
@@ -1132,39 +1127,91 @@ export function MigrationProposedTestSection({
                           <span style={{ fontSize: 10, fontWeight: 800, color: valColor, background: valBg, border: `1px solid ${valBorder}`, padding: "2px 7px", borderRadius: 5 }}>{valStatus}</span>
                         </td>
                         <td style={{ padding: "9px 12px" }}>{renderStatusBadge(execStatus)}</td>
-                        <td style={{ padding: "9px 12px", fontSize: 11, color: "#334155", fontFamily: "monospace", whiteSpace: "nowrap" }}>
-                          {duration !== "--" ? (
-                            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontWeight: 600 }}>
-                              <FaClock size={10} color="#94a3b8" />
-                              {duration}
-                            </span>
-                          ) : (
-                            <span style={{ color: "#94a3b8" }}>--</span>
-                          )}
+                        <td style={{ padding: "9px 12px", color: "#64748b", fontSize: 11, fontFamily: "monospace" }}>{duration}</td>
+                        <td style={{ padding: "9px 12px", textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
+                          {(() => {
+                            const isExpanded = expandedReportTestId === t.id;
+                            const isLoadingReport = loadingReportTestId === t.id;
+                            const isExecuted = execStatus !== "NOT_EXECUTED" && execStatus !== "PROPOSED" && execStatus !== "READY";
+                            const reportData = testReports[t.id];
+                            const isReportAvailable = isExecuted || Boolean(reportData?.has_artifacts || t.execution_result?.evidence?.screenshot_url || t.execution_result?.evidence?.video_url);
+
+                            if (!isReportAvailable) {
+                              return (
+                                <span
+                                  title="HTML report unavailable (test not executed)"
+                                  style={{
+                                    fontSize: 10,
+                                    fontWeight: 700,
+                                    color: "#94a3b8",
+                                    background: "#f1f5f9",
+                                    border: "1px solid #e2e8f0",
+                                    borderRadius: 5,
+                                    padding: "3px 7px",
+                                    cursor: "not-allowed",
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: 4,
+                                    opacity: 0.65,
+                                  }}
+                                >
+                                  <FaFileCode size={10} />
+                                  <span>HTML</span>
+                                </span>
+                              );
+                            }
+
+                            return (
+                              <button
+                                type="button"
+                                onClick={() => handleToggleReport(t.id)}
+                                disabled={isLoadingReport}
+                                style={{
+                                  background: isExpanded ? "#2563eb" : "#f0fdf4",
+                                  border: `1px solid ${isExpanded ? "#1d4ed8" : "#86efac"}`,
+                                  color: isExpanded ? "#ffffff" : "#15803d",
+                                  cursor: "pointer",
+                                  fontSize: 10,
+                                  fontWeight: 800,
+                                  borderRadius: 5,
+                                  padding: "3px 8px",
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: 4,
+                                  transition: "all 0.15s ease",
+                                  boxShadow: isExpanded ? "0 2px 4px rgba(37,99,235,0.25)" : "none",
+                                }}
+                                title={isExpanded ? `Collapse ${t.id} HTML report` : `View ${t.id} dynamic HTML report`}
+                              >
+                                {isLoadingReport ? (
+                                  <FaSpinner className="animate-spin" size={10} />
+                                ) : (
+                                  <FaFileCode size={10} />
+                                )}
+                                <span>HTML</span>
+                                {isExpanded ? <FaChevronUp size={8} /> : <FaChevronDown size={8} />}
+                              </button>
+                            );
+                          })()}
                         </td>
                         <td style={{ padding: "9px 12px", textAlign: "center" }}>
-                          <div style={{ display: "inline-flex", alignItems: "center", gap: 6, justifyContent: "center" }}>
-                            {Boolean((t.execution_result as any)?.evidence?.screenshot_url || (t.execution_result as any)?.screenshot_url) && (
-                              <span title="Screenshot evidence available" style={{ color: "#2563eb", display: "inline-flex" }}>
-                                <FaImage size={12} />
-                              </span>
-                            )}
-                            {Boolean((t.execution_result as any)?.evidence?.video_url || (t.execution_result as any)?.video_url) && (
-                              <span title="Browser video recording available" style={{ color: "#dc2626", display: "inline-flex" }}>
-                                <FaVideo size={12} />
-                              </span>
-                            )}
-                            <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); setSelectedTest(t); }}
-                              style={{ background: "#eff6ff", border: "1px solid #bfdbfe", color: "#2563eb", cursor: "pointer", fontSize: 11, borderRadius: 6, padding: "4px 8px", display: "inline-flex", alignItems: "center", gap: 4, fontWeight: 600 }}
-                              title="View Test Details"
-                            >
-                              <FaExternalLinkAlt size={10} />
-                            </button>
-                          </div>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setSelectedTest(t); }}
+                            style={{ background: "#eff6ff", border: "1px solid #bfdbfe", color: "#2563eb", cursor: "pointer", fontSize: 11, borderRadius: 6, padding: "4px 7px", display: "inline-flex", alignItems: "center" }}
+                            title="View Test Details"
+                          >
+                            <FaExternalLinkAlt size={10} />
+                          </button>
                         </td>
                       </tr>
+                      {expandedReportTestId === t.id && (
+                        <tr key={`report-inline-${t.id}`} style={{ background: "#ffffff", borderBottom: "2px solid #3b82f6" }}>
+                          <td colSpan={12} style={{ padding: 0 }}>
+                            {renderInlineReportPanel(t)}
+                          </td>
+                        </tr>
+                      )}
                     </React.Fragment>
                   );
                 })
@@ -1248,7 +1295,7 @@ export function MigrationProposedTestSection({
       )}
 
       {/* ── MODAL ─────────────────────────────────────────────────────────── */}
-      {selectedTest && createPortal(
+      {selectedTest && (
         <div
           style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(15, 23, 42, 0.6)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
           onClick={() => setSelectedTest(null)}
@@ -1258,35 +1305,14 @@ export function MigrationProposedTestSection({
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
-            <div style={{ padding: "16px 20px", borderBottom: "1px solid #e2e8f0", background: "#f8fafc", display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexShrink: 0 }}>
+            <div style={{ padding: "16px 20px", borderBottom: "1px solid #e2e8f0", background: "#f8fafc", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
               <div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
                   <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 900, background: "#0284c7", color: "#ffffff", padding: "2px 6px", borderRadius: 4 }}>{selectedTest.id}</span>
                   <span style={{ fontSize: 10, fontWeight: 800, background: "#e2e8f0", padding: "2px 8px", borderRadius: 4, color: "#475569" }}>{selectedTest.type}</span>
-                  {selectedTest.category && (
-                    <span style={{ fontSize: 10, fontWeight: 700, background: "#f1f5f9", padding: "2px 8px", borderRadius: 4, color: "#64748b", border: "1px solid #e2e8f0" }}>{selectedTest.category}</span>
-                  )}
-                  {selectedTest.priority && (
-                    <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 4, background: selectedTest.priority === "HIGH" ? "#fef2f2" : selectedTest.priority === "MEDIUM" ? "#fffbeb" : "#f0fdf4", color: selectedTest.priority === "HIGH" ? "#dc2626" : selectedTest.priority === "MEDIUM" ? "#d97706" : "#16a34a", border: `1px solid ${selectedTest.priority === "HIGH" ? "#fecaca" : selectedTest.priority === "MEDIUM" ? "#fde68a" : "#bbf7d0"}` }}>
-                      {selectedTest.priority}
-                    </span>
-                  )}
-                  {(() => {
-                    const st = selectedTest.execution_result?.status || selectedTest.status || "PROPOSED";
-                    const isPass = st === "PASSED";
-                    const isFail = st === "FAILED";
-                    return (
-                      <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 4, background: isPass ? "rgba(16, 185, 129, 0.12)" : isFail ? "rgba(239, 68, 68, 0.12)" : "rgba(100, 116, 139, 0.12)", color: isPass ? "#059669" : isFail ? "#dc2626" : "#475569", border: `1px solid ${isPass ? "rgba(16, 185, 129, 0.3)" : isFail ? "rgba(239, 68, 68, 0.3)" : "rgba(100, 116, 139, 0.2)"}` }}>
-                        Migrated: {st}
-                      </span>
-                    );
-                  })()}
-                  {(selectedTest.execution_result?.duration || selectedTest.baseline_execution_result?.duration) && (
-                    <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: "#f8fafc", color: "#334155", border: "1px solid #cbd5e1", display: "inline-flex", alignItems: "center", gap: 4 }}>
-                      <FaClock size={10} color="#64748b" />
-                      Duration: {selectedTest.execution_result?.duration || selectedTest.baseline_execution_result?.duration}
-                    </span>
-                  )}
+                  <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 4, background: selectedTest.status === "PASSED" ? "rgba(16, 185, 129, 0.12)" : "rgba(239, 68, 68, 0.12)", color: selectedTest.status === "PASSED" ? "#059669" : "#dc2626" }}>
+                    Migrated: {selectedTest.status || "PROPOSED"}
+                  </span>
                   {selectedTest.baseline_execution_result && (
                     <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 4, background: selectedTest.baseline_execution_result.status === "PASSED" ? "rgba(16, 185, 129, 0.12)" : "rgba(239, 68, 68, 0.12)", color: selectedTest.baseline_execution_result.status === "PASSED" ? "#059669" : "#dc2626" }}>
                       Baseline: {selectedTest.baseline_execution_result.status}
@@ -1295,93 +1321,16 @@ export function MigrationProposedTestSection({
                 </div>
                 <h3 style={{ fontSize: 16, fontWeight: 800, color: "#0f172a", margin: 0 }}>{formatProposedTestDisplayName(selectedTest)}</h3>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <button
-                  type="button"
-                  onClick={() => handleDownloadTestCaseHtml(selectedTest.id)}
-                  disabled={downloadingTestId === selectedTest.id}
-                  style={{
-                    background: "#eff6ff",
-                    border: "1px solid #bfdbfe",
-                    color: "#2563eb",
-                    borderRadius: 8,
-                    padding: "6px 12px",
-                    cursor: "pointer",
-                    fontSize: 12,
-                    fontWeight: 700,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    transition: "all 0.15s ease",
-                  }}
-                  title={`Download standalone HTML report for ${selectedTest.id}`}
-                >
-                  {downloadingTestId === selectedTest.id ? (
-                    <FaSpinner className="animate-spin" size={11} />
-                  ) : (
-                    <FaDownload size={11} />
-                  )}
-                  <span>Download HTML</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSelectedTest(null)}
-                  style={{
-                    background: "#e2e8f0",
-                    border: "none",
-                    color: "#475569",
-                    borderRadius: "50%",
-                    width: 28,
-                    height: 28,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    cursor: "pointer",
-                  }}
-                >
-                  <FaTimes size={13} />
-                </button>
-              </div>
+              <button type="button" onClick={() => setSelectedTest(null)} style={{ background: "#e2e8f0", border: "none", color: "#475569", borderRadius: "50%", width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+                <FaTimes size={13} />
+              </button>
             </div>
 
             {/* Modal Scrollable Content */}
-            <div style={{ padding: "20px", overflowY: "auto", display: "flex", flexDirection: "column", gap: 16, flex: 1, minHeight: 0 }}>
+            <div style={{ padding: "20px", overflowY: "auto", display: "flex", flexDirection: "column", gap: 16 }}>
               <div>
                 <div style={{ fontSize: 11, fontWeight: 700, color: "#475569", textTransform: "uppercase" }}>Description</div>
                 <p style={{ fontSize: 13, color: "#334155", margin: "4px 0 0 0", lineHeight: 1.5 }}>{selectedTest.description || selectedTest.reason}</p>
-              </div>
-
-              {/* Test Specification Card */}
-              <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, padding: 12 }}>
-                <div style={{ fontSize: 11, fontWeight: 800, color: "#475569", textTransform: "uppercase", marginBottom: 6 }}>Test Specification</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 12 }}>
-                  <div>
-                    <span style={{ color: "#64748b" }}>Route / Target: </span>
-                    <code style={{ background: "#e2e8f0", padding: "1px 5px", borderRadius: 4, fontSize: 11, color: "#0f172a" }}>
-                      {selectedTest.ui_spec?.target_route || selectedTest.api_spec?.endpoint || "--"}
-                    </code>
-                  </div>
-                  <div>
-                    <span style={{ color: "#64748b" }}>Source: </span>
-                    <span style={{ fontWeight: 600, color: "#0f172a" }}>{selectedTest.source || selectedTest.generation_source || "LLM Generated"}</span>
-                  </div>
-                  {selectedTest.ui_spec?.actions && selectedTest.ui_spec.actions.length > 0 && (
-                    <div style={{ gridColumn: "1 / -1" }}>
-                      <span style={{ color: "#64748b" }}>Planned Actions: </span>
-                      <span style={{ color: "#334155", fontFamily: "monospace", fontSize: 11 }}>
-                        {selectedTest.ui_spec.actions.join(" → ")}
-                      </span>
-                    </div>
-                  )}
-                  {selectedTest.ui_spec?.assertions && selectedTest.ui_spec.assertions.length > 0 && (
-                    <div style={{ gridColumn: "1 / -1" }}>
-                      <span style={{ color: "#64748b" }}>Assertions: </span>
-                      <code style={{ background: "#e2e8f0", padding: "1px 5px", borderRadius: 4, fontSize: 11, color: "#0f172a" }}>
-                        {selectedTest.ui_spec.assertions.join("; ")}
-                      </code>
-                    </div>
-                  )}
-                </div>
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -1428,60 +1377,6 @@ export function MigrationProposedTestSection({
                 </div>
               )}
 
-              {/* Visual Evidence: Screenshot & Browser Recording */}
-              {(() => {
-                const ev = (selectedTest.execution_result as any)?.evidence;
-                const scUrl = ev?.screenshot_url || (selectedTest.execution_result as any)?.screenshot_url || (selectedTest as any).screenshot_url;
-                const vidUrl = ev?.video_url || (selectedTest.execution_result as any)?.video_url || (selectedTest as any).video_url;
-                const isUiTest = selectedTest.type === "UI";
-
-                if (!scUrl && !vidUrl && !isUiTest) return null;
-
-                return (
-                  <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 10, padding: 14 }}>
-                    <div style={{ fontSize: 11, fontWeight: 800, color: "#475569", textTransform: "uppercase", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
-                      <FaDesktop color="#2563eb" /> UI Test Evidence & Recordings
-                    </div>
-                    {scUrl || vidUrl ? (
-                      <div style={{ display: "grid", gridTemplateColumns: scUrl && vidUrl ? "1fr 1fr" : "1fr", gap: 12 }}>
-                        {scUrl && (
-                          <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 8, padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                              <span style={{ fontSize: 11, fontWeight: 700, color: "#0f172a", display: "flex", alignItems: "center", gap: 5 }}>
-                                <FaImage color="#2563eb" /> Browser Screenshot
-                              </span>
-                              <a href={scUrl} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#2563eb", fontWeight: 600, textDecoration: "none", display: "flex", alignItems: "center", gap: 3 }}>
-                                Open Full <FaExternalLinkAlt size={9} />
-                              </a>
-                            </div>
-                            <a href={scUrl} target="_blank" rel="noreferrer" style={{ display: "block", overflow: "hidden", borderRadius: 6, border: "1px solid #cbd5e1" }}>
-                              <img src={scUrl} alt={`Screenshot for ${selectedTest.id}`} style={{ width: "100%", maxHeight: 220, objectFit: "contain", background: "#f1f5f9" }} />
-                            </a>
-                          </div>
-                        )}
-                        {vidUrl && (
-                          <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 8, padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                              <span style={{ fontSize: 11, fontWeight: 700, color: "#0f172a", display: "flex", alignItems: "center", gap: 5 }}>
-                                <FaVideo color="#dc2626" /> Browser Recording
-                              </span>
-                              <a href={vidUrl} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#2563eb", fontWeight: 600, textDecoration: "none", display: "flex", alignItems: "center", gap: 3 }}>
-                                Open Video <FaExternalLinkAlt size={9} />
-                              </a>
-                            </div>
-                            <video controls src={vidUrl} style={{ width: "100%", maxHeight: 220, borderRadius: 6, background: "#000000" }} />
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <div style={{ fontSize: 12, color: "#94a3b8", fontStyle: "italic", padding: "4px 0" }}>
-                        Screenshots and video recordings are automatically captured when UI tests are executed. Run tests to view live artifacts.
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
-
               {selectedTest.execution_result?.stdout && (
                 <div>
                   <div style={{ fontSize: 11, fontWeight: 700, color: "#475569", textTransform: "uppercase", marginBottom: 4 }}>Execution Log</div>
@@ -1492,10 +1387,70 @@ export function MigrationProposedTestSection({
               )}
             </div>
           </div>
-        </div>,
-        document.body
+        </div>
       )}
 
+      {/* ── IMAGE PREVIEW LIGHTBOX ───────────────────────────────────────── */}
+      {previewImageUrl && (
+        <div
+          onClick={() => setPreviewImageUrl(null)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 10000,
+            background: "rgba(15, 23, 42, 0.8)",
+            backdropFilter: "blur(4px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 20,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: "relative",
+              maxWidth: "92vw",
+              maxHeight: "92vh",
+              background: "#0f172a",
+              padding: 14,
+              borderRadius: 12,
+              border: "1px solid #334155",
+              boxShadow: "0 20px 40px rgba(0,0,0,0.6)",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+            }}
+          >
+            <button
+              onClick={() => setPreviewImageUrl(null)}
+              style={{
+                position: "absolute",
+                top: 12,
+                right: 12,
+                background: "rgba(255,255,255,0.15)",
+                color: "#ffffff",
+                border: "1px solid rgba(255,255,255,0.25)",
+                borderRadius: "50%",
+                width: 32,
+                height: 32,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+              }}
+              title="Close Preview"
+            >
+              <FaTimes size={13} />
+            </button>
+            <img
+              src={previewImageUrl}
+              alt="Enlarged Playwright Screenshot"
+              style={{ maxWidth: "100%", maxHeight: "82vh", objectFit: "contain", borderRadius: 6 }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
