@@ -4,7 +4,7 @@ import asyncio
 import json
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Response
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 
 from app.api.deps import User, get_current_user, verify_job_ownership
@@ -187,6 +187,41 @@ async def run_proposed_tests_validation_endpoint(
     })
 
 
+@router.get("/{job_id}/proposed-tests/functional-doc/report")
+async def get_functional_doc_report_endpoint(
+    job_id: str,
+    current_user: User = Depends(get_current_user),  # noqa: B008
+):
+    """Returns the grounded functional testing document report for a job."""
+    await verify_job_ownership(job_id, current_user)
+    report = proposed_test_service.get_functional_document_report(job_id)
+    if not report:
+        raise HTTPException(status_code=404, detail="No functional document grounding report found for this job.")
+    return JSONResponse(content=report)
+
+
+@router.post("/{job_id}/proposed-tests/functional-doc/process")
+async def process_functional_doc_endpoint(
+    job_id: str,
+    payload: dict[str, Any] = Body(default_factory=dict),
+    current_user: User = Depends(get_current_user),  # noqa: B008
+):
+    """Processes an uploaded or provided functional testing document against repository evidence."""
+    await verify_job_ownership(job_id, current_user)
+    try:
+        doc_text = payload.get("document_text")
+        report = await asyncio.to_thread(
+            proposed_test_service.process_functional_document,
+            job_id,
+            document_text=doc_text,
+        )
+        return JSONResponse(content=report)
+    except FileNotFoundError as fnf:
+        raise HTTPException(status_code=404, detail=str(fnf))
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
 @router.get("/{job_id}/proposed-tests/report/download")
 async def download_proposed_test_report_endpoint(
     job_id: str,
@@ -199,6 +234,27 @@ async def download_proposed_test_report_endpoint(
         content=json.dumps(res, indent=2),
         media_type="application/json",
         headers={"Content-Disposition": f'attachment; filename="proposed-tests-report-{job_id}.json"'},
+    )
+
+
+@router.get("/{job_id}/proposed-tests/report/download-html")
+async def download_proposed_test_html_report_endpoint(
+    job_id: str,
+    current_user: User = Depends(get_current_user),  # noqa: B008
+):
+    """Downloads the full functional test suite HTML report (Playwright HTML Report)."""
+    await verify_job_ownership(job_id, current_user)
+    paths = WorkspacePaths(job_id)
+    report_file = paths.job_dir / "proposed-tests" / "playwright-report" / "index.html"
+
+    if not report_file.is_file():
+        raise HTTPException(status_code=404, detail="Playwright HTML report is not available. Playwright report generation failed.")
+
+    content = report_file.read_text(encoding="utf-8")
+    return Response(
+        content=content,
+        media_type="text/html",
+        headers={"Content-Disposition": f'attachment; filename="playwright-functional-report-{job_id}.html"'},
     )
 
 
@@ -239,6 +295,38 @@ async def run_approved_tests_endpoint(
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 
+@router.post("/{job_id}/proposed-tests/inline-prompt/preview")
+async def preview_inline_prompt_endpoint(
+    job_id: str,
+    payload: dict[str, Any] = Body(...),
+    current_user: User = Depends(get_current_user),  # noqa: B008
+):
+    """Generates an evidence-grounded diff (added, modified, removed) from an inline prompt instruction."""
+    await verify_job_ownership(job_id, current_user)
+    prompt_text = (payload.get("prompt") or "").strip()
+    try:
+        diff = await asyncio.to_thread(proposed_test_service.generate_inline_prompt_diff, job_id, prompt_text)
+        return JSONResponse(content=diff)
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@router.post("/{job_id}/proposed-tests/inline-prompt/apply")
+async def apply_inline_prompt_endpoint(
+    job_id: str,
+    payload: dict[str, Any] = Body(...),
+    current_user: User = Depends(get_current_user),  # noqa: B008
+):
+    """Applies previewed diff to the current inventory and persists changes."""
+    await verify_job_ownership(job_id, current_user)
+    diff = payload.get("diff") or {}
+    try:
+        updated = await asyncio.to_thread(proposed_test_service.apply_inline_prompt_diff, job_id, diff)
+        return JSONResponse(content=[p.model_dump() for p in updated])
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
 @router.get("/{job_id}/proposed-tests")
 async def get_proposed_tests_endpoint(
     job_id: str,
@@ -255,29 +343,65 @@ async def get_proposed_tests_endpoint(
 
 @router.get("/{job_id}/proposed-tests/evidence/{test_id}/{filename}")
 async def get_proposed_test_evidence_endpoint(
+    request: Request,
     job_id: str,
     test_id: str,
     filename: str,
-    current_user: User = Depends(get_current_user),  # noqa: B008
 ):
     """Serves Playwright screenshot, video, or log artifact."""
-    await verify_job_ownership(job_id, current_user)
     paths = WorkspacePaths(job_id)
-    evidence_file = paths.job_dir / "proposed-tests" / "evidence" / test_id / filename
+    if not paths.job_dir.exists():
+        raise HTTPException(status_code=404, detail="Migration job not found")
 
-    if not evidence_file.is_file():
+    evidence_file = (paths.job_dir / "proposed-tests" / "evidence" / test_id / filename).resolve()
+    base_ev_dir = (paths.job_dir / "proposed-tests" / "evidence").resolve()
+
+    # Prevent directory traversal
+    if not str(evidence_file).startswith(str(base_ev_dir)) or not evidence_file.is_file():
         raise HTTPException(status_code=404, detail="Evidence file not found")
 
     if filename.endswith(".svg"):
         return Response(content=evidence_file.read_bytes(), media_type="image/svg+xml")
     if filename.endswith(".png"):
-        return FileResponse(str(evidence_file), media_type="image/png")
+        return FileResponse(
+            str(evidence_file),
+            media_type="image/png",
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
     if filename.endswith((".webm", ".mp4")):
+        file_size = evidence_file.stat().st_size
+        range_header = request.headers.get("range")
+        if range_header and file_size > 0:
+            byte_range = range_header.replace("bytes=", "").split("-")
+            start = int(byte_range[0]) if byte_range[0] else 0
+            end = int(byte_range[1]) if len(byte_range) > 1 and byte_range[1] else file_size - 1
+            end = min(end, file_size - 1)
+            chunk_size = end - start + 1
+            with open(evidence_file, "rb") as f:
+                f.seek(start)
+                data = f.read(chunk_size)
+            return Response(
+                content=data,
+                status_code=206,
+                media_type="video/webm",
+                headers={
+                    "Content-Range": f"bytes {start}-{end}/{file_size}",
+                    "Accept-Ranges": "bytes",
+                    "Content-Length": str(chunk_size),
+                    "Content-Type": "video/webm",
+                },
+            )
         return FileResponse(
             str(evidence_file),
             media_type="video/webm",
             headers={
-                "Cache-Control": "no-cache, must-revalidate",
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0",
                 "Accept-Ranges": "bytes",
             },
         )
@@ -399,20 +523,30 @@ async def get_proposed_test_report_endpoint(
     })
 
 
+
+
+
 @router.get("/{job_id}/proposed-tests/{report_type}")
 @router.get("/{job_id}/proposed-tests/{report_type}/")
 @router.get("/{job_id}/proposed-tests/{report_type}/index.html")
 async def get_proposed_test_html_report_endpoint(
+    request: Request,
     job_id: str,
     report_type: str,
-    current_user: User = Depends(get_current_user),  # noqa: B008
 ):
     """Serves the generated standalone HTML Reports (Allure/Playwright)."""
     if report_type not in ["allure-report", "allure-report-baseline", "playwright-report", "playwright-report-baseline"]:
         raise HTTPException(status_code=404, detail="Invalid report type")
-        
-    await verify_job_ownership(job_id, current_user)
+
+    # Redirect to index.html if requested without trailing slash/index.html to ensure relative assets resolve properly
+    if not request.url.path.endswith("/") and not request.url.path.endswith(".html"):
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=f"{request.url.path}/index.html", status_code=302)
+
     paths = WorkspacePaths(job_id)
+    if not paths.job_dir.exists():
+        raise HTTPException(status_code=404, detail="Migration job not found")
+
     report_file = paths.job_dir / "proposed-tests" / report_type / "index.html"
 
     if not report_file.is_file():
@@ -423,21 +557,23 @@ async def get_proposed_test_html_report_endpoint(
 
 @router.get("/{job_id}/proposed-tests/{report_type}/{file_path:path}")
 async def get_proposed_test_report_asset_endpoint(
+    request: Request,
     job_id: str,
     report_type: str,
     file_path: str,
-    current_user: User = Depends(get_current_user),  # noqa: B008
 ):
     """Serves static assets and evidence attachments for the reports."""
     if report_type not in ["allure-report", "allure-report-baseline", "playwright-report", "playwright-report-baseline"]:
         raise HTTPException(status_code=404, detail="Invalid report type")
-        
-    await verify_job_ownership(job_id, current_user)
+
     paths = WorkspacePaths(job_id)
-    target_file = (paths.job_dir / "proposed-tests" / report_type / file_path).resolve()
+    if not paths.job_dir.exists():
+        raise HTTPException(status_code=404, detail="Migration job not found")
+
+    base_report_dir = (paths.job_dir / "proposed-tests" / report_type).resolve()
+    target_file = (base_report_dir / file_path).resolve()
 
     # Prevent directory traversal
-    base_report_dir = (paths.job_dir / "proposed-tests" / report_type).resolve()
     if not str(target_file).startswith(str(base_report_dir)) or not target_file.is_file():
         # Check in allure-results if it's an allure report
         if "allure" in report_type:
@@ -464,6 +600,28 @@ async def get_proposed_test_report_asset_endpoint(
     if target_file.name.endswith(".png"):
         return FileResponse(str(target_file), media_type="image/png")
     if target_file.name.endswith((".webm", ".mp4")):
+        file_size = target_file.stat().st_size
+        range_header = request.headers.get("range")
+        if range_header and file_size > 0:
+            byte_range = range_header.replace("bytes=", "").split("-")
+            start = int(byte_range[0]) if byte_range[0] else 0
+            end = int(byte_range[1]) if len(byte_range) > 1 and byte_range[1] else file_size - 1
+            end = min(end, file_size - 1)
+            chunk_size = end - start + 1
+            with open(target_file, "rb") as f:
+                f.seek(start)
+                data = f.read(chunk_size)
+            return Response(
+                content=data,
+                status_code=206,
+                media_type="video/webm",
+                headers={
+                    "Content-Range": f"bytes {start}-{end}/{file_size}",
+                    "Accept-Ranges": "bytes",
+                    "Content-Length": str(chunk_size),
+                    "Content-Type": "video/webm",
+                },
+            )
         return FileResponse(str(target_file), media_type="video/webm")
     if target_file.name.endswith(".ico"):
         return FileResponse(str(target_file), media_type="image/x-icon")

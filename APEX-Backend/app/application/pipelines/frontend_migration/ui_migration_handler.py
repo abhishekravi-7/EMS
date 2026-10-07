@@ -1582,9 +1582,20 @@ export const routes: Routes = [
             line = re.sub(r'\$\{([^}]+)\}', r'{\1}', line)
             line = re.sub(r'#\{([^}]+)\}', r'{\1}', line)
 
-            # Clean obsolete tags safely
+            # Clean obsolete tags safely & enrich controls with modern class names
+            if "<input" in line and "className=" not in line and "type=\"hidden\"" not in line and "type='hidden'" not in line:
+                line = re.sub(r'<input\b', '<input className="form-control"', line, count=1)
+            if "<select" in line and "className=" not in line:
+                line = re.sub(r'<select\b', '<select className="form-control"', line, count=1)
+            if "<textarea" in line and "className=" not in line:
+                line = re.sub(r'<textarea\b', '<textarea className="form-control"', line, count=1)
+            if "<button" in line and "className=" not in line:
+                line = re.sub(r'<button\b', '<button className="btn btn-primary shadow-sm"', line, count=1)
+            if "<label" in line and "className=" not in line:
+                line = re.sub(r'<label\b', '<label className="form-label font-weight-bold"', line, count=1)
+
             if "<table" in line:
-                line = re.sub(r'<table\b([^>]*)>', r'<div className="modern-table-wrapper"><table className="modern-table"\1>', line)
+                line = re.sub(r'<table\b([^>]*)>', r'<div className="modern-table-wrapper"><table className="modern-table table table-hover"\1>', line)
                 line = re.sub(r'\s*\bborder=["\']?[0-9]+["\']?', '', line)
                 line = re.sub(r'\s*\bcellpadding=["\']?[0-9]+["\']?', '', line)
                 line = re.sub(r'\s*\bcellspacing=["\']?[0-9]+["\']?', '', line)

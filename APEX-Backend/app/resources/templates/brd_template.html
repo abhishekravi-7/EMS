@@ -22,6 +22,7 @@
   --border: #d0d0d0;
   --muted: #555555;
   --page-w: 794px; /* A4 width in pixels at 96dpi */
+  --page-h: 1123px; /* A4 height in pixels at 96dpi */
   --bg: #d4d4d4;
   --brand-dark: #1a1a2e;
   --brand-mid: #2d2d4e;
@@ -37,8 +38,8 @@ body {
   background: var(--bg);
   font-family: 'DM Mono', monospace;
   color: var(--ink);
-  font-size: 13px;
-  line-height: 1.8;
+  font-size: 12.5px;
+  line-height: 1.75;
   letter-spacing: 0.01em;
   width: 100%;
   min-height: 100vh;
@@ -50,7 +51,7 @@ body {
 .doc-wrapper {
   width: 100%;
   margin: 0 auto;
-  padding: 56px 0 80px;
+  padding: 40px 0 80px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -63,17 +64,22 @@ body {
   position: relative;
   overflow: hidden;
   width: var(--page-w);
-  max-width: calc(100% - 40px);
-  min-height: auto;
+  max-width: 100%;
+  min-height: var(--page-h);
   box-sizing: border-box;
   page-break-after: always;
-  border-radius: 12px;
+  break-after: page;
+  border-radius: 8px;
 }
 .page-inner {
-  padding: 50px 60px;
-  min-height: auto;
+  padding: 50px 60px 60px 60px;
+  min-height: calc(var(--page-h) - 110px);
   width: 100%;
   box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
 }
 
 .pg-num {
@@ -1739,15 +1745,7 @@ code {
   <div class="er-fig-caption">Figure 7.1 — {{REPO_NAME}} Entity Relationship Diagram · <span class="badge-pk">PK</span> = Primary Key &nbsp; <span class="badge-fk">FK</span> = Foreign Key</div>
 
   <h2>7.1 Key Relationships</h2>
-  <table class="brd-table">
-    <thead><tr><th style="width:30%">Parent Table</th><th style="width:30%">Child Table</th><th>Relationship</th></tr></thead>
-    <tbody>
-      <tr><td>{{REL_1_PARENT}}</td><td>{{REL_1_CHILD}}</td><td>{{REL_1_TYPE}}</td></tr>
-      <tr><td>{{REL_2_PARENT}}</td><td>{{REL_2_CHILD}}</td><td>{{REL_2_TYPE}}</td></tr>
-      <tr><td>{{REL_3_PARENT}}</td><td>{{REL_3_CHILD}}</td><td>{{REL_3_TYPE}}</td></tr>
-      <tr><td>{{REL_4_PARENT}}</td><td>{{REL_4_CHILD}}</td><td>{{REL_4_TYPE}}</td></tr>
-    </tbody>
-  </table>
+  {{KEY_RELATIONSHIPS_TABLE}}
 
 </div>
 <div class="pg-watermark">{{REPO_NAME}} Technical Document v{{DOC_VERSION}} — Confidential</div>
@@ -1961,53 +1959,7 @@ code {
 
   {{FULL_CLASS_MODEL}}
 
-  <!-- STATIC_CLASS_GRID_START -->
-  <div class="class-grid">
-
-    <div class="class-card">
-      <div class="class-card-head"><span>Entity / Program</span>{{CLASS_1_NAME}}</div>
-      <div class="class-section-title">Attributes</div>
-      <div class="class-field"><span class="fname">{{CLASS_1_ATTR_1}}</span><span class="ftype">{{CLASS_1_ATTR_1_TYPE}}</span></div>
-      <div class="class-field"><span class="fname">{{CLASS_1_ATTR_2}}</span><span class="ftype">{{CLASS_1_ATTR_2_TYPE}}</span></div>
-      <div class="class-field"><span class="fname">{{CLASS_1_ATTR_3}}</span><span class="ftype">{{CLASS_1_ATTR_3_TYPE}}</span></div>
-      <div class="class-section-title">Methods / Operations</div>
-      <div class="class-field"><span class="fname">{{CLASS_1_METHOD_1}}</span><span class="ftype">{{CLASS_1_METHOD_1_TYPE}}</span></div>
-      <div class="class-field"><span class="fname">{{CLASS_1_METHOD_2}}</span><span class="ftype">{{CLASS_1_METHOD_2_TYPE}}</span></div>
-    </div>
-
-    <div class="class-card">
-      <div class="class-card-head"><span>Entity / Program</span>{{CLASS_2_NAME}}</div>
-      <div class="class-section-title">Attributes</div>
-      <div class="class-field"><span class="fname">{{CLASS_2_ATTR_1}}</span><span class="ftype">{{CLASS_2_ATTR_1_TYPE}}</span></div>
-      <div class="class-field"><span class="fname">{{CLASS_2_ATTR_2}}</span><span class="ftype">{{CLASS_2_ATTR_2_TYPE}}</span></div>
-      <div class="class-field"><span class="fname">{{CLASS_2_ATTR_3}}</span><span class="ftype">{{CLASS_2_ATTR_3_TYPE}}</span></div>
-      <div class="class-section-title">Methods / Operations</div>
-      <div class="class-field"><span class="fname">{{CLASS_2_METHOD_1}}</span><span class="ftype">{{CLASS_2_METHOD_1_TYPE}}</span></div>
-      <div class="class-field"><span class="fname">{{CLASS_2_METHOD_2}}</span><span class="ftype">{{CLASS_2_METHOD_2_TYPE}}</span></div>
-    </div>
-
-    <div class="class-card">
-      <div class="class-card-head"><span>Entity / Program</span>{{CLASS_3_NAME}}</div>
-      <div class="class-section-title">Attributes</div>
-      <div class="class-field"><span class="fname">{{CLASS_3_ATTR_1}}</span><span class="ftype">{{CLASS_3_ATTR_1_TYPE}}</span></div>
-      <div class="class-field"><span class="fname">{{CLASS_3_ATTR_2}}</span><span class="ftype">{{CLASS_3_ATTR_2_TYPE}}</span></div>
-      <div class="class-section-title">Methods / Operations</div>
-      <div class="class-field"><span class="fname">{{CLASS_3_METHOD_1}}</span><span class="ftype">{{CLASS_3_METHOD_1_TYPE}}</span></div>
-    </div>
-
-    <div class="class-card">
-      <div class="class-card-head"><span>Entity / Program</span>{{CLASS_4_NAME}}</div>
-      <div class="class-section-title">Attributes</div>
-      <div class="class-field"><span class="fname">{{CLASS_4_ATTR_1}}</span><span class="ftype">{{CLASS_4_ATTR_1_TYPE}}</span></div>
-      <div class="class-field"><span class="fname">{{CLASS_4_ATTR_2}}</span><span class="ftype">{{CLASS_4_ATTR_2_TYPE}}</span></div>
-      <div class="class-field"><span class="fname">{{CLASS_4_ATTR_3}}</span><span class="ftype">{{CLASS_4_ATTR_3_TYPE}}</span></div>
-      <div class="class-section-title">Methods / Operations</div>
-      <div class="class-field"><span class="fname">{{CLASS_4_METHOD_1}}</span><span class="ftype">{{CLASS_4_METHOD_1_TYPE}}</span></div>
-      <div class="class-field"><span class="fname">{{CLASS_4_METHOD_2}}</span><span class="ftype">{{CLASS_4_METHOD_2_TYPE}}</span></div>
-    </div>
-
-  </div>
-  <!-- STATIC_CLASS_GRID_END -->
+  {{CLASS_CARDS_GRID_HTML}}
 
 </div>
 <div class="pg-watermark">{{REPO_NAME}} Technical Document v{{DOC_VERSION}} — Confidential</div>
@@ -2251,61 +2203,6 @@ code {
 
   {{FULL_API_ENDPOINTS}}
 
-  <!-- Group 1 -->
-  <div class="api-group">
-    <div class="api-group-title">{{API_GROUP_1_NAME}}</div>
-    <div class="api-endpoint">
-      <span class="method-badge method-get">GET</span>
-      <span class="api-path">{{API_1_PATH}}</span>
-      <div class="api-desc">{{API_1_DESC}}</div>
-    </div>
-    <div class="api-endpoint">
-      <span class="method-badge method-post">POST</span>
-      <span class="api-path">{{API_2_PATH}}</span>
-      <div class="api-desc">{{API_2_DESC}}</div>
-    </div>
-    <div class="api-endpoint">
-      <span class="method-badge method-put">PUT</span>
-      <span class="api-path">{{API_3_PATH}}</span>
-      <div class="api-desc">{{API_3_DESC}}</div>
-    </div>
-    <div class="api-endpoint">
-      <span class="method-badge method-delete">DELETE</span>
-      <span class="api-path">{{API_4_PATH}}</span>
-      <div class="api-desc">{{API_4_DESC}}</div>
-    </div>
-  </div>
-
-  <!-- Group 2 -->
-  <div class="api-group">
-    <div class="api-group-title">{{API_GROUP_2_NAME}}</div>
-    <div class="api-endpoint">
-      <span class="method-badge method-get">GET</span>
-      <span class="api-path">{{API_5_PATH}}</span>
-      <div class="api-desc">{{API_5_DESC}}</div>
-    </div>
-    <div class="api-endpoint">
-      <span class="method-badge method-post">POST</span>
-      <span class="api-path">{{API_6_PATH}}</span>
-      <div class="api-desc">{{API_6_DESC}}</div>
-    </div>
-  </div>
-
-  <!-- Group 3 -->
-  <div class="api-group">
-    <div class="api-group-title">{{API_GROUP_3_NAME}}</div>
-    <div class="api-endpoint">
-      <span class="method-badge method-post">POST</span>
-      <span class="api-path">{{API_7_PATH}}</span>
-      <div class="api-desc">{{API_7_DESC}}</div>
-    </div>
-    <div class="api-endpoint">
-      <span class="method-badge method-get">GET</span>
-      <span class="api-path">{{API_8_PATH}}</span>
-      <div class="api-desc">{{API_8_DESC}}</div>
-    </div>
-  </div>
-
 </div>
 <div class="pg-watermark">{{REPO_NAME}} Technical Document v{{DOC_VERSION}} — Confidential</div>
 <div class="pg-num">18</div>
@@ -2467,31 +2364,6 @@ code {
   </div>
 
   {{FULL_FILE_GUIDE}}
-
-  <!-- Repeat file-group blocks per directory / file type -->
-  <div class="file-group">
-    <div class="file-group-title">{{FILE_GROUP_1_NAME}}</div>
-    <div class="file-row"><span class="fname">{{FILE_1_NAME}}</span><span class="fdesc">{{FILE_1_DESC}}</span></div>
-    <div class="file-row"><span class="fname">{{FILE_2_NAME}}</span><span class="fdesc">{{FILE_2_DESC}}</span></div>
-    <div class="file-row"><span class="fname">{{FILE_3_NAME}}</span><span class="fdesc">{{FILE_3_DESC}}</span></div>
-    <div class="file-row"><span class="fname">{{FILE_4_NAME}}</span><span class="fdesc">{{FILE_4_DESC}}</span></div>
-    <div class="file-row"><span class="fname">{{FILE_5_NAME}}</span><span class="fdesc">{{FILE_5_DESC}}</span></div>
-  </div>
-
-  <div class="file-group">
-    <div class="file-group-title">{{FILE_GROUP_2_NAME}}</div>
-    <div class="file-row"><span class="fname">{{FILE_6_NAME}}</span><span class="fdesc">{{FILE_6_DESC}}</span></div>
-    <div class="file-row"><span class="fname">{{FILE_7_NAME}}</span><span class="fdesc">{{FILE_7_DESC}}</span></div>
-    <div class="file-row"><span class="fname">{{FILE_8_NAME}}</span><span class="fdesc">{{FILE_8_DESC}}</span></div>
-    <div class="file-row"><span class="fname">{{FILE_9_NAME}}</span><span class="fdesc">{{FILE_9_DESC}}</span></div>
-  </div>
-
-  <div class="file-group">
-    <div class="file-group-title">{{FILE_GROUP_3_NAME}}</div>
-    <div class="file-row"><span class="fname">{{FILE_10_NAME}}</span><span class="fdesc">{{FILE_10_DESC}}</span></div>
-    <div class="file-row"><span class="fname">{{FILE_11_NAME}}</span><span class="fdesc">{{FILE_11_DESC}}</span></div>
-    <div class="file-row"><span class="fname">{{FILE_12_NAME}}</span><span class="fdesc">{{FILE_12_DESC}}</span></div>
-  </div>
 
   <h2>Orphan Files</h2>
   <table class="brd-table">

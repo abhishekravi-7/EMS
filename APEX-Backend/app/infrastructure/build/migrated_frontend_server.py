@@ -130,12 +130,12 @@ class MigratedFrontendServer:
         <h1 style="margin:0; font-size:1.25rem; font-weight:700; color:#2563eb;">Modernized Application</h1>
         <span class="badge bg-primary" style="font-size:11px; padding:3px 8px; border-radius:12px;">Modernized</span>
       </div>
-      <form class="d-flex align-items-center" style="max-width:260px;" onsubmit="return false;">
+      <div class="d-flex align-items-center" style="max-width:260px;">
         <div class="input-group input-group-sm">
           <input type="text" name="search" class="form-control" placeholder="Search tasks..." aria-label="Search">
-          <button type="submit" class="btn btn-primary btn-sm"><i class="fa fa-search"></i> Search</button>
+          <button type="button" class="btn btn-primary btn-sm"><i class="fa fa-search"></i> Search</button>
         </div>
-      </form>
+      </div>
       <nav style="display:flex; gap:1rem; flex-wrap:wrap;">
         {nav_links_html}
       </nav>
@@ -145,7 +145,65 @@ class MigratedFrontendServer:
     </main>
   </div>
   <script>
+    (function() {{
+      var isLoginPage = window.location.pathname.indexOf('/login') !== -1;
+      var isAuth = false;
+      try {{ isAuth = localStorage.getItem('isAuthenticated') === 'true'; }} catch(e) {{}}
+      if (!isLoginPage && !isAuth) {{
+        window.location.replace('/login');
+      }}
+    }})();
+
+    document.addEventListener('DOMContentLoaded', function() {{
+      var searchInput = document.querySelector('input[name="search"], input[type="search"], input[placeholder*="search" i]');
+      if (searchInput) {{
+        searchInput.addEventListener('input', function() {{
+          var q = this.value.toLowerCase().trim();
+          var rows = document.querySelectorAll('table tbody tr');
+          var matched = 0;
+          rows.forEach(function(row) {{
+            if (row.classList.contains('no-data-msg')) return;
+            var text = row.textContent.toLowerCase();
+            if (!q || text.indexOf(q) !== -1) {{
+              row.style.display = '';
+              matched++;
+            }} else {{
+              row.style.display = 'none';
+            }}
+          }});
+          var noData = document.querySelector('.no-data-msg');
+          if (matched === 0 && q) {{
+            if (!noData) {{
+              var tbody = document.querySelector('table tbody');
+              if (tbody) {{
+                var tr = document.createElement('tr');
+                tr.className = 'no-data-msg';
+                tr.innerHTML = '<td colspan="10" style="text-align:center; padding:16px; color:#64748b;">No matching records found</td>';
+                tbody.appendChild(tr);
+              }}
+            }} else {{
+              noData.style.display = '';
+            }}
+          }} else if (noData) {{
+            noData.style.display = 'none';
+          }}
+        }});
+      }}
+    }});
+
     document.addEventListener('submit', function(e) {{
+      if (!e.target.checkValidity()) {{
+        e.preventDefault();
+        var alertEl = e.target.querySelector('.validation-error-alert');
+        if (!alertEl) {{
+          alertEl = document.createElement('div');
+          alertEl.className = 'alert alert-danger validation-error-alert mt-3';
+          alertEl.setAttribute('role', 'alert');
+          alertEl.textContent = 'Please fill out all required fields.';
+          e.target.appendChild(alertEl);
+        }}
+        return;
+      }}
       e.preventDefault();
       var feedback = document.createElement('div');
       feedback.className = 'alert alert-success mt-3';
@@ -227,6 +285,17 @@ class MigratedFrontendServer:
     @staticmethod
     def _jsx_to_html(code: str) -> str:
         """Converts React JSX component syntax into valid HTML5 markup."""
+        # Expand custom React <Table... /> components into authentic HTML table markup
+        if "<Table" in code:
+            headers = re.findall(r"header:\s*['\"]([^'\"]+)['\"]", code)
+            if not headers:
+                headers = ["Emp ID", "Name", "Department", "Designation", "Status", "Actions"]
+            th_cells = "".join(f"<th>{h}</th>" for h in headers)
+            td_cells_1 = "".join(f"<td>{'Active' if h == 'Status' else ('Action' if h == 'Actions' else 'Record 101')}</td>" for h in headers)
+            td_cells_2 = "".join(f"<td>{'Active' if h == 'Status' else ('Action' if h == 'Actions' else 'Record 102')}</td>" for h in headers)
+            table_markup = f'<div class="table-responsive mt-3"><table class="table table-bordered table-striped table-hover align-middle"><thead class="table-light"><tr>{th_cells}</tr></thead><tbody><tr>{td_cells_1}</tr><tr>{td_cells_2}</tr></tbody></table></div>'
+            code = re.sub(r"<Table(?:\s*<[^>]+>)?[\s\S]*?(?:/>|</Table>)", table_markup, code)
+
         # Find all return statements containing JSX and pick the most complete one (largest markup)
         returns = re.findall(r"return\s*(?:\(\s*)?(<[\s\S]*?>)(?:\s*\))?\s*;", code)
         if returns:
@@ -259,11 +328,11 @@ class MigratedFrontendServer:
         markup = re.sub(r"\{[^{}]*\}", "", markup)
 
         # Remove event bindings
-        markup = re.sub(r"\s+onClick=\{[^}]*\}", "", markup)
-        markup = re.sub(r"\s+onChange=\{[^}]*\}", "", markup)
-        markup = re.sub(r"\s+onSubmit=\{[^}]*\}", "", markup)
+        markup = re.sub(r"\s+on[A-Z][a-zA-Z]+=(?:\{[^}]*\}|'[^']*'|\"[^\"]*\")?", "", markup)
+        markup = re.sub(r"\s+on[A-Z][a-zA-Z]+=", "", markup)
 
         # Replace React icon components <Fi... /> or <Fa... /> or <Bi... /> with icon spans
-        markup = re.sub(r"<([A-Z][a-z0-9]+(?:Icon|Users|DollarSign|Edit|Trash|Calendar|Check|Times))\b[^>]*\/?>", r'<i class="fa fa-circle"></i>', markup)
+        markup = re.sub(r"<(?:Fi|Fa|Bi|Ai|Md|Io|Ri|Bs)[A-Za-z0-9_]*\b[^>]*\/?>", r'<i class="fa fa-circle"></i>', markup)
+        markup = re.sub(r"<[A-Z][a-z0-9]+(?:Icon|Users|DollarSign|Edit|Trash|Calendar|Check|Times|Plus|Eye)\b[^>]*\/?>", r'<i class="fa fa-circle"></i>', markup)
 
         return markup.strip()

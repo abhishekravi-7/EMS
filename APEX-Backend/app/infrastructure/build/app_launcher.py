@@ -21,6 +21,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+from app.shared.command_runner import resolve_executable
+
 logger = logging.getLogger(__name__)
 
 
@@ -221,10 +223,11 @@ class MigratedAppLauncher:
                 env["PATH"] = f"{Path(java_exe).parent}{os.pathsep}{env.get('PATH', '')}"
 
             if pom_file.is_file() and not is_war_project:
-                cmd = [str(mvnw) if mvnw.exists() else "mvn", "package", "-DskipTests"]
+                mvn_bin = str(mvnw) if mvnw.exists() else (resolve_executable("mvn") or ("mvn.cmd" if os.name == "nt" else "mvn"))
+                cmd = [mvn_bin, "package", "-DskipTests"]
                 try:
                     logger.info("No JAR found; auto-packaging project with Maven: %s", " ".join(cmd))
-                    subprocess.run(cmd, cwd=str(project_dir), env=env, capture_output=True, timeout=120)
+                    subprocess.run(cmd, cwd=str(project_dir), env=env, capture_output=True, timeout=120, shell=(os.name == "nt"))
                     target_dir = project_dir / "target"
                     if target_dir.exists():
                         candidates = list(target_dir.glob("*.jar"))
@@ -235,10 +238,11 @@ class MigratedAppLauncher:
                 except Exception as build_err:
                     logger.warning("Auto-packaging with Maven failed: %s", build_err)
             elif gradle_file.is_file() and not is_war_project:
-                cmd = [str(gradlew) if gradlew.exists() else "gradle", "assemble", "-x", "test"]
+                gradle_bin = str(gradlew) if gradlew.exists() else (resolve_executable("gradle") or ("gradle.bat" if os.name == "nt" else "gradle"))
+                cmd = [gradle_bin, "assemble", "-x", "test"]
                 try:
                     logger.info("No JAR found; auto-packaging project with Gradle: %s", " ".join(cmd))
-                    subprocess.run(cmd, cwd=str(project_dir), env=env, capture_output=True, timeout=120)
+                    subprocess.run(cmd, cwd=str(project_dir), env=env, capture_output=True, timeout=120, shell=(os.name == "nt"))
                     for libs_dir in [project_dir / "build" / "libs", project_dir / "build" / "output"]:
                         if libs_dir.exists():
                             candidates = list(libs_dir.glob("*.jar"))

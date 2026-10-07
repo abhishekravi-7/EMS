@@ -1,0 +1,2705 @@
+<USER_REQUEST>
+BRD Promt
+
+
+@app.post("/api/github/generate-kt-document")
+
+@app.post("/api/github/generate-brd-document")
+
+async def generate_brd_document(request: dict):
+
+    """
+
+    Generate a comprehensive Business Requirements Document (BRD) for a repository migration.
+
+    🔥 100% DYNAMIC - Always generates fresh from Ford LLM with latest analysis data
+
+    NO CACHE - Every generation uses current security scan, dependencies, and vulnerabilities
+
+    Follows Ford's official BRD template structure
+
+    """
+
+    try:
+
+        from services.github_service import get_cached
+
+       
+
+        repo_url = request.get("repo_url")
+
+        token = request.get("token", "")
+
+       
+
+        if not repo_url:
+
+            raise HTTPException(status_code=400, detail="repo_url is required")
+
+       
+
+        effective_token = token.strip() if token and token.strip() else DEFAULT_GITHUB_TOKEN
+
+        owner, repo = await github_service.parse_repo_url(repo_url)
+
+       
+
+        logger.info(f"[BRD DOCUMENT API] 🚀 Retrieving/Generating BRD document for {owner}/{repo}")
+
+       
+
+        # ═══════════════════════════════════════════════════════════════════════════════
+
+        # 🎯 CHECK IF DOCUMENT WAS AUTO-GENERATED DURING ANALYSIS
+
+        # (Generated AFTER security scan with ALL dependencies + vulnerabilities)
+
+        # ═══════════════════════════════════════════════════════════════════════════════
+
+        analysis_cache_key = f"analysis:{owner}/{repo}"
+
+        analysis = get_cached(analysis_cache_key)
+
+       
+
+        if not analysis:
+
+            logger.warning(f"[BRD DOCUMENT API] ⚠️ No analysis found for {owner}/{repo}")
+
+            raise HTTPException(
+
+                status_code=400,
+
+                detail="Repository not analyzed yet. Please analyze the repository first."
+
+            )
+
+       
+
+        # Check if BRD document was auto-generated during analysis (legacy key: kt_document)
+
+        if analysis.get("has_kt_document") and analysis.get("kt_document"):
+
+            logger.info(f"[BRD DOCUMENT API] ⚡ Using pre-generated BRD document (from analysis)")
+
+            logger.info(f"[BRD DOCUMENT API] 📊 Contains: {len(analysis.get('dependencies', []))} deps + "
+
+                       f"{len(analysis.get('vulnerable_dependencies', []))} vulnerabilities")
+
+           
+
+            document = analysis.get("kt_document")
+
+            generated_at = analysis.get("kt_document_generated_at")
+
+           
+
+            # Convert to HTML for PDF generation using BRD format
+
+            html_content = _generate_brd_html(document, repo, repo_url, analysis_data=analysis)
+
+           
+
+            return {
+
+                "success": True,
+
+                "document": document,
+
+                "html": html_content,
+
+                "generated_at": generated_at,
+
+                "repo_url": repo_url,
+
+                "source": "Pre-generated BRD during analysis (AFTER security scan)",
+
+                "metadata": analysis.get("kt_document_metadata", {})
+
+            }
+
+       
+
+        # ═══════════════════════════════════════════════════════════════════════════════
+
+        # 🔄 FALLBACK: Generate fresh if not found in analysis
+
+        # ═══════════════════════════════════════════════════════════════════════════════
+
+        logger.info(f"[BRD DOCUMENT API] 🔄 No pre-generated document found")
+
+        logger.info(f"[BRD DOCUMENT API] 📊 Analysis data:")
+
+        logger.info(f"[BRD DOCUMENT API]    - Dependencies: {len(analysis.get('dependencies', []))}")
+
+        logger.info(f"[BRD DOCUMENT API]    - Vulnerable: {len(analysis.get('vulnerable_dependencies', []))}")
+
+        logger.info(f"[BRD DOCUMENT API]    - Files: {len(analysis.get('all_files', []))}")
+
+        logger.info(f"[BRD DOCUMENT API]    - Frameworks: {analysis.get('detected_frameworks', [])}")
+
+       
+
+        # ═══════════════════════════════════════════════════════════════════════════════
+
+        # 🤖 GENERATE WITH FORD LLM - 100% Dynamic BRD, no static content
+
+        # ═══════════════════════════════════════════════════════════════════════════════
+
+        brd_result = await ford_llm_ai_service.generate_technical_brd_document(
+
+            repo_name=f"{owner}/{repo}",
+
+            repo_url=repo_url,
+
+            analysis_data=analysis,
+
+            token=effective_token
+
+        )
+
+       
+
+        if not brd_result.get("success"):
+
+            error_msg = brd_result.get("error", "Failed to generate BR document")
+
+            logger.error(f"[BRD DOCUMENT API] ❌ Generation failed: {error_msg}")
+
+            raise HTTPException(status_code=500, detail=error_msg)
+
+       
+
+        # Convert to HTML for PDF generation using BRD format
+
+        document = brd_result.get("document", {})
+
+        html_content = _generate_brd_html(document, repo, repo_url, analysis_data=analysis)
+
+       
+
+        logger.info(f"[BRD DOCUMENT API] ✅ Fresh BRD document generated successfully (100% from Ford LLM)")
+
+       
+
+        return {
+
+            "success": True,
+
+            "document": document,
+
+            "html": html_content,
+
+            "generated_at": datetime.now().isoformat(),
+
+            "repo_url": repo_url,
+
+            "source": "Freshly generated BRD from Ford LLM",
+
+            "metadata": brd_result.get("metadata", {})
+
+        }
+
+       
+
+    except HTTPException:
+
+        raise
+
+    except Exception as e:
+
+        import traceback
+
+        logger.error(f"[BRD DOCUMENT] {str(e)}")
+
+        logger.debug(traceback.format_exc())
+
+        raise HTTPException(status_code=500, detail=f"Failed to generate BR document: {str(e)}")
+
+
+
+
+
+def _enrich_brd_document(document: dict, analysis_data: dict, repo_name: str) -> dict:
+
+    """
+
+    Enrich the LLM-generated BRD document with REAL data from analysis_data.
+
+    This ensures the BRD template HTML reflects actual repo content dynamically.
+
+   
+
+    6 fixes applied:
+
+    1. Keep EXACT dependency details (versions from build files)
+
+    2. Fix ER/database schema — derive from actual code entities, not generic tables
+
+    3. Use confirmed class/method names from analysis
+
+    4. Restore 5 use cases including UC-04 (configuration/setup)
+
+    5. Add measurable targets to business objectives
+
+    6. Keep actual module structure from build files
+
+    """
+
+    import copy
+
+    doc = copy.deepcopy(document)
+
+
+
+    # ── Extract real data from analysis ──
+
+    real_deps = analysis_data.get("dependencies", [])
+
+    real_files = analysis_data.get("all_files", [])
+
+    build_tool = analysis_data.get("build_tool", "unknown")
+
+    java_version = analysis_data.get("java_version") or analysis_data.get("java_version_from_build") or "unknown"
+
+    detected_frameworks = analysis_data.get("detected_frameworks", [])
+
+    vulnerable_deps = analysis_data.get("vulnerable_dependencies", [])
+
+    build_files_info = analysis_data.get("build_files_info", {})
+
+
+
+    logger.info(f"[BRD ENRICH] Enriching with {len(real_deps)} deps, {len(real_files)} files, "
+
+                f"build_tool={build_tool}, java={java_version}")
+
+
+
+    # ══════════════════════════════════════════════════════════════════
+
+    # FIX 1: Enrich tech_stack with EXACT dependency versions from repo
+
+    # ══════════════════════════════════════════════════════════════════
+
+    tech_stack = doc.get("tech_stack", [])
+
+    if isinstance(tech_stack, list):
+
+        # Build a lookup of real deps by artifact_id
+
+        real_dep_map = {}
+
+        for dep in real_deps:
+
+            aid = dep.get("artifact_id", "").lower()
+
+            gid = dep.get("group_id", "").lower()
+
+            ver = dep.get("current_version") or dep.get("version") or ""
+
+            if aid:
+
+                real_dep_map[aid] = {"group_id": dep.get("group_id", ""), "version": ver}
+
+                real_dep_map[gid + ":" + aid] = {"group_id": dep.get("group_id", ""), "version": ver}
+
+
+
+        # Fix versions in existing tech_stack entries
+
+        for entry in tech_stack:
+
+            if isinstance(entry, dict):
+
+                tech_name = entry.get("technology", "").lower().replace(" ", "-")
+
+                # Try to match by technology name → artifact_id
+
+                for dep_key, dep_info in real_dep_map.items():
+
+                    if tech_name in dep_key or dep_key in tech_name:
+
+                        if dep_info["version"] and dep_info["version"] != "unknown":
+
+                            entry["version"] = dep_info["version"]
+
+                            break
+
+
+
+        # Add missing real deps that aren't in LLM's tech_stack
+
+        existing_techs = {e.get("technology", "").lower() for e in tech_stack if isinstance(e, dict)}
+
+        for dep in real_deps:
+
+            aid = dep.get("artifact_id", "")
+
+            ver = dep.get("current_version") or dep.get("version") or ""
+
+            if aid.lower() not in existing_techs and ver and ver != "unknown":
+
+                gid = dep.get("group_id", "")
+
+                # Determine category
+
+                category = "Dependency"
+
+                gid_lower = gid.lower()
+
+                if "test" in gid_lower or aid.lower() in ("junit", "mockito-core", "junit-jupiter-api", "testng"):
+
+                    category = "Testing"
+
+                elif "spring" in gid_lower:
+
+                    category = "Framework"
+
+                elif "log" in aid.lower() or "slf4j" in gid_lower:
+
+                    category = "Logging"
+
+                elif "jackson" in gid_lower or "gson" in gid_lower:
+
+                    category = "Serialization"
+
+                elif "gradle" in gid_lower or "maven" in gid_lower:
+
+                    category = "Build"
+
+                tech_stack.append({
+
+                    "category": category,
+
+                    "technology": aid,
+
+                    "version": ver,
+
+                    "purpose": f"{gid}:{aid}"
+
+                })
+
+        doc["tech_stack"] = tech_stack
+
+
+
+    # Also ensure build tool and Java version are in tech_stack
+
+    tech_names_lower = {e.get("technology", "").lower() for e in doc.get("tech_stack", []) if isinstance(e, dict)}
+
+    if build_tool and build_tool.lower() not in tech_names_lower:
+
+        build_ver = build_files_info.get("build_tool_version", "")
+
+        doc["tech_stack"].insert(0, {"category": "Build", "technology": build_tool.title(), "version": build_ver, "purpose": "Build automation"})
+
+    if java_version and java_version != "unknown":
+
+        if not any("java" in e.get("technology", "").lower() or "jdk" in e.get("technology", "").lower() for e in doc.get("tech_stack", []) if isinstance(e, dict)):
+
+            doc["tech_stack"].insert(0, {"category": "Language", "technology": "Java (JDK)", "version": java_version, "purpose": "Primary language"})
+
+
+
+    # ══════════════════════════════════════════════════════════════════
+
+    # FIX 2: Fix ER/database schema — derive from actual code entities
+
+    # ══════════════════════════════════════════════════════════════════
+
+    db_tables = doc.get("db_tables", [])
+
+    # Extract entity-like class names from files (model, entity, dto, config classes)
+
+    entity_files = []
+
+    for f in real_files:
+
+        fname = ""
+
+        if isinstance(f, dict):
+
+            fname = f.get("name", "") or f.get("path", "")
+
+        elif isinstance(f, str):
+
+            fname = f
+
+        fname_lower = fname.lower()
+
+        if fname_lower.endswith(".java"):
+
+            # Look for model/entity/dto/config patterns
+
+            base = fname.rsplit("/", 1)[-1].rsplit("\\", 1)[-1].replace(".java", "")
+
+            if any(kw in fname_lower for kw in ["model", "entity", "dto", "domain", "config", "pojo", "bean"]):
+
+                entity_files.append(base)
+
+            elif base[0].isupper() and not any(kw in base.lower() for kw in ["test", "spec", "controller", "service", "repository", "dao", "util", "helper", "exception"]):
+
+                entity_files.append(base)
+
+
+
+    # If LLM returned generic tables that don't match any code entities, REPLACE them
+
+    if isinstance(db_tables, list) and entity_files:
+
+        entity_names_lower = {e.lower() for e in entity_files}
+
+        generic_table_names = {"users", "orders", "bookings", "payments", "products", "customers",
+
+                               "sessions", "transactions", "application_data", "user_data", "audit_log"}
+
+        has_generic = any(
+
+            isinstance(t, dict) and t.get("table_name", "").lower() in generic_table_names
+
+            and t.get("table_name", "").lower() not in entity_names_lower
+
+            for t in db_tables
+
+        )
+
+        if has_generic or not db_tables:
+
+            logger.warning("[BRD ENRICH] LLM returned generic DB tables — replacing with entity-derived tables")
+
+            # Convert CamelCase entity names to snake_case table names
+
+            import re as _re_mod
+
+            def _camel_to_snake(name):
+
+                s = _re_mod.sub(r'(?<=[a-z0-9])([A-Z])', r'_\1', name)
+
+                s = _re_mod.sub(r'(?<=[A-Z])([A-Z][a-z])', r'_\1', s)
+
+                return s.lower().strip('_')
+
+
+
+            new_tables = []
+
+            for ent_name in entity_files[:8]:
+
+                table_name = _camel_to_snake(ent_name)
+
+                new_tables.append({
+
+                    "table_name": table_name,
+
+                    "fields": [
+
+                        {"name": "id", "type": "BIGINT", "key": "PK", "nullable": False, "references": ""},
+
+                        {"name": f"{table_name}_name", "type": "VARCHAR(255)", "key": "none", "nullable": True, "references": ""},
+
+                        {"name": "created_at", "type": "TIMESTAMP", "key": "none", "nullable": False, "references": ""},
+
+                        {"name": "updated_at", "type": "TIMESTAMP", "key": "none", "nullable": True, "references": ""},
+
+                    ]
+
+                })
+
+            doc["db_tables"] = new_tables if new_tables else db_tables
+
+    elif not db_tables and entity_files:
+
+        # No tables at all — generate from entities
+
+        import re as _re_mod
+
+        def _camel_to_snake(name):
+
+            s = _re_mod.sub(r'(?<=[a-z0-9])([A-Z])', r'_\1', name)
+
+            s = _re_mod.sub(r'(?<=[A-Z])([A-Z][a-z])', r'_\1', s)
+
+            return s.lower().strip('_')
+
+        new_tables = []
+
+        for ent_name in entity_files[:8]:
+
+            table_name = _camel_to_snake(ent_name)
+
+            new_tables.append({
+
+                "table_name": table_name,
+
+                "fields": [
+
+                    {"name": "id", "type": "BIGINT", "key": "PK", "nullable": False, "references": ""},
+
+                    {"name": f"{table_name}_data", "type": "VARCHAR(500)", "key": "none", "nullable": True, "references": ""},
+
+                    {"name": "created_at", "type": "TIMESTAMP", "key": "none", "nullable": False, "references": ""},
+
+                ]
+
+            })
+
+        doc["db_tables"] = new_tables
+
+
+
+    # ══════════════════════════════════════════════════════════════════
+
+    # FIX 3: Confirmed class/method names from analysis
+
+    # ══════════════════════════════════════════════════════════════════
+
+    # Extract actual Java class names from file list
+
+    actual_classes = set()
+
+    for f in real_files:
+
+        fname = ""
+
+        if isinstance(f, dict):
+
+            fname = f.get("name", "") or f.get("path", "")
+
+        elif isinstance(f, str):
+
+            fname = f
+
+        if fname.endswith(".java"):
+
+            base = fname.rsplit("/", 1)[-1].rsplit("\\", 1)[-1].replace(".java", "")
+
+            actual_classes.add(base)
+
+
+
+    # Annotate class_inventory — mark classes that are confirmed from actual file list
+
+    class_inv = doc.get("class_inventory", [])
+
+    if isinstance(class_inv, list) and actual_classes:
+
+        for cls in class_inv:
+
+            if isinstance(cls, dict):
+
+                cls_name = cls.get("class_name", "")
+
+                # Mark confirmed vs inferred
+
+                if cls_name in actual_classes:
+
+                    cls["_confirmed"] = True
+
+                else:
+
+                    cls["_confirmed"] = False
+
+
+
+    # ══════════════════════════════════════════════════════════════════
+
+    # FIX 4: Ensure at least 5 use cases including UC-04 (config/setup)
+
+    # ══════════════════════════════════════════════════════════════════
+
+    use_cases = doc.get("use_cases", [])
+
+    if not isinstance(use_cases, list):
+
+        use_cases = []
+
+
+
+    # Check if UC-04 (config/setup) exists
+
+    has_config_uc = any(
+
+        isinstance(uc, dict) and ("config" in uc.get("name", "").lower() or "setup" in uc.get("name", "").lower() or uc.get("id", "") == "UC-04")
+
+        for uc in use_cases
+
+    )
+
+    if not has_config_uc:
+
+        # Add UC-04: Configuration/Setup
+
+        config_uc = {
+
+            "id": f"UC-{len(use_cases) + 1:02d}",
+
+            "name": f"Configure and Build {repo_name}",
+
+            "actor": "Developer / Maintainer",
+
+            "main_flow": f"1. Clone repository  2. Configure {build_tool} build settings  3. Set Java {java_version} as target  4. Resolve dependencies  5. Execute build  6. Verify build output",
+
+            "post_condition": f"Project builds successfully with {build_tool} and Java {java_version}"
+
+        }
+
+        use_cases.append(config_uc)
+
+
+
+    # Pad to at least 5 use cases with contextual ones
+
+    while len(use_cases) < 5:
+
+        idx = len(use_cases) + 1
+
+        if idx == 2 and real_deps:
+
+            use_cases.append({
+
+                "id": f"UC-{idx:02d}",
+
+                "name": "Dependency Management",
+
+                "actor": "Developer",
+
+                "main_flow": f"1. Review {len(real_deps)} project dependencies  2. Check for vulnerabilities  3. Upgrade outdated versions  4. Verify compatibility",
+
+                "post_condition": "All dependencies are up-to-date and secure"
+
+            })
+
+        elif idx == 3:
+
+            use_cases.append({
+
+                "id": f"UC-{idx:02d}",
+
+                "name": "Code Quality Review",
+
+                "actor": "Developer / Reviewer",
+
+                "main_flow": "1. Run static analysis  2. Review code smells  3. Check test coverage  4. Address findings",
+
+                "post_condition": "Code passes quality gate with acceptable metrics"
+
+            })
+
+        else:
+
+            use_cases.append({
+
+                "id": f"UC-{idx:02d}",
+
+                "name": f"Feature Workflow {idx}",
+
+                "actor": "End User",
+
+                "main_flow": "1. Access application  2. Perform primary action  3. Verify result",
+
+                "post_condition": "Action completed successfully"
+
+            })
+
+    doc["use_cases"] = use_cases
+
+
+
+    # ══════════════════════════════════════════════════════════════════
+
+    # FIX 5: Add measurable targets to business objectives
+
+    # ══════════════════════════════════════════════════════════════════
+
+    biz_objs = doc.get("business_objectives", [])
+
+    if isinstance(biz_objs, list):
+
+        # Define measurable fallback targets based on real analysis data
+
+        measurable_targets = [
+
+            f"Zero critical CVEs in {len(real_deps)} project dependencies",
+
+            f"100% build success rate with {build_tool} on Java {java_version}",
+
+            f"Maintain {len(real_files)} source files with < 5% code duplication",
+
+            f"Achieve ≥ 80% unit test coverage across all modules",
+
+            f"Resolve all {len(vulnerable_deps)} known vulnerability findings",
+
+        ]
+
+        for i, obj in enumerate(biz_objs):
+
+            if isinstance(obj, dict):
+
+                target = obj.get("target", "")
+
+                # Check if target is vague (no numbers, percentages, or specific metrics)
+
+                is_vague = target and not any(c.isdigit() for c in target) and "%" not in target and "<" not in target and ">" not in target and "zero" not in target.lower()
+
+                if is_vague and i < len(measurable_targets):
+
+                    obj["target"] = measurable_targets[i]
+
+        doc["business_objectives"] = biz_objs
+
+
+
+    # ══════════════════════════════════════════════════════════════════
+
+    # FIX 6: Keep actual module structure from build files
+
+    # ══════════════════════════════════════════════════════════════════
+
+    modules = doc.get("modules", [])
+
+    # Extract real submodules from build_files_info or file structure
+
+    real_modules = set()
+
+    gradle_files = build_files_info.get("gradle_files", [])
+
+    pom_files = build_files_info.get("pom_files", [])
+
+    for bf in gradle_files + pom_files:
+
+        if isinstance(bf, dict):
+
+            rel = bf.get("relative_path", "") or bf.get("path", "")
+
+        elif isinstance(bf, str):
+
+            rel = bf
+
+        else:
+
+            continue
+
+        # Extract module name from path (e.g., "subproject/build.gradle" → "subproject")
+
+        parts = rel.replace("\\", "/").split("/")
+
+        if len(parts) > 1:
+
+            real_modules.add(parts[0])
+
+
+
+    # Also detect from file paths (top-level src directories)
+
+    for f in real_files:
+
+        fname = ""
+
+        if isinstance(f, dict):
+
+            fname = f.get("path", "") or f.get("name", "")
+
+        elif isinstance(f, str):
+
+            fname = f
+
+        parts = fname.replace("\\", "/").split("/")
+
+        if len(parts) >= 3 and parts[0] == "src":
+
+            continue  # Single module project
+
+        elif len(parts) >= 3 and parts[1] == "src":
+
+            real_modules.add(parts[0])
+
+
+
+    if real_modules:
+
+        logger.info(f"[BRD ENRICH] Detected real modules: {real_modules}")
+
+        # Ensure each real module appears in the modules list
+
+        existing_module_names = {m.get("name", "").lower() for m in modules if isinstance(m, dict)}
+
+        for mod_name in sorted(real_modules):
+
+            if mod_name.lower() not in existing_module_names:
+
+                modules.append({
+
+                    "name": mod_name,
+
+                    "description": f"Submodule detected from {build_tool} build structure",
+
+                    "files": f"{mod_name}/build.gradle" if build_tool.lower() == "gradle" else f"{mod_name}/pom.xml"
+
+                })
+
+    doc["modules"] = modules
+
+
+
+    # Enrich document_info.frameworks with detected_frameworks
+
+    doc_info = doc.get("document_info", {})
+
+    if not doc_info.get("frameworks") and detected_frameworks:
+
+        doc_info["frameworks"] = detected_frameworks
+
+        doc["document_info"] = doc_info
+
+
+
+    # ══════════════════════════════════════════════════════════════════
+
+    # FIX 7: Auto-populate "languages" for Static Code Analysis table
+
+    # Derive from analysis_data.all_files — count files and LOC per extension
+
+    # ══════════════════════════════════════════════════════════════════
+
+    if not doc.get("languages"):
+
+        ext_map = {}  # extension -> list of file paths
+
+        for f in real_files:
+
+            fname = f.get("path", f.get("name", "")) if isinstance(f, dict) else str(f)
+
+            if "." in fname:
+
+                ext = fname.rsplit(".", 1)[-1].lower()
+
+            else:
+
+                continue
+
+            ext_map.setdefault(ext, []).append(fname)
+
+
+
+        ext_to_lang = {
+
+            "java": "Java", "py": "Python", "js": "JavaScript", "ts": "TypeScript",
+
+            "kt": "Kotlin", "scala": "Scala", "groovy": "Groovy", "rb": "Ruby",
+
+            "cs": "C#", "cpp": "C++", "c": "C", "go": "Go", "rs": "Rust",
+
+            "xml": "XML/Config", "yml": "YAML", "yaml": "YAML",
+
+            "properties": "Properties", "json": "JSON", "sql": "SQL",
+
+            "html": "HTML", "css": "CSS", "sh": "Shell", "bat": "Batch",
+
+            "gradle": "Gradle", "toml": "TOML",
+
+        }
+
+        # Merge yaml
+
+        if "yml" in ext_map and "yaml" in ext_map:
+
+            ext_map["yml"].extend(ext_map.pop("yaml"))
+
+        elif "yaml" in ext_map:
+
+            ext_map["yml"] = ext_map.pop("yaml")
+
+
+
+        languages_list = []
+
+        total_files = 0
+
+        for ext, files in sorted(ext_map.items(), key=lambda x: -len(x[1])):
+
+            lang = ext_to_lang.get(ext, ext.upper())
+
+            cnt = len(files)
+
+            # Estimate LOC: ~80 lines per Java/source, ~30 per config
+
+            est_loc = cnt * 80 if ext in ("java", "py", "js", "ts", "kt", "scala", "cs", "go", "rs") else cnt * 30
+
+            test_files_in = [f for f in files if "test" in f.lower()]
+
+            used = cnt - len(test_files_in)
+
+            languages_list.append({
+
+                "language": lang, "programs": str(cnt), "loc": str(est_loc),
+
+                "used_files": str(used), "orphan_files": "0",
+
+                "used_loc": str(int(est_loc * used / cnt)) if cnt else "0", "orphan_loc": "0",
+
+                "notes": f"Auto-detected from {cnt} .{ext} files"
+
+            })
+
+            total_files += cnt
+
+            if len(languages_list) >= 3:
+
+                break
+
+
+
+        doc["languages"] = languages_list
+
+        doc["total_programs"] = str(total_files)
+
+        doc["total_loc"] = str(sum(int(l.get("loc", 0)) for l in languages_list))
+
+        doc["orphan_files"] = "0"
+
+        logger.info(f"[BRD ENRICH] Generated languages: {[l['language'] for l in languages_list]}")
+
+
+
+    # ══════════════════════════════════════════════════════════════════
+
+    # FIX 8: Populate "capabilities" from LLM modules if missing features/processes
+
+    # ══════════════════════════════════════════════════════════════════
+
+    capabilities = doc.get("capabilities", [])
+
+    if not capabilities:
+
+        # Derive from modules
+
+        mods = doc.get("modules", [])
+
+        for i, m in enumerate(mods[:3]):
+
+            if isinstance(m, dict):
+
+                mod_name = m.get("name", f"Module {i+1}")
+
+                mod_desc = m.get("description", "")
+
+                capabilities.append({
+
+                    "name": mod_name,
+
+                    "overview": mod_desc or f"Core functionality provided by the {mod_name} module",
+
+                    "business_value": f"Supports critical business operations through {mod_name}",
+
+                    "features": [
+
+                        f"{mod_name} core processing",
+
+                        f"{mod_name} data management",
+
+                        f"{mod_name} validation and error handling",
+
+                        f"{mod_name} integration support"
+
+                    ],
+
+                    "processes": [
+
+                        f"Initialize {mod_name}",
+
+                        f"Process {mod_name} requests",
+
+                        f"Validate {mod_name} outputs"
+
+                    ]
+
+                })
+
+        # Ensure at least 3 capabilities
+
+        if not capabilities:
+
+            capabilities = [
+
+                {"name": repo_name, "overview": f"Primary application functionality of {repo_name}",
+
+                 "business_value": "Delivers core business operations",
+
+                 "features": ["Request handling", "Data processing", "Response generation", "Error management"],
+
+                 "processes": ["Accept input", "Process business logic", "Return results"]},
+
+                {"name": "Configuration & Build", "overview": f"Build and configuration management via {build_tool}",
+
+                 "business_value": "Ensures consistent builds and deployments",
+
+                 "features": ["Dependency management", "Build automation", "Environment configuration"],
+
+                 "processes": ["Resolve dependencies", "Compile source", "Package artifacts"]},
+
+                {"name": "Testing & Quality", "overview": "Automated testing and code quality assurance",
+
+                 "business_value": "Maintains code reliability and reduces defects",
+
+                 "features": ["Unit testing", "Integration testing", "Code coverage"],
+
+                 "processes": ["Execute test suites", "Generate reports", "Validate coverage thresholds"]}
+
+            ]
+
+        doc["capabilities"] = capabilities
+
+    else:
+
+        # Ensure existing capabilities have features/processes
+
+        for cap in capabilities:
+
+            if isinstance(cap, dict):
+
+                if not cap.get("features"):
+
+                    cap_name = cap.get("name", "Module")
+
+                    cap["features"] = [
+
+                        f"{cap_name} core processing",
+
+                        f"{cap_name} data management",
+
+                        f"{cap_name} validation",
+
+                        f"{cap_name} integration"
+
+                    ]
+
+                if not cap.get("processes"):
+
+                    cap_name = cap.get("name", "Module")
+
+                    cap["processes"] = [f"Initialize {cap_name}", f"Process {cap_name}", f"Finalize {cap_name}"]
+
+                if not cap.get("business_value"):
+
+                    cap["business_value"] = cap.get("overview", cap.get("description", "Supports business operations"))
+
+
+
+    # ══════════════════════════════════════════════════════════════════
+
+    # FIX 9: Populate structured non_functional_requirements dict
+
+    # ══════════════════════════════════════════════════════════════════
+
+    if not doc.get("non_functional_requirements") or not isinstance(doc.get("non_functional_requirements"), dict):
+
+        nfr_list = doc.get("nfr_requirements", [])
+
+        nfr_dict = {
+
+            "authentication": ["Token-based authentication (JWT/OAuth2)", "Credential encryption at rest", "Session timeout management", "Multi-factor authentication support"],
+
+            "authorization": ["Role-based access control (RBAC)", "API-level permission enforcement", "Principle of least privilege"],
+
+            "data_security": ["AES-256 encryption for sensitive data", "TLS 1.2+ for data in transit", "PII masking in logs"],
+
+            "availability": ["99.9% uptime SLA target", "Health check endpoints", "Graceful degradation on dependency failure"],
+
+            "performance": {
+
+                "response_time": "< 500ms", "response_time_note": "95th percentile for API endpoints",
+
+                "batch_window": "< 4 hours", "batch_window_note": "Nightly batch processing window",
+
+                "throughput": "1000 req/s", "throughput_note": "Peak load capacity",
+
+                "concurrent_users": "500", "concurrent_users_note": "Simultaneous active sessions"
+
+            },
+
+            "scalability": ["Horizontal scaling via container orchestration", "Database connection pooling", "Stateless service design"],
+
+            "compliance": ["OWASP Top 10 compliance", "Ford internal security standards", "SOX compliance for audit trails"]
+
+        }
+
+        # Override with LLM-generated NFR data if available
+
+        for nfr_item in nfr_list:
+
+            if isinstance(nfr_item, dict):
+
+                cat = nfr_item.get("category", "").lower()
+
+                req = nfr_item.get("requirement", "")
+
+                target = nfr_item.get("target", "")
+
+                if "performance" in cat and isinstance(nfr_dict["performance"], dict):
+
+                    nfr_dict["performance"]["response_time"] = target or nfr_dict["performance"]["response_time"]
+
+                elif "security" in cat:
+
+                    nfr_dict["authentication"][0] = req or nfr_dict["authentication"][0]
+
+                elif "availability" in cat:
+
+                    nfr_dict["availability"][0] = f"{req} — Target: {target}" if target else req
+
+                elif "scalability" in cat:
+
+                    nfr_dict["scalability"][0] = f"{req} — Target: {target}" if target else req
+
+        doc["non_functional_requirements"] = nfr_dict
+
+
+
+    # ══════════════════════════════════════════════════════════════════
+
+    # FIX 10: Populate risks from dependency_risks + LLM known_limitations
+
+    # ══════════════════════════════════════════════════════════════════
+
+    if not doc.get("risks"):
+
+        risks = []
+
+        # From dependency_risks
+
+        dep_risks = doc.get("dependency_risks", [])
+
+        for dr in dep_risks[:2]:
+
+            if isinstance(dr, dict):
+
+                risks.append({
+
+                    "category": "technical",
+
+                    "title": f"Dependency Risk: {dr.get('dependency', 'Unknown')}",
+
+                    "description": f"Version {dr.get('current_version', '?')} has risk level {dr.get('risk_level', '?')}. {dr.get('notes', '')}",
+
+                    "mitigation": f"Upgrade to {dr.get('latest_version', 'latest')} and run regression tests"
+
+                })
+
+        # From vulnerable_deps
+
+        if vulnerable_deps:
+
+            risks.append({
+
+                "category": "security",
+
+                "title": f"Vulnerable Dependencies ({len(vulnerable_deps)} found)",
+
+                "description": f"Security scan identified {len(vulnerable_deps)} dependencies with known vulnerabilities",
+
+                "mitigation": "Apply security patches, upgrade affected libraries, run SAST/DAST scans"
+
+            })
+
+        # Generic operational risk
+
+        risks.append({
+
+            "category": "operational",
+
+            "title": "Environment Configuration Drift",
+
+            "description": "Differences between development, staging, and production configurations may cause deployment failures",
+
+            "mitigation": "Implement infrastructure-as-code, environment parity checks, and automated config validation"
+
+        })
+
+        # Java version risk
+
+        if java_version and java_version != "unknown":
+
+            risks.append({
+
+                "category": "technical",
+
+                "title": f"Java {java_version} End-of-Life Risk",
+
+                "description": f"Java {java_version} may be approaching or past end-of-life, limiting security patches and vendor support",
+
+                "mitigation": f"Plan migration to latest Java LTS version; validate compatibility of all {len(real_deps)} dependencies"
+
+            })
+
+        # Maintenance risk
+
+        risks.append({
+
+            "category": "maintenance",
+
+            "title": "Technical Debt Accumulation",
+
+            "description": f"Codebase with {len(real_files)} files requires ongoing refactoring to maintain code quality",
+
+            "mitigation": "Implement code quality gates, automated test coverage targets, and regular tech debt sprints"
+
+        })
+
+        # Security risk
+
+        risks.append({
+
+            "category": "security",
+
+            "title": "API Security Exposure",
+
+            "description": "Exposed API endpoints require comprehensive security hardening including authentication, rate limiting, and input validation",
+
+            "mitigation": "Implement API gateway with rate limiting, OAuth2 scopes, and automated penetration testing"
+
+        })
+
+        doc["risks"] = risks
+
+
+
+    # ══════════════════════════════════════════════════════════════════
+
+    # FIX 11: Populate integration fields from LLM external_api_calls
+
+    # ══════════════════════════════════════════════════════════════════
+
+    if not doc.get("inbound_integrations"):
+
+        ext_apis = doc.get("external_api_calls", [])
+
+        inbound = []
+
+        outbound = []
+
+        for api in ext_apis[:5]:
+
+            if isinstance(api, dict):
+
+                entry = {
+
+                    "name": api.get("service_name", "External Service"),
+
+                    "technology": api.get("auth_method", "REST/HTTPS"),
+
+                    "format": api.get("request_format", "JSON"),
+
+                    "frequency": api.get("frequency", "On-demand"),
+
+                    "error_handling": api.get("error_handling", "Retry with backoff"),
+
+                    "description": api.get("purpose", "External API integration")
+
+                }
+
+                if api.get("method", "").upper() in ("GET", "SUBSCRIBE"):
+
+                    inbound.append(entry)
+
+                else:
+
+                    outbound.append(entry)
+
+        if not inbound:
+
+            inbound = [{"name": "REST API Consumer", "technology": "HTTP/REST", "format": "JSON",
+
+                        "frequency": "Per-request", "error_handling": "Circuit breaker pattern",
+
+                        "description": "Receives inbound API requests from client applications"}]
+
+        if not outbound:
+
+            outbound = [{"name": "External Service Call", "technology": "HTTP/REST", "format": "JSON",
+
+                         "frequency": "On-demand", "consumers": "Internal services",
+
+                         "description": "Outbound calls to external or downstream services"}]
+
+        doc["inbound_integrations"] = inbound
+
+        doc["outbound_integrations"] = outbound
+
+
+
+    if not doc.get("integration_technologies"):
+
+        doc["integration_technologies"] = [
+
+            {"technology": "REST/HTTP", "direction": "Bidirectional", "pattern": "Request-Response", "notes": "Primary API communication protocol"},
+
+            {"technology": "JDBC/JPA", "direction": "Outbound", "pattern": "Query-Response", "notes": "Database access layer"},
+
+            {"technology": "JSON", "direction": "Bidirectional", "pattern": "Serialization", "notes": "Standard data interchange format"}
+
+        ]
+
+
+
+    # ══════════════════════════════════════════════════════════════════
+
+    # FIX 12: Populate data management fields from DB/entity data
+
+    # ══════════════════════════════════════════════════════════════════
+
+    if not doc.get("data_stores"):
+
+        db_tables = doc.get("db_tables", [])
+
+        stores = []
+
+        for i, tbl in enumerate(db_tables[:6]):
+
+            if isinstance(tbl, dict):
+
+                stores.append({
+
+                    "name": tbl.get("table_name", f"Store {i+1}"),
+
+                    "type": "Relational Table",
+
+                    "description": f"Database table with {len(tbl.get('fields', []))} columns"
+
+                })
+
+        if not stores:
+
+            stores = [{"name": "Primary Database", "type": "Relational (JDBC)", "description": "Main application data store"}]
+
+        doc["data_stores"] = stores
+
+
+
+    if not doc.get("data_entry_points"):
+
+        doc["data_entry_points"] = ["REST API endpoints", "Configuration files", "Batch file input", "User interface forms"]
+
+    if not doc.get("data_processing"):
+
+        doc["data_processing"] = ["Business logic transformation", "Validation and sanitization"]
+
+    if not doc.get("data_exit_points"):
+
+        doc["data_exit_points"] = ["API response payloads", "Database persistence", "Log/audit output"]
+
+    if not doc.get("data_dependencies"):
+
+        doc["data_dependencies"] = ["Database connectivity", "External API availability", "Configuration store access"]
+
+
+
+    # ══════════════════════════════════════════════════════════════════
+
+    # FIX 13: Populate dead_code_analysis from real file analysis
+
+    # ══════════════════════════════════════════════════════════════════
+
+    if not doc.get("dead_code_analysis") or not isinstance(doc.get("dead_code_analysis"), dict):
+
+        test_cnt = len([f for f in real_files if ("test" in (f.get("path", f.get("name", "")) if isinstance(f, dict) else str(f)).lower())])
+
+        doc["dead_code_analysis"] = {
+
+            "total_programs": str(len(real_files)),
+
+            "programs_with_dead": "0",
+
+            "avg_dead_pct": "< 5%",
+
+            "high_count": "0",
+
+            "capabilities": [
+
+                {"name": "Core Application", "programs": str(len(real_files) - test_cnt), "pct": "< 5", "priority": "Low"},
+
+                {"name": "Test Suite", "programs": str(test_cnt), "pct": "0", "priority": "Low"}
+
+            ],
+
+            "programs": [],
+
+            "modernization_impact": "Low dead code ratio; codebase is maintainable for modernization"
+
+        }
+
+
+
+    # ══════════════════════════════════════════════════════════════════
+
+    # FIX 14: Populate production_data with sensible defaults
+
+    # ══════════════════════════════════════════════════════════════════
+
+    if not doc.get("production_data") or not isinstance(doc.get("production_data"), dict):
+
+        doc["production_data"] = {
+
+            "cpu_overall": "Nominal", "peak_cpu": "Peak during batch cycles", "online_cpu": "Within SLA thresholds",
+
+            "top_jobs": [], "top_transactions": [], "performance_optimizations": [
+
+                "Connection pooling enabled",
+
+                "Query optimization with indexed lookups",
+
+                "Caching layer for frequently accessed data"
+
+            ]
+
+        }
+
+
+
+    # ══════════════════════════════════════════════════════════════════
+
+    # FIX 15: Populate contacts, support, escalation defaults
+
+    # ══════════════════════════════════════════════════════════════════
+
+    if not doc.get("contacts") or not isinstance(doc.get("contacts"), dict):
+
+        doc["contacts"] = {
+
+            "sme": {"name": "TBD", "email": "TBD"},
+
+            "pm": {"name": "TBD", "email": "TBD"},
+
+            "architect": {"name": "TBD", "email": "TBD"},
+
+            "ops": {"name": "TBD", "email": "TBD"}
+
+        }
+
+    if not doc.get("support_channels"):
+
+        doc["support_channels"] = [
+
+            {"channel": "ServiceNow", "details": "IT Service Management portal", "hours": "24/7"},
+
+            {"channel": "Email", "details": "team-support@ford.com", "hours": "Business hours"},
+
+            {"channel": "Teams Channel", "details": "Application Support Channel", "hours": "Business hours"}
+
+        ]
+
+    if not doc.get("escalation_matrix"):
+
+        doc["escalation_matrix"] = [
+
+            {"trigger": "P1 — Production Down", "contact": "On-call Engineer → App Lead", "sla": "< 30 min response"},
+
+            {"trigger": "P2 — Major Degradation", "contact": "App Lead → Architecture Team", "sla": "< 2 hour response"},
+
+            {"trigger": "P3 — Minor Issue", "contact": "Dev Team via ServiceNow", "sla": "< 1 business day"}
+
+        ]
+
+
+
+    # ══════════════════════════════════════════════════════════════════
+
+    # FIX 16: Populate file_groups from LLM file_descriptions
+
+    # ══════════════════════════════════════════════════════════════════
+
+    if not doc.get("file_groups"):
+
+        fd = doc.get("file_descriptions", [])
+
+        groups = {}
+
+        for f in fd:
+
+            if isinstance(f, dict):
+
+                ftype = f.get("type", "Other")
+
+                groups.setdefault(ftype, []).append(f)
+
+        file_groups = [{"name": gname, "files": gfiles} for gname, gfiles in list(groups.items())[:3]]
+
+        if not file_groups:
+
+            file_groups = [{"name": "Source Files", "files": fd[:12]}]
+
+        doc["file_groups"] = file_groups
+
+
+
+    # ══════════════════════════════════════════════════════════════════
+
+    # FIX 17: Populate misc template fields from LLM data
+
+    # ══════════════════════════════════════════════════════════════════
+
+    # databases from tech_stack
+
+    if not doc.get("databases"):
+
+        db_entries = [t for t in doc.get("tech_stack", []) if isinstance(t, dict) and
+
+                      t.get("category", "").lower() in ("database", "db", "data store", "persistence")]
+
+        if not db_entries:
+
+            # Guess from dependency names
+
+            db_keywords = {"mysql": "MySQL", "postgres": "PostgreSQL", "oracle": "Oracle", "h2": "H2",
+
+                           "mongodb": "MongoDB", "redis": "Redis", "sqlite": "SQLite", "mariadb": "MariaDB",
+
+                           "db2": "DB2", "mssql": "SQL Server", "sqlserver": "SQL Server"}
+
+            for dep in real_deps:
+
+                aid = dep.get("artifact_id", "").lower()
+
+                for kw, dbname in db_keywords.items():
+
+                    if kw in aid:
+
+                        db_entries.append({"name": dbname, "type": "Relational", "usage": f"Detected via dependency: {dep.get('artifact_id', '')}", "version": dep.get("current_version", "")})
+
+                        break
+
+        if not db_entries:
+
+            db_entries = [{"name": "Application Database", "type": "Relational", "usage": "Primary data persistence"}]
+
+        doc["databases"] = db_entries
+
+
+
+    if not doc.get("runtimes"):
+
+        doc["runtimes"] = [
+
+            {"name": f"JDK {java_version}" if java_version != "unknown" else "JDK", "description": "Java runtime environment"},
+
+            {"name": f"{build_tool.title()}" if build_tool != "unknown" else "Build System", "description": "Build automation and dependency management"}
+
+        ]
+
+
+
+    if not doc.get("middleware"):
+
+        mw = []
+
+        for fw in detected_frameworks:
+
+            fw_lower = fw.lower()
+
+            if "spring" in fw_lower:
+
+                mw.append({"name": "Spring Framework", "use_case": "Application framework, dependency injection, MVC"})
+
+            elif "boot" in fw_lower:
+
+                mw.append({"name": "Spring Boot", "use_case": "Auto-configuration, embedded server, production-ready features"})
+
+        if not mw:
+
+            mw = [{"name": "Application Server", "use_case": "Runtime container for the application"}]
+
+        doc["middleware"] = mw[:2]
+
+
+
+    if not doc.get("dev_tools"):
+
+        doc["dev_tools"] = [
+
+            {"name": build_tool.title() if build_tool != "unknown" else "Build Tool", "purpose": "Build automation and dependency management"},
+
+            {"name": "Git", "purpose": "Version control and collaboration"},
+
+            {"name": "IDE (IntelliJ/Eclipse)", "purpose": "Development environment"}
+
+        ]
+
+
+
+    # Online/batch transactions — derive from api_endpoints OR controller classes
+
+    if not doc.get("online_transactions"):
+
+        api_eps = doc.get("api_endpoints", [])
+
+        txns = []
+
+        for ep in api_eps[:5]:
+
+            if isinstance(ep, dict):
+
+                txns.append({
+
+                    "code": ep.get("method", "GET"),
+
+                    "program": ep.get("endpoint", ep.get("path", "—")),
+
+                    "description": ep.get("description", "API endpoint")
+
+                })
+
+        # If still empty, derive from actual controller classes in the repo
+
+        if not txns:
+
+            ctrl_classes = [c for c in actual_classes if "controller" in c.lower() or "resource" in c.lower()]
+
+            svc_classes = [c for c in actual_classes if "service" in c.lower()]
+
+            for cc in ctrl_classes[:5]:
+
+                base = cc.replace("Controller", "").replace("Resource", "")
+
+                txns.append({
+
+                    "code": "REST",
+
+                    "program": f"{cc}.java",
+
+                    "description": f"{base} API request processing"
+
+                })
+
+            if not txns and svc_classes:
+
+                for sc in svc_classes[:5]:
+
+                    base = sc.replace("Service", "").replace("Impl", "")
+
+                    txns.append({
+
+                        "code": "SVC",
+
+                        "program": f"{sc}.java",
+
+                        "description": f"{base} business logic execution"
+
+                    })
+
+        doc["online_transactions"] = txns
+
+
+
+    if not doc.get("batch_cycles"):
+
+        doc["batch_cycles"] = [
+
+            {"cycle": "Nightly", "job": "Scheduled Maintenance", "description": "Routine maintenance and cleanup tasks"},
+
+            {"cycle": "On-Demand", "job": "Data Migration", "description": "Ad-hoc data processing jobs"}
+
+        ]
+
+
+
+    # App flow screens — ensure populated
+
+    # App flow screens — derive from actual class layers in the repo
+
+    if not doc.get("app_flow_screens"):
+
+        _ctrl = [c for c in actual_classes if "controller" in c.lower() or "resource" in c.lower()]
+
+        _svc = [c for c in actual_classes if "service" in c.lower()]
+
+        _repo = [c for c in actual_classes if "repository" in c.lower() or "dao" in c.lower()]
+
+        _filt = [c for c in actual_classes if "filter" in c.lower() or "interceptor" in c.lower()]
+
+        screens = []
+
+        if _filt:
+
+            screens.append({"screen": _filt[0], "description": f"Request filtering and pre-processing via {_filt[0]}"})
+
+        if _ctrl:
+
+            screens.append({"screen": _ctrl[0], "description": f"Request routing and parameter validation in {_ctrl[0]}"})
+
+        if _svc:
+
+            screens.append({"screen": _svc[0], "description": f"Core business logic execution in {_svc[0]}"})
+
+        if _repo:
+
+            screens.append({"screen": _repo[0], "description": f"Data access and persistence via {_repo[0]}"})
+
+        screens.append({"screen": "Response", "description": "Result formatting, serialization, and HTTP response dispatch"})
+
+        if not screens or len(screens) < 3:
+
+            screens = [
+
+                {"screen": "Entry Point", "description": "Application initialization and configuration loading"},
+
+                {"screen": "Request Processing", "description": "Core business logic execution"},
+
+                {"screen": "Data Access", "description": "Database queries and persistence operations"},
+
+                {"screen": "Response Generation", "description": "Result formatting and response dispatch"},
+
+                {"screen": "Error Handling", "description": "Exception handling and error response generation"}
+
+            ]
+
+        doc["app_flow_screens"] = [{"flow_name": f"{repo_name} Application Flow", "screens": screens}]
+
+
+
+    if not doc.get("key_flows"):
+
+        _svc2 = [c for c in actual_classes if "service" in c.lower()]
+
+        _auth2 = [c for c in actual_classes if "auth" in c.lower() or "login" in c.lower() or "logon" in c.lower()]
+
+        kf = []
+
+        if _auth2:
+
+            kf.append({"title": f"{_auth2[0]} Flow", "description": f"User authentication and session management through {_auth2[0]}"})
+
+        if _svc2:
+
+            kf.append({"title": f"{_svc2[0]} Flow", "description": f"Primary business logic processing through {_svc2[0]}"})
+
+        kf.append({"title": "Data Persistence Flow", "description": "CRUD operations, data validation, and persistence to data store"})
+
+        if len(kf) < 3:
+
+            kf.insert(0, {"title": f"{repo_name} Core Flow", "description": f"End-to-end request processing pipeline for {repo_name}"})
+
+        doc["key_flows"] = kf[:3]
+
+
+
+    # Activity flows — ALWAYS derive from actual classes in the repo
+
+    # Template needs at least 2 flows: flow 1 (up to 10 steps) and flow 2 (up to 6 steps)
+
+    # Even if LLM returned flows, enrich / replace with repo-specific content
+
+    existing_flows = doc.get("activity_flows", [])
+
+    ctrl_classes = sorted([c for c in actual_classes if "controller" in c.lower() or "resource" in c.lower()])
+
+    svc_classes = sorted([c for c in actual_classes if "service" in c.lower()])
+
+    repo_classes = sorted([c for c in actual_classes if "repository" in c.lower() or "dao" in c.lower()])
+
+    filter_classes = sorted([c for c in actual_classes if "filter" in c.lower()])
+
+    handler_classes = sorted([c for c in actual_classes if "handler" in c.lower()])
+
+    auth_classes = sorted([c for c in actual_classes if "auth" in c.lower() or "login" in c.lower() or "logon" in c.lower()])
+
+    config_classes = sorted([c for c in actual_classes if "config" in c.lower()])
+
+    fw_names = ", ".join(detected_frameworks[:3]) if detected_frameworks else "Spring"
+
+
+
+    flows = []
+
+
+
+    # Flow 1: Primary application request flow (up to 10 steps — use real class names)
+
+    if ctrl_classes or filter_classes or handler_classes:
+
+        cc = ctrl_classes[0] if ctrl_classes else (handler_classes[0] if handler_classes else "RequestHandler")
+
+        base = cc.replace("Controller", "").replace("Resource", "").replace("Handler", "")
+
+        svc_match = next((s for s in svc_classes if base.lower() in s.lower()), svc_classes[0] if svc_classes else "Service Layer")
+
+        repo_match = next((r for r in repo_classes if base.lower() in r.lower()), repo_classes[0] if repo_classes else "Data Layer")
+
+
+
+        steps = ["User accesses application"]
+
+        # Add filter steps (real class names)
+
+        for fc in filter_classes[:3]:
+
+            steps.append(f"{fc} processes request")
+
+        # Add handler / controller step
+
+        if handler_classes and handler_classes[0] != cc:
+
+            steps.append(f"{handler_classes[0]} routes request")
+
+        steps.append(f"{cc} receives request")
+
+        # Add service step
+
+        steps.append(f"{svc_match} executes business logic")
+
+        # Add auth step if present
+
+        if auth_classes:
+
+            steps.append(f"{auth_classes[0]} validates credentials")
+
+        # Add repo step
+
+        if repo_classes:
+
+            steps.append(f"{repo_match} persists data")
+
+        # Final step
+
+        steps.append(f"Response returned to user")
+
+
+
+        flows.append({
+
+            "name": f"{repo_name} Application Flow",
+
+            "steps": " → ".join(steps[:10])
+
+        })
+
+    elif svc_classes:
+
+        sc = svc_classes[0]
+
+        base = sc.replace("Service", "").replace("Impl", "")
+
+        repo_match = repo_classes[0] if repo_classes else "Data Layer"
+
+        flows.append({
+
+            "name": f"{repo_name} Application Flow",
+
+            "steps": f"User accesses application → {fw_names} Dispatcher → Request Validation → {sc} → Business Logic → {repo_match} → Response returned to user"
+
+        })
+
+    else:
+
+        flows.append({
+
+            "name": f"{repo_name} Application Flow",
+
+            "steps": f"User accesses application → {fw_names} Dispatcher → Request Validation → Business Logic → Data Layer → Response returned to user"
+
+        })
+
+
+
+    # Flow 2: Secondary flow — authentication / config / error handling (up to 6 steps)
+
+    if auth_classes:
+
+        ac = auth_classes[0]
+
+        base_auth = ac.replace("Authenticator", "").replace("Auth", "").replace("Login", "").replace("Logon", "") or "Auth"
+
+        svc_auth = next((s for s in svc_classes if "auth" in s.lower() or "login" in s.lower() or "session" in s.lower()), "Session Manager")
+
+        session_cls = next((s for s in svc_classes if "session" in s.lower() or "tracker" in s.lower()), svc_auth)
+
+        steps2 = [
+
+            "User submits credentials",
+
+            f"{ac} validates credentials",
+
+            f"If successful, {session_cls} creates/updates session",
+
+        ]
+
+        # Add filter step if available
+
+        if filter_classes:
+
+            post_filter = next((f for f in filter_classes if "post" in f.lower() or "time" in f.lower()), None)
+
+            if post_filter:
+
+                steps2.append(f"{post_filter} logs request time")
+
+        steps2.append("User redirected to target application. If failed, error message displayed.")
+
+        flows.append({
+
+            "name": f"{base_auth} Authentication Flow",
+
+            "steps": " → ".join(steps2[:6])
+
+        })
+
+    elif len(ctrl_classes) > 1:
+
+        cc2 = ctrl_classes[1]
+
+        base2 = cc2.replace("Controller", "").replace("Resource", "")
+
+        svc_match2 = next((s for s in svc_classes if base2.lower() in s.lower()), svc_classes[1] if len(svc_classes) > 1 else "Service")
+
+        flows.append({
+
+            "name": f"{base2} Processing Flow",
+
+            "steps": f"HTTP Request → {cc2} → {svc_match2} → Validate & Process → Return Response"
+
+        })
+
+    elif handler_classes:
+
+        flows.append({
+
+            "name": f"Error Handling Flow",
+
+            "steps": f"Exception Raised → {handler_classes[0]} → Log Error → Return Error Response"
+
+        })
+
+    elif config_classes:
+
+        cfg = config_classes[0]
+
+        flows.append({
+
+            "name": f"Configuration & Startup Flow",
+
+            "steps": f"Application Start → {cfg} → Load Properties → Initialize Services → Ready"
+
+        })
+
+    else:
+
+        flows.append({
+
+            "name": f"{repo_name} Data Processing Flow",
+
+            "steps": f"Receive Input → Validate Data → Process Business Rules → Persist Results"
+
+        })
+
+
+
+    # If LLM returned additional flows beyond what we generated, keep them
+
+    if isinstance(existing_flows, list):
+
+        existing_names = {f.get("name", "").lower() for f in flows}
+
+        for ef in existing_flows:
+
+            if isinstance(ef, dict) and ef.get("steps") and ef.get("name", "").lower() not in existing_names:
+
+                flows.append(ef)
+
+                if len(flows) >= 6:
+
+                    break
+
+
+
+    doc["activity_flows"] = flows
+
+    logger.info(f"[BRD ENRICH] Generated {len(flows)} activity flows from {len(ctrl_classes)} controllers, "
+
+                f"{len(svc_classes)} services, {len(auth_classes)} auth classes")
+
+
+
+    # Sequence diagrams — use actual class names from the repo
+
+    if not doc.get("sequence_diagrams"):
+
+        _sd_ctrl = ctrl_classes[0] if ctrl_classes else "Controller"
+
+        _sd_svc = svc_classes[0] if svc_classes else "Service"
+
+        _sd_repo = repo_classes[0] if repo_classes else "Repository"
+
+        _sd_auth = auth_classes[0] if auth_classes else "Auth Module"
+
+        doc["sequence_diagrams"] = [
+
+            {"name": f"{repo_name} Request Lifecycle",
+
+             "actors": ["Client", _sd_ctrl, _sd_svc, _sd_repo],
+
+             "messages": [
+
+                 "HTTP Request", f"Route to {_sd_ctrl}", f"Delegate to {_sd_svc}",
+
+                 f"Query via {_sd_repo}", "Return Data", "Format Response", "HTTP Response"
+
+             ]},
+
+            {"name": f"Authentication Sequence",
+
+             "actors": ["User", _sd_auth, "Session Store"],
+
+             "messages": [
+
+                 "Submit Credentials", f"Validate via {_sd_auth}", "Check Session Store",
+
+                 "Generate Token", "Return Auth Token"
+
+             ]},
+
+        ]
+
+
+
+    # PII categories
+
+    if not doc.get("pii_categories"):
+
+        doc["pii_categories"] = [
+
+            {"elements": "User credentials, tokens", "capabilities": "Authentication module"},
+
+            {"elements": "Configuration secrets", "capabilities": "Configuration management"},
+
+            {"elements": "Audit logs, IP addresses", "capabilities": "Logging framework"},
+
+            {"elements": "Business data records", "capabilities": "Core data processing"}
+
+        ]
+
+
+
+    # Orphan categories
+
+    if not doc.get("orphan_categories"):
+
+        doc["orphan_categories"] = [
+
+            {"category": "Unused Configuration", "note": "Legacy config files no longer referenced", "files": "None identified"},
+
+            {"category": "Deprecated Code", "note": "Code marked for removal in future releases", "files": "None identified"}
+
+        ]
+
+
+
+    # Orphan types
+
+    if not doc.get("orphan_types"):
+
+        doc["orphan_types"] = [
+
+            {"type": "Unused Imports", "files": "Detected by static analysis — auto-cleanable"},
+
+            {"type": "Dead Methods", "files": "Private methods with no callers — review before removal"},
+
+            {"type": "Deprecated APIs", "files": "Usage of deprecated Java APIs — upgrade path recommended"},
+
+            {"type": "Legacy Configs", "files": "No orphan configuration files identified"}
+
+        ]
+
+
+
+    # Processing summary, revision history, source files
+
+    if not doc.get("proc_summary") and not doc.get("processing_summary"):
+
+        doc["processing_summary"] = [
+
+            f"Analyzed {len(real_files)} files across the repository",
+
+            f"Detected {len(real_deps)} dependencies ({len(vulnerable_deps)} with vulnerabilities)",
+
+            f"Build tool: {build_tool}, Java version: {java_version}",
+
+            f"Frameworks: {', '.join(detected_frameworks) if detected_frameworks else 'None auto-detected'}",
+
+            f"Generated comprehensive BRD with 24 chapters"
+
+        ]
+
+    if not doc.get("revision_history"):
+
+        import datetime as _dt
+
+        doc["revision_history"] = [
+
+            {"date": _dt.datetime.now().strftime("%B %d, %Y"), "author": "Java Migration Accelerator", "changes": "Initial BRD auto-generation from repository analysis"}
+
+        ]
+
+    if not doc.get("source_files_used"):
+
+        build_f = []
+
+        for f in real_files:
+
+            fname = f.get("path", f.get("name", "")) if isinstance(f, dict) else str(f)
+
+            if any(fname.lower().endswith(ext) for ext in (".gradle", "pom.xml", ".properties", ".yml", ".yaml")):
+
+                build_f.append(fname)
+
+        doc["source_files_used"] = build_f[:3] if build_f else [f"{build_tool} build files", "application configuration", "source code"]
+
+
+
+    # Architecture intro, business flow, document descriptions
+
+    if not doc.get("architecture_intro"):
+
+        doc["architecture_intro"] = doc.get("architecture_style", f"The {repo_name} application follows a layered architecture pattern.")
+
+    if not doc.get("business_flow_overview"):
+
+        doc["business_flow_overview"] = doc.get("executive_summary", f"Business flow overview for {repo_name}")
+
+
+
+    exec_summary = doc.get("executive_summary", "")
+
+    dep_count = len(real_deps)
+
+    file_count = len(real_files)
+
+    fw_list = ", ".join(detected_frameworks[:5]) if detected_frameworks else build_tool.title()
+
+
+
+    if not doc.get("doc_purpose_description"):
+
+        doc["doc_purpose_description"] = (
+
+            f"This document provides a comprehensive technical overview of the {repo_name} application, "
+
+            f"covering its architecture, {dep_count} dependencies, data flows, API contracts, and security posture. "
+
+            f"It is intended for architects, developers, migration teams, and business stakeholders involved in "
+
+            f"modernization planning. The analysis is based on static code inspection of {file_count} source files "
+
+            f"using {fw_list}."
+
+        )
+
+
+
+    if not doc.get("app_purpose_description"):
+
+        doc["app_purpose_description"] = exec_summary if len(exec_summary) > 100 else (
+
+            f"{repo_name} is a {build_tool.title()}-based Java application comprising {file_count} source files "
+
+            f"and {dep_count} dependencies. {exec_summary} "
+
+            f"The application leverages {fw_list} to deliver its core functionality."
+
+        )
+
+
+
+    if not doc.get("detailed_purpose"):
+
+        doc["detailed_purpose"] = exec_summary if len(exec_summary) > 150 else (
+
+            f"{exec_summary} " if exec_summary else f"The {repo_name} application "
+
+            f"is a Java-based system built with {build_tool.title()} comprising {file_count} source files "
+
+            f"organized across {len(doc.get('modules', []))} functional modules. "
+
+            f"It depends on {dep_count} libraries including {fw_list}. "
+
+            f"The primary value it provides is a standardized platform for:"
+
+        )
+
+
+
+    # API groups
+
+    if not doc.get("api_groups"):
+
+        api_eps = doc.get("api_endpoints", [])
+
+        seen_groups = []
+
+        for ep in api_eps:
+
+            if isinstance(ep, dict):
+
+                g = ep.get("group", "General")
+
+                if g not in seen_groups:
+
+                    seen_groups.append(g)
+
+        doc["api_groups"] = [{"name": g} for g in seen_groups[:3]] if seen_groups else [{"name": "General APIs"}]
+
+
+
+    # Table relationships
+
+    if not doc.get("table_relationships"):
+
+        db_tables = doc.get("db_tables", [])
+
+        rels = []
+
+        for tbl in db_tables:
+
+            if isinstance(tbl, dict):
+
+                for fld in tbl.get("fields", []):
+
+                    if isinstance(fld, dict) and fld.get("key") == "FK" and fld.get("references"):
+
+                        ref_table = fld["references"].split(".")[0] if "." in fld["references"] else fld["references"]
+
+                        rels.append({"parent": ref_table, "child": tbl.get("table_name", ""), "type": "Foreign Key"})
+
+        doc["table_relationships"] = rels[:4]
+
+
+
+    # Glossary — ensure populated
+
+    if not doc.get("glossary") or len(doc.get("glossary", [])) < 5:
+
+        base_glossary = [
+
+            {"term": "BRD", "definition": "Business Requirements Document — outlines business needs and functional specifications"},
+
+            {"term": "API", "definition": "Application Programming Interface — defines interactions between software components"},
+
+            {"term": "JVM", "definition": "Java Virtual Machine — runtime environment for executing Java bytecode"},
+
+            {"term": "REST", "definition": "Representational State Transfer — architectural style for distributed systems"},
+
+            {"term": "CRUD", "definition": "Create, Read, Update, Delete — basic data persistence operations"},
+
+            {"term": "CI/CD", "definition": "Continuous Integration / Continuous Deployment — automated build and release pipeline"},
+
+            {"term": "NFR", "definition": "Non-Functional Requirement — quality attributes like performance, security, availability"},
+
+            {"term": "RBAC", "definition": "Role-Based Access Control — authorization model based on user roles"},
+
+            {"term": "DTO", "definition": "Data Transfer Object — pattern for encapsulating data between layers"},
+
+            {"term": "ORM", "definition": "Object-Relational Mapping — technique for converting between object and relational data models"},
+
+            {"term": "SLA", "definition": "Service Level Agreement — commitment to quality of service metrics"},
+
+            {"term": "JWT", "definition": "JSON Web Token — compact, URL-safe token format for claims between parties"},
+
+            {"term": build_tool.upper() if build_tool != "unknown" else "BUILD TOOL", "definition": f"Build automation tool used for dependency management and compilation"},
+
+            {"term": "LOC", "definition": "Lines of Code — metric for measuring codebase size"},
+
+            {"term": "CVE", "definition": "Common Vulnerabilities and Exposures — standardized vulnerability identifiers"},
+
+            {"term": "SAST", "definition": "Static Application Security Testing — code analysis without execution"}
+
+        ]
+
+        existing = doc.get("glossary", [])
+
+        existing_terms = {g.get("term", "").lower() for g in existing if isinstance(g, dict)}
+
+        for g in base_glossary:
+
+            if g["term"].lower() not in existing_terms:
+
+                existing.append(g)
+
+        doc["glossary"] = existing[:16]
+
+
+
+    # ══════════════════════════════════════════════════════════════════
+
+    # FIX 18: Ensure ALL template-required fields have defaults
+
+    # These are keys that the template placeholders map to but the LLM
+
+    # may not always provide. Without them, pages render empty.
+
+    # ══════════════════════════════════════════════════════════════════
+
+
+
+    # Security checklist (CH21)
+
+    if not doc.get("security_checklist"):
+
+        doc["security_checklist"] = [
+
+            {"item": "Authentication mechanisms enabled", "status": "pass"},
+
+            {"item": "TLS/SSL configured for all endpoints", "status": "pass"},
+
+            {"item": "Input validation and sanitization", "status": "pass"},
+
+            {"item": "CSRF protection", "status": "fail"},
+
+            {"item": "Rate limiting on API endpoints", "status": "fail"},
+
+            {"item": "Audit logging for sensitive operations", "status": "partial"},
+
+            {"item": "Secrets management (no hardcoded credentials)", "status": "pass"},
+
+            {"item": "CORS policy configured", "status": "pass"},
+
+        ]
+
+
+
+    # Acceptance criteria (CH21)
+
+    if not doc.get("acceptance_criteria"):
+
+        doc["acceptance_criteria"] = [
+
+            {"given": "Valid credentials provided", "when": "User attempts login", "then": "Session is created and user is authenticated"},
+
+            {"given": "Application is deployed", "when": "Health check is invoked", "then": "HTTP 200 returned within 2 seconds"},
+
+            {"given": f"Source code from {repo_name}", "when": f"{build_tool.title()} build is executed", "then": "Build completes successfully with zero errors"},
+
+            {"given": "API endpoint is called with valid input", "when": "Request is processed", "then": "Correct response returned within SLA"},
+
+            {"given": "Invalid or malformed input", "when": "Request is submitted", "then": "Appropriate error response with validation details"},
+
+        ]
+
+
+
+    # Known limitations (CH21)
+
+    if not doc.get("known_limitations"):
+
+        doc["known_limitations"] = [
+
+            {"id": "L-01", "limitation": "Documentation generated from static analysis — runtime behavior may differ", "priority": "Medium", "fix": "Validate with runtime testing and profiling"},
+
+            {"id": "L-02", "limitation": f"Dependency versions based on {build_tool} files — transitive dependencies may vary", "priority": "Low", "fix": "Run full dependency tree resolution"},
+
+            {"id": "L-03", "limitation": "Class/method inventory covers source files only — generated code not included", "priority": "Low", "fix": "Include build output analysis"},
+
+        ]
+
+
+
+    # Design patterns (CH4)
+
+    if not doc.get("design_patterns"):
+
+        patterns = []
+
+        fw_lower = " ".join(detected_frameworks).lower() if detected_frameworks else ""
+
+        if "spring" in fw_lower or "boot" in fw_lower:
+
+            patterns = [
+
+                {"pattern": "MVC (Model-View-Controller)", "where_applied": "Web layer — controllers, services, repositories", "benefit": "Separation of concerns"},
+
+                {"pattern": "Dependency Injection", "where_applied": "All layers via Spring IoC container", "benefit": "Loose coupling, testability"},
+
+                {"pattern": "Repository Pattern", "where_applied": "Data access layer", "benefit": "Abstraction over persistence"},
+
+            ]
+
+        else:
+
+            patterns = [
+
+                {"pattern": "Layered Architecture", "where_applied": "Presentation, business, data layers", "benefit": "Separation of concerns"},
+
+                {"pattern": "Factory Pattern", "where_applied": "Object creation and initialization", "benefit": "Decoupled instantiation"},
+
+                {"pattern": "Singleton", "where_applied": "Configuration and service managers", "benefit": "Controlled shared state"},
+
+            ]
+
+        doc["design_patterns"] = patterns
+
+
+
+    # Architecture diagram data (CH4)
+
+    if not doc.get("architecture_diagram") or not isinstance(doc.get("architecture_diagram"), dict):
+
+        # Derive from detected classes
+
+        controllers = [c for c in actual_classes if "controller" in c.lower() or "resource" in c.lower() or "endpoint" in c.lower()]
+
+        services = [c for c in actual_classes if "service" in c.lower() or "manager" in c.lower() or "handler" in c.lower()]
+
+        repos = [c for c in actual_classes if "repository" in c.lower() or "dao" in c.lower() or "mapper" in c.lower()]
+
+        doc["architecture_diagram"] = {
+
+            "actors": ["End User", "Admin / Operator", "External System"],
+
+            "presentation_layer": controllers[:3] if controllers else ["API Controller", "Request Handler", "Response Formatter"],
+
+            "business_layer": services[:5] if services else ["Core Service", "Validation Service", "Processing Engine", "Event Handler", "Notification Service"],
+
+            "data_access_layer": repos[:3] if repos else ["Data Repository", "Cache Manager", "Query Builder"],
+
+            "data_layer": [db.get("name", "Database") for db in doc.get("databases", [])[:4]] or ["Primary Database", "Cache Store", "File Storage", "Audit Log"],
+
+            "external_integrations": ["CI/CD Pipeline", "Monitoring Service", "External API Gateway"],
+
+        }
+
+
+
+    # Class inventory (CH11) — create if empty
+
+    if not doc.get("class_inventory"):
+
+        inv = []
+
+        # Derive from actual_classes
+
+        for cls_name in sorted(actual_classes)[:4]:
+
+            cls_type = "Service"
+
+            if "controller" in cls_name.lower():
+
+                cls_type = "Controller"
+
+            elif "repository" in cls_name.lower() or "dao" in cls_name.lower():
+
+                cls_type = "Repository"
+
+            elif "config" in cls_name.lower():
+
+                cls_type = "Configuration"
+
+            elif "model" in cls_name.lower() or "entity" in cls_name.lower() or "dto" in cls_name.lower():
+
+                cls_type = "Model/Entity"
+
+            inv.append({
+
+                "class_name": cls_name,
+
+                "type": cls_type,
+
+                "package": "(detected from source)",
+
+                "key_methods": "See source code",
+
+                "description": f"{cls_type} class detected in repository"
+
+            })
+
+        if not inv:
+
+            inv = [
+
+                {"class_name": "Application", "type": "Main", "package": "com.app", "key_methods": "main", "description": "Application entry point"},
+
+                {"class_name": "AppService", "type": "Service", "package": "com.app.service", "key_methods": "process, validate", "description": "Core business logic"},
+
+                {"class_name": "AppRepository", "type": "Repository", "package": "com.app.repo", "key_methods": "findAll, save", "description": "Data access layer"},
+
+                {"class_name": "AppConfig", "type": "Configuration", "package": "com.app.config", "key_methods": "configure", "description": "Application configuration"},
+
+            ]
+
+        doc["class_inventory"] = inv
+
+
+
+    # DB tables (CH7) — derive from actual entity classes, NOT generic placeholders
+
+    if not doc.get("db_tables"):
+
+        # Build from entity_files detected earlier
+
+        if entity_files:
+
+            db_tables_derived = []
+
+            for ent_name in entity_files[:6]:
+
+                # Convert CamelCase class name to snake_case table name
+
+                table_name = re.sub(r'(?<!^)(?=[A-Z])', '_', ent_name).lower()
+
+                db_tables_derived.append({
+
+                    "table_name": table_name,
+
+                    "fields": [
+
+                        {"name": "id", "type": "BIGINT", "key": "PK"},
+
+                        {"name": f"{table_name}_data", "type": "VARCHAR(255)"},
+
+                        {"name": "created_at", "type": "TIMESTAMP"},
+
+                        {"name": "updated_at", "type": "TIMESTAMP"},
+
+                    ]
+
+                })
+
+            doc["db_tables"] = db_tables_derived
+
+        else:
+
+            # No entity classes found — leave empty so the page gets pruned
+
+            doc["db_tables"] = []
+
+
+
+    # API endpoints (CH15) — derive from actual classes if missing
+
+    if not doc.get("api_endpoints"):
+
+        eps = []
+
+        # Try to detect from class names
+
+        ctrl_classes = [c for c in actual_classes if "controller" in c.lower() or "resource" in c.lower()]
+
+        for cc in ctrl_classes[:3]:
+
+            base = cc.replace("Controller", "").replace("Resource", "").lower()
+
+            eps.extend([
+
+                {"group": cc, "method": "GET", "endpoint": f"/api/{base}", "description": f"List {base} resources"},
+
+                {"group": cc, "method": "POST", "endpoint": f"/api/{base}", "description": f"Create {base} resource"},
+
+                {"group": cc, "method": "GET", "endpoint": f"/api/{base}/{{id}}", "description": f"Get {base} by ID"},
+
+            ])
+
+        if not eps:
+
+            eps = [
+
+                {"group": "Application", "method": "GET", "endpoint": "/api/health", "description": "Health check endpoint"},
+
+                {"group": "Application", "method": "GET", "endpoint": "/api/info", "description": "Application info"},
+
+            ]
+
+        doc["api_endpoints"] = eps[:8]
+
+
+
+    # Scope in/out (CH2) — ensure populated
+
+    if not doc.get("scope_in"):
+
+        doc["scope_in"] = [
+
+            f"Complete source code analysis of {repo_name}",
+
+            "Dependency inventory and vulnerability assessment",
+
+            "Architecture and design pattern documentation",
+
+            "Database schema and data flow analysis",
+
+            "API endpoint cataloging",
+
+            "Non-functional requirements baseline",
+
+        ]
+
+    if not doc.get("scope_out"):
+
+        doc["scope_out"] = [
+
+            "Runtime performance benchmarking",
+
+            "Production environment configuration",
+
+            "Third-party license compliance review",
+
+            "Migration execution plan",
+
+        ]
+
+
+
+    # Business objectives (CH2) — ensure at least 4
+
+    biz_objs = doc.get("business_objectives", [])
+
+    if len(biz_objs) < 4:
+
+        defaults = [
+
+            {"id": "BO-01", "objective": "Comprehensive Documentation", "target": f"100% coverage of {repo_name} technical landscape"},
+
+            {"id": "BO-02", "objective": "Dependency Security", "target": f"Zero critical CVEs in {len(real_deps)} dependencies"},
+
+            {"id": "BO-03", "objective": "Build Modernization", "target": f"Successful {build_tool} build on Java {java_version}"},
+
+            {"id": "BO-04", "objective": "Knowledge Transfer", "target": "Complete BRD enabling team onboarding in < 2 weeks"},
+
+        ]
+
+        for d in defaults:
+
+            if len(biz_objs) >= 4:
+
+                break
+
+            if not any(isinstance(b, dict) and b.get("objective", "").lower() == d["objective"].lower() for b in biz_objs):
+
+                biz_objs.append(d)
+
+        doc["business_objectives"] = biz_objs
+
+
+
+    logger.info(f"[BRD ENRICH] Done: tech_stack={len(doc.get('tech_stack', []))}, "
+
+                f"modules={len(doc.get('modules', []))}, use_cases={len(doc.get('use_cases', []))}, "
+
+                f"objectives={len(doc.get('business_objectives', []))}, "
+
+                f"languages={len(doc.get('languages', []))}, capabilities={len(doc.get('capabilities', []))}, "
+
+                f"risks={len(doc.get('risks', []))}, glossary={len(doc.get('glossary', []))}")
+
+    return doc
+
+tune like this
+</USER_REQUEST>
+<ADDITIONAL_METADATA>
+The current local time is: 2026-10-06T18:08:14+05:30.
+
+The user's current state is as follows:
+Active Document: c:\Users\HP\Desktop\hareesh-code\JavaAPEX\APEX-Backend\app\infrastructure\llm\prompt_templates.py (LANGUAGE_PYTHON)
+Cursor is on line: 152
+Other open documents:
+- c:\Users\HP\Desktop\hareesh-code\JavaAPEX\APEX-Backend\app\infrastructure\llm\prompt_templates.py (LANGUAGE_PYTHON)
+- c:\Users\HP\Desktop\hareesh-code\JavaAPEX\APEX-Backend\app\application\use_cases\start_migration.py (LANGUAGE_PYTHON)
+Running terminal commands:
+- npm run dev (in c:\Users\HP\Desktop\hareesh-code\JavaAPEX\APEX-Frontend, running for 5m58s)
+- uvicorn app.main:app --host 127.0.0.1 --port 8000 (in c:\Users\HP\Desktop\hareesh-code\JavaAPEX\APEX-Backend, running for 5m54s)
+</ADDITIONAL_METADATA>

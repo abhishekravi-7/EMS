@@ -30,7 +30,7 @@ from app.infrastructure.analyzers.spring_boot_detector import SpringBootDetector
 from app.infrastructure.analyzers.spring_entrypoint_scanner import SpringEntrypointScanner
 from app.infrastructure.analyzers.spring_framework_detector import SpringFrameworkDetector
 from app.infrastructure.analyzers.view_technology_analyzer import ViewTechnologyAnalyzer
-from app.infrastructure.analyzers.brd_repository_evidence import BrdRepositoryEvidenceScanner
+from app.brd.analyzers.brd_repository_evidence import BrdRepositoryEvidenceScanner
 from app.infrastructure.analyzers.repository_file_categorizer import (
     CAT_ANGULAR,
     CAT_CONFIGURATION,

@@ -23,6 +23,14 @@ from app.domain.models.proposed_test_models import (
 )
 
 
+@pytest.fixture(autouse=True)
+def cleanup_playwright():
+    """Ensure Playwright is shut down after each test to avoid leaking the event loop."""
+    yield
+    ProposedTestExecutor.shutdown_playwright()
+
+
+
 class MigratedAppHandler(http.server.SimpleHTTPRequestHandler):
     """Simple HTTP server simulating a running migrated Spring Boot / React application."""
 
