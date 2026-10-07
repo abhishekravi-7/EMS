@@ -10,8 +10,8 @@
 
 .react-sandbox-panel {
   position: relative;
-  width: min(1180px, 100%);
-  height: min(820px, 92vh);
+  width: min(1380px, 98vw);
+  height: min(880px, 94vh);
   display: flex;
   flex-direction: column;
   overflow: hidden;

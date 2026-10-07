@@ -777,7 +777,6 @@ export function DiscoveryStepView({
   const allDiscoveredPaths: string[] = useMemo(() => {
     const normalizePath = (p: string) => p.replace(/\\/g, "/").replace(/^\/+/, "").trim();
     const pathSet = new Set<string>();
-
     if (categoryFiles) {
       Object.values(categoryFiles).forEach((list) => {
         (list || []).forEach((f) => {

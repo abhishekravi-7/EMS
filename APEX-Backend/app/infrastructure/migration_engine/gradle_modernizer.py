@@ -15,7 +15,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from app.infrastructure.migration_engine.maven_version_resolver import get_version_resolver
+from app.infrastructure.migration_engine.artifactory_version_resolver import get_version_resolver
 
 logger = logging.getLogger(__name__)
 

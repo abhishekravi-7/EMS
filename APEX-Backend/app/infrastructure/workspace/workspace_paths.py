@@ -95,3 +95,7 @@ class WorkspacePaths:
     @property
     def brd_path(self) -> Path:
         return self.attachments_dir / "brd.pdf"
+
+    @property
+    def proposed_tests_dir(self) -> Path:
+        return self.job_dir / "proposed-tests"

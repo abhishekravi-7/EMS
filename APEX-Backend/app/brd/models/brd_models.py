@@ -52,6 +52,9 @@ class BrdWorkflow(BaseModel):
     target_endpoint_hint: str | None = None
     target_service_hint: str | None = None
     target_ui_hint: str | None = None
+    target_method_hint: str | None = None
+    expected_status_hint: int | None = None
+    source_reference: str | None = None
 
 
 class BrdExtractionResult(BaseModel):

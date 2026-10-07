@@ -9,10 +9,12 @@ export type ProposedTestStatus =
   | "APPROVED"
   | "REJECTED"
   | "READY"
+  | "QUEUED"
   | "RUNNING"
   | "PASSED"
   | "FAILED"
   | "SKIPPED"
+  | "BLOCKED"
   | "NOT_EXECUTED"
   | "APPLICATION_UNAVAILABLE";
 
@@ -112,6 +114,7 @@ export interface ProposedTestTypeBreakdown {
   passed: number;
   failed: number;
   skipped: number;
+  blocked?: number;
 }
 
 export interface ProposedTestPriorityBreakdown {
@@ -128,6 +131,7 @@ export interface ProposedTestMetrics {
   passed: number;
   failed: number;
   skipped: number;
+  blocked?: number;
   not_executed: number;
   gaps_count?: number;
   ai_generated_count?: number;
@@ -394,3 +398,44 @@ export async function getProposedTestReport(
     "Failed to fetch proposed test report"
   );
 }
+
+export interface InlinePromptDiff {
+  intent: "ADD" | "MODIFY" | "REMOVE" | "REGENERATE-SCOPED" | "CLARIFICATION_NEEDED";
+  added: ProposedTestCase[];
+  modified: Array<{ id: string; changed_fields: Record<string, any> }>;
+  removed: string[];
+  skipped_as_duplicate: Array<{ attempted_scenario: string; duplicate_of_id: string }>;
+  unmet_requests: Array<{ requested: string; reason_not_fulfilled: string }>;
+  clarification_needed: string | null;
+}
+
+export async function previewInlinePrompt(
+  jobId: string,
+  prompt: string
+): Promise<InlinePromptDiff> {
+  return requestJson<InlinePromptDiff>(
+    `/v1/migration/${encodeURIComponent(jobId)}/proposed-tests/inline-prompt/preview`,
+    "Failed to preview inline prompt diff",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt }),
+    }
+  );
+}
+
+export async function applyInlinePrompt(
+  jobId: string,
+  diff: InlinePromptDiff
+): Promise<ProposedTestCase[]> {
+  return requestJson<ProposedTestCase[]>(
+    `/v1/migration/${encodeURIComponent(jobId)}/proposed-tests/inline-prompt/apply`,
+    "Failed to apply inline prompt diff",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ diff }),
+    }
+  );
+}
+

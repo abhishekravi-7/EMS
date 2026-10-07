@@ -121,5 +121,7 @@ def _to_repo_analysis(owner: str, repo: str, analysis: ProjectAnalysis) -> dict[
             "has_build_gradle_kts": bool(analysis.has_build_gradle_kts),
             "has_src_main": bool(analysis.has_src_main),
             "has_src_test": bool(analysis.has_src_test),
+            "jsp_count": analysis.jsp_file_count,
+            "jsf_count": analysis.jsf_file_count,
         },
     }

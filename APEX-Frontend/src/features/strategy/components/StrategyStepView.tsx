@@ -191,9 +191,9 @@ export function StrategyStepView({
 
     if (effectiveDependencyAnalysis?.categories) {
       const categories = effectiveDependencyAnalysis.categories;
-      Object.values(categories).forEach((cat: { items?: Array<{ risk?: string }> }) => {
+      Object.values(categories).forEach((cat: any) => {
         if (cat.items && Array.isArray(cat.items)) {
-          cat.items.forEach((item: { risk?: string }) => {
+          cat.items.forEach((item: any) => {
             const r = item.risk?.toLowerCase();
             if (r === "critical") depCriticalCount++;
             else if (r === "high") depHighCount++;
@@ -204,7 +204,7 @@ export function StrategyStepView({
     }
 
     if (repoAnalysis?.dependencies && Array.isArray(repoAnalysis.dependencies)) {
-      repoAnalysis.dependencies.forEach((dep: { risk?: string, risk_level?: string }) => {
+      repoAnalysis.dependencies.forEach((dep: any) => {
         const r = dep.risk?.toLowerCase() || dep.risk_level?.toLowerCase();
         if (r === "critical") depCriticalCount++;
         else if (r === "high") depHighCount++;
@@ -596,8 +596,9 @@ export function StrategyStepView({
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 14 }}>
               {(() => {
+                const targetJavaMajor = parseInt(effectiveTargetVersion || "17", 10);
                 const isJavaUpgradeSelected = selectedConversions.includes("java_version");
-                const isSpringBootForced = isJavaUpgradeSelected && springBootPathwayStatus !== "disabled" && springBootPathwayStatus !== "loading";
+                const isSpringBootForced = isJavaUpgradeSelected && springBootPathwayStatus === "upgrade" && targetJavaMajor >= 17;
 
                 const options = [
                 {
@@ -663,7 +664,7 @@ export function StrategyStepView({
                             : "#64748b"),
                       }}
                     >
-                      {isSpringBootForced ? "Mandatory: Spring Boot 3.x is required for modern Java." : springBootReason}
+                      {isSpringBootForced ? "Mandatory: Spring Boot 3.x is required when upgrading to modern Java (17+)." : springBootReason}
                     </span>
                   ) as React.ReactNode,
                 },
@@ -780,7 +781,7 @@ export function StrategyStepView({
                             next = next.filter(k => k !== "java_version");
                           } else {
                             next.push("java_version");
-                            if (springBootPathwayStatus !== "disabled" && springBootPathwayStatus !== "loading" && !next.includes("spring_boot")) {
+                            if (springBootPathwayStatus === "upgrade" && targetJavaMajor >= 17 && !next.includes("spring_boot")) {
                               next.push("spring_boot");
                             }
                           }
@@ -789,8 +790,8 @@ export function StrategyStepView({
 
                         if (pathway.key === "spring_boot") {
                           if (isCurrentlySelected) {
-                            if (next.includes("java_version")) {
-                              // Cannot deselect because Java upgrade mandates it
+                            if (next.includes("java_version") && springBootPathwayStatus === "upgrade" && targetJavaMajor >= 17) {
+                              // Cannot deselect because Java 17+ upgrade mandates Spring Boot 3 for existing Spring Boot apps
                               return prev;
                             }
                             next = next.filter(k => k !== "spring_boot");
@@ -1065,10 +1066,10 @@ export function StrategyStepView({
                     { label: "Detected view layer", value: [hasJsp && `JSP (${actualJspCount} files)`, hasJsf && `JSF (${actualJsfCount} files)`].filter(Boolean).join(" + ") || "—" },
                     { label: "Conversion", value: uiModMode || "Not selected" },
                     (primaryRec || uiFrameworkVersion) ? { label: "Target", value: `${uiFrameworkTarget} ${uiFrameworkVersion || primaryRec?.targetVersion || ""}`.trim() } : null,
-                  ].filter(Boolean).map((row, i) => (
+                  ].filter(Boolean).map((row: any, i) => (
                     <div key={i} className="uimod-preview-row">
-                      <span className="uimod-preview-label">{row.label}</span>
-                      <span className="uimod-preview-value">{row.value}</span>
+                      <span className="uimod-preview-label">{row?.label}</span>
+                      <span className="uimod-preview-value">{row?.value}</span>
                     </div>
                   ))}
                   {detectedConstructs.length > 0 && (

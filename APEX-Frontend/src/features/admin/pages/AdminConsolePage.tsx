@@ -36,6 +36,7 @@ import UserQualityChecksSettings from "../components/UserQualityChecksSettings";
 import { TestCasesAdminSettings } from "../components/TestCasesAdminSettings";
 import { LlmAdminSettings } from "../components/LlmAdminSettings";
 import { LlmUserSettings } from "../components/LlmUserSettings";
+import { ArtifactorySettings } from "../components/ArtifactorySettings";
 import "./AdminConsolePage.css";
 
 const INITIAL_SYSTEM_SETTINGS: SystemSettings = {
@@ -64,14 +65,19 @@ const INITIAL_SYSTEM_SETTINGS: SystemSettings = {
   llm_enabled: true,
   llm_features: '["CODE_REVIEW","RISK_ANALYSIS","RECOMMENDATION","UNIT_TESTS"]',
   groq_models: '["gpt-4o","claude-3.5-sonnet","gemini-1.5-pro","mixtral-8x7b","llama-3-70b","qwen/qwen3.8-27b"]',
-  huggingface_models: '["meta-llama/Llama-3.1-8B-Instruct:novita"]'
+  huggingface_models: '["meta-llama/Llama-3.1-8B-Instruct:novita"]',
+  artifactory_provider: "maven_central",
+  artifactory_url: "",
+  artifactory_username: "",
+  artifactory_token: ""
 };
 
 const INITIAL_USER_SETTINGS: FullUserSettings = {
   github_config: { github_account: "", pat: "", pat_scope: "", repository: "", branch: "", user_access: "" },
   quality_checks_values: {},
   test_cases_values: {},
-  llm_values: {}
+  llm_values: {},
+  artifactory_values: {}
 };
 
 const DEFAULT_BRD_SYSTEM_PROMPT = `Generate a repository-specific, evidence-based Business Requirements Document (BRD).
@@ -83,7 +89,7 @@ Generate up to five distinct, prioritized acceptance criteria from the strongest
 
 Before finalizing, check whether important detected entry points, UI actions, jobs, tests, and integrations appear in the workflow section. Explain omissions and scan limitations. Omit irrelevant sections, never claim runtime success from code alone, and never invent routes, database tables, browser support, assertions, or business policies.`;
 
-type UserTab = "general" | "business" | "testing" | "quality_gate" | "llm" | "users";
+type UserTab = "general" | "business" | "testing" | "quality_gate" | "llm" | "users" | "artifactory";
 
 export default function AdminConsolePage() {
   const { currentUser } = useAuth();
@@ -128,6 +134,7 @@ export default function AdminConsolePage() {
     functional_testing: true,
     brd_testing: true,
     test_connection: true,
+    artifactory: true,
   });
   const [initialUserPerms, setInitialUserPerms] = useState<UserSettingsPermissions>({
     llm_settings: true,
@@ -136,6 +143,7 @@ export default function AdminConsolePage() {
     functional_testing: true,
     brd_testing: true,
     test_connection: true,
+    artifactory: true,
   });
   const [isUserPermsLoading, setIsUserPermsLoading] = useState<boolean>(false);
   const [isUserPermsSaving, setIsUserPermsSaving] = useState<boolean>(false);
@@ -171,6 +179,8 @@ export default function AdminConsolePage() {
       } else if (activeUserTab === "quality_gate" && myEffectivePerms.quality_checks === false) {
         setActiveUserTab("general");
       } else if (activeUserTab === "llm" && myEffectivePerms.llm_settings === false) {
+        setActiveUserTab("general");
+      } else if (activeUserTab === "artifactory" && myEffectivePerms.artifactory === false) {
         setActiveUserTab("general");
       }
     }
@@ -774,6 +784,238 @@ export default function AdminConsolePage() {
                 </div>
               </div>
             </div>
+
+            {/* Selected User Details Banner with Role Highlight */}
+            {selectedUser && (() => {
+              const roleUpper = (selectedUser.role || "user").toUpperCase();
+              const isAdminRole = roleUpper === "ADMIN" || roleUpper === "SUPERADMIN";
+
+              return (
+                <div
+                  style={{
+                    background: "#ffffff",
+                    padding: "18px 20px",
+                    borderRadius: "12px",
+                    border: "1px solid #cbd5e1",
+                    boxShadow: "0 2px 8px rgba(0,0,0,0.03)",
+                    marginBottom: "24px",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                    gap: "16px"
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+                    <div
+                      style={{
+                        width: "44px",
+                        height: "44px",
+                        borderRadius: "50%",
+                        background: isAdminRole ? "#fef3c7" : "#dbeafe",
+                        color: isAdminRole ? "#b45309" : "#1d4ed8",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontWeight: 800,
+                        fontSize: "18px",
+                        flexShrink: 0
+                      }}
+                    >
+                      {(selectedUser.email || selectedUser.full_name || "U").charAt(0).toUpperCase()}
+                    </div>
+                    <div>
+                      <div style={{ fontSize: "15px", fontWeight: 700, color: "#0f172a" }}>
+                        {selectedUser.full_name || (selectedUser as any).name || selectedUser.email}
+                      </div>
+                      <div style={{ fontSize: "13px", color: "#475569", marginTop: "2px", display: "flex", alignItems: "center", gap: "6px" }}>
+                        <FaEnvelope style={{ color: "#94a3b8", fontSize: "12px" }} />
+                        <strong>{selectedUser.email || "N/A"}</strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                    <span style={{ fontSize: "12px", fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                      USER ACCESS ROLE:
+                    </span>
+                    <span
+                      style={{
+                        textTransform: "uppercase",
+                        background: isAdminRole ? "#fef3c7" : "#dbeafe",
+                        color: isAdminRole ? "#92400e" : "#1e40af",
+                        border: isAdminRole ? "1px solid #fde68a" : "1px solid #bfdbfe",
+                        padding: "6px 14px",
+                        borderRadius: "20px",
+                        fontSize: "12px",
+                        fontWeight: 800,
+                        letterSpacing: "0.05em"
+                      }}
+                    >
+                      {roleUpper}
+                    </span>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {isUserPermsLoading ? (
+              <div style={{ padding: "40px", textAlign: "center", color: "#64748b" }}>
+                <FaSpinner className="animate-spin" style={{ fontSize: "24px", color: "#2563eb", marginBottom: "10px" }} />
+                <p style={{ margin: 0, fontWeight: 600 }}>Loading permissions for selected user...</p>
+              </div>
+            ) : (
+              <>
+                <div className="grid-2">
+                  {/* LLM Settings Toggle */}
+                  <div className="settings-toggle-card">
+                    <div className="settings-toggle-header">
+                      <div className="settings-toggle-title"><FaBrain style={{ color: "#2563eb" }} /> LLM Settings</div>
+                      <div className="switch-wrap">
+                        <label className="switch-ios">
+                          <input
+                            type="checkbox"
+                            checked={selectedUserPerms.llm_settings}
+                            onChange={e => setSelectedUserPerms(prev => ({ ...prev, llm_settings: e.target.checked }))}
+                          />
+                          <span className="slider-ios"></span>
+                        </label>
+                        <span className="switch-label">{selectedUserPerms.llm_settings ? "Enabled" : "Disabled"}</span>
+                      </div>
+                    </div>
+                    <p className="settings-toggle-desc">
+                      Allow access to LLM provider settings, API keys, and model selection.
+                    </p>
+                  </div>
+
+                  {/* Quality Checks Toggle */}
+                  <div className="settings-toggle-card">
+                    <div className="settings-toggle-header">
+                      <div className="settings-toggle-title"><FaShieldAlt style={{ color: "#2563eb" }} /> Quality Checks</div>
+                      <div className="switch-wrap">
+                        <label className="switch-ios">
+                          <input
+                            type="checkbox"
+                            checked={selectedUserPerms.quality_checks}
+                            onChange={e => setSelectedUserPerms(prev => ({ ...prev, quality_checks: e.target.checked }))}
+                          />
+                          <span className="slider-ios"></span>
+                        </label>
+                        <span className="switch-label">{selectedUserPerms.quality_checks ? "Enabled" : "Disabled"}</span>
+                      </div>
+                    </div>
+                    <p className="settings-toggle-desc">
+                      Allow access to SonarQube, FOSSA, and Cycode quality gate configuration.
+                    </p>
+                  </div>
+
+                  {/* Unit Testing Toggle */}
+                  <div className="settings-toggle-card">
+                    <div className="settings-toggle-header">
+                      <div className="settings-toggle-title"><FaFlask style={{ color: "#2563eb" }} /> Unit Testing</div>
+                      <div className="switch-wrap">
+                        <label className="switch-ios">
+                          <input
+                            type="checkbox"
+                            checked={selectedUserPerms.unit_testing}
+                            onChange={e => setSelectedUserPerms(prev => ({ ...prev, unit_testing: e.target.checked }))}
+                          />
+                          <span className="slider-ios"></span>
+                        </label>
+                        <span className="switch-label">{selectedUserPerms.unit_testing ? "Enabled" : "Disabled"}</span>
+                      </div>
+                    </div>
+                    <p className="settings-toggle-desc">
+                      Allow access to JUnit framework and automated unit test settings.
+                    </p>
+                  </div>
+
+                  {/* Functional Testing Toggle */}
+                  <div className="settings-toggle-card">
+                    <div className="settings-toggle-header">
+                      <div className="settings-toggle-title"><FaPlay style={{ color: "#2563eb" }} /> Functional Testing</div>
+                      <div className="switch-wrap">
+                        <label className="switch-ios">
+                          <input
+                            type="checkbox"
+                            checked={selectedUserPerms.functional_testing}
+                            onChange={e => setSelectedUserPerms(prev => ({ ...prev, functional_testing: e.target.checked }))}
+                          />
+                          <span className="slider-ios"></span>
+                        </label>
+                        <span className="switch-label">{selectedUserPerms.functional_testing ? "Enabled" : "Disabled"}</span>
+                      </div>
+                    </div>
+                    <p className="settings-toggle-desc">
+                      Allow access to Playwright, Cypress, and Selenium functional test runners.
+                    </p>
+                  </div>
+
+                  {/* BRD Testing Toggle */}
+                  <div className="settings-toggle-card">
+                    <div className="settings-toggle-header">
+                      <div className="settings-toggle-title"><FaBriefcase style={{ color: "#2563eb" }} /> BRD Testing</div>
+                      <div className="switch-wrap">
+                        <label className="switch-ios">
+                          <input
+                            type="checkbox"
+                            checked={selectedUserPerms.brd_testing}
+                            onChange={e => setSelectedUserPerms(prev => ({ ...prev, brd_testing: e.target.checked }))}
+                          />
+                          <span className="slider-ios"></span>
+                        </label>
+                        <span className="switch-label">{selectedUserPerms.brd_testing ? "Enabled" : "Disabled"}</span>
+                      </div>
+                    </div>
+                    <p className="settings-toggle-desc">
+                      Allow access to BRD document generation and business analysis settings.
+                    </p>
+                  </div>
+
+                  {/* Artifactory Toggle */}
+                  <div className="settings-toggle-card">
+                    <div className="settings-toggle-header">
+                      <div className="settings-toggle-title"><FaCog style={{ color: "#2563eb" }} /> Artifactory Configuration</div>
+                      <div className="switch-wrap">
+                        <label className="switch-ios">
+                          <input
+                            type="checkbox"
+                            checked={selectedUserPerms.artifactory}
+                            onChange={e => setSelectedUserPerms(prev => ({ ...prev, artifactory: e.target.checked }))}
+                          />
+                          <span className="slider-ios"></span>
+                        </label>
+                        <span className="switch-label">{selectedUserPerms.artifactory ? "Enabled" : "Disabled"}</span>
+                      </div>
+                    </div>
+                    <p className="settings-toggle-desc">
+                      Allow access to Artifactory configuration settings and overrides.
+                    </p>
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: "12px", marginTop: "24px" }}>
+                  <button
+                    type="button"
+                    className="settings-action-btn"
+                    style={{ width: "auto", background: "#f1f5f9", color: "#475569", border: "1px solid #cbd5e1" }}
+                    onClick={handleResetUserPermissions}
+                    disabled={isUserPermsSaving}
+                  >
+                    Reset
+                  </button>
+                  <button
+                    type="button"
+                    className="settings-save-btn"
+                    style={{ padding: "10px 24px" }}
+                    onClick={handleSaveUserPermissions}
+                    disabled={isUserPermsSaving || !selectedUserId}
+                  >
+                    {isUserPermsSaving ? <FaSpinner className="animate-spin" /> : "Save User Permissions"}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       );
@@ -1529,6 +1771,28 @@ export default function AdminConsolePage() {
       );
     }
 
+    if (activeUserTab === "artifactory") {
+      return (
+        <ArtifactorySettings
+          settings={isAdminUser ? currentSys : (currentUserStg.artifactory_values || {})}
+          onChange={(key, val) => {
+            if (isAdminUser) {
+              handleAdminFieldChange(key as keyof SystemSettings, val);
+            } else {
+              setUserSettings(prev => ({
+                ...(prev || INITIAL_USER_SETTINGS),
+                artifactory_values: {
+                  ...((prev || INITIAL_USER_SETTINGS).artifactory_values || {}),
+                  [key]: val
+                }
+              }));
+            }
+          }}
+          isAdmin={isAdminUser}
+        />
+      );
+    }
+
     return null;
   };
 
@@ -1586,6 +1850,12 @@ export default function AdminConsolePage() {
               <FaBrain /> LLM Configuration
             </button>
             <button
+              className={`settings-sidebar-tab ${activeUserTab === "artifactory" ? "active" : ""}`}
+              onClick={() => setActiveUserTab("artifactory")}
+            >
+              <FaPlug /> Artifactory
+            </button>
+            <button
               className={`settings-sidebar-tab ${activeUserTab === "users" ? "active" : ""}`}
               onClick={() => setActiveUserTab("users")}
             >
@@ -1624,6 +1894,14 @@ export default function AdminConsolePage() {
                 onClick={() => setActiveUserTab("llm")}
               >
                 <FaBrain /> LLM Configuration
+              </button>
+            )}
+            {myEffectivePerms?.artifactory !== false && (
+              <button
+                className={`settings-sidebar-tab ${activeUserTab === "artifactory" ? "active" : ""}`}
+                onClick={() => setActiveUserTab("artifactory")}
+              >
+                <FaPlug /> Artifactory
               </button>
             )}
           </>

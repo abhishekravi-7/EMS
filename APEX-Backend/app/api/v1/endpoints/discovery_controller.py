@@ -26,7 +26,7 @@ from app.application.use_cases.assess_microservice_eligibility import (
 from app.application.use_cases.browse_repository import RepositoryFileBrowser
 from app.application.use_cases.get_dashboard_stats import GetDashboardStatsUseCase
 from app.core.exceptions import DiscoveryError, RepositoryBrowseError
-from app.domain.models.brd_models import BrdMetadata
+from app.brd.models.brd_models import BrdMetadata
 from app.infrastructure.persistence.job_repository import JobRepository
 from app.infrastructure.workspace.workspace_paths import WorkspacePaths
 from app.schemas.dashboard_schema import DashboardStatsResponse
