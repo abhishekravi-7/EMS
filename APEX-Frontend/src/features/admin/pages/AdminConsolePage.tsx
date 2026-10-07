@@ -9,6 +9,7 @@ import {
   testAdminGithubConnection,
   testUserGithubConnection,
   testUserSonarConnection,
+  testUserSonarqubeConnection,
   testUserFossaConnection,
   testUserPlaywrightConnection,
   fetchUserGithubRepos,
