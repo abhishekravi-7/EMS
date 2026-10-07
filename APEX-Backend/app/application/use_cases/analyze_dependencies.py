@@ -32,6 +32,7 @@ from sqlalchemy.orm import Session
 from app.core.context import user_id_ctx, llm_values_ctx
 from app.core.exceptions import LLMResponseInvalidError
 from app.infrastructure.llm.chat_llm import ChatLLM
+from app.infrastructure.migration_engine.maven_version_resolver import get_version_resolver
 from app.infrastructure.llm.huggingface_client import HuggingFaceClient
 from app.infrastructure.llm.prompt_templates import (
     DEPENDENCY_ANALYSIS_SYSTEM_PROMPT,
@@ -289,8 +290,48 @@ class AnalyzeDependenciesUseCase:
                 llm_token = llm_values_ctx.set(current_user.llm_values)
 
         try:
-            # Batch dependencies in chunks of up to 30 to comfortably fit context window
-            batch_size = 30
+            # Resolve real published versions first so the LLM can choose only
+            # from actual candidates compatible with this repository's target.
+            resolver = get_version_resolver()
+            has_spring_boot = bool(request.spring_boot_version) or any(
+                "spring-boot" in (dep.artifact_id or "").lower() for dep in input_deps
+            )
+            target_spring_boot_version = (
+                await asyncio.to_thread(
+                    resolver.get_latest_spring_boot_version,
+                    request.target_java_version or request.source_java_version or "17",
+                )
+                if has_spring_boot
+                else None
+            )
+            target_spring_framework_version = (
+                await asyncio.to_thread(resolver.get_spring_framework_version_for_boot, target_spring_boot_version)
+                if target_spring_boot_version
+                else None
+            )
+            semaphore = asyncio.Semaphore(8)
+
+            async def enrich_with_candidates(dep: DependencyItemInput) -> dict[str, Any]:
+                item = dep.model_dump() if hasattr(dep, "model_dump") else dep.dict()
+                if dep.group_id and dep.artifact_id:
+                    async with semaphore:
+                        candidates = await asyncio.to_thread(
+                            resolver.resolve_candidate_versions, dep.group_id, dep.artifact_id
+                        )
+                    item["candidate_versions"] = candidates
+                else:
+                    item["candidate_versions"] = []
+                return item
+
+            candidate_metadata = await asyncio.gather(*(enrich_with_candidates(dep) for dep in input_deps))
+            candidates_by_coordinate = {
+                f"{item.get('group_id') or ''}:{item.get('artifact_id') or ''}".lower(): item.get("candidate_versions", [])
+                for item in candidate_metadata
+            }
+
+            # Small batches leave enough output room for a complete compatibility
+            # assessment and upgrade explanation for every dependency.
+            batch_size = 5
             batches = [input_deps[i : i + batch_size] for i in range(0, len(input_deps), batch_size)]
             all_analyzed_map: dict[str, dict[str, Any]] = {}
             overall_risk_candidates: list[str] = []
@@ -307,6 +348,7 @@ class AnalyzeDependenciesUseCase:
                         "artifact_id": d.artifact_id or "",
                         "current_version": d.current_version or d.resolved_version or "unknown",
                         "scope": d.scope or "compile",
+                        "candidate_versions": candidates_by_coordinate.get(f"{d.group_id or ''}:{d.artifact_id or ''}".lower(), []),
                     }
                     for d in batch
                 ]
@@ -319,6 +361,8 @@ class AnalyzeDependenciesUseCase:
                     frameworks=request.frameworks or [],
                     testing_frameworks=request.testing_frameworks or [],
                     spring_boot_version=request.spring_boot_version,
+                    target_spring_boot_version=target_spring_boot_version,
+                    target_spring_framework_version=target_spring_framework_version,
                     api_endpoint_count=request.api_endpoint_count,
                 )
 
@@ -388,6 +432,35 @@ class AnalyzeDependenciesUseCase:
                 if not recommendation:
                     recommendation = "Verify compatibility with target Java version."
 
+                recommended_version = str(llm_entry.get("recommended_version") or "Not Determined").strip()
+                upgrade_status = str(llm_entry.get("upgrade_status") or "UNKNOWN").strip().upper()
+                if upgrade_status not in {"UPGRADE_REQUIRED", "UPGRADE_RECOMMENDED", "NO_UPGRADE_REQUIRED", "INCOMPATIBLE", "UNKNOWN"}:
+                    upgrade_status = "UNKNOWN"
+                if recommended_version.lower() in {"null", "unknown", "n/a", "not determined", ""}:
+                    recommended_version = "Not Determined"
+                    upgrade_status = "UNKNOWN"
+                elif recommended_version.lower() == ver.lower():
+                    if upgrade_status != "NO_UPGRADE_REQUIRED":
+                        recommended_version = "Not Determined"
+                        upgrade_status = "UNKNOWN"
+                elif upgrade_status == "NO_UPGRADE_REQUIRED":
+                    # A no-op recommendation must refer to the detected release.
+                    recommended_version = ver
+                elif recommended_version not in candidates_by_coordinate.get(coord.lower(), []):
+                    # Never let the model invent an unpublished Maven release.
+                    recommended_version = "Not Determined"
+                    upgrade_status = "UNKNOWN"
+                java_compatibility = str(llm_entry.get("java_compatibility") or "Unknown").strip().title()
+                if java_compatibility not in {"Compatible", "Not Compatible", "Unknown"}:
+                    java_compatibility = "Unknown"
+                framework_compatibility = str(llm_entry.get("framework_compatibility") or "Unknown").strip().title()
+                if framework_compatibility not in {"Compatible", "Not Compatible", "Unknown"}:
+                    framework_compatibility = "Unknown"
+                upgrade_reason = str(llm_entry.get("upgrade_reason") or "").strip()
+                upgrade_confidence = str(llm_entry.get("upgrade_confidence") or "Low").strip().title()
+                if upgrade_confidence not in {"High", "Medium", "Low"}:
+                    upgrade_confidence = "Low"
+
                 final_dependencies.append(
                     AnalyzedDependencyItem(
                         id=dep_id,
@@ -395,6 +468,12 @@ class AnalyzeDependenciesUseCase:
                         artifact=aid,
                         name=name,
                         version=ver,
+                        recommended_version=recommended_version,
+                        upgrade_status=upgrade_status,
+                        java_compatibility=java_compatibility,
+                        framework_compatibility=framework_compatibility,
+                        upgrade_reason=upgrade_reason or explanation,
+                        upgrade_confidence=upgrade_confidence,
                         category=cat,
                         risk=risk,
                         explanation=explanation,

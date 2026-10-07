@@ -481,15 +481,20 @@ CHECKLIST FOR EVALUATION:
 
 DEPENDENCY_ANALYSIS_SYSTEM_PROMPT = """You are a senior Java migration and dependency architecture engineer analyzing the dependencies of an actual software repository. You always answer with a single, strict JSON object and nothing else - no markdown fences, no commentary outside the JSON.
 
-Use ONLY the repository context supplied to you. Assess each dependency based on its actual version, role, framework compatibility, Java version, application architecture, and migration target.
+Use ONLY the repository context supplied to you. Assess each dependency based on its actual version, role, framework compatibility, Java version, application architecture, and migration target. The selected target Java version is the primary compatibility constraint, not a reason to blindly select the newest dependency release.
 
 CRITICAL RULES:
 1. Do NOT classify dependencies solely because their names contain words like 'spring', 'jpa', 'security', 'jdbc', etc.
 2. Do NOT assign a risk merely because a dependency belongs to a particular category.
-3. NEVER invent CVEs, vulnerabilities, versions, usage, or compatibility problems that are not supported by the supplied context.
+3. NEVER invent CVEs, vulnerabilities, versions, usage, or compatibility problems that are not supported by the supplied context. Model memory alone is not verified release metadata.
 4. Risk levels are migration compatibility & architectural risks (e.g. Jakarta EE namespace jump, deprecated APIs, major breaking changes, unmaintained legacy versions), NOT confirmed CVE reports.
 5. If evidence is insufficient, state that the risk is uncertain or based on limited evidence.
 6. Return EXACTLY the input dependency IDs/coordinates provided - do not fabricate or drop any dependencies.
+7. For upgrades, consider target Java requirements, current version, detected framework and Spring Boot versions, and transitive compatibility. Do not recommend a release merely because it is latest.
+8. Recommend only a real released version you can establish from supplied evidence. No release catalog or candidate version list is supplied here; if the version cannot be established confidently, use recommended_version="Not Determined", upgrade_status="UNKNOWN", java_compatibility="Unknown", framework_compatibility="Unknown", and low confidence. Do not guess.
+9. Do not echo detected version as a recommendation. Echo it only with upgrade_status="NO_UPGRADE_REQUIRED" when evidence supports that it is already compatible and no change is needed. If an upgrade is needed but no valid target can be established, use "Not Determined" and explain the evidence gap.
+10. For Spring artifacts, preserve compatibility with the detected Spring Boot/framework line and target Java. Do not upgrade individual Spring modules across incompatible release trains.
+11. Use INCOMPATIBLE when repository evidence establishes that the detected release cannot run with the selected Java or detected framework line; still provide a replacement version only when a valid compatible release is established. Use UNKNOWN when compatibility itself cannot be established.
 
 The JSON object must have exactly these keys:
 - "overall_risk": string, one of "CRITICAL", "HIGH", "MEDIUM", "LOW".
@@ -502,6 +507,12 @@ The JSON object must have exactly these keys:
     - "artifact": string (e.g. "spring-boot-starter-web").
     - "name": string, human-friendly dependency name or artifact name.
     - "version": string, the current/detected version from the input (do not change).
+    - "recommended_version": string; use a verified compatible released version, the current version only for NO_UPGRADE_REQUIRED, or exactly "Not Determined" when evidence is insufficient.
+    - "upgrade_status": exactly "UPGRADE_REQUIRED", "UPGRADE_RECOMMENDED", "NO_UPGRADE_REQUIRED", "INCOMPATIBLE", or "UNKNOWN".
+    - "java_compatibility": exactly "Compatible", "Not Compatible", or "Unknown".
+    - "framework_compatibility": exactly "Compatible", "Not Compatible", or "Unknown".
+    - "upgrade_reason": concise explanation distinguishing evidence from uncertainty.
+    - "upgrade_confidence": exactly "High", "Medium", or "Low".
     - "category": string, one of "Framework", "Persistence", "Security", "Database", "Testing", "Logging", "Web", "Build", "Utility", "Other".
     - "risk": string, one of "CRITICAL", "HIGH", "MEDIUM", "LOW".
     - "explanation": string, repository-specific reasoning explaining why this dependency has this risk in this project context.
@@ -518,6 +529,8 @@ def build_dependency_analysis_prompt(
     frameworks: list[Any],
     testing_frameworks: list[Any],
     spring_boot_version: str | None,
+    target_spring_boot_version: str | None,
+    target_spring_framework_version: str | None,
     api_endpoint_count: int,
 ) -> str:
     dep_items = []
@@ -526,10 +539,11 @@ def build_dependency_analysis_prompt(
         aid = dep.get("artifact_id") or dep.get("artifactId") or dep.get("artifact") or ""
         ver = dep.get("current_version") or dep.get("resolved_version") or dep.get("version") or "unknown"
         scope = dep.get("scope") or "compile"
+        candidate_versions = dep.get("candidate_versions") or []
         coord = f"{gid}:{aid}" if gid and aid else (aid or gid or "unknown")
         dep_id = dep.get("id") or coord
         dep_items.append(
-            f"- id: \"{dep_id}\" | coordinate: \"{coord}\" | version: \"{ver}\" | scope: \"{scope}\""
+            f"- id: \"{dep_id}\" | coordinate: \"{coord}\" | version: \"{ver}\" | scope: \"{scope}\" | published Maven Central candidates (newest first): {', '.join(str(v) for v in candidate_versions) or 'unavailable'}"
         )
 
     dep_block = "\n".join(dep_items) if dep_items else "No dependencies provided."
@@ -544,6 +558,8 @@ PROJECT CONTEXT:
 - Source Java Version: {source_java_version or 'unknown'}
 - Target Java Version: {target_java_version or '17+ (LTS)'}
 - Spring Boot Version: {spring_boot_version or 'Not detected / Not applicable'}
+- Spring Boot Target for selected Java: {target_spring_boot_version or 'Not applicable'}
+- Spring Framework version managed by target Spring Boot BOM: {target_spring_framework_version or 'Not available'}
 - Detected Frameworks: {fw_str}
 - Testing Frameworks: {test_fw_str}
 - API Endpoints Count: {api_endpoint_count}
@@ -552,7 +568,7 @@ PROJECT CONTEXT:
 DEPENDENCY LIST TO EVALUATE:
 {dep_block}
 
-Evaluate each dependency above. Return ONLY the strict JSON object with 'overall_risk', 'complexity', 'overall_explanation', 'complexity_explanation', and 'dependencies' matching the system prompt schema."""
+For every dependency, analyze the current version against Java {target_java_version or 'the selected target Java version'}, the detected framework/Spring Boot versions, the target Spring Boot version above, and transitive compatibility. When Spring Boot is present, treat the target Spring Boot release and its managed Spring Framework version as the alignment targets for managed artifacts. Use the BOM-managed Spring Framework version above for Spring Framework modules when its exact coordinate is among that dependency's published candidates. Use only the published Maven Central candidate versions listed beside each coordinate; never produce a version absent from that list. The candidate list proves publication, not Java/framework compatibility: recommend only a listed version whose compatibility you can establish. If none can be established, return recommended_version="Not Determined" and upgrade_status="UNKNOWN". Return an explicit compatibility result, reason, and confidence for every item. Return ONLY the strict JSON object matching the system prompt schema."""
 
 
 REACT_MIGRATION_REVIEW_SYSTEM_PROMPT = """You are a principal frontend architect and Java-to-React migration reviewer. Review a migrated React application against its original JSP/JSF application and supplied backend evidence. The business domain is unknown and must be discovered from the evidence.

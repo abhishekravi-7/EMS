@@ -572,6 +572,8 @@ export default function MigrationWizardPage() {
               jobId={connectState.jobId}
               modernization={modernizationState}
               repoAnalysis={repoAnalysis}
+              dependencyAnalysis={dependencyAnalysis}
+              targetJavaVersion={effectiveTargetVersion}
               selectedRepo={selectedRepo}
               repoUrl={repoUrl}
               currentToken={currentToken}

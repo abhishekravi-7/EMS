@@ -4741,6 +4741,7 @@ export function useWizardController() {
       build_tool: repoAnalysis.build_tool,
       frameworks: repoAnalysis.frameworks || [],
       testing_frameworks: (repoAnalysis.testing_frameworks as unknown[]) || [],
+      spring_boot_version: repoAnalysis.spring_boot_version || undefined,
       api_endpoint_count: repoAnalysis.api_endpoints?.length ?? 0,
       job_id: jobId || undefined,
     })

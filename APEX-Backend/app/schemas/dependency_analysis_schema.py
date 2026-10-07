@@ -41,6 +41,12 @@ class AnalyzedDependencyItem(BaseModel):
     artifact: str = ""
     name: str = ""
     version: str = "unknown"
+    recommended_version: str = "Not Determined"
+    upgrade_status: str = "UNKNOWN"
+    java_compatibility: str = "Unknown"
+    framework_compatibility: str = "Unknown"
+    upgrade_reason: str = ""
+    upgrade_confidence: str = "Low"
     category: str = "Utility"
     risk: str = "LOW"  # CRITICAL, HIGH, MEDIUM, LOW
     explanation: str = ""

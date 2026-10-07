@@ -11,6 +11,7 @@ import logging
 import time
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
 try:
     from cachetools import LRUCache
 except ImportError:
@@ -29,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 # In-memory TTL cache: { "groupId:artifactId": (version_string, expiry_timestamp) }
 _VERSION_CACHE: LRUCache = LRUCache(maxsize=1000)
+_CANDIDATE_CACHE: LRUCache = LRUCache(maxsize=1000)
 CACHE_TTL_SECONDS = 3600  # 1 hour cache
 
 # Reliable fallback versions (used if network request fails or times out)
@@ -87,6 +89,61 @@ class MavenVersionResolver:
         # Cache fallback to prevent rapid repeated failed network calls
         _VERSION_CACHE[cache_key] = (fallback, now + 300)  # 5 min retry TTL for fallback
         return fallback
+
+    def resolve_candidate_versions(self, group_id: str, artifact_id: str, limit: int = 12) -> list[str]:
+        """Return real stable releases published on Maven Central, newest first."""
+        cache_key = f"{group_id}:{artifact_id}"
+        now = time.time()
+        cached = _CANDIDATE_CACHE.get(cache_key)
+        if cached and cached[1] > now:
+            return cached[0][:limit]
+
+        try:
+            query = f'g:"{group_id}" AND a:"{artifact_id}"'
+            params = urllib.parse.urlencode({
+                "q": query,
+                "core": "gav",
+                "rows": min(max(limit * 3, 20), 100),
+                "wt": "json",
+                "sort": "timestamp desc",
+            })
+            url = f"https://search.maven.org/solrsearch/select?{params}"
+            req = urllib.request.Request(url, headers={"User-Agent": "JavaApex-Migration-Engine/2.0"})
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                if resp.status != 200:
+                    return []
+                data = json.loads(resp.read().decode("utf-8"))
+            docs = data.get("response", {}).get("docs", [])
+            versions: list[str] = []
+            for doc in docs if isinstance(docs, list) else []:
+                version = str(doc.get("v") or "").strip()
+                if version and self._is_valid_version(version) and version not in versions:
+                    versions.append(version)
+            _CANDIDATE_CACHE[cache_key] = (versions, now + CACHE_TTL_SECONDS)
+            return versions[:limit]
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Failed to resolve Maven Central candidate versions for %s: %s", cache_key, exc)
+            return []
+
+    def get_spring_framework_version_for_boot(self, spring_boot_version: str) -> str | None:
+        """Read Spring Framework's managed version from the Spring Boot BOM."""
+        try:
+            version = urllib.parse.quote(str(spring_boot_version).strip(), safe=".")
+            url = (
+                "https://repo.maven.apache.org/maven2/org/springframework/boot/"
+                f"spring-boot-dependencies/{version}/spring-boot-dependencies-{version}.pom"
+            )
+            req = urllib.request.Request(url, headers={"User-Agent": "JavaApex-Migration-Engine/2.0"})
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                if resp.status != 200:
+                    return None
+                root = ET.fromstring(resp.read())
+            for element in root.iter():
+                if element.tag.rsplit("}", 1)[-1] == "spring-framework.version" and element.text:
+                    return element.text.strip()
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Failed to read Spring Framework version managed by Boot %s: %s", spring_boot_version, exc)
+        return None
 
     def get_latest_spring_boot_version(self, target_java_version: str | int = 17, default_fallback: str = "3.2.5") -> str:
         """Resolve latest Spring Boot version compatible with target Java version."""
