@@ -16,8 +16,6 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from app.infrastructure.migration_engine.maven_version_resolver import get_version_resolver
-
 logger = logging.getLogger(__name__)
 
 _LEGACY_JAVAX_ARTIFACTS = [
@@ -118,6 +116,60 @@ class PomModernizer:
 
         return discovered
 
+    def _get_artifactory_config(self) -> dict:
+        import pymongo
+
+        from app.core.config import settings
+        from app.core.context import user_id_ctx
+        
+        user_id = user_id_ctx.get()
+        
+        provider = str(getattr(settings, "artifactory_provider", "maven_central"))
+        url = str(getattr(settings, "artifactory_url", ""))
+        username = str(getattr(settings, "artifactory_username", ""))
+        token = str(getattr(settings, "artifactory_token", ""))
+
+        try:
+            client = pymongo.MongoClient(settings.mongodb_uri)
+            db = client[settings.mongodb_db_name]
+            
+            sys_keys = ["artifactory_provider", "artifactory_url", "artifactory_username", "artifactory_token"]
+            sys_docs = list(db.system_settings.find({"key": {"$in": sys_keys}}))
+            sys_map = {d["key"]: d.get("value") for d in sys_docs}
+            
+            if sys_map.get("artifactory_provider"):
+                provider = sys_map["artifactory_provider"]
+            if sys_map.get("artifactory_url"):
+                url = sys_map["artifactory_url"]
+            if sys_map.get("artifactory_username"):
+                username = sys_map["artifactory_username"]
+            if sys_map.get("artifactory_token"):
+                token = sys_map["artifactory_token"]
+
+            if user_id:
+                user_doc = db.users.find_one({"_id": user_id}) or db.users.find_one({"id": user_id})
+                if user_doc and "artifactory_values" in user_doc:
+                    user_vals = user_doc["artifactory_values"]
+                    if user_vals.get("artifactory_provider"):
+                        provider = user_vals["artifactory_provider"]
+                    if user_vals.get("artifactory_url"):
+                        url = user_vals["artifactory_url"]
+                    if user_vals.get("artifactory_username"):
+                        username = user_vals["artifactory_username"]
+                    if user_vals.get("artifactory_token"):
+                        token = user_vals["artifactory_token"]
+                        
+            client.close()
+        except Exception as e:
+            logger.warning("Failed to fetch artifactory settings from DB: %s", e)
+
+        return {
+            "provider": provider,
+            "base_url": url,
+            "username": username,
+            "auth_token": token,
+        }
+
     def _modernize_single_pom(
         self,
         pom_path: Path,
@@ -135,7 +187,15 @@ class PomModernizer:
         except ValueError:
             target_major = 17
 
-        resolver = get_version_resolver()
+        from app.infrastructure.migration_engine.artifactory_version_resolver import ArtifactoryVersionResolver
+        config = self._get_artifactory_config()
+        resolver = ArtifactoryVersionResolver(
+            provider=config["provider"],
+            base_url=config["base_url"],
+            username=config["username"],
+            auth_token=config["auth_token"]
+        )
+        
         spring_boot_before: str | None = None
         spring_boot_after: str | None = None
 
@@ -224,7 +284,15 @@ class PomModernizer:
         if "maven-compiler-plugin" in content:
             uses_lombok = "org.projectlombok" in content or "<lombok.version>" in content
             uses_mapstruct = "org.mapstruct" in content
-
+            
+            # Ensure properties exist
+            if uses_lombok and target_major >= 17:
+                if "<properties>" in content:
+                    if "<lombok.version>" not in content:
+                        content = re.sub(r"(<properties>)", rf"\1\n        <lombok.version>{lombok_version}</lombok.version>", content)
+                    if uses_mapstruct and "<lombok-mapstruct-binding.version>" not in content:
+                        content = re.sub(r"(<properties>)", rf"\1\n        <lombok-mapstruct-binding.version>{lombok_mapstruct_binding_version}</lombok-mapstruct-binding.version>", content)
+            
             def _fix_compiler_plugin(match: re.Match) -> str:
                 plugin_block = match.group(0)
                 plugin_block = re.sub(r"<source>.*?</source>", f"<source>{target_java}</source>", plugin_block)
@@ -238,14 +306,14 @@ class PomModernizer:
                                 <path>
                                     <groupId>org.projectlombok</groupId>
                                     <artifactId>lombok</artifactId>
-                                    <version>{lombok_version}</version>
+                                    <version>${{lombok.version}}</version>
                                 </path>"""
                         if uses_mapstruct:
                             paths += f"""
                                 <path>
                                     <groupId>org.projectlombok</groupId>
                                     <artifactId>lombok-mapstruct-binding</artifactId>
-                                    <version>{lombok_mapstruct_binding_version}</version>
+                                    <version>${{lombok-mapstruct-binding.version}}</version>
                                 </path>
                                 <path>
                                     <groupId>org.mapstruct</groupId>

@@ -259,6 +259,7 @@ export interface DependencyAnalysisResponse {
   counts: DependencyRiskCounts;
   dependencies: AnalyzedDependencyItem[];
   provider_used: string;
+  categories?: Record<string, any>;
 }
 
 export async function analyzeDependencies(

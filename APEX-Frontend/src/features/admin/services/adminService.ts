@@ -30,6 +30,10 @@ export interface SystemSettings {
   llm_features?: string; // JSON array of features
   groq_models?: string; // JSON array of groq models
   huggingface_models?: string; // JSON array of hugging face models
+  artifactory_provider?: string;
+  artifactory_url?: string;
+  artifactory_username?: string;
+  artifactory_token?: string;
 }
 
 export interface SystemSettingsResponse {
@@ -101,6 +105,7 @@ export interface UserSettingsResponse {
   quality_checks_values?: Record<string, unknown>;
   test_cases_values?: Record<string, unknown>;
   llm_values?: Record<string, unknown>;
+  artifactory_values?: Record<string, unknown>;
   system_llm_config?: {
     llm_enabled?: boolean | string;
     groq_models?: string;
@@ -119,6 +124,7 @@ export interface FullUserSettings {
   quality_checks_values: Record<string, unknown>;
   test_cases_values: Record<string, unknown>;
   llm_values: Record<string, unknown>;
+  artifactory_values: Record<string, unknown>;
   system_llm_config?: {
     llm_enabled?: boolean | string;
     groq_models?: string;
@@ -142,6 +148,7 @@ export async function getUserSettings(): Promise<FullUserSettings> {
     quality_checks_values: response.quality_checks_values || {},
     test_cases_values: response.test_cases_values || {},
     llm_values: response.llm_values || {},
+    artifactory_values: response.artifactory_values || {},
     system_llm_config: response.system_llm_config || {},
     system_test_cases_config: response.system_test_cases_config || {},
     settings_permissions: response.settings_permissions,
@@ -152,7 +159,8 @@ export async function updateUserSettings(
   github_config: UserGitHubConfig,
   quality_checks_values?: Record<string, unknown>,
   test_cases_values?: Record<string, unknown>,
-  llm_values?: Record<string, unknown>
+  llm_values?: Record<string, unknown>,
+  artifactory_values?: Record<string, unknown>
 ): Promise<FullUserSettings> {
   const body: Record<string, unknown> = { github_config };
   if (quality_checks_values) {
@@ -163,6 +171,9 @@ export async function updateUserSettings(
   }
   if (llm_values) {
     body.llm_values = llm_values;
+  }
+  if (artifactory_values) {
+    body.artifactory_values = artifactory_values;
   }
 
   const response = await requestJson<UserSettingsResponse>(
@@ -178,6 +189,7 @@ export async function updateUserSettings(
     quality_checks_values: response.quality_checks_values || {},
     test_cases_values: response.test_cases_values || {},
     llm_values: response.llm_values || {},
+    artifactory_values: response.artifactory_values || {},
     system_llm_config: response.system_llm_config || {},
     system_test_cases_config: response.system_test_cases_config || {},
     settings_permissions: response.settings_permissions,
@@ -189,7 +201,8 @@ export async function saveUserSettings(fullSettings: FullUserSettings): Promise<
     fullSettings.github_config || {},
     fullSettings.quality_checks_values || {},
     fullSettings.test_cases_values || {},
-    fullSettings.llm_values || {}
+    fullSettings.llm_values || {},
+    fullSettings.artifactory_values || {}
   );
 }
  
@@ -350,6 +363,7 @@ export interface UserSettingsPermissions {
   functional_testing: boolean;
   brd_testing: boolean;
   test_connection: boolean;
+  artifactory: boolean;
 }
 
 export interface AdminUser {
