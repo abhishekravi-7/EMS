@@ -87,118 +87,6 @@ ALLOWED_CATEGORIES = {
 }
 ALLOWED_COMPLEXITIES = {"NONE", "LIGHT", "MODERATE", "COMPLEX"}
 
-_CACHE_DIR = BACKEND_ROOT / "storage" / "dependency-analysis-cache"
-_memory_cache: dict[str, DependencyAnalysisResponse] = {}
-_inflight_tasks: dict[str, asyncio.Task[DependencyAnalysisResponse]] = {}
-_inflight_lock = asyncio.Lock()
-
-
-def compute_analysis_fingerprint(request: DependencyAnalysisRequest) -> str:
-    """Compute a deterministic SHA-256 fingerprint for a dependency analysis request.
-
-    Normalizes and sorts dependencies, frameworks, versions, and build tools so that
-    ordering differences produce the exact same fingerprint.
-    """
-    normalized_deps = []
-    for d in (request.dependencies or []):
-        normalized_deps.append({
-            "group_id": (d.group_id or "").strip().lower(),
-            "artifact_id": (d.artifact_id or "").strip().lower(),
-            "current_version": (d.current_version or "").strip(),
-            "resolved_version": (d.resolved_version or "").strip(),
-            "scope": (d.scope or "compile").strip().lower(),
-        })
-    # Sort deterministically by coordinate, versions, and scope
-    normalized_deps.sort(
-        key=lambda x: (
-            x["group_id"],
-            x["artifact_id"],
-            x["current_version"],
-            x["resolved_version"],
-            x["scope"],
-        )
-    )
-
-    norm_frameworks = sorted(
-        [
-            str(f.get("name") if isinstance(f, dict) else f).strip().lower()
-            for f in (request.frameworks or [])
-        ]
-    )
-    norm_test_fw = sorted(
-        [
-            str(t.get("name") if isinstance(t, dict) else t).strip().lower()
-            for t in (request.testing_frameworks or [])
-        ]
-    )
-
-    canonical_payload = {
-        "job_id": (request.job_id or "").strip(),
-        "source_java_version": (request.source_java_version or "").strip(),
-        "target_java_version": (request.target_java_version or "").strip(),
-        "build_tool": (request.build_tool or "").strip().upper(),
-        "spring_boot_version": (request.spring_boot_version or "").strip(),
-        "frameworks": norm_frameworks,
-        "testing_frameworks": norm_test_fw,
-        "api_endpoint_count": request.api_endpoint_count or 0,
-        "dependencies": normalized_deps,
-    }
-    serialized = json.dumps(canonical_payload, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
-
-
-def _get_cache_file_path(fingerprint: str, job_id: str | None = None) -> Path:
-    folder = job_id.strip() if job_id and job_id.strip() else "global"
-    return _CACHE_DIR / folder / f"{fingerprint}.json"
-
-
-def _normalize_explanation(resp: DependencyAnalysisResponse | None) -> None:
-    """Ensure overall_explanation is calculated once across all dependencies, not repeated per batch."""
-    if not resp:
-        return
-    tot_cnt = len(resp.dependencies) if resp.dependencies else (resp.counts.total if resp.counts else 0)
-    crit = resp.counts.critical if resp.counts else 0
-    high = resp.counts.high if resp.counts else 0
-    med = resp.counts.medium if resp.counts else 0
-    att_cnt = crit + high + med
-    if (
-        not resp.overall_explanation
-        or resp.overall_explanation.count("Based on") > 1
-        or "require explicit migration attention" in resp.overall_explanation
-    ):
-        resp.overall_explanation = f"Based on {tot_cnt} dependencies, {att_cnt} require explicit migration attention."
-
-
-def _read_from_cache(fingerprint: str, job_id: str | None = None) -> DependencyAnalysisResponse | None:
-    if fingerprint in _memory_cache:
-        resp = _memory_cache[fingerprint]
-        _normalize_explanation(resp)
-        return resp
-
-    cache_file = _get_cache_file_path(fingerprint, job_id)
-    if cache_file.exists():
-        try:
-            data = json.loads(cache_file.read_text(encoding="utf-8"))
-            parsed = DependencyAnalysisResponse.model_validate(data)
-            _normalize_explanation(parsed)
-            _memory_cache[fingerprint] = parsed
-            return parsed
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("[DependencyAnalysis] Failed to read cached file %s: %s", cache_file, exc)
-    return None
-
-
-def _write_to_cache(fingerprint: str, job_id: str | None, response: DependencyAnalysisResponse) -> None:
-    _normalize_explanation(response)
-    _memory_cache[fingerprint] = response
-    try:
-        cache_file = _get_cache_file_path(fingerprint, job_id)
-        cache_file.parent.mkdir(parents=True, exist_ok=True)
-        cache_file.write_text(json.dumps(response.model_dump(), indent=2), encoding="utf-8")
-        logger.info("[DependencyAnalysis] validated result cached (fingerprint=%s)", fingerprint)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("[DependencyAnalysis] Failed to write cache file: %s", exc)
-
 
 def _heuristic_classify_category(group: str, artifact: str) -> str:
     gid = (group or "").lower()
@@ -303,11 +191,18 @@ def _build_fallback_analysis(
     else:
         complexity = "COMPLEX"
 
-    attention_cnt = crit_cnt + high_cnt + med_cnt
+    logger.info(
+        "[STRATEGY DEPENDENCIES RISKS] - TotalDependencies: %d - Critical: %d - Medium: %d - Low: %d",
+        tot_cnt,
+        crit_cnt,
+        med_cnt,
+        low_cnt,
+    )
+
     return DependencyAnalysisResponse(
         overall_risk=overall_risk,
         complexity=complexity,
-        overall_explanation=f"Based on {tot_cnt} dependencies, {attention_cnt} require explicit migration attention.",
+        overall_explanation=f"Based on {tot_cnt} dependencies, {crit_cnt + high_cnt} require explicit migration attention.",
         complexity_explanation=f"Dependency volume ({tot_cnt}) and framework distribution evaluated.",
         counts=DependencyRiskCounts(
             critical=crit_cnt,
@@ -540,8 +435,9 @@ class AnalyzeDependenciesUseCase:
             if not complexity:
                 complexity = "LIGHT" if tot_cnt <= 10 and crit_cnt == 0 and high_cnt == 0 else "MODERATE" if tot_cnt <= 35 and crit_cnt == 0 else "COMPLEX"
 
-            attention_cnt = crit_cnt + high_cnt + med_cnt
-            overall_explanation = f"Based on {tot_cnt} dependencies, {attention_cnt} require explicit migration attention."
+            overall_explanation = " ".join(overall_explanations).strip()
+            if not overall_explanation:
+                overall_explanation = f"Analysis of {tot_cnt} dependencies indicates {overall_risk.lower()} overall migration friction."
 
             complexity_explanation = " ".join(complexity_explanations).strip()
             if not complexity_explanation:

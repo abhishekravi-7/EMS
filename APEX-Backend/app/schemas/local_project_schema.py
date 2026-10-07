@@ -1,4 +1,6 @@
-from typing import Any
+"""Response schema for the unversioned local-project capabilities endpoint."""
+
+from __future__ import annotations
 
 from pydantic import BaseModel
 
@@ -12,23 +14,3 @@ class LocalProjectCapabilitiesResponse(BaseModel):
     allowed_roots: list[str]
     supports_upload: bool
     message: str
-
-
-class LocalProjectAnalyzeRequest(BaseModel):
-    """Body for ``POST /api/local-project/analyze``."""
-
-    project_path: str | None = None
-    project_name: str | None = None
-    job_id: str | None = None
-
-
-class LocalProjectAnalysisResponse(BaseModel):
-    """Response body for ``POST /api/local-project/analyze`` and upload."""
-
-    jobId: str | None = None
-    project_path: str
-    project_name: str
-    repo_url: str
-    owner: str = "local"
-    repo: str
-    analysis: dict[str, Any] | None = None

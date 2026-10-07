@@ -9,6 +9,7 @@ import {
   testAdminGithubConnection,
   testUserGithubConnection,
   testUserSonarConnection,
+  testUserSonarqubeConnection,
   testUserFossaConnection,
   testUserPlaywrightConnection,
   fetchUserGithubRepos,
@@ -120,6 +121,17 @@ export default function AdminConsolePage() {
   const [testingSonar, setTestingSonar] = useState(false);
   const [testingFossa, setTestingFossa] = useState(false);
 
+  // Quality Gate SonarQube & FOSSA validation states
+  const [sonarValidationState, setSonarValidationState] = useState<"idle" | "validating" | "valid" | "invalid" | "error">("idle");
+  const [sonarValidationMessage, setSonarValidationMessage] = useState<string>("");
+  const sonarLastValidatedRef = React.useRef<string>("");
+  const sonarReqSeqRef = React.useRef<number>(0);
+
+  const [fossaValidationState, setFossaValidationState] = useState<"idle" | "validating" | "valid" | "invalid" | "error">("idle");
+  const [fossaValidationMessage, setFossaValidationMessage] = useState<string>("");
+  const fossaLastValidatedRef = React.useRef<string>("");
+  const fossaReqSeqRef = React.useRef<number>(0);
+
   const [availableRepos, setAvailableRepos] = useState<GithubRepo[]>([]);
   const [availableBranches, setAvailableBranches] = useState<GithubBranch[]>([]);
 
@@ -153,14 +165,53 @@ export default function AdminConsolePage() {
     async function fetchSettings() {
       try {
         setIsLoading(true);
-        const userData = await getUserSettings();
-        if (!userData.quality_checks_values?.sonarqube_url) {
-          userData.quality_checks_values = {
-            ...(userData.quality_checks_values || {}),
-            sonarqube_url: "https://sonarcloud.io"
-          };
+        if (isAdminUser) {
+          const sysData = await getAdminSettings().catch(err => {
+            console.error("Error loading admin settings:", err);
+            return INITIAL_SYSTEM_SETTINGS;
+          });
+          setAdminSettings(sysData || INITIAL_SYSTEM_SETTINGS);
+          const loadedSettings = sysData || INITIAL_SYSTEM_SETTINGS;
+          setCiEnabled(String(loadedSettings.ci_enabled ?? "true").toLowerCase() !== "false");
+          setCdEnabled(String(loadedSettings.cd_enabled ?? "true").toLowerCase() !== "false");
+
+          getAdminUsers().then(users => {
+            setAdminUsers(users || []);
+            if (users && users.length > 0) {
+              const getUserId = (u: any): string => {
+                const val = u.id || u._id;
+                if (!val || String(val) === "[object Object]") {
+                  return u.email || "";
+                }
+                return String(val);
+              };
+              const firstId = getUserId(users[0]);
+              setSelectedUserId(firstId);
+              if (users[0].email) {
+                setUserSearchEmail(users[0].email);
+              }
+            }
+          }).catch(err => {
+            console.error("Failed to fetch admin users:", err);
+          });
+        } else {
+          const userData = await getUserSettings().catch(err => {
+            console.error("Error loading user settings:", err);
+            return INITIAL_USER_SETTINGS;
+          });
+          setUserSettings(userData || INITIAL_USER_SETTINGS);
+          if (userData && userData.settings_permissions) {
+            setMyEffectivePerms(userData.settings_permissions);
+          }
+
+          getMySettingsPermissions().then(res => {
+            if (res && res.effective_permissions) {
+              setMyEffectivePerms(res.effective_permissions);
+            }
+          }).catch(err => {
+            console.error("Failed to load user effective permissions:", err);
+          });
         }
-        setUserSettings(userData);
       } catch (err) {
         console.error("Failed to load settings:", err);
       } finally {
@@ -281,16 +332,33 @@ export default function AdminConsolePage() {
     }));
   };
 
-  const handleFieldChange = (field: string, val: any, category: "github" | "quality" | "test" | "llm" = "quality") => {
-    if (category === "github") {
-      handleUserFieldChange(field as keyof UserGitHubConfig, val);
-    } else if (category === "quality") {
-      handleUserQualityCheckChange(field, val);
-    } else if (category === "test") {
-      handleUserTestCaseChange(field, val);
-    } else if (category === "llm") {
-      handleUserLlmChange(field, val);
+  const handleSaveUserPermissions = async () => {
+    if (!selectedUserId) return;
+    setIsUserPermsSaving(true);
+    try {
+      const res = await updateAdminUserPermissions(selectedUserId, selectedUserPerms);
+      const updatedPerms = (res as any)?.permissions || res;
+      setSelectedUserPerms(updatedPerms);
+      setInitialUserPerms(updatedPerms);
+
+      // Instantly sync effective permissions in state
+      getMySettingsPermissions().then(permsRes => {
+        if (permsRes && permsRes.effective_permissions) {
+          setMyEffectivePerms(permsRes.effective_permissions);
+        }
+      }).catch(() => {});
+
+      showToast("success", "Individual user permissions saved successfully!");
+    } catch (err: any) {
+      console.error(err);
+      showToast("error", err.message || "Failed to save user permissions.");
+    } finally {
+      setIsUserPermsSaving(false);
     }
+  };
+
+  const handleResetUserPermissions = () => {
+    setSelectedUserPerms(initialUserPerms);
   };
 
   const handleDeploy = async () => {
@@ -375,57 +443,257 @@ export default function AdminConsolePage() {
     }
   };
 
-  const handleTestSonarConnection = async () => {
-    setTestingSonar(true);
-    try {
-      await updateUserSettings(
-        userSettings.github_config,
-        userSettings.quality_checks_values,
-        userSettings.test_cases_values,
-        userSettings.llm_values
-      );
-      const res = await testUserSonarConnection({
-        sonarqube_url: userSettings.quality_checks_values?.sonarqube_url,
-        auth_token: userSettings.quality_checks_values?.auth_token,
-        project_key: userSettings.quality_checks_values?.project_key,
-        sonar_organization: userSettings.quality_checks_values?.sonar_organization,
-      });
-      showToast("success", res.message || "SonarQube connection successful.");
-    } catch (err: any) {
-      showToast("error", err.message || "Failed to connect to SonarQube.");
-    } finally {
-      setTestingSonar(false);
-    }
-  };
-
-  const handleTestFossaConnection = async () => {
-    setTestingFossa(true);
-    try {
-      await updateUserSettings(
-        userSettings.github_config,
-        userSettings.quality_checks_values,
-        userSettings.test_cases_values,
-        userSettings.llm_values
-      );
-      const res = await testUserFossaConnection({
-        fossa_api_key: userSettings.quality_checks_values?.fossa_api_key,
-      });
-      showToast("success", res.message || "FOSSA connection successful.");
-    } catch (err: any) {
-      showToast("error", err.message || "Failed to connect to FOSSA.");
-    } finally {
-      setTestingFossa(false);
-    }
-  };
-
   const handleTestPlaywright = async (url: string) => {
     try {
-      showToast("success", `Connected to Playwright target (${url}) successfully.`);
+      const res = await testUserPlaywrightConnection(url);
+      showToast("success", res.message || "Connected to Playwright application successfully.");
     } catch (err: any) {
       showToast("error", err.message || "Failed to test Playwright connection.");
     }
   };
 
+  const validateSonarqube = async (manual: boolean = false) => {
+    const url = "https://sonarcloud.io";
+
+    const token = (
+      userSettings.quality_checks_values?.sonarqube_token ||
+      userSettings.quality_checks_values?.auth_token ||
+      userSettings.quality_checks_values?.token ||
+      ""
+    ).trim();
+
+    const projectKey = (
+      userSettings.quality_checks_values?.sonarqube_project_key ||
+      userSettings.quality_checks_values?.project_key ||
+      ""
+    ).trim();
+
+    const org = (
+      userSettings.quality_checks_values?.sonarqube_org ||
+      userSettings.quality_checks_values?.sonar_organization ||
+      userSettings.quality_checks_values?.org ||
+      ""
+    ).trim();
+
+    const isComplete = Boolean(
+      token &&
+      org &&
+      (manual || (!token.startsWith("****************") && token !== "********"))
+    );
+
+    if (!isComplete) {
+      if (manual) {
+        showToast("error", "Please enter SonarQube Auth Token and Organization before testing.");
+      }
+      setSonarValidationState("idle");
+      setSonarValidationMessage("");
+      sonarLastValidatedRef.current = "";
+      return;
+    }
+
+    const payloadKey = `${url}|${token}|${projectKey}|${org}`;
+    if (!manual && sonarLastValidatedRef.current === payloadKey) {
+      return;
+    }
+
+    const seq = ++sonarReqSeqRef.current;
+    setSonarValidationState("validating");
+    setSonarValidationMessage("");
+
+    try {
+      const res = await testUserSonarqubeConnection({
+        url,
+        token,
+        project_key: projectKey || undefined,
+        org: org || undefined,
+      });
+      if (seq !== sonarReqSeqRef.current) return;
+      sonarLastValidatedRef.current = payloadKey;
+      setSonarValidationState("valid");
+      setSonarValidationMessage(res.message || "Configuration is valid");
+      if (manual) {
+        showToast("success", res.message || "SonarQube Connection Successful!");
+      }
+    } catch (err: any) {
+      if (seq !== sonarReqSeqRef.current) return;
+      sonarLastValidatedRef.current = payloadKey;
+      const isInvalid = err.status === 400 || (err.message && err.message.toLowerCase().includes("invalid"));
+      if (isInvalid) {
+        setSonarValidationState("invalid");
+        setSonarValidationMessage(err.message || "Invalid SonarQube configuration.");
+      } else {
+        setSonarValidationState("error");
+        setSonarValidationMessage(err.message || "Failed to test SonarQube connection.");
+      }
+      if (manual) {
+        showToast("error", err.message || (isInvalid ? "Invalid SonarQube configuration." : "Failed to test SonarQube connection."));
+      }
+    }
+  };
+
+  const validateFossa = async (manual: boolean = false) => {
+    const apiKey = (
+      userSettings.quality_checks_values?.fossa_api_key ||
+      userSettings.quality_checks_values?.api_key ||
+      ""
+    ).trim();
+
+    const isComplete = Boolean(
+      apiKey &&
+      (manual || (!apiKey.startsWith("****************") && apiKey !== "********"))
+    );
+
+    if (!isComplete) {
+      if (manual) {
+        showToast("error", "Please enter a FOSSA API Key before testing.");
+      }
+      setFossaValidationState("idle");
+      setFossaValidationMessage("");
+      fossaLastValidatedRef.current = "";
+      return;
+    }
+
+    if (!manual && fossaLastValidatedRef.current === apiKey) {
+      return;
+    }
+
+    const seq = ++fossaReqSeqRef.current;
+    setFossaValidationState("validating");
+    setFossaValidationMessage("");
+
+    try {
+      const res = await testUserFossaConnection({ api_key: apiKey });
+      if (seq !== fossaReqSeqRef.current) return;
+      fossaLastValidatedRef.current = apiKey;
+      setFossaValidationState("valid");
+      setFossaValidationMessage(res.message || "Configuration Valid");
+      if (manual) {
+        showToast("success", res.message || "FOSSA Connection Successful!");
+      }
+    } catch (err: any) {
+      if (seq !== fossaReqSeqRef.current) return;
+      fossaLastValidatedRef.current = apiKey;
+      const isInvalid = err.status === 400 || (err.message && err.message.toLowerCase().includes("invalid"));
+      if (isInvalid) {
+        setFossaValidationState("invalid");
+        setFossaValidationMessage(err.message || "Invalid FOSSA API key.");
+      } else {
+        setFossaValidationState("error");
+        setFossaValidationMessage(err.message || "Failed to test FOSSA connection.");
+      }
+      if (manual) {
+        showToast("error", err.message || (isInvalid ? "Invalid FOSSA API key." : "Failed to test FOSSA connection."));
+      }
+    }
+  };
+
+  const handleTestSonarqube = () => validateSonarqube(true);
+  const handleTestFossa = () => validateFossa(true);
+  const handleTestSonarConnection = () => validateSonarqube(true);
+  const handleTestFossaConnection = () => validateFossa(true);
+
+  // Automatic validation for SonarQube when on quality_gate tab
+  useEffect(() => {
+    if (activeUserTab !== "quality_gate" || isLoading) return;
+
+    const url = "https://sonarcloud.io";
+
+    const token = (
+      userSettings.quality_checks_values?.sonarqube_token ||
+      userSettings.quality_checks_values?.auth_token ||
+      userSettings.quality_checks_values?.token ||
+      ""
+    ).trim();
+
+    const projectKey = (
+      userSettings.quality_checks_values?.sonarqube_project_key ||
+      userSettings.quality_checks_values?.project_key ||
+      ""
+    ).trim();
+
+    const org = (
+      userSettings.quality_checks_values?.sonarqube_org ||
+      userSettings.quality_checks_values?.sonar_organization ||
+      userSettings.quality_checks_values?.org ||
+      ""
+    ).trim();
+
+    const isComplete = Boolean(
+      token &&
+      org &&
+      !token.startsWith("****************") &&
+      token !== "********"
+    );
+
+    if (!isComplete) {
+      setSonarValidationState("idle");
+      setSonarValidationMessage("");
+      sonarLastValidatedRef.current = "";
+      return;
+    }
+
+    const payloadKey = `${url}|${token}|${projectKey}|${org}`;
+    if (sonarLastValidatedRef.current === payloadKey) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      validateSonarqube(false);
+    }, 700);
+
+    return () => clearTimeout(timer);
+  }, [
+    activeUserTab,
+    isLoading,
+    userSettings.quality_checks_values?.sonarqube_token,
+    userSettings.quality_checks_values?.auth_token,
+    userSettings.quality_checks_values?.token,
+    userSettings.quality_checks_values?.sonarqube_project_key,
+    userSettings.quality_checks_values?.project_key,
+    userSettings.quality_checks_values?.sonarqube_org,
+    userSettings.quality_checks_values?.sonar_organization,
+    userSettings.quality_checks_values?.org,
+  ]);
+
+  // Automatic validation for FOSSA when on quality_gate tab
+  useEffect(() => {
+    if (activeUserTab !== "quality_gate" || isLoading) return;
+
+    const apiKey = (
+      userSettings.quality_checks_values?.fossa_api_key ||
+      userSettings.quality_checks_values?.api_key ||
+      ""
+    ).trim();
+
+    const isComplete = Boolean(
+      apiKey &&
+      !apiKey.startsWith("****************") &&
+      apiKey !== "********"
+    );
+
+    if (!isComplete) {
+      setFossaValidationState("idle");
+      setFossaValidationMessage("");
+      fossaLastValidatedRef.current = "";
+      return;
+    }
+
+    if (fossaLastValidatedRef.current === apiKey) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      validateFossa(false);
+    }, 700);
+
+    return () => clearTimeout(timer);
+  }, [
+    activeUserTab,
+    isLoading,
+    userSettings.quality_checks_values?.fossa_api_key,
+    userSettings.quality_checks_values?.api_key,
+  ]);
+ 
   const renderContent = () => {
     if (isLoading) {
       return (
@@ -443,26 +711,17 @@ export default function AdminConsolePage() {
     // SYSTEM ADMIN SETTINGS (Governance Cards by Tab)
     // ─────────────────────────────────────────────────────────────────────────
     if (isAdminUser) {
-      return (
-        <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
-          {/* Card 1: Platform GitHub Configuration */}
-          <div className="settings-card">
-            <div className="settings-card-header">
-              <div className="settings-card-icon"><FaGithub /></div>
-              <div>
-                <h3 className="settings-card-title">Platform GitHub Configuration</h3>
-              </div>
-            </div>
-            <div className="grid-2">
-              <div>
-                <label className="settings-label">GitHub Client ID</label>
-                <input
-                  type="text"
-                  className="settings-input"
-                  value={currentSys.github_client_id || ""}
-                  onChange={e => handleAdminFieldChange("github_client_id", e.target.value)}
-                  placeholder="Ov23ieHcn1iziBRnLRt"
-                />
+      if (activeUserTab === "general") {
+        return (
+          <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+            {/* Card 1: Platform GitHub Configuration */}
+            <div className="settings-card">
+              <div className="settings-card-header">
+                <div className="settings-card-icon"><FaGithub /></div>
+                <div>
+                  <h3 className="settings-card-title">Platform GitHub Configuration</h3>
+                  <p className="settings-card-subtitle">Configure OAuth client credentials and target repository defaults.</p>
+                </div>
               </div>
               <div className="grid-2">
                 <div>
@@ -1017,8 +1276,8 @@ export default function AdminConsolePage() {
               </>
             )}
           </div>
-        </div>
-      );
+        );
+      }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -1494,23 +1753,34 @@ export default function AdminConsolePage() {
                   <input
                     type="text"
                     className="settings-input"
-                    value={userSettings.quality_checks_values?.sonarqube_url ?? "https://sonarcloud.io"}
-                    onChange={e => handleFieldChange("sonarqube_url", e.target.value, "quality")}
-                    placeholder="https://sonarcloud.io"
+                    value="https://sonarcloud.io"
+                    readOnly
+                    disabled
+                    style={{
+                      backgroundColor: "#f8fafc",
+                      color: "#64748b",
+                      cursor: "not-allowed",
+                      borderColor: "#cbd5e1",
+                      userSelect: "none",
+                    }}
+                    title="SonarQube URL is fixed to https://sonarcloud.io for all users"
                   />
                 </div>
                 <div>
                   <label className="settings-label">AUTH TOKEN</label>
                   <div className="settings-input-group">
                     <input
-                      type={showSecrets["sonar_auth_token"] ? "text" : "password"}
+                      type={showSecrets["sonar_token"] ? "text" : "password"}
                       className="settings-input"
-                      value={userSettings.quality_checks_values?.auth_token || ""}
-                      onChange={e => handleFieldChange("auth_token", e.target.value, "quality")}
-                      placeholder="Enter SonarQube token"
+                      value={currentUserStg.quality_checks_values?.sonarqube_token || currentUserStg.quality_checks_values?.auth_token || ""}
+                      onChange={e => {
+                        handleUserQualityCheckChange("sonarqube_token", e.target.value);
+                        handleUserQualityCheckChange("auth_token", e.target.value);
+                      }}
+                      placeholder="••••••••••••••••••••"
                     />
-                    <div className="settings-input-group-icon" onClick={() => toggleSecret("sonar_auth_token")}>
-                      {showSecrets["sonar_auth_token"] ? <FaEyeSlash /> : <FaEye />}
+                    <div className="settings-input-group-icon" onClick={() => toggleSecret("sonar_token")}>
+                      {showSecrets["sonar_token"] ? <FaEyeSlash /> : <FaEye />}
                     </div>
                   </div>
                 </div>
@@ -1519,9 +1789,9 @@ export default function AdminConsolePage() {
                   <input
                     type="text"
                     className="settings-input"
-                    value={userSettings.quality_checks_values?.project_key || ""}
-                    onChange={e => handleFieldChange("project_key", e.target.value, "quality")}
-                    placeholder="Enter project key"
+                    value={currentUserStg.quality_checks_values?.sonarqube_project_key || ""}
+                    onChange={e => handleUserQualityCheckChange("sonarqube_project_key", e.target.value)}
+                    placeholder="Enter project key (optional)"
                   />
                 </div>
                 <div>
@@ -1529,20 +1799,114 @@ export default function AdminConsolePage() {
                   <input
                     type="text"
                     className="settings-input"
-                    value={userSettings.quality_checks_values?.sonar_organization || ""}
-                    onChange={e => handleFieldChange("sonar_organization", e.target.value, "quality")}
+                    value={currentUserStg.quality_checks_values?.sonarqube_org || currentUserStg.quality_checks_values?.sonar_organization || ""}
+                    onChange={e => {
+                      handleUserQualityCheckChange("sonarqube_org", e.target.value);
+                      handleUserQualityCheckChange("sonar_organization", e.target.value);
+                    }}
                     placeholder="Enter org key"
                   />
                 </div>
               </div>
-              <button
-                className="settings-action-btn"
-                onClick={handleTestSonarConnection}
-                disabled={testingSonar}
-                type="button"
-              >
-                {testingSonar ? <FaSpinner className="animate-spin" /> : <FaPlug />} Test Connection
-              </button>
+
+              {sonarValidationState === "valid" && (
+                <div
+                  style={{
+                    marginTop: "16px",
+                    padding: "14px 16px",
+                    borderRadius: "10px",
+                    background: "#f0fdf4",
+                    border: "1px solid #86efac",
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: "10px",
+                  }}
+                >
+                  <FaCheckCircle style={{ color: "#16a34a", fontSize: "16px", marginTop: "2px", flexShrink: 0 }} />
+                  <div>
+                    <div style={{ fontSize: "13px", fontWeight: 700, color: "#166534" }}>
+                      SonarQube Connected
+                    </div>
+                    <div style={{ fontSize: "12px", color: "#15803d", marginTop: "2px" }}>
+                      Configuration is valid
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {sonarValidationState === "validating" && (
+                <div
+                  style={{
+                    marginTop: "16px",
+                    padding: "14px 16px",
+                    borderRadius: "10px",
+                    background: "#eff6ff",
+                    border: "1px solid #bfdbfe",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "10px",
+                  }}
+                >
+                  <FaSpinner className="animate-spin" style={{ color: "#2563eb", fontSize: "15px", flexShrink: 0 }} />
+                  <div style={{ fontSize: "13px", fontWeight: 600, color: "#1d4ed8" }}>
+                    Validating SonarQube configuration...
+                  </div>
+                </div>
+              )}
+
+              {sonarValidationState === "invalid" && (
+                <div
+                  style={{
+                    marginTop: "16px",
+                    padding: "14px 16px",
+                    borderRadius: "10px",
+                    background: "#fef2f2",
+                    border: "1px solid #fca5a5",
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: "10px",
+                  }}
+                >
+                  <FaTimesCircle style={{ color: "#dc2626", fontSize: "16px", marginTop: "2px", flexShrink: 0 }} />
+                  <div>
+                    <div style={{ fontSize: "13px", fontWeight: 700, color: "#991b1b" }}>
+                      Invalid SonarQube configuration
+                    </div>
+                    {sonarValidationMessage && (
+                      <div style={{ fontSize: "12px", color: "#b91c1c", marginTop: "2px" }}>
+                        {sonarValidationMessage}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {sonarValidationState === "error" && (
+                <div
+                  style={{
+                    marginTop: "16px",
+                    padding: "14px 16px",
+                    borderRadius: "10px",
+                    background: "#fffbeb",
+                    border: "1px solid #fde68a",
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: "10px",
+                  }}
+                >
+                  <FaExclamationTriangle style={{ color: "#d97706", fontSize: "16px", marginTop: "2px", flexShrink: 0 }} />
+                  <div>
+                    <div style={{ fontSize: "13px", fontWeight: 700, color: "#92400e" }}>
+                      Failed to test SonarQube connection
+                    </div>
+                    {sonarValidationMessage && (
+                      <div style={{ fontSize: "12px", color: "#b45309", marginTop: "2px" }}>
+                        {sonarValidationMessage}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* FOSSA Card */}
@@ -1624,29 +1988,118 @@ export default function AdminConsolePage() {
 
               <div style={{ marginBottom: "16px" }}>
                 <label className="settings-label">FOSSA API KEY</label>
-                <div className="settings-input-group" style={{ marginBottom: "16px" }}>
+                <div className="settings-input-group">
                   <input
-                    type={showSecrets["fossa_api_key"] ? "text" : "password"}
+                    type={showSecrets["fossa_key"] ? "text" : "password"}
                     className="settings-input"
-                    value={userSettings.quality_checks_values?.fossa_api_key || ""}
-                    onChange={e => handleFieldChange("fossa_api_key", e.target.value, "quality")}
+                    value={currentUserStg.quality_checks_values?.fossa_api_key || ""}
+                    onChange={e => handleUserQualityCheckChange("fossa_api_key", e.target.value)}
                     placeholder="Enter FOSSA API Key"
                   />
-                  <div className="settings-input-group-icon" onClick={() => toggleSecret("fossa_api_key")}>
-                    {showSecrets["fossa_api_key"] ? <FaEyeSlash /> : <FaEye />}
+                  <div className="settings-input-group-icon" onClick={() => toggleSecret("fossa_key")}>
+                    {showSecrets["fossa_key"] ? <FaEyeSlash /> : <FaEye />}
                   </div>
                 </div>
               </div>
-              <div style={{ marginTop: "auto" }}>
-                <button
-                  className="settings-action-btn"
-                  onClick={handleTestFossaConnection}
-                  disabled={testingFossa}
-                  type="button"
+
+              {fossaValidationState === "valid" && (
+                <div
+                  style={{
+                    marginTop: "auto",
+                    padding: "14px 16px",
+                    borderRadius: "10px",
+                    background: "#f0fdf4",
+                    border: "1px solid #86efac",
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: "10px",
+                  }}
                 >
-                  {testingFossa ? <FaSpinner className="animate-spin" /> : <FaPlug />} Test Connection
-                </button>
-              </div>
+                  <FaCheckCircle style={{ color: "#16a34a", fontSize: "16px", marginTop: "2px", flexShrink: 0 }} />
+                  <div>
+                    <div style={{ fontSize: "13px", fontWeight: 700, color: "#166534" }}>
+                      FOSSA Connected
+                    </div>
+                    <div style={{ fontSize: "12px", color: "#15803d", marginTop: "2px" }}>
+                      Configuration is valid
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {fossaValidationState === "validating" && (
+                <div
+                  style={{
+                    marginTop: "auto",
+                    padding: "14px 16px",
+                    borderRadius: "10px",
+                    background: "#eff6ff",
+                    border: "1px solid #bfdbfe",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "10px",
+                  }}
+                >
+                  <FaSpinner className="animate-spin" style={{ color: "#2563eb", fontSize: "15px", flexShrink: 0 }} />
+                  <div style={{ fontSize: "13px", fontWeight: 600, color: "#1d4ed8" }}>
+                    Validating FOSSA API key...
+                  </div>
+                </div>
+              )}
+
+              {fossaValidationState === "invalid" && (
+                <div
+                  style={{
+                    marginTop: "auto",
+                    padding: "14px 16px",
+                    borderRadius: "10px",
+                    background: "#fef2f2",
+                    border: "1px solid #fca5a5",
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: "10px",
+                  }}
+                >
+                  <FaTimesCircle style={{ color: "#dc2626", fontSize: "16px", marginTop: "2px", flexShrink: 0 }} />
+                  <div>
+                    <div style={{ fontSize: "13px", fontWeight: 700, color: "#991b1b" }}>
+                      Invalid FOSSA API key
+                    </div>
+                    {fossaValidationMessage && (
+                      <div style={{ fontSize: "12px", color: "#b91c1c", marginTop: "2px" }}>
+                        {fossaValidationMessage}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {fossaValidationState === "error" && (
+                <div
+                  style={{
+                    marginTop: "auto",
+                    padding: "14px 16px",
+                    borderRadius: "10px",
+                    background: "#fffbeb",
+                    border: "1px solid #fde68a",
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: "10px",
+                  }}
+                >
+                  <FaExclamationTriangle style={{ color: "#d97706", fontSize: "16px", marginTop: "2px", flexShrink: 0 }} />
+                  <div>
+                    <div style={{ fontSize: "13px", fontWeight: 700, color: "#92400e" }}>
+                      Failed to test FOSSA connection
+                    </div>
+                    {fossaValidationMessage && (
+                      <div style={{ fontSize: "12px", color: "#b45309", marginTop: "2px" }}>
+                        {fossaValidationMessage}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -1684,9 +2137,11 @@ export default function AdminConsolePage() {
                   <label className="settings-label">CYCODE API TOKEN</label>
                   <div className="settings-input-group">
                     <input
-                      type="checkbox"
-                      checked={userSettings.quality_checks_values?.ci_enabled ?? true}
-                      onChange={e => handleFieldChange("ci_enabled", e.target.checked, "quality")}
+                      type={showSecrets["cycode_api_token"] ? "text" : "password"}
+                      className="settings-input"
+                      placeholder="Enter Cycode API token"
+                      value={userSettings.quality_checks_values?.cycode_api_token || ""}
+                      onChange={e => handleUserQualityCheckChange("cycode_api_token", e.target.value)}
                     />
                     <div className="settings-input-group-icon" onClick={() => toggleSecret("cycode_api_token")} style={{ cursor: "pointer" }}>
                       {showSecrets["cycode_api_token"] ? <FaEyeSlash /> : <FaEye />}
@@ -1723,16 +2178,24 @@ export default function AdminConsolePage() {
                     <span className="switch-label">{ciEnabled ? "Enabled" : "Disabled"}</span>
                   </div>
                 </div>
-                <div className="switch-wrap">
-                  <label className="switch-ios">
-                    <input
-                      type="checkbox"
-                      checked={userSettings.quality_checks_values?.cd_enabled ?? true}
-                      onChange={e => handleFieldChange("cd_enabled", e.target.checked, "quality")}
-                    />
-                    <span className="slider-ios"></span>
-                  </label>
-                  <span className="switch-label">Enabled</span>
+                <p className="settings-toggle-desc">
+                  Enable or disable automated CI build validation and quality gate checks on pull requests and commits.
+                </p>
+              </div>
+
+              {/* CD Card */}
+              <div className="settings-toggle-card" style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+                <div className="settings-toggle-header">
+                  <div className="settings-toggle-title">
+                    <FaRocket style={{ color: "#2563eb" }} /> Continuous Deployment (CD)
+                  </div>
+                  <div className="switch-wrap">
+                    <label className="switch-ios">
+                      <input type="checkbox" checked={cdEnabled} onChange={e => setCdEnabled(e.target.checked)} />
+                      <span className="slider-ios"></span>
+                    </label>
+                    <span className="switch-label">{cdEnabled ? "Enabled" : "Disabled"}</span>
+                  </div>
                 </div>
                 <p className="settings-toggle-desc">
                   Enable or disable automated deployment pipelines and artifact publishing upon successful migration verification.

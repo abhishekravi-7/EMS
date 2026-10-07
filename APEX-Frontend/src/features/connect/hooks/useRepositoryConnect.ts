@@ -560,50 +560,6 @@ export function useRepositoryConnect({
     }
   };
 
-  const handleRemoveLocalProject = useCallback(() => {
-    setLocalProjectUploadFiles([]);
-    setLocalProjectUploadError("");
-    setLocalProjectUploadWarning("");
-    setLocalProjectUploadLoading(false);
-    setLocalProjectUploadCompressing(false);
-    setError("");
-
-    const isLocalSelected = selectedRepo && isLocalRepoRef(selectedRepo.url);
-    const isLocalJob = Boolean(
-      (jobId && jobId.startsWith("local-")) ||
-      readPersistedValue(WIZARD_JOB_ID_KEY)?.startsWith("local-")
-    );
-
-    if (isLocalSelected || isLocalJob) {
-      setSelectedRepo(null);
-      setRepoAnalysis(null);
-      setRepoFiles([]);
-      setJobId("");
-      writeSessionValue(WIZARD_JOB_ID_KEY, "");
-      writeSessionValue(WIZARD_SELECTED_REPO_KEY, "");
-      writeSessionValue(WIZARD_REPO_URL_KEY, "");
-      if (typeof window !== "undefined") {
-        window.localStorage.removeItem(WIZARD_JOB_ID_KEY);
-      }
-    }
-    resetRepositorySelectionState();
-  }, [
-    isLocalRepoRef,
-    jobId,
-    resetRepositorySelectionState,
-    selectedRepo,
-    setError,
-    setJobId,
-    setLocalProjectUploadCompressing,
-    setLocalProjectUploadError,
-    setLocalProjectUploadFiles,
-    setLocalProjectUploadLoading,
-    setLocalProjectUploadWarning,
-    setRepoAnalysis,
-    setRepoFiles,
-    setSelectedRepo,
-  ]);
-
   const handleLocalProjectUpload = async () => {
     if (localProjectUploadFiles.length === 0 || localProjectUploadError) return;
 
@@ -726,10 +682,11 @@ export function useRepositoryConnect({
       description: "Uploaded local project",
     });
 
-    // Match Connect Repository flow: do NOT set analysis yet.
-    // Analysis is executed when entering Step 2 (Discovery), showing the DiscoveryLoader
-    // with its 4 animated stages and executing runDiscovery(jobId) identical to Connect Repository.
-    setRepoAnalysis(null);
+    if (result.analysis) {
+      setRepoAnalysis(result.analysis);
+    } else {
+      setRepoAnalysis(null);
+    }
     setRepoFiles([]);
     setStep(2);
   };
@@ -805,7 +762,5 @@ export function useRepositoryConnect({
     handleRepositoryContinue,
     handleLocalProjectFilesChange,
     handleLocalProjectUpload,
-    handleRemoveLocalProject,
-    isLocalRepoRef,
   };
 }
