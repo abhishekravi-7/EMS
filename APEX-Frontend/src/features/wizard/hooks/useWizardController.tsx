@@ -4425,12 +4425,12 @@ export function useWizardController() {
       }
 
       try {
-        const analyzePromise = isLocalProject
-          ? analyzeLocalProject(extractLocalRepoPath(selectedRepo.url))
-            .then(async (result) => enrichAnalysisWithPomVersion(result.analysis as RepoAnalysis, selectedRepo.url, ""))
-          : effectiveJobId
-            ? runDiscovery(effectiveJobId, currentToken, isRerun)
-              .then(async (result) => enrichAnalysisWithPomVersion(result.analysis as RepoAnalysis, selectedRepo.url, currentToken))
+        const analyzePromise = effectiveJobId
+          ? runDiscovery(effectiveJobId, currentToken, isRerun)
+            .then(async (result) => enrichAnalysisWithPomVersion(result.analysis as RepoAnalysis, selectedRepo.url, currentToken))
+          : isLocalProject
+            ? analyzeLocalProject(extractLocalRepoPath(selectedRepo.url))
+              .then(async (result) => enrichAnalysisWithPomVersion(result.analysis as RepoAnalysis, selectedRepo.url, ""))
             : analyzeRepoUrl(selectedRepo.url, currentToken, true)
               .then(async (result) => enrichAnalysisWithPomVersion(result.analysis as RepoAnalysis, selectedRepo.url, currentToken));
 

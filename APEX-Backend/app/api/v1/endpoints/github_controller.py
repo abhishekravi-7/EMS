@@ -87,6 +87,17 @@ async def repo_visibility(
             },
         )
     except RepositoryAccessDeniedError as exc:
+        if normalized_token:
+            return JSONResponse(
+                status_code=401,
+                content={
+                    "owner": parsed.owner,
+                    "repo": parsed.repo,
+                    "visibility": "private",
+                    "requires_token": True,  # nosec B105
+                    "message": exc.message,
+                },
+            )
         # Private (or ambiguous 404-without-token) — not an error state, the
         # frontend uses requires_token to prompt for a PAT.
         return JSONResponse(
@@ -100,14 +111,13 @@ async def repo_visibility(
             },
         )
     except RepositoryNotFoundError as exc:
-        requires_token = normalized_token is None
         return JSONResponse(
-            status_code=200,
+            status_code=404,
             content={
                 "owner": parsed.owner,
                 "repo": parsed.repo,
-                "visibility": "private_or_inaccessible" if requires_token else "unknown",
-                "requires_token": requires_token,  # nosec B105
+                "visibility": "not_found",
+                "requires_token": False,  # nosec B105
                 "message": exc.message,
             },
         )

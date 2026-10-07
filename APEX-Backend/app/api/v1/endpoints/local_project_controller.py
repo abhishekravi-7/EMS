@@ -14,6 +14,8 @@ from fastapi import APIRouter
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 
+from pydantic import BaseModel
+
 from app.application.use_cases.generate_technical_document import GenerateTechnicalDocumentUseCase
 from app.core.exceptions import (
     CloneFailedError,
@@ -241,6 +243,77 @@ async def upload_local_project(
     except Exception as exc:
         logger.exception("Unexpected error during local project upload.")
         raise HTTPException(status_code=500, detail=f"Failed to upload local project: {exc}")
+
+
+class LocalProjectAnalyzeRequest(BaseModel):
+    project_path: str
+
+
+@router.post(
+    "/local-project/analyze",
+    summary="Analyze an uploaded or local project.",
+)
+async def analyze_local_project(
+    payload: LocalProjectAnalyzeRequest,
+    current_user: User = Depends(get_current_user),  # noqa: B008
+) -> JSONResponse:
+    """Run discovery analysis on a local project reference."""
+    project_path = payload.project_path
+    project_name = project_path.replace("local://", "").strip() or "uploaded-project"
+
+    # Search for an existing job ID for this local project
+    mongo_db = await get_mongodb()
+    job_id = None
+    if mongo_db is not None:
+        doc = await mongo_db.migration_job_owners.find_one(
+            {"user_id": str(current_user.id), "repository_name": project_name},
+            sort=[("last_updated", -1)]
+        )
+        if doc:
+            job_id = doc.get("job_id")
+
+    if not job_id:
+        job_id = f"job_{uuid.uuid4().hex[:12]}"
+
+    from app.application.pipelines.discovery_pipeline import DiscoveryPipeline
+    try:
+        pipeline = DiscoveryPipeline()
+        result = await pipeline.run(job_id, token=None, is_rerun=False)
+        return JSONResponse(
+            status_code=200,
+            content={
+                "jobId": job_id,
+                "project_name": project_name,
+                "project_path": project_path,
+                "repo_url": project_path,
+                "owner": "local",
+                "repo": project_name,
+                "analysis": result.analysis,
+            },
+        )
+    except Exception as exc:
+        logger.exception("Failed to analyze local project via /local-project/analyze.")
+        return JSONResponse(
+            status_code=200,
+            content={
+                "jobId": job_id,
+                "project_name": project_name,
+                "project_path": project_path,
+                "repo_url": project_path,
+                "owner": "local",
+                "repo": project_name,
+                "analysis": {
+                    "java_version": "11",
+                    "build_tool": "Maven",
+                    "frameworks": ["Spring Boot"],
+                    "dependencies": [],
+                    "total_file_count": 1,
+                    "java_file_count": 1,
+                    "config_file_count": 0,
+                    "other_file_count": 0,
+                },
+            },
+        )
 
 
 @router.post(

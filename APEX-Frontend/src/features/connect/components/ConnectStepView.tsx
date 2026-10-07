@@ -28,6 +28,7 @@ interface ConnectStepViewProps {
 }
 
 export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: ConnectStepViewProps) {
+  const { currentUser } = useAuth();
   const [recentRepos, setRecentRepos] = useState<RecentRepository[]>([]);
   const [loadingRecent, setLoadingRecent] = useState(true);
 
@@ -64,6 +65,7 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
     urlValidation,
     showEnterpriseToken,
     repoVisibility,
+    repoErrorMessage,
     setIsPatModeOpen,
     shouldShowPatInput,
     resetAccessTokenValidationState,
@@ -95,15 +97,10 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
   // Track which card is active so the other one dims
   const [activeCard, setActiveCard] = React.useState<"github" | "upload" | null>(null);
 
-  const { currentUser } = useAuth();
-
-  // Handle admin state clearing and user settings pre-filling
+  // Handle user settings pre-filling
   React.useEffect(() => {
     let isMounted = true;
-    if (currentUser?.role === "SUPERADMIN" || currentUser?.role === "ADMIN") {
-      setRepoUrl("");
-      setPatToken("");
-    } else if (currentUser) {
+    if (currentUser) {
       getUserSettings().then((settings) => {
         if (isMounted) {
           if (!repoUrl && settings.github_config?.repo_url) {
@@ -121,7 +118,7 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
     }
     return () => { isMounted = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentUser, setRepoUrl, setPatToken, setIsPrivateRepo]); // Intentionally not including repoUrl/patToken to avoid infinite fetching loops
+  }, [currentUser]);
 
   // Update active card based on inputs
   React.useEffect(() => {
@@ -239,7 +236,13 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
                 }}
                 placeholder="https://github.com/owner/repository"
                 style={{
-                  borderColor: urlValidation.valid ? "#22c55e" : repoUrl ? "#ef4444" : "#cbd5e1",
+                  borderColor: !urlValidation.valid || repoVisibility === "not_found"
+                    ? "#ef4444"
+                    : repoVisibility === "public" || repoVisibility === "private"
+                      ? "#22c55e"
+                      : repoUrl
+                        ? "#94a3b8"
+                        : "#cbd5e1",
                 }}
               />
 
@@ -285,7 +288,7 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
                       <FaExclamationTriangle size={12} />
                       <span>{urlValidation.message || "Invalid repository URL"}</span>
                     </div>
-                  ) : repoAccessCheckLoading ? (
+                  ) : repoAccessCheckLoading || repoVisibility === "checking" ? (
                     <div style={{
                       fontSize: 11,
                       color: "#2563eb",
@@ -296,6 +299,18 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
                     }}>
                       <FaInfoCircle size={11} />
                       <span>Checking repository visibility...</span>
+                    </div>
+                  ) : repoVisibility === "not_found" ? (
+                    <div style={{
+                      fontSize: 11,
+                      color: "#dc2626",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      fontWeight: 600,
+                    }}>
+                      <FaExclamationTriangle size={12} />
+                      <span>{repoErrorMessage || "Repository not found. Please check the URL."}</span>
                     </div>
                   ) : repoVisibility === "private" ? (
                     <div style={{
@@ -427,15 +442,22 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
                         : "A Personal Access Token (PAT) with repo scope is required to access a private repository."}
                     </p>
 
-                    <div style={{ display: "flex", width: "100%" }}>
+                    <div style={{ display: "flex", width: "100%", gap: 8 }}>
                       <input
                         type="password"
                         style={{
-                          width: "100%",
+                          flex: 1,
+                          minWidth: 0,
                           boxSizing: "border-box",
                           padding: "6px 10px",
                           borderRadius: 6,
-                          border: "1px solid #cbd5e1",
+                          border: `1px solid ${
+                            accessTokenValidationState === "valid"
+                              ? "#22c55e"
+                              : accessTokenValidationState === "invalid"
+                                ? "#ef4444"
+                                : "#cbd5e1"
+                          }`,
                           fontSize: 12,
                           background: "#ffffff",
                         }}
@@ -462,6 +484,29 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
                         placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
                         autoComplete="off"
                       />
+                      <button
+                        type="button"
+                        onClick={() => void handleAccessTokenValidate()}
+                        disabled={
+                          accessTokenValidationState === "validating" ||
+                          !(showEnterpriseToken ? githubToken : patToken).trim()
+                        }
+                        style={{
+                          padding: "6px 14px",
+                          borderRadius: 6,
+                          background: accessTokenValidationState === "valid" ? "#16a34a" : "#2563eb",
+                          color: "#ffffff",
+                          border: "none",
+                          fontWeight: 600,
+                          fontSize: 12,
+                          cursor: (accessTokenValidationState === "validating" || !(showEnterpriseToken ? githubToken : patToken).trim()) ? "not-allowed" : "pointer",
+                          whiteSpace: "nowrap",
+                          opacity: (accessTokenValidationState === "validating" || !(showEnterpriseToken ? githubToken : patToken).trim()) ? 0.6 : 1,
+                          transition: "background 0.2s ease",
+                        }}
+                      >
+                        {accessTokenValidationState === "validating" ? "Validating..." : accessTokenValidationState === "valid" ? "Validated ✓" : "Validate"}
+                      </button>
                     </div>
                     <div style={{ fontSize: 11, color: tokenStatusColor, marginTop: 6, display: "flex", alignItems: "center", gap: 4 }}>
                       {tokenStatusIcon}
@@ -521,6 +566,8 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
               disabled={
                 connecting ||
                 !urlValidation.valid ||
+                repoVisibility === "not_found" ||
+                repoVisibility === "checking" ||
                 (shouldShowPatInput && accessTokenValidationState !== "valid")
               }
               onClick={() => void handleRepositoryContinue()}
@@ -559,19 +606,26 @@ export function ConnectStepView({ connect, onError, onClearRepoAnalysis }: Conne
                   folderInputRef.current = el;
                   el.setAttribute("webkitdirectory", "");
                   el.setAttribute("directory", "");
+                  (el as unknown as Record<string, boolean>).webkitdirectory = true;
                 }
               }}
               type="file"
               multiple
               style={{ display: "none" }}
-               onChange={(e) => { handleLocalProjectFilesChange(e.target.files); }}
+              onClick={(e) => {
+                (e.target as HTMLInputElement).value = "";
+              }}
+              onChange={(e) => { handleLocalProjectFilesChange(e.target.files); }}
             />
             <input
               ref={zipInputRef}
               type="file"
-              accept=".zip"
+              accept=".zip,application/zip,application/x-zip-compressed"
               style={{ display: "none" }}
-             onChange={(e) => { handleLocalProjectFilesChange(e.target.files); }}
+              onClick={(e) => {
+                (e.target as HTMLInputElement).value = "";
+              }}
+              onChange={(e) => { handleLocalProjectFilesChange(e.target.files); }}
             />
 
            {/* Wrapped in same class as GitHub URL input box for vertical alignment */}

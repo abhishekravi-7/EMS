@@ -66,11 +66,19 @@ def parse_github_url(repo_url: str) -> ParsedRepo:
     GitHub repository reference.
     """
     if not repo_url or not repo_url.strip():
-        raise InvalidRepositoryUrlError()
+        raise InvalidRepositoryUrlError("Repository URL is required.")
 
-    match = _GITHUB_URL_PATTERN.match(repo_url.strip())
+    raw = repo_url.strip()
+
+    # Explicit check for other providers (GitLab, Bitbucket, Azure, etc.)
+    if re.search(r"(?:https?://)?(?:www\.)?(?:gitlab\.com|bitbucket\.org|dev\.azure\.com)", raw, re.IGNORECASE):
+        raise InvalidRepositoryUrlError("Only GitHub repositories are supported.")
+
+    match = _GITHUB_URL_PATTERN.match(raw)
     if not match:
-        raise InvalidRepositoryUrlError()
+        if re.search(r"^https?://", raw, re.IGNORECASE) and not re.search(r"^https?://(?:www\.)?github\.com", raw, re.IGNORECASE):
+            raise InvalidRepositoryUrlError("Only GitHub repositories are supported.")
+        raise InvalidRepositoryUrlError("Invalid GitHub repository URL.")
 
     owner = match.group("owner").strip()
     repo = match.group("repo").strip()
@@ -79,7 +87,7 @@ def parse_github_url(repo_url: str) -> ParsedRepo:
         repo = repo[:-4]
 
     if not owner or not repo:
-        raise InvalidRepositoryUrlError()
+        raise InvalidRepositoryUrlError("Invalid GitHub repository URL.")
 
     return ParsedRepo(owner=owner, repo=repo)
 
@@ -101,6 +109,8 @@ class ConnectRepositoryUseCase:
     def _success_message(is_private: bool) -> str:
         if is_private:
             return "Private repository access verified successfully."
+        return "Public repository connected successfully."
+
     async def execute(self, repo_url: str, github_token: str | None) -> ConnectResult:
         # 1. Validate + parse the URL (raises InvalidRepositoryUrlError).
         t_val = time.perf_counter()
