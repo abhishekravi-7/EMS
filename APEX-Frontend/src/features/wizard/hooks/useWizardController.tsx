@@ -44,6 +44,7 @@ import {
   type StrategyPageContext,
 } from "@/features/strategy/services/strategyService";
 import { ApiError } from "@/services/http/client";
+import { getUserSettings } from "@/features/admin/services/adminService";
 import { formatLlmAwareError, isLlmNotConfiguredError } from "@/shared/utils/llmError";
 import {
   getMigrationDetail,
@@ -2040,20 +2041,23 @@ export function useWizardController() {
     setError("");
 
     try {
-      const prefetchedAssetReady = prefetchedBrdDocument && documentPrefetchStatus === "ready";
-      const activePrefetchPromise =
-        !prefetchedAssetReady && documentPrefetchStatus === "loading"
-          ? documentPrefetchPromiseRef.current
-          : null;
-      const generatedAsset = prefetchedAssetReady
-        ? prefetchedBrdDocument
-        : await (async () => {
-          if (activePrefetchPromise) {
-            const prefetchedAsset = await activePrefetchPromise;
-            if (prefetchedAsset) {
-              return prefetchedAsset;
-            }
-          }
+      const brdSettings = await getUserSettings().catch(() => ({} as Awaited<ReturnType<typeof getUserSettings>>));
+      const brdValues = brdSettings.quality_checks_values || {};
+      const brdInstructions = String(brdValues.brd_instructions ?? brdValues.brd_focus_prompt ?? "");
+      const brdRequestSettings = {
+        ...(brdInstructions.trim() ? { brd_instructions: brdInstructions } : {}),
+        brd_generation_enabled: brdValues.brd_generation_enabled !== false,
+        brd_system_prompt: typeof brdValues.brd_system_prompt === "string" ? brdValues.brd_system_prompt : undefined,
+        brd_migration_target: typeof brdValues.brd_migration_target === "string" ? brdValues.brd_migration_target : undefined,
+        brd_microservices_enabled: brdValues.brd_microservices_enabled !== false,
+        brd_category_business_workflows: brdValues.brd_category_business_workflows !== false,
+        brd_category_database_data: brdValues.brd_category_database_data !== false,
+        brd_category_architecture: brdValues.brd_category_architecture !== false,
+        brd_category_apis_integrations: brdValues.brd_category_apis_integrations !== false,
+        brd_category_security_access: brdValues.brd_category_security_access !== false,
+        brd_category_reliability_performance: brdValues.brd_category_reliability_performance !== false,
+      };
+      const generatedAsset = await (async () => {
 
           const result = isLocalRepoRef(repoReference)
             ? await generateLocalProjectDocument({
@@ -2065,6 +2069,7 @@ export function useWizardController() {
               source_java_version: repoAnalysis?.java_version || selectedSourceVersion || undefined,
               target_java_version: effectiveTargetVersion || undefined,
               document_type: "BRD",
+              ...brdRequestSettings,
               analysis: repoAnalysis as unknown as Record<string, unknown>,
             })
             : await generateGithubDocument("brd", {
@@ -2080,6 +2085,7 @@ export function useWizardController() {
               source_java_version: repoAnalysis?.java_version || selectedSourceVersion || undefined,
               target_java_version: effectiveTargetVersion || undefined,
               document_type: "BRD",
+              ...brdRequestSettings,
               analysis: repoAnalysis as unknown as Record<string, unknown>,
             });
 
@@ -2095,11 +2101,8 @@ export function useWizardController() {
 
           throw new Error("Generated BRD document did not include HTML content or a download URL.");
         })();
-
-      if (!prefetchedAssetReady) {
-        setPrefetchedBrdDocument(generatedAsset);
-        setDocumentPrefetchStatus("ready");
-      }
+      setPrefetchedBrdDocument(generatedAsset);
+      setDocumentPrefetchStatus("ready");
 
       if (generatedAsset.html) {
         await downloadHtmlDocument(generatedAsset.html, generatedAsset.filename);
@@ -4905,11 +4908,29 @@ export function useWizardController() {
       analysis: repoAnalysis as unknown as Record<string, unknown>,
     };
 
-    const prefetchPromise = (isLocalRepoRef(repoReference)
-      ? generateLocalProjectDocument(localProjectRequest)
-      : generateGithubDocument("brd", githubRequest))
+    const prefetchPromise = getUserSettings().catch(() => ({} as Awaited<ReturnType<typeof getUserSettings>>)).then((settings) => {
+      const values = settings.quality_checks_values || {};
+      if (values.brd_generation_enabled === false) return null;
+      const brdInstructions = String(values.brd_instructions ?? values.brd_focus_prompt ?? "");
+      const brdSettings = {
+        ...(brdInstructions.trim() ? { brd_instructions: brdInstructions } : {}),
+        brd_generation_enabled: values.brd_generation_enabled !== false,
+        brd_system_prompt: typeof values.brd_system_prompt === "string" ? values.brd_system_prompt : undefined,
+        brd_migration_target: typeof values.brd_migration_target === "string" ? values.brd_migration_target : undefined,
+        brd_microservices_enabled: values.brd_microservices_enabled !== false,
+        brd_category_business_workflows: values.brd_category_business_workflows !== false,
+        brd_category_database_data: values.brd_category_database_data !== false,
+        brd_category_architecture: values.brd_category_architecture !== false,
+        brd_category_apis_integrations: values.brd_category_apis_integrations !== false,
+        brd_category_security_access: values.brd_category_security_access !== false,
+        brd_category_reliability_performance: values.brd_category_reliability_performance !== false,
+      };
+      return isLocalRepoRef(repoReference)
+        ? generateLocalProjectDocument({ ...localProjectRequest, ...brdSettings })
+        : generateGithubDocument("brd", { ...githubRequest, ...brdSettings });
+    })
       .then(async (result) => {
-        if (cancelled) return null;
+        if (cancelled || !result) return null;
         const generatedAsset = await resolveGeneratedDocumentAsset(result);
         const filename = buildHtmlFilename(result.filename, technicalDocumentFallbackRepoName);
         if (cancelled) return null;
