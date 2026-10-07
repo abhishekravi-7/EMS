@@ -342,11 +342,8 @@ export interface MigrationResult {
   fossa_real_scan?: boolean;
   fossa_analysis_url?: string | null;
   fossa_project_url?: string | null;
- 
   fossa_project_locator?: string | null;
- 
   fossa_revision?: string | null;
- 
   fossa_error_message?: string | null;
   fossa_report?: FossaScanResult | null;
   fossa?: Record<string, unknown>;

@@ -374,6 +374,137 @@
   color: #16a34a;
 }
 
+/* Uploaded Local Project Preview Card */
+.connect-uploaded-preview {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 12px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 10px;
+  box-sizing: border-box;
+  transition: all 0.2s ease;
+  animation: connectFadeIn 0.2s ease-in-out;
+}
+
+.connect-uploaded-preview:hover {
+  border-color: #86efac;
+  box-shadow: 0 2px 8px rgba(22, 163, 74, 0.08);
+}
+
+.connect-uploaded-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+  text-align: left;
+}
+
+.connect-uploaded-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  flex-shrink: 0;
+  background: #dcfce7;
+  color: #16a34a;
+}
+
+.connect-uploaded-icon.is-zip {
+  background: #e0f2fe;
+  color: #0284c7;
+}
+
+.connect-uploaded-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+  text-align: left;
+}
+
+.connect-uploaded-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+}
+
+.connect-uploaded-sub {
+  font-size: 11px;
+  color: #15803d;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.connect-uploaded-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.connect-uploaded-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.15s ease;
+  line-height: 1.2;
+}
+
+.connect-uploaded-btn.is-change {
+  background: #ffffff;
+  border-color: #cbd5e1;
+  color: #334155;
+}
+
+.connect-uploaded-btn.is-change:hover {
+  background: #f8fafc;
+  border-color: #94a3b8;
+  color: #0f172a;
+}
+
+.connect-uploaded-btn.is-remove {
+  background: #fee2e2;
+  border-color: #fecaca;
+  color: #dc2626;
+}
+
+.connect-uploaded-btn.is-remove:hover {
+  background: #fecaca;
+  border-color: #fca5a5;
+  color: #b91c1c;
+}
+
+@keyframes connectFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 /* APEX Migration Engine Section */
 .connect-engine-section {
   background: #ffffff;

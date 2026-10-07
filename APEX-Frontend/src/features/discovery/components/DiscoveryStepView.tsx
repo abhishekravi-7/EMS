@@ -1029,16 +1029,14 @@ export function DiscoveryStepView({
     setSelectedFile(mockFile);
 
     try {
-      if (selectedRepo?.url) {
-        const response = isLocalRepoRef(selectedRepo.url)
-          ? await getLocalProjectFileContent(extractLocalRepoPath(selectedRepo.url), item.path)
-          : jobId
-            ? await getDiscoveryFileContent(jobId, item.path)
-            : await getFileContent(selectedRepo.url, item.path, currentToken);
+      if (jobId) {
+        const response = await getDiscoveryFileContent(jobId, item.path);
         setFileContent(response.content);
         setEditedContent(response.content);
-      } else if (jobId) {
-        const response = await getDiscoveryFileContent(jobId, item.path);
+      } else if (selectedRepo?.url) {
+        const response = isLocalRepoRef(selectedRepo.url)
+          ? await getLocalProjectFileContent(extractLocalRepoPath(selectedRepo.url), item.path)
+          : await getFileContent(selectedRepo.url, item.path, currentToken);
         setFileContent(response.content);
         setEditedContent(response.content);
       } else {
