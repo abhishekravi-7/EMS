@@ -21,6 +21,8 @@ from typing import Any
 from app.core.config import settings
 from app.core.exceptions import ConnectReportNotFoundError, UnsupportedProjectError
 from app.infrastructure.analyzers.project_analyzer import ProjectAnalysis, ProjectAnalyzer
+from app.infrastructure.analyzers.microservice.java_class_scanner import JavaClassScanner
+from app.infrastructure.analyzers.view_technology_inspector import ViewTechnologyInspector
 from app.infrastructure.analyzers.spring_boot_eligibility import (
     SpringBootEligibility,
     compute_eligibility,
@@ -51,10 +53,14 @@ class RunDiscoveryUseCase:
         job_repository: JobRepository | None = None,
         cloner: RepositoryCloner | None = None,
         analyzer: ProjectAnalyzer | None = None,
+        scanner: JavaClassScanner | None = None,
+        view_inspector: ViewTechnologyInspector | None = None,
     ) -> None:
         self._job_repository = job_repository or JobRepository()
         self._cloner = cloner or RepositoryCloner()
         self._analyzer = analyzer or ProjectAnalyzer()
+        self._scanner = scanner or JavaClassScanner()
+        self._view_inspector = view_inspector or ViewTechnologyInspector()
 
     def execute(self, job_id: str, request_token: str | None = None, force_refresh: bool = False) -> DiscoveryOutcome:
         # 1. Connect report must exist.
@@ -124,6 +130,17 @@ class RunDiscoveryUseCase:
         if not analysis.is_supported:
             logger.error("[DISCOVERY FAILED] - JobID: %s - Unsupported project (no Maven/Gradle build file found)", job_id)
             raise UnsupportedProjectError()
+
+        # Run deeper AST and view analysis for the technical document generation
+        logger.info("[DISCOVERY AST SCAN] - JobID: %s - Scanning Java classes and views...", job_id)
+        classes = self._scanner.scan(paths.original_repo_dir)
+        deep_view = self._view_inspector.inspect(
+            repo_root=paths.original_repo_dir,
+            jsp_file_paths=analysis.jsp_files,
+            jsf_file_paths=analysis.jsf_files,
+            java_file_paths=analysis.java_files,
+        )
+        self._job_repository.save_ast_cache(job_id, analysis, classes, deep_view)
 
         eligibility = compute_eligibility(
             build_tool_supported=analysis.is_supported,
