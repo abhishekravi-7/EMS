@@ -3421,8 +3421,8 @@ export function useWizardController() {
     const hasJspOrJsf = Boolean(
       analysis.structure?.has_jsp ||
       analysis.structure?.has_jsf ||
-      (analysis as any)?.jsp_count > 0 ||
-      (analysis as any)?.jsf_count > 0
+      ((analysis as { jsp_count?: number })?.jsp_count || 0) > 0 ||
+      ((analysis as { jsf_count?: number })?.jsf_count || 0) > 0
     );
 
     if (hasJspOrJsf) {
@@ -4924,9 +4924,9 @@ export function useWizardController() {
           const overall = res.overall_risk?.toLowerCase();
           let criticalCount = 0;
           if (res.categories) {
-            Object.values(res.categories).forEach((cat: any) => {
+            Object.values(res.categories).forEach((cat: { items?: Array<{ risk?: string }> }) => {
               if (cat.items && Array.isArray(cat.items)) {
-                cat.items.forEach((i: any) => {
+                cat.items.forEach((i: { risk?: string }) => {
                   if (i.risk?.toLowerCase() === "critical") criticalCount++;
                 });
               }
