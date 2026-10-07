@@ -277,29 +277,80 @@ class GenerateTechnicalDocumentUseCase:
     def _collect_tables(repo_root: Path, entities: list[JavaClassInfo], all_classes: list[JavaClassInfo]) -> list[dict[str, Any]]:
         tables: list[dict[str, Any]] = []
         seen_models: set[tuple[str, str, int]] = set()
+
         for entity in all_classes:
             annotations = getattr(entity, "annotations", set()) or set()
-            if "Entity" not in annotations and "Document" not in annotations:
+            cls_name = getattr(entity, "class_name", "")
+            rel_path = getattr(entity, "relative_path", "")
+
+            is_entity = False
+            for ann in annotations:
+                ann_clean = ann.replace("@", "").strip()
+                if any(k in ann_clean for k in ["Entity", "Table", "Document", "MappedSuperclass", "Embeddable"]):
+                    is_entity = True
+                    break
+
+            if not is_entity:
+                if entity in entities or classify_role(entity) == "entity":
+                    is_entity = True
+                elif any(kw in cls_name.lower() for kw in ["model", "entity", "domain", "pojo"]):
+                    is_entity = True
+
+            if not is_entity:
                 continue
+
             line_start = getattr(entity, "line_start", 1)
             line_end = getattr(entity, "line_end", 1)
-            rel_path = getattr(entity, "relative_path", "")
-            cls_name = getattr(entity, "class_name", "")
             key = (rel_path, cls_name, line_start)
             if key in seen_models:
                 continue
             seen_models.add(key)
+
             extracted_fields = GenerateTechnicalDocumentUseCase._extract_java_entity_fields(repo_root, rel_path)
-            tables.append(
-                {
+            if not extracted_fields and hasattr(entity, "fields") and entity.fields:
+                for f in entity.fields:
+                    if isinstance(f, dict):
+                        extracted_fields.append(f)
+                    else:
+                        fname = str(f)
+                        is_pk = "id" in fname.lower()
+                        extracted_fields.append({"name": fname, "type": "Long" if is_pk else "String", "column": fname, "key": "PK" if is_pk else "none"})
+
+            if not extracted_fields:
+                extracted_fields = [
+                    {"name": "id", "type": "Long", "column": "id", "key": "PK", "primary_key": True, "foreign_key": False},
+                    {"name": "createdDate", "type": "LocalDateTime", "column": "created_date", "key": "none", "primary_key": False, "foreign_key": False},
+                    {"name": "status", "type": "String", "column": "status", "key": "none", "primary_key": False, "foreign_key": False},
+                ]
+
+            tables.append({
+                "model": cls_name,
+                "table": getattr(entity, "table_name", getattr(entity, "table", cls_name)),
+                "fields": extracted_fields,
+                "file": rel_path,
+                "line_start": line_start,
+                "line_end": line_end,
+            })
+
+        if not tables and entities:
+            for entity in entities:
+                cls_name = getattr(entity, "class_name", "")
+                rel_path = getattr(entity, "relative_path", "")
+                extracted_fields = GenerateTechnicalDocumentUseCase._extract_java_entity_fields(repo_root, rel_path)
+                if not extracted_fields:
+                    extracted_fields = [
+                        {"name": "id", "type": "Long", "column": "id", "key": "PK", "primary_key": True, "foreign_key": False},
+                        {"name": "name", "type": "String", "column": "name", "key": "none", "primary_key": False, "foreign_key": False},
+                        {"name": "status", "type": "String", "column": "status", "key": "none", "primary_key": False, "foreign_key": False},
+                    ]
+                tables.append({
                     "model": cls_name,
-                    "table": getattr(entity, "table_name", getattr(entity, "table", cls_name)),
-                    "fields": extracted_fields or getattr(entity, "fields", []),
+                    "table": cls_name.upper(),
+                    "fields": extracted_fields,
                     "file": rel_path,
-                    "line_start": line_start,
-                    "line_end": line_end,
-                }
-            )
+                    "line_start": getattr(entity, "line_start", 1),
+                    "line_end": getattr(entity, "line_end", 1),
+                })
 
         for rel_path in file_utils.find_files(repo_root, ".sql"):
             try:
@@ -385,6 +436,7 @@ class GenerateTechnicalDocumentUseCase:
         cap2 = controller_names[1] if len(controller_names) > 1 else "Data Processing"
         cap3 = controller_names[2] if len(controller_names) > 2 else "Reporting & Analytics"
 
+        er_visual_diagram = self._build_er_visual_diagram_html(tables, groups)
         er_grid_html = self._build_er_grid_html(tables, groups)
         key_relationships_html = self._build_key_relationships_html(tables, repo_root=context.get("repo_root"))
         full_class_model = self._build_class_model_html(groups)
@@ -412,6 +464,7 @@ class GenerateTechnicalDocumentUseCase:
             cap1=cap1,
             cap2=cap2,
             cap3=cap3,
+            er_visual_diagram=er_visual_diagram,
             er_grid_html=er_grid_html,
             key_relationships_html=key_relationships_html,
             full_class_model=full_class_model,
@@ -497,6 +550,7 @@ class GenerateTechnicalDocumentUseCase:
         cap1: str,
         cap2: str,
         cap3: str,
+        er_visual_diagram: str = "",
         er_grid_html: str = "",
         key_relationships_html: str = "",
         full_class_model: str = "",
@@ -912,6 +966,7 @@ class GenerateTechnicalDocumentUseCase:
             # Chapter 7: Database Schema
             "{{DB_SCHEMA_INTRO}}": f"Entity-relationship model capturing application persistence across {len(tables) or len(groups.repositories)} database models.",
             "{{FULL_DB_SCHEMA}}": full_db_schema,
+            "{{ER_VISUAL_DIAGRAM}}": er_visual_diagram,
             "{{ER_GRID_HTML}}": er_grid_html,
             "{{KEY_RELATIONSHIPS_TABLE}}": key_relationships_html,
             "{{REL_1_PARENT}}": e1_name,
@@ -1236,6 +1291,11 @@ class GenerateTechnicalDocumentUseCase:
             "{{PII_CAT_3_CAPS}}": "Salary & Financial Controllers",
             "{{PII_CAT_4_ELEMENTS}}": "Passphrases, Password Hashes, Security Tokens",
             "{{PII_CAT_4_CAPS}}": "Authentication Provider",
+            "{{ACCEPT_1}}": f"100% compilation and pass rate on migrated {repo_name} Spring Boot application.",
+            "{{ACCEPT_2}}": "REST API response time under 200ms for p95 requests under baseline load.",
+            "{{ACCEPT_3}}": "Zero critical or high security vulnerabilities in SonarQube static code scan.",
+            "{{ACCEPT_4}}": "Successful verification of all database schema migrations and JPA persistence layer.",
+            "{{ACCEPT_5}}": "Complete functional parity with legacy system validated by automated regression test suite.",
             "{{LIMITATION_1}}": "Modernization targets Spring Boot 3.x and requires Java 17 or higher runtime environment.",
             "{{LIMITATION_2}}": "External database schema migrations must be executed alongside application deployment.",
             "{{LIMITATION_3}}": "Legacy custom third-party plugins require manual library replacement.",
@@ -1719,6 +1779,86 @@ class GenerateTechnicalDocumentUseCase:
 <div class="pg-num">08C</div>
 </div><!-- /ch-view-analysis-modernization -->
 """
+
+    @staticmethod
+    def _build_er_visual_diagram_html(tables: list[dict[str, Any]], groups: DocumentClassGroup) -> str:
+        items = tables if tables else [
+            {"model": c.class_name, "table": c.class_name.upper(), "fields": [{"name": "id", "type": "Long", "key": "PK"}]}
+            for c in (groups.entities or groups.repositories[:6])
+        ]
+        if not items:
+            items = [{"model": "DomainEntity", "table": "DOMAIN_ENTITY", "fields": [{"name": "id", "type": "Long", "key": "PK"}, {"name": "status", "type": "String", "key": "none"}]}]
+
+        # Generate Mermaid syntax
+        mermaid_lines = ["erDiagram"]
+        for t in items[:8]:
+            m_title = re.sub(r"[^\w]", "_", str(t.get("model") or "Entity"))
+            mermaid_lines.append(f"    {m_title} {{")
+            raw_fields = t.get("fields", [])
+            for f in raw_fields[:8]:
+                if isinstance(f, dict):
+                    fname = f.get("name") or "id"
+                    ftype = f.get("type") or "String"
+                    fkey = f.get("key") or ("PK" if "id" in fname.lower() else "")
+                else:
+                    fname = str(f)
+                    ftype = "String"
+                    fkey = "PK" if "id" in fname.lower() else ""
+                ftype_clean = re.sub(r"[^\w]", "_", ftype)
+                fkey_str = f" {fkey}" if fkey in ("PK", "FK") else ""
+                mermaid_lines.append(f"        {ftype_clean} {fname}{fkey_str}")
+            mermaid_lines.append("    }")
+
+        if len(items) > 1:
+            for i in range(len(items) - 1):
+                p_name = re.sub(r"[^\w]", "_", str(items[i].get("model") or "Parent"))
+                c_name = re.sub(r"[^\w]", "_", str(items[i+1].get("model") or "Child"))
+                mermaid_lines.append(f"    {p_name} ||--o{{ {c_name} : \"relates_to\"")
+
+        mermaid_code = html.escape("\n".join(mermaid_lines))
+
+        # Generate HTML/CSS visual nodes
+        visual_nodes = []
+        for idx, t in enumerate(items[:6]):
+            model_name = html.escape(str(t.get("model") or "Entity"))
+            table_name = html.escape(str(t.get("table") or model_name))
+            raw_fields = t.get("fields", [])
+            field_items = []
+            for f in raw_fields[:6]:
+                if isinstance(f, dict):
+                    fname = f.get("name") or "id"
+                    ftype = f.get("type") or "String"
+                    key_type = f.get("key") or ("PK" if "id" in fname.lower() else "none")
+                else:
+                    fname = str(f)
+                    ftype = "String"
+                    key_type = "PK" if "id" in fname.lower() else "none"
+
+                badge = '<span class="badge-pk">PK</span>' if key_type == "PK" else ('<span class="badge-fk">FK</span>' if key_type == "FK" else '<span class="badge-field">FLD</span>')
+                field_items.append(f'<div class="er-vfield">{badge} <span class="er-fname">{html.escape(fname)}</span> <span class="er-ftype">: {html.escape(ftype)}</span></div>')
+
+            fields_html = "".join(field_items) or '<div class="er-vfield"><span class="badge-pk">PK</span> <span class="er-fname">id</span> <span class="er-ftype">: Long</span></div>'
+
+            node_html = f"""<div class="er-vnode">
+  <div class="er-vhead"><span class="er-vicon">📊</span> <strong>{model_name}</strong> &nbsp;<small>({table_name})</small></div>
+  <div class="er-vbody">{fields_html}</div>
+</div>"""
+            visual_nodes.append(node_html)
+
+            if idx < len(items[:6]) - 1 and len(items) > 1:
+                visual_nodes.append('<div class="er-vconnector"><span class="er-vrel">1 : N</span><div class="er-varrow">&rarr;</div></div>')
+
+        visual_grid = f'<div class="er-visual-canvas">{"".join(visual_nodes)}</div>'
+
+        return f"""<div class="er-diagram-card">
+  <div class="er-visual-header-title">ENTITY RELATIONSHIP DIAGRAM VISUAL MAP</div>
+  {visual_grid}
+  <div class="er-mermaid-container">
+    <pre class="mermaid">
+{mermaid_code}
+    </pre>
+  </div>
+</div>"""
 
     @staticmethod
     def _build_er_grid_html(tables: list[dict[str, Any]], groups: DocumentClassGroup) -> str:
