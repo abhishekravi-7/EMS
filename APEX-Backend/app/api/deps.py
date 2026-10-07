@@ -180,6 +180,12 @@ async def resolve_github_token(token: str | None, current_user: User) -> str | N
     if not token:
         return None
     normalized_token = token.strip()
+    if (normalized_token.startswith('"') and normalized_token.endswith('"')) or (normalized_token.startswith("'") and normalized_token.endswith("'")):
+        normalized_token = normalized_token[1:-1].strip()
+    if normalized_token.lower().startswith("bearer "):
+        normalized_token = normalized_token[7:].strip()
+    if normalized_token.lower().startswith("token "):
+        normalized_token = normalized_token[6:].strip()
     if normalized_token == "********" or normalized_token.startswith("****************") or normalized_token.startswith("***") or "..." in normalized_token:
         try:
             from app.infrastructure.persistence.mongodb import get_mongodb

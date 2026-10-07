@@ -56,6 +56,12 @@ class GithubClient:
         # token (GITHUB_TOKEN). A configured token raises the API rate limit from
         # 60/hr (unauthenticated) to 5000/hr, which matters during heavy testing.
         effective_token = (token or "").strip() or (settings.github_token or "").strip()
+        if (effective_token.startswith('"') and effective_token.endswith('"')) or (effective_token.startswith("'") and effective_token.endswith("'")):
+            effective_token = effective_token[1:-1].strip()
+        if effective_token.lower().startswith("bearer "):
+            effective_token = effective_token[7:].strip()
+        if effective_token.lower().startswith("token "):
+            effective_token = effective_token[6:].strip()
         if effective_token:
             headers["Authorization"] = f"Bearer {effective_token}"
         return headers
@@ -89,6 +95,20 @@ class GithubClient:
             data = None
 
         return GithubRepoResponse(status_code=response.status_code, data=data)
+
+    async def get_user_or_org(
+        self,
+        owner: str,
+        token: str | None = None,
+    ) -> int:
+        """Fetch status code for GET /users/{owner}."""
+        url = f"{self._base_url}/users/{owner}"
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                response = await client.get(url, headers=self._headers(token))
+                return response.status_code
+        except httpx.HTTPError as exc:
+            raise GithubServiceError() from exc
 
     async def get_contents(
         self,
