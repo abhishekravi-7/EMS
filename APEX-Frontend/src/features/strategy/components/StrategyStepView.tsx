@@ -191,9 +191,9 @@ export function StrategyStepView({
 
     if (effectiveDependencyAnalysis?.categories) {
       const categories = effectiveDependencyAnalysis.categories;
-      Object.values(categories).forEach((cat: { items?: Array<{ risk?: string }> }) => {
+      Object.values(categories).forEach((cat: any) => {
         if (cat.items && Array.isArray(cat.items)) {
-          cat.items.forEach((item: { risk?: string }) => {
+          cat.items.forEach((item: any) => {
             const r = item.risk?.toLowerCase();
             if (r === "critical") depCriticalCount++;
             else if (r === "high") depHighCount++;
@@ -204,7 +204,7 @@ export function StrategyStepView({
     }
 
     if (repoAnalysis?.dependencies && Array.isArray(repoAnalysis.dependencies)) {
-      repoAnalysis.dependencies.forEach((dep: { risk?: string, risk_level?: string }) => {
+      repoAnalysis.dependencies.forEach((dep: any) => {
         const r = dep.risk?.toLowerCase() || dep.risk_level?.toLowerCase();
         if (r === "critical") depCriticalCount++;
         else if (r === "high") depHighCount++;
@@ -1065,10 +1065,10 @@ export function StrategyStepView({
                     { label: "Detected view layer", value: [hasJsp && `JSP (${actualJspCount} files)`, hasJsf && `JSF (${actualJsfCount} files)`].filter(Boolean).join(" + ") || "—" },
                     { label: "Conversion", value: uiModMode || "Not selected" },
                     (primaryRec || uiFrameworkVersion) ? { label: "Target", value: `${uiFrameworkTarget} ${uiFrameworkVersion || primaryRec?.targetVersion || ""}`.trim() } : null,
-                  ].filter(Boolean).map((row, i) => (
+                  ].filter(Boolean).map((row: any, i) => (
                     <div key={i} className="uimod-preview-row">
-                      <span className="uimod-preview-label">{row.label}</span>
-                      <span className="uimod-preview-value">{row.value}</span>
+                      <span className="uimod-preview-label">{row?.label}</span>
+                      <span className="uimod-preview-value">{row?.value}</span>
                     </div>
                   ))}
                   {detectedConstructs.length > 0 && (
