@@ -169,16 +169,16 @@ export default function QualityChecksSettings({ configString, onChange }: Qualit
                 <h4 style={{ margin: 0, fontSize: "1.1rem", color: "#1e293b", fontWeight: 600 }}>{check?.name || key}</h4>
                 <p style={{ margin: "4px 0 0", fontSize: "0.875rem", color: "#64748b" }}>{check?.description || ""}</p>
               </div>
-              <div className="switch-row-modern" style={{ marginTop: 0 }}>
-                <label className="switch-modern">
+              <div className="switch-wrap" style={{ marginTop: 0 }}>
+                <label className="switch-ios">
                   <input
                     type="checkbox"
                     checked={isEnabled}
                     onChange={(e) => updateConfig(key, { enabled: e.target.checked })}
                   />
-                  <span className="slider-modern"></span>
+                  <span className="slider-ios"></span>
                 </label>
-                <span className="switch-label-modern" style={{ minWidth: "100px" }}>
+                <span className="switch-label" style={{ minWidth: "60px", color: isEnabled ? "#2563eb" : "#64748b" }}>
                   {isEnabled ? "Enabled" : "Disabled"}
                 </span>
               </div>
@@ -188,9 +188,8 @@ export default function QualityChecksSettings({ configString, onChange }: Qualit
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", borderBottom: "1px solid #e2e8f0", paddingBottom: "8px" }}>
                 <h5 style={{ margin: 0, fontSize: "0.95rem", color: "#334155" }}>User Configuration Fields</h5>
                 <button 
-                  className="back-btn-modern" 
                   onClick={() => addField(key)}
-                  style={{ padding: "4px 8px", fontSize: "0.8rem", height: "auto" }}
+                  style={{ display: "flex", alignItems: "center", gap: "6px", background: isEnabled ? "#eff6ff" : "#f1f5f9", color: isEnabled ? "#2563eb" : "#94a3b8", border: isEnabled ? "1px solid #bfdbfe" : "1px solid #e2e8f0", borderRadius: "6px", padding: "6px 12px", fontSize: "0.85rem", fontWeight: 600, cursor: isEnabled ? "pointer" : "not-allowed", transition: "all 0.2s" }}
                   disabled={!isEnabled}
                 >
                   <FaPlus style={{ fontSize: "10px" }} />
@@ -205,43 +204,45 @@ export default function QualityChecksSettings({ configString, onChange }: Qualit
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                   {fieldsList.map((field, index) => (
-                    <div key={field.id || index} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr auto", gap: "12px", alignItems: "center", background: "#f8fafc", padding: "8px 12px", borderRadius: "6px" }}>
+                    <div key={field.id || index} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr auto", gap: "12px", alignItems: "center", background: "#f8fafc", padding: "10px 14px", borderRadius: "8px", border: "1px solid #f1f5f9" }}>
                       <input
                         type="text"
-                        className="input-modern"
                         value={field.name || ""}
                         onChange={(e) => updateField(key, index, { name: e.target.value })}
-                        style={{ padding: "6px 10px" }}
+                        style={{ padding: "8px 12px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "0.875rem", color: "#334155", background: isEnabled ? "#ffffff" : "#f1f5f9", width: "100%", outline: "none", transition: "border-color 0.2s", boxShadow: "inset 0 1px 2px rgba(0,0,0,0.02)" }}
                         disabled={!isEnabled}
+                        placeholder="Field name"
                       />
                       
-                      <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "0.85rem", color: "#475569", cursor: isEnabled ? "pointer" : "default" }}>
+                      <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.85rem", cursor: isEnabled ? "pointer" : "not-allowed" }}>
                         <input 
                           type="checkbox" 
                           checked={Boolean(field.visible)}
                           onChange={(e) => updateField(key, index, { visible: e.target.checked })}
                           disabled={!isEnabled}
+                          style={{ width: "16px", height: "16px", accentColor: "#2563eb", cursor: isEnabled ? "pointer" : "not-allowed", margin: 0 }}
                         />
-                        Visible
+                        <span style={{ fontWeight: 500, color: isEnabled ? "#334155" : "#94a3b8" }}>Visible</span>
                       </label>
 
-                      <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "0.85rem", color: "#475569", cursor: isEnabled ? "pointer" : "default" }}>
+                      <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.85rem", cursor: isEnabled ? "pointer" : "not-allowed" }}>
                         <input 
                           type="checkbox" 
                           checked={Boolean(field.required)}
                           onChange={(e) => updateField(key, index, { required: e.target.checked })}
                           disabled={!isEnabled}
+                          style={{ width: "16px", height: "16px", accentColor: "#2563eb", cursor: isEnabled ? "pointer" : "not-allowed", margin: 0 }}
                         />
-                        Required
+                        <span style={{ fontWeight: 500, color: isEnabled ? "#334155" : "#94a3b8" }}>Required</span>
                       </label>
 
                       <button 
                         onClick={() => removeField(key, index)}
-                        style={{ background: "none", border: "none", color: "#ef4444", cursor: isEnabled ? "pointer" : "default", padding: "4px" }}
+                        style={{ background: isEnabled ? "#fef2f2" : "transparent", border: isEnabled ? "1px solid #fee2e2" : "1px solid transparent", color: isEnabled ? "#ef4444" : "#cbd5e1", cursor: isEnabled ? "pointer" : "not-allowed", padding: "8px", borderRadius: "6px", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.2s" }}
                         disabled={!isEnabled}
                         title="Remove field"
                       >
-                        <FaTrash />
+                        <FaTrash style={{ fontSize: "12px" }} />
                       </button>
                     </div>
                   ))}
