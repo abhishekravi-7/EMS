@@ -4878,72 +4878,77 @@ export function useWizardController() {
     setPrefetchedBrdDocument(null);
 
     let cancelled = false;
-    const githubRequest = {
-      repo_url: repoReference,
-      repository_url: repoReference,
-      source_repo_url: repoReference,
-      token: currentToken || undefined,
-      github_token: currentToken || undefined,
-      job_id: effectiveJobId || migrationJob?.job_id || undefined,
-      migration_job_id: migrationJob?.job_id || undefined,
-      source_repo: migrationJob?.source_repo || repoReference,
-      target_repo: migrationJob?.target_repo || null,
-      source_java_version: repoAnalysis?.java_version || selectedSourceVersion || undefined,
-      target_java_version: effectiveTargetVersion || undefined,
-      document_type: "BRD",
-      analysis: repoAnalysis as unknown as Record<string, unknown>,
-    };
-    const localProjectRequest = {
-      repo_url: repoReference,
-      repository_url: repoReference,
-      source_repo_url: repoReference,
-      source_repo: selectedRepo?.name || repoAnalysis?.name || repoReference,
-      target_repo: migrationJob?.target_repo || null,
-      source_java_version: repoAnalysis?.java_version || selectedSourceVersion || undefined,
-      target_java_version: effectiveTargetVersion || undefined,
-      document_type: "BRD",
-      analysis: repoAnalysis as unknown as Record<string, unknown>,
-    };
+    const timeoutId = setTimeout(() => {
+      if (cancelled) return;
 
-    const prefetchPromise = (isLocalRepoRef(repoReference)
-      ? generateLocalProjectDocument(localProjectRequest)
-      : generateGithubDocument("brd", githubRequest))
-      .then(async (result) => {
-        if (cancelled) return null;
-        const generatedAsset = await resolveGeneratedDocumentAsset(result);
-        const filename = buildHtmlFilename(result.filename, technicalDocumentFallbackRepoName);
-        if (cancelled) return null;
+      const githubRequest = {
+        repo_url: repoReference,
+        repository_url: repoReference,
+        source_repo_url: repoReference,
+        token: currentToken || undefined,
+        github_token: currentToken || undefined,
+        job_id: effectiveJobId || migrationJob?.job_id || undefined,
+        migration_job_id: migrationJob?.job_id || undefined,
+        source_repo: migrationJob?.source_repo || repoReference,
+        target_repo: migrationJob?.target_repo || null,
+        source_java_version: repoAnalysis?.java_version || selectedSourceVersion || undefined,
+        target_java_version: effectiveTargetVersion || undefined,
+        document_type: "BRD",
+        analysis: repoAnalysis as unknown as Record<string, unknown>,
+      };
+      const localProjectRequest = {
+        repo_url: repoReference,
+        repository_url: repoReference,
+        source_repo_url: repoReference,
+        source_repo: selectedRepo?.name || repoAnalysis?.name || repoReference,
+        target_repo: migrationJob?.target_repo || null,
+        source_java_version: repoAnalysis?.java_version || selectedSourceVersion || undefined,
+        target_java_version: effectiveTargetVersion || undefined,
+        document_type: "BRD",
+        analysis: repoAnalysis as unknown as Record<string, unknown>,
+      };
 
-        if (generatedAsset.html) {
-          return {
-            filename,
-            html: generatedAsset.html,
-          } satisfies PrefetchedBrdDocument;
-        }
+      const prefetchPromise = (isLocalRepoRef(repoReference)
+        ? generateLocalProjectDocument(localProjectRequest)
+        : generateGithubDocument("brd", githubRequest))
+        .then(async (result) => {
+          if (cancelled) return null;
+          const generatedAsset = await resolveGeneratedDocumentAsset(result);
+          const filename = buildHtmlFilename(result.filename, technicalDocumentFallbackRepoName);
+          if (cancelled) return null;
 
-        throw new Error("Generated BRD document did not include HTML content or a download URL.");
-      })
-      .then((preparedAsset) => {
-        if (cancelled || !preparedAsset) return null;
-        setPrefetchedBrdDocument(preparedAsset);
-        setDocumentPrefetchStatus("ready");
-        return preparedAsset;
-      })
-      .catch((err) => {
-        if (cancelled) return null;
-        console.error("Failed to prefetch technical specification document", err);
-        setDocumentPrefetchStatus("error");
-        return null;
-      })
-      .finally(() => {
-        if (documentPrefetchPromiseRef.current === prefetchPromise) {
-          documentPrefetchPromiseRef.current = null;
-        }
-      });
-    documentPrefetchPromiseRef.current = prefetchPromise;
+          if (generatedAsset.html) {
+            return {
+              filename,
+              html: generatedAsset.html,
+            } satisfies PrefetchedBrdDocument;
+          }
+
+          throw new Error("Generated BRD document did not include HTML content or a download URL.");
+        })
+        .then((preparedAsset) => {
+          if (cancelled || !preparedAsset) return null;
+          setPrefetchedBrdDocument(preparedAsset);
+          setDocumentPrefetchStatus("ready");
+          return preparedAsset;
+        })
+        .catch((err) => {
+          if (cancelled) return null;
+          console.error("Failed to prefetch technical specification document", err);
+          setDocumentPrefetchStatus("error");
+          return null;
+        })
+        .finally(() => {
+          if (documentPrefetchPromiseRef.current === prefetchPromise) {
+            documentPrefetchPromiseRef.current = null;
+          }
+        });
+      documentPrefetchPromiseRef.current = prefetchPromise;
+    }, 1500); // Debounce for 1.5 seconds
 
     return () => {
       cancelled = true;
+      clearTimeout(timeoutId);
     };
   }, [
     connectState?.jobId,

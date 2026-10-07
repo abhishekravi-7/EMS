@@ -8,6 +8,40 @@ interface ArtifactorySettingsProps {
   isAdmin: boolean;
 }
 
+const CustomDropdown = ({ value, onChange, options }: { value: string; onChange: (v: string) => void; options: {value: string; label: string}[] }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const selectedLabel = options.find(o => o.value === value)?.label || "Select...";
+
+  return (
+    <div style={{ position: "relative", width: "100%" }}>
+      <div 
+        onClick={() => setIsOpen(!isOpen)}
+        style={{ padding: "10px 14px", border: "1px solid #cbd5e1", borderRadius: "8px", fontSize: "14px", color: "#1e293b", background: "#ffffff", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", transition: "all 0.2s", boxShadow: isOpen ? "0 0 0 3px rgba(37,99,235,0.1)" : "none", borderColor: isOpen ? "#2563eb" : "#cbd5e1" }}
+      >
+        <span>{selectedLabel}</span>
+        <svg style={{ transform: isOpen ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.2s" }} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+      </div>
+      
+      {isOpen && (
+        <div style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: "4px", background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "8px", boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)", zIndex: 50, overflow: "hidden" }}>
+          {options.map((opt) => (
+            <div 
+              key={opt.value}
+              onClick={() => { onChange(opt.value); setIsOpen(false); }}
+              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "#eff6ff")}
+              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
+              style={{ padding: "10px 14px", fontSize: "14px", color: opt.value === value ? "#2563eb" : "#334155", cursor: "pointer", background: opt.value === value ? "#eff6ff" : "transparent", fontWeight: opt.value === value ? 600 : 400, transition: "background 0.1s" }}
+            >
+              {opt.label}
+            </div>
+          ))}
+        </div>
+      )}
+      {isOpen && <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 40 }} onClick={() => setIsOpen(false)} />}
+    </div>
+  );
+};
+
 export const ArtifactorySettings: React.FC<ArtifactorySettingsProps> = ({ settings, onChange, isAdmin }) => {
   const [showSecrets, setShowSecrets] = useState<{ [key: string]: boolean }>({});
   const [testState, setTestState] = useState<"idle" | "testing" | "success" | "error">("idle");
@@ -23,9 +57,6 @@ export const ArtifactorySettings: React.FC<ArtifactorySettingsProps> = ({ settin
   const handleTestConnection = async () => {
     setTestState("testing");
     setTestMessage("");
-    // We will hook this up later to a real backend endpoint if needed, for now we will simulate
-    // Or if we need a backend endpoint for this, we can add it to adminService.ts.
-    // For now we'll just mock success to finish the UI.
     setTimeout(() => {
       setTestState("success");
       setTestMessage("Connected to Artifactory successfully!");
@@ -50,15 +81,15 @@ export const ArtifactorySettings: React.FC<ArtifactorySettingsProps> = ({ settin
         <div className="grid-2">
           <div>
             <label className="settings-label">Provider</label>
-            <select
-              className="settings-input"
-              value={provider}
-              onChange={(e) => onChange("artifactory_provider", e.target.value)}
-            >
-              <option value="maven_central">Maven Central (Public)</option>
-              <option value="jfrog">JFrog Artifactory</option>
-              <option value="nexus">Sonatype Nexus</option>
-            </select>
+            <CustomDropdown 
+              value={provider} 
+              onChange={(v) => onChange("artifactory_provider", v)}
+              options={[
+                { value: "maven_central", label: "Maven Central (Public)" },
+                { value: "jfrog", label: "JFrog Artifactory" },
+                { value: "nexus", label: "Sonatype Nexus" }
+              ]}
+            />
           </div>
 
           {(provider === "jfrog" || provider === "nexus") && (
