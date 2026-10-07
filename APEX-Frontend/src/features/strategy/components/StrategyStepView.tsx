@@ -596,8 +596,9 @@ export function StrategyStepView({
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 14 }}>
               {(() => {
+                const targetJavaMajor = parseInt(effectiveTargetVersion || "17", 10);
                 const isJavaUpgradeSelected = selectedConversions.includes("java_version");
-                const isSpringBootForced = isJavaUpgradeSelected && springBootPathwayStatus !== "disabled" && springBootPathwayStatus !== "loading";
+                const isSpringBootForced = isJavaUpgradeSelected && springBootPathwayStatus === "upgrade" && targetJavaMajor >= 17;
 
                 const options = [
                 {
@@ -663,7 +664,7 @@ export function StrategyStepView({
                             : "#64748b"),
                       }}
                     >
-                      {isSpringBootForced ? "Mandatory: Spring Boot 3.x is required for modern Java." : springBootReason}
+                      {isSpringBootForced ? "Mandatory: Spring Boot 3.x is required when upgrading to modern Java (17+)." : springBootReason}
                     </span>
                   ) as React.ReactNode,
                 },
@@ -780,7 +781,7 @@ export function StrategyStepView({
                             next = next.filter(k => k !== "java_version");
                           } else {
                             next.push("java_version");
-                            if (springBootPathwayStatus !== "disabled" && springBootPathwayStatus !== "loading" && !next.includes("spring_boot")) {
+                            if (springBootPathwayStatus === "upgrade" && targetJavaMajor >= 17 && !next.includes("spring_boot")) {
                               next.push("spring_boot");
                             }
                           }
@@ -789,8 +790,8 @@ export function StrategyStepView({
 
                         if (pathway.key === "spring_boot") {
                           if (isCurrentlySelected) {
-                            if (next.includes("java_version")) {
-                              // Cannot deselect because Java upgrade mandates it
+                            if (next.includes("java_version") && springBootPathwayStatus === "upgrade" && targetJavaMajor >= 17) {
+                              // Cannot deselect because Java 17+ upgrade mandates Spring Boot 3 for existing Spring Boot apps
                               return prev;
                             }
                             next = next.filter(k => k !== "spring_boot");
