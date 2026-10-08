@@ -1230,27 +1230,6 @@ export default function AdminConsolePage() {
                       Allow access to BRD document generation and business analysis settings.
                     </p>
                   </div>
-
-                  {/* Artifactory Toggle */}
-                  <div className="settings-toggle-card">
-                    <div className="settings-toggle-header">
-                      <div className="settings-toggle-title"><FaCog style={{ color: "#2563eb" }} /> Artifactory Configuration</div>
-                      <div className="switch-wrap">
-                        <label className="switch-ios">
-                          <input
-                            type="checkbox"
-                            checked={selectedUserPerms.artifactory}
-                            onChange={e => setSelectedUserPerms(prev => ({ ...prev, artifactory: e.target.checked }))}
-                          />
-                          <span className="slider-ios"></span>
-                        </label>
-                        <span className="switch-label">{selectedUserPerms.artifactory ? "Enabled" : "Disabled"}</span>
-                      </div>
-                    </div>
-                    <p className="settings-toggle-desc">
-                      Allow access to Artifactory configuration settings and overrides.
-                    </p>
-                  </div>
                 </div>
 
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: "12px", marginTop: "24px" }}>

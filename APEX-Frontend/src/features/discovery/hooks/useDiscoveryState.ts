@@ -36,6 +36,7 @@ export interface DiscoveryStageState {
   status: "queued" | "in_progress" | "complete" | "failed";
   summary?: string;
   error?: string;
+  progressPercent?: number;
 }
 
 export const INITIAL_DISCOVERY_STAGES: DiscoveryStageState[] = [
