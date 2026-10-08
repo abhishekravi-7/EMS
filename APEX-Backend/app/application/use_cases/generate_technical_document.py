@@ -2888,7 +2888,21 @@ class GenerateTechnicalDocumentUseCase:
 
     @staticmethod
     def _get_effective_brd_instructions(request: TechnicalDocumentRequest) -> str:
-        instructions = request.brd_instructions or request.brd_focus_prompt or ""
+        document_type = (request.document_type or "").strip().upper()
+        if document_type in {"TECHNICAL_SPECIFICATION", "TECHNICAL SPECIFICATION", "TECH_SPEC"}:
+            if request.technical_specification_instructions is not None:
+                instructions = request.technical_specification_instructions.strip()
+            else:
+                instructions = (request.brd_instructions or request.brd_focus_prompt or "").strip()
+        elif document_type == "BRD":
+            instructions = (request.brd_instructions or request.brd_focus_prompt or "").strip()
+        else:
+            instructions = (
+                request.technical_specification_instructions
+                or request.brd_instructions
+                or request.brd_focus_prompt
+                or ""
+            ).strip()
         if instructions.strip():
             return instructions
         return GenerateTechnicalDocumentUseCase._get_configured_brd_instructions()
