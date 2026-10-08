@@ -11,7 +11,6 @@ import logging
 import time
 import urllib.parse
 import urllib.request
-import xml.etree.ElementTree as ET
 try:
     from cachetools import LRUCache
 except ImportError:
@@ -30,7 +29,6 @@ logger = logging.getLogger(__name__)
 
 # In-memory TTL cache: { "groupId:artifactId": (version_string, expiry_timestamp) }
 _VERSION_CACHE: LRUCache = LRUCache(maxsize=1000)
-_CANDIDATE_CACHE: LRUCache = LRUCache(maxsize=1000)
 CACHE_TTL_SECONDS = 3600  # 1 hour cache
 
 # Reliable fallback versions (used if network request fails or times out)
@@ -49,15 +47,38 @@ _FALLBACK_VERSIONS: dict[str, str] = {
 }
 
 
-class MavenVersionResolver:
-    """Dynamically resolves published General Availability (GA) versions from Maven Central."""
+import base64
 
-    def __init__(self, timeout_seconds: float = 3.0) -> None:
+class ArtifactoryVersionResolver:
+    """Dynamically resolves published General Availability (GA) versions from registries."""
+
+    def __init__(
+        self, 
+        provider: str = "MAVEN_CENTRAL", 
+        base_url: str = "https://search.maven.org", 
+        username: str | None = None, 
+        auth_token: str | None = None,
+        timeout_seconds: float = 3.0
+    ) -> None:
+        self.provider = provider.upper()
+        self.base_url = base_url.rstrip("/")
+        self.username = username
+        self.auth_token = auth_token
         self.timeout = timeout_seconds
+
+    def _get_auth_headers(self) -> dict[str, str]:
+        headers = {"User-Agent": "JavaApex-Migration-Engine/2.0"}
+        if self.username and self.auth_token:
+            auth_str = f"{self.username}:{self.auth_token}"
+            encoded = base64.b64encode(auth_str.encode("utf-8")).decode("utf-8")
+            headers["Authorization"] = f"Basic {encoded}"
+        elif self.auth_token:
+            headers["Authorization"] = f"Bearer {self.auth_token}"
+        return headers
 
     def resolve_version(self, group_id: str, artifact_id: str, default_fallback: str | None = None) -> str:
         """Fetch the latest stable release version for group_id:artifact_id."""
-        cache_key = f"{group_id}:{artifact_id}"
+        cache_key = f"{self.provider}:{self.base_url}:{group_id}:{artifact_id}"
         now = time.time()
 
         if cache_key in _VERSION_CACHE:
@@ -65,84 +86,74 @@ class MavenVersionResolver:
             if now < expiry:
                 return version
 
-        fallback = default_fallback or _FALLBACK_VERSIONS.get(cache_key, "3.0.0")
+        fallback = default_fallback or _FALLBACK_VERSIONS.get(f"{group_id}:{artifact_id}", "3.0.0")
 
-        # Try Maven Central Search API
+        latest_ver = None
         try:
-            query = f'g:"{group_id}" AND a:"{artifact_id}"'
-            url = f"https://search.maven.org/solrsearch/select?q={urllib.parse.quote(query)}&rows=1&wt=json"
-
-            req = urllib.request.Request(url, headers={"User-Agent": "JavaApex-Migration-Engine/2.0"})
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                if resp.status == 200:
-                    data = json.loads(resp.read().decode("utf-8"))
-                    docs = data.get("response", {}).get("docs", [])
-                    if docs and isinstance(docs, list):
-                        latest_ver = docs[0].get("latestVersion")
-                        if latest_ver and self._is_valid_version(latest_ver):
-                            _VERSION_CACHE[cache_key] = (latest_ver, now + CACHE_TTL_SECONDS)
-                            logger.info("Resolved real-time Maven Central version for %s: %s", cache_key, latest_ver)
-                            return latest_ver
+            if self.provider == "MAVEN_CENTRAL":
+                latest_ver = self._resolve_maven_central(group_id, artifact_id)
+            elif self.provider == "JFROG":
+                latest_ver = self._resolve_jfrog(group_id, artifact_id)
+            elif self.provider == "NEXUS":
+                latest_ver = self._resolve_nexus(group_id, artifact_id)
+            
+            if latest_ver and self._is_valid_version(latest_ver):
+                _VERSION_CACHE[cache_key] = (latest_ver, now + CACHE_TTL_SECONDS)
+                logger.info("Resolved real-time %s version for %s:%s: %s", self.provider, group_id, artifact_id, latest_ver)
+                return latest_ver
         except Exception as exc:  # noqa: BLE001
-            logger.debug("Failed to fetch Maven Central version for %s: %s. Using fallback: %s", cache_key, exc, fallback)
+            logger.debug("Failed to fetch %s version for %s:%s: %s. Using fallback: %s", self.provider, group_id, artifact_id, exc, fallback)
 
         # Cache fallback to prevent rapid repeated failed network calls
         _VERSION_CACHE[cache_key] = (fallback, now + 300)  # 5 min retry TTL for fallback
         return fallback
 
-    def resolve_candidate_versions(self, group_id: str, artifact_id: str, limit: int = 12) -> list[str]:
-        """Return real stable releases published on Maven Central, newest first."""
-        cache_key = f"{group_id}:{artifact_id}"
-        now = time.time()
-        cached = _CANDIDATE_CACHE.get(cache_key)
-        if cached and cached[1] > now:
-            return cached[0][:limit]
-
-        try:
-            query = f'g:"{group_id}" AND a:"{artifact_id}"'
-            params = urllib.parse.urlencode({
-                "q": query,
-                "core": "gav",
-                "rows": min(max(limit * 3, 20), 100),
-                "wt": "json",
-                "sort": "timestamp desc",
-            })
-            url = f"https://search.maven.org/solrsearch/select?{params}"
-            req = urllib.request.Request(url, headers={"User-Agent": "JavaApex-Migration-Engine/2.0"})
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                if resp.status != 200:
-                    return []
+    def _resolve_maven_central(self, group_id: str, artifact_id: str) -> str | None:
+        query = f'g:"{group_id}" AND a:"{artifact_id}"'
+        url = f"https://search.maven.org/solrsearch/select?q={urllib.parse.quote(query)}&rows=1&wt=json"
+        req = urllib.request.Request(url, headers={"User-Agent": "JavaApex-Migration-Engine/2.0"})
+        with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+            if resp.status == 200:
                 data = json.loads(resp.read().decode("utf-8"))
-            docs = data.get("response", {}).get("docs", [])
-            versions: list[str] = []
-            for doc in docs if isinstance(docs, list) else []:
-                version = str(doc.get("v") or "").strip()
-                if version and self._is_valid_version(version) and version not in versions:
-                    versions.append(version)
-            _CANDIDATE_CACHE[cache_key] = (versions, now + CACHE_TTL_SECONDS)
-            return versions[:limit]
-        except Exception as exc:  # noqa: BLE001
-            logger.debug("Failed to resolve Maven Central candidate versions for %s: %s", cache_key, exc)
-            return []
+                docs = data.get("response", {}).get("docs", [])
+                if docs and isinstance(docs, list):
+                    return docs[0].get("latestVersion")
+        return None
 
-    def get_spring_framework_version_for_boot(self, spring_boot_version: str) -> str | None:
-        """Read Spring Framework's managed version from the Spring Boot BOM."""
-        try:
-            version = urllib.parse.quote(str(spring_boot_version).strip(), safe=".")
-            url = (
-                "https://repo.maven.apache.org/maven2/org/springframework/boot/"
-                f"spring-boot-dependencies/{version}/spring-boot-dependencies-{version}.pom"
-            )
-            req = urllib.request.Request(url, headers={"User-Agent": "JavaApex-Migration-Engine/2.0"})
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                if resp.status != 200:
-                    return None
-                root = ET.fromstring(resp.read())
-            for element in root.iter():
-                if element.tag.rsplit("}", 1)[-1] == "spring-framework.version" and element.text:
-                    return element.text.strip()
-        except Exception as exc:  # noqa: BLE001
-            logger.debug("Failed to read Spring Framework version managed by Boot %s: %s", spring_boot_version, exc)
+    def _resolve_jfrog(self, group_id: str, artifact_id: str) -> str | None:
+        # JFrog Artifactory GAVC search API
+        url = f"{self.base_url}/api/search/gavc?g={urllib.parse.quote(group_id)}&a={urllib.parse.quote(artifact_id)}"
+        req = urllib.request.Request(url, headers=self._get_auth_headers())
+        with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+            if resp.status == 200:
+                data = json.loads(resp.read().decode("utf-8"))
+                results = data.get("results", [])
+                versions = []
+                for res in results:
+                    uri = res.get("uri", "")
+                    # Extract version from uri (e.g. .../group/artifact/version/artifact-version.jar)
+                    parts = uri.split("/")
+                    if len(parts) > 2:
+                        versions.append(parts[-2])
+                
+                # Filter GA versions and sort
+                ga_versions = [v for v in set(versions) if self._is_valid_version(v)]
+                if ga_versions:
+                    # Very basic string sort fallback, ideal would be semver parsing
+                    ga_versions.sort(reverse=True)
+                    return ga_versions[0]
+        return None
+
+    def _resolve_nexus(self, group_id: str, artifact_id: str) -> str | None:
+        # Nexus 3 Search API
+        url = f"{self.base_url}/service/rest/v1/search?group={urllib.parse.quote(group_id)}&name={urllib.parse.quote(artifact_id)}&sort=version"
+        req = urllib.request.Request(url, headers=self._get_auth_headers())
+        with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+            if resp.status == 200:
+                data = json.loads(resp.read().decode("utf-8"))
+                items = data.get("items", [])
+                if items and isinstance(items, list):
+                    return items[0].get("version")
         return None
 
     def get_latest_spring_boot_version(self, target_java_version: str | int = 17, default_fallback: str = "3.2.5") -> str:
@@ -186,8 +197,8 @@ class MavenVersionResolver:
         return not any(token in ver_lower for token in unstable_tokens)
 
 
-_global_resolver = MavenVersionResolver()
+_global_resolver = ArtifactoryVersionResolver()
 
 
-def get_version_resolver() -> MavenVersionResolver:
+def get_version_resolver() -> ArtifactoryVersionResolver:
     return _global_resolver

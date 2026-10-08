@@ -61,52 +61,59 @@ class RepoAccessChecker:
     ) -> RepoAccessResult:
         normalized_token = (token or "").strip() or None
 
-        # Step 1: try without the caller token (public path).
+        # Step 0: verify if the GitHub user or organization exists.
+        owner_status = await self._github.get_user_or_org(owner, token=normalized_token)
+        if owner_status == 404:
+            raise RepositoryNotFoundError(
+                f"Repository not found. The GitHub user or organization '{owner}' does not exist."
+            )
+        if owner_status == 401 and normalized_token:
+            raise RepositoryAccessDeniedError(
+                "Invalid GitHub personal access token."
+            )
+
+        # Step 1: if a token is provided, verify repository access directly.
+        if normalized_token is not None:
+            authenticated = await self._github.get_repository(owner, repo, token=normalized_token)
+
+            if authenticated.status_code == 200:
+                return self._granted(owner, repo, authenticated.data)
+
+            if self._is_rate_limited(authenticated):
+                raise GithubServiceError(
+                    "GitHub's API rate limit was reached. Please wait a minute and try again."
+                )
+
+            if authenticated.status_code == 401:
+                raise RepositoryAccessDeniedError(
+                    "Invalid GitHub personal access token."
+                )
+
+            if authenticated.status_code in (403, 404):
+                raise RepositoryNotFoundError(
+                    "Repository not found, or your token does not have access. "
+                    "Please check the URL and the token's permissions."
+                )
+
+            raise GithubServiceError()
+
+        # Step 2: anonymous check when no token was provided.
         anonymous = await self._github.get_repository(owner, repo, token=None)
 
         if anonymous.status_code == 200:
             return self._granted(owner, repo, anonymous.data)
 
-        # A rate-limit 403 is a transient condition — NOT a private repo. Do not
-        # mislabel it as "access denied".
+        # A rate-limit 403 is a transient condition — NOT a private repo.
         if self._is_rate_limited(anonymous):
             raise GithubServiceError(
                 "GitHub's API rate limit was reached. Please wait a minute and "
                 "try again. Adding a GitHub token raises the limit."
             )
 
-        if anonymous.status_code not in (401, 403, 404):
-            # Unexpected upstream status.
-            raise GithubServiceError()
-
-        # Repo not visible anonymously. Without a token we cannot tell whether
-        # it is private or simply does not exist.
-        if normalized_token is None:
+        if anonymous.status_code in (401, 403, 404):
             raise RepositoryAccessDeniedError(
                 "Repository is private or was not found. "
-                "Please provide a valid GitHub token, or check the URL."
-            )
-
-        # Step 2: retry with the provided token.
-        authenticated = await self._github.get_repository(owner, repo, token=normalized_token)
-
-        if authenticated.status_code == 200:
-            return self._granted(owner, repo, authenticated.data)
-
-        if self._is_rate_limited(authenticated):
-            raise GithubServiceError(
-                "GitHub's API rate limit was reached. Please wait a minute and try again."
-            )
-
-        if authenticated.status_code == 401:
-            raise RepositoryAccessDeniedError(
-                "Invalid GitHub token. Please provide a valid GitHub token."
-            )
-
-        if authenticated.status_code in (403, 404):
-            raise RepositoryNotFoundError(
-                "Repository not found, or your token does not have access. "
-                "Please check the URL and the token's permissions."
+                "Please provide a valid GitHub personal access token (PAT) with repo scope, or check the URL."
             )
 
         raise GithubServiceError()

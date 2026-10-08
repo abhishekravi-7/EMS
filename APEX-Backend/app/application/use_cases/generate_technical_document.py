@@ -102,20 +102,30 @@ class GenerateTechnicalDocumentUseCase:
     def _generate_from_repository(self, repo_root: Path, request: TechnicalDocumentRequest) -> dict[str, str]:
         job_id = (request.job_id or request.migration_job_id or "N/A").strip()
         logger.info("[DISCOVERY BRD SCAN START] - JobID: %s - Analyzing repository for technical document generation...", job_id)
-        analysis = self._analyzer.analyze(repo_root)
-        classes = self._scanner.scan(repo_root)
+        
+        # Hydrate from cache if available
+        ast_cache = self._job_repository.read_ast_cache(job_id)
+        if ast_cache and "analysis" in ast_cache and "classes" in ast_cache and "deep_view" in ast_cache:
+            logger.info("[DISCOVERY BRD SCAN CACHE HIT] - JobID: %s - Hydrating AST and analysis from cache", job_id)
+            analysis = ast_cache["analysis"]
+            classes = ast_cache["classes"]
+            deep_view_analysis = ast_cache["deep_view"]
+        else:
+            logger.info("[DISCOVERY BRD SCAN CACHE MISS] - JobID: %s - Re-running analyzers", job_id)
+            analysis = self._analyzer.analyze(repo_root)
+            classes = self._scanner.scan(repo_root)
+            deep_view_analysis = self._view_inspector.inspect(
+                repo_root=repo_root,
+                jsp_file_paths=analysis.jsp_files,
+                jsf_file_paths=analysis.jsf_files,
+                java_file_paths=analysis.java_files,
+            )
+
         class_groups = self._group_classes(classes)
         chunks = build_chunks(classes)
         endpoints = self._collect_endpoints(analysis, classes)
         tables = self._collect_tables(repo_root, class_groups.entities, classes)
         logger.info("[DISCOVERY BRD SCAN DONE] - JobID: %s - Scanned %d classes, %d endpoints, %d tables", job_id, len(classes), len(endpoints), len(tables))
-        
-        deep_view_analysis = self._view_inspector.inspect(
-            repo_root=repo_root,
-            jsp_file_paths=analysis.jsp_files,
-            jsf_file_paths=analysis.jsf_files,
-            java_file_paths=analysis.java_files,
-        )
 
         repo_name = self._project_name(request, analysis)
         generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d")
