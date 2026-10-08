@@ -312,6 +312,26 @@ export async function runDiscovery(
   };
 }
 
+export interface DiscoveryProgressResponse {
+  jobId: string;
+  status: string;
+  stage: string;
+  progressPercent: number;
+  detail: string;
+  activeStageId?: import("../hooks/useDiscoveryState").DiscoveryStageId;
+}
+
+export async function getDiscoveryProgress(jobId: string): Promise<DiscoveryProgressResponse | null> {
+  try {
+    return await requestJson<DiscoveryProgressResponse>(
+      `/v1/discovery/${encodeURIComponent(jobId)}/progress`,
+      "Failed to fetch discovery progress"
+    );
+  } catch {
+    return null;
+  }
+}
+
 interface MicroserviceEligibilityAnalysisSnapshot {
   build_tool: string | null;
   java_file_count: number;
