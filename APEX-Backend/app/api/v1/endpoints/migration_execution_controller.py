@@ -164,11 +164,46 @@ async def migration_fossa(
 @router.post("/migration/{job_id}/rerun-tests", summary="Re-run and regenerate unit tests for migration job.")
 async def rerun_migration_tests(
     job_id: str,
+    background_tasks: BackgroundTasks,
     llm_provider: str = "groq",
     use_llm_tests: str = "true",
     current_user: User = Depends(get_current_user),  # noqa: B008
 ) -> JSONResponse:
+    from app.infrastructure.workspace.workspace_paths import WorkspacePaths
+    import json
+    paths = WorkspacePaths(job_id)
+    if paths.migration_report_path.exists():
+        try:
+            rep = json.loads(paths.migration_report_path.read_text(encoding="utf-8"))
+            rep["test_pipeline"] = {"status": "IN_PROGRESS", "execution_status": "IN_PROGRESS"}
+            paths.migration_report_path.write_text(json.dumps(rep, indent=2), encoding="utf-8")
+        except Exception:
+            pass
+
+    background_tasks.add_task(
+        _run_migration_tests_background,
+        job_id,
+        llm_provider,
+        use_llm_tests,
+        current_user
+    )
+    return JSONResponse(status_code=200, content={"status": "IN_PROGRESS", "message": "Unit tests generation started in the background."})
+
+async def _run_migration_tests_background(
+    job_id: str,
+    llm_provider: str,
+    use_llm_tests: str,
+    current_user: User
+):
     await verify_job_ownership(job_id, current_user)
+    return await _run_migration_tests_background_logic(job_id, llm_provider, use_llm_tests)
+
+
+async def _run_migration_tests_background_logic(
+    job_id: str,
+    llm_provider: str,
+    use_llm_tests: str,
+):
     paths = WorkspacePaths(job_id)
     project_dir = paths.migrated_repo_dir if paths.migrated_repo_dir.exists() else paths.original_repo_dir
 
