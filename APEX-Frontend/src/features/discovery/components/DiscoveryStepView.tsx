@@ -22,12 +22,13 @@ import {
   FaWrench,
   FaVial,
   FaEye,
+  FaNetworkWired,
 } from "react-icons/fa";
 import {
   renderForwardButtonLabel,
 } from "@/shared/components/wizard";
 import { wizardStyles as styles } from "@/shared/components/wizard/wizardStyles";
-import type { RepoAnalysis, RepoFile, RepoInfo } from "@/shared/types/domain";
+import type { RepoAnalysis, RepoFile, RepoInfo, DiscoveredApiEndpoint } from "@/shared/types/domain";
 import { getFileContent, getDiscoveryFileContent } from "../services/discoveryService";
 import { getLocalProjectFileContent } from "@/features/connect/services/connectService";
 import { getUserSettings } from "@/features/admin/services/adminService";
@@ -527,6 +528,11 @@ export function DiscoveryStepView({
   const [pinnedKpi, setPinnedKpi] = useState<string | null>(null);
   const activeKpi = pinnedKpi || hoveredKpi;
 
+  // API Endpoints modal and filter state
+  const [showEndpointsModal, setShowEndpointsModal] = useState<boolean>(false);
+  const [endpointFilterMethod, setEndpointFilterMethod] = useState<string>("ALL");
+  const [endpointSearchQuery, setEndpointSearchQuery] = useState<string>("");
+
   // Global click to unpin KPI popover when clicking elsewhere
   useEffect(() => {
     const handleGlobalClick = () => setPinnedKpi(null);
@@ -695,6 +701,64 @@ export function DiscoveryStepView({
       scriptFiles +
       sqlFiles +
       otherFiles;
+
+  const apiEndpoints = useMemo<DiscoveredApiEndpoint[]>(() => {
+    const raw = repoAnalysis?.api_endpoints;
+    if (Array.isArray(raw)) return raw;
+    if (raw && typeof raw === "object" && Array.isArray((raw as any).endpoints)) {
+      return (raw as any).endpoints;
+    }
+    return [];
+  }, [repoAnalysis?.api_endpoints]);
+
+  const apiEndpointCount =
+    typeof repoAnalysis?.api_endpoint_count === "number"
+      ? repoAnalysis.api_endpoint_count
+      : (typeof (repoAnalysis?.api_endpoints as any)?.count === "number"
+          ? (repoAnalysis?.api_endpoints as any).count
+          : apiEndpoints.length);
+
+  const getHttpMethodBadge = (method: string): { color: string; bg: string } => {
+    switch ((method || "").toUpperCase()) {
+      case "GET":
+        return { color: "#0284c7", bg: "#e0f2fe" };
+      case "POST":
+        return { color: "#16a34a", bg: "#dcfce7" };
+      case "PUT":
+        return { color: "#d97706", bg: "#fef3c7" };
+      case "DELETE":
+        return { color: "#dc2626", bg: "#fee2e2" };
+      case "PATCH":
+        return { color: "#7c3aed", bg: "#f5f3ff" };
+      case "OPTIONS":
+      case "HEAD":
+        return { color: "#475569", bg: "#f1f5f9" };
+      default:
+        return { color: "#2563eb", bg: "#eff6ff" };
+    }
+  };
+
+  const filteredEndpoints = useMemo(() => {
+    const q = endpointSearchQuery.trim().toLowerCase();
+    return apiEndpoints.filter((ep) => {
+      const method = (ep.httpMethod || ep.method || "GET").toUpperCase();
+      if (endpointFilterMethod !== "ALL" && method !== endpointFilterMethod) {
+        return false;
+      }
+      if (!q) return true;
+      const path = (ep.path || ep.urlPath || ep.endpoint || "").toLowerCase();
+      const ctrl = (ep.controller || ep.className || "").toLowerCase();
+      const handler = (ep.handlerMethod || ep.methodName || "").toLowerCase();
+      const file = (ep.sourceFile || ep.file || "").toLowerCase();
+      return (
+        path.includes(q) ||
+        ctrl.includes(q) ||
+        handler.includes(q) ||
+        file.includes(q) ||
+        method.toLowerCase().includes(q)
+      );
+    });
+  }, [apiEndpoints, endpointFilterMethod, endpointSearchQuery]);
 
   const extractFileName = (filepath: string) => {
     const parts = filepath.replace(/\\/g, "/").split("/");
@@ -2065,6 +2129,136 @@ export function DiscoveryStepView({
                 </div>
               )}
             </div>
+
+            {/* Card: API Endpoints */}
+            <div
+              className={`discovery-kpi-card ${activeKpi === "endpoints" ? "has-popover-open" : ""}`}
+              onMouseEnter={() => setHoveredKpi("endpoints")}
+              onMouseLeave={() => setHoveredKpi(null)}
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowEndpointsModal(true);
+                setPinnedKpi(null);
+              }}
+              style={{ cursor: "pointer" }}
+            >
+              <div className="discovery-kpi-top">
+                <div className="discovery-kpi-icon" style={{ background: "#ecfdf5", color: "#059669" }}>
+                  <FaNetworkWired />
+                </div>
+                <div className="discovery-kpi-number-wrap">
+                  <span className="discovery-kpi-number">{apiEndpointCount}</span>
+                </div>
+              </div>
+              <div className="discovery-kpi-bottom">
+                <span className="discovery-kpi-label">API Endpoints</span>
+                <span className="discovery-kpi-sub">Detected API endpoints</span>
+              </div>
+
+              {/* Popover */}
+              {activeKpi === "endpoints" && (
+                <div
+                  className="discovery-kpi-popover align-right"
+                  onClick={(e) => e.stopPropagation()}
+                  onMouseEnter={() => setHoveredKpi("endpoints")}
+                  onMouseLeave={() => setHoveredKpi(null)}
+                  style={{ width: 440, maxWidth: "90vw" }}
+                >
+                  <div className="discovery-kpi-popover-header">
+                    <div className="discovery-kpi-popover-title-wrap">
+                      <FaNetworkWired color="#059669" size={14} />
+                      <span className="discovery-kpi-popover-title">Detected API Endpoints</span>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span className="discovery-kpi-popover-badge" style={{ background: "#ecfdf5", color: "#059669" }}>
+                        {apiEndpointCount} endpoints
+                      </span>
+                      {pinnedKpi === "endpoints" && (
+                        <button
+                          className="discovery-kpi-popover-close"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPinnedKpi(null);
+                            setHoveredKpi(null);
+                          }}
+                          title="Close"
+                        >
+                          <FaTimes size={10} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {apiEndpoints.length === 0 ? (
+                    <div style={{ padding: "16px 12px", color: "#64748b", fontSize: 13, textAlign: "center" }}>
+                      No REST endpoints detected in this repository.
+                    </div>
+                  ) : (
+                    <div className="discovery-kpi-file-list" style={{ maxHeight: 240, overflowY: "auto" }}>
+                      {apiEndpoints.map((ep, idx) => {
+                        const method = (ep.httpMethod || ep.method || "GET").toUpperCase();
+                        const methodBadge = getHttpMethodBadge(method);
+                        const path = ep.path || ep.urlPath || ep.endpoint || "/";
+                        const controllerName = ep.controller || ep.className || "Controller";
+                        const methodName = ep.handlerMethod || ep.methodName || "";
+                        const sourceFile = ep.sourceFile || ep.file || "";
+
+                        return (
+                          <div
+                            key={ep.id || `${method}-${path}-${idx}`}
+                            className="discovery-kpi-file-item discovery-endpoint-row"
+                            onClick={(e) => {
+                              if (sourceFile) {
+                                handleSelectPopoverFile(sourceFile, e);
+                              }
+                            }}
+                            title={sourceFile ? `Click to view ${sourceFile}` : `${controllerName}.${methodName}`}
+                            style={{ cursor: sourceFile ? "pointer" : "default" }}
+                          >
+                            <div className="discovery-kpi-file-left" style={{ gap: 8 }}>
+                              <span
+                                style={{
+                                  fontSize: 10,
+                                  fontWeight: 800,
+                                  padding: "2px 6px",
+                                  borderRadius: 4,
+                                  background: methodBadge.bg,
+                                  color: methodBadge.color,
+                                  minWidth: 42,
+                                  textAlign: "center",
+                                  letterSpacing: "0.03em",
+                                  flexShrink: 0,
+                                }}
+                              >
+                                {method}
+                              </span>
+                              <div className="discovery-kpi-file-info" style={{ minWidth: 0 }}>
+                                <span className="discovery-kpi-file-name" style={{ fontFamily: "monospace", fontSize: 12 }}>
+                                  {path}
+                                </span>
+                                <span className="discovery-kpi-file-path">
+                                  {controllerName}{methodName ? ` · ${methodName}` : ""}
+                                </span>
+                              </div>
+                            </div>
+                            {sourceFile && (
+                              <span className="discovery-kpi-file-tag" style={{ color: "#059669", background: "#ecfdf5", fontSize: 10 }}>
+                                {extractFileName(sourceFile)}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  <div className="discovery-kpi-popover-footer">
+                    <span>Showing {apiEndpoints.length} detected endpoints</span>
+                    <span style={{ color: "#94a3b8" }}>{pinnedKpi === "endpoints" ? "Pinned" : "Click to pin"}</span>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Row 2: Repository Files (Full Width) */}
@@ -2606,6 +2800,210 @@ export function DiscoveryStepView({
                   </div>
                 ))}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* All Detected API Endpoints Explorer Modal */}
+      {showEndpointsModal && (
+        <div className="discovery-modal-overlay" onClick={() => setShowEndpointsModal(false)}>
+          <div
+            className="discovery-modal-content is-endpoints"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: 960, width: "95vw", maxHeight: "88vh", display: "flex", flexDirection: "column" }}
+          >
+            <div className="discovery-modal-header" style={{ padding: "16px 20px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <div className="discovery-panel-icon" style={{ background: "#ecfdf5", color: "#059669" }}>
+                  <FaNetworkWired />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#0f172a" }}>
+                    Detected API Endpoints
+                  </h3>
+                  <p style={{ margin: "2px 0 0", fontSize: 12, color: "#64748b" }}>
+                    {apiEndpoints.length} total endpoints detected in Spring Boot controllers
+                  </p>
+                </div>
+              </div>
+              <button
+                className="discovery-preview-close-btn"
+                onClick={() => setShowEndpointsModal(false)}
+                title="Close"
+              >
+                <FaTimes size={14} />
+              </button>
+            </div>
+
+            {/* Filter and Search Bar */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
+                padding: "12px 20px",
+                borderBottom: "1px solid #e2e8f0",
+                background: "#f8fafc",
+                flexWrap: "wrap",
+              }}
+            >
+              {/* Method filter pills */}
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {["ALL", "GET", "POST", "PUT", "DELETE", "PATCH"].map((m) => {
+                  const isActive = endpointFilterMethod === m;
+                  const badge = m === "ALL" ? null : getHttpMethodBadge(m);
+                  return (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setEndpointFilterMethod(m)}
+                      style={{
+                        padding: "4px 10px",
+                        fontSize: 12,
+                        fontWeight: 700,
+                        borderRadius: 6,
+                        border: isActive ? "1px solid transparent" : "1px solid #cbd5e1",
+                        background: isActive ? (badge ? badge.bg : "#0f172a") : "#ffffff",
+                        color: isActive ? (badge ? badge.color : "#ffffff") : "#475569",
+                        cursor: "pointer",
+                        transition: "all 0.15s ease",
+                      }}
+                    >
+                      {m}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Search input */}
+              <div style={{ position: "relative", minWidth: 240, flex: "1 1 200px", maxWidth: 360 }}>
+                <input
+                  type="text"
+                  placeholder="Filter by path, controller, method..."
+                  value={endpointSearchQuery}
+                  onChange={(e) => setEndpointSearchQuery(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "6px 28px 6px 10px",
+                    fontSize: 12,
+                    borderRadius: 6,
+                    border: "1px solid #cbd5e1",
+                    outline: "none",
+                    background: "#ffffff",
+                    boxSizing: "border-box",
+                  }}
+                />
+                {endpointSearchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setEndpointSearchQuery("")}
+                    style={{
+                      position: "absolute",
+                      right: 8,
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      color: "#94a3b8",
+                      padding: 0,
+                    }}
+                  >
+                    <FaTimes size={10} />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Modal Body: Table of endpoints */}
+            <div className="discovery-modal-body" style={{ padding: 0, overflowY: "auto", flex: 1 }}>
+              {filteredEndpoints.length === 0 ? (
+                <div style={{ padding: 40, textAlign: "center", color: "#64748b", fontSize: 13 }}>
+                  {apiEndpoints.length === 0
+                    ? "No REST API endpoints detected in this repository."
+                    : "No endpoints match the selected filter."}
+                </div>
+              ) : (
+                <table className="discovery-endpoints-table">
+                  <thead>
+                    <tr>
+                      <th style={{ width: 90 }}>HTTP Method</th>
+                      <th>Path</th>
+                      <th>Controller</th>
+                      <th>Method</th>
+                      <th>Source File</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredEndpoints.map((ep, idx) => {
+                      const method = (ep.httpMethod || ep.method || "GET").toUpperCase();
+                      const methodBadge = getHttpMethodBadge(method);
+                      const path = ep.path || ep.urlPath || ep.endpoint || "/";
+                      const controllerName = ep.controller || ep.className || "Controller";
+                      const methodName = ep.handlerMethod || ep.methodName || "—";
+                      const sourceFile = ep.sourceFile || ep.file || "";
+
+                      return (
+                        <tr key={ep.id || `${method}-${path}-${idx}`} className="discovery-endpoint-row">
+                          <td>
+                            <span
+                              style={{
+                                display: "inline-block",
+                                fontSize: 11,
+                                fontWeight: 800,
+                                padding: "2px 8px",
+                                borderRadius: 4,
+                                background: methodBadge.bg,
+                                color: methodBadge.color,
+                                letterSpacing: "0.03em",
+                              }}
+                            >
+                              {method}
+                            </span>
+                          </td>
+                          <td style={{ fontFamily: "monospace", fontSize: 12, fontWeight: 600, color: "#0f172a" }}>
+                            {path}
+                          </td>
+                          <td style={{ color: "#334155", fontWeight: 500 }}>
+                            {controllerName}
+                          </td>
+                          <td style={{ color: "#64748b", fontFamily: "monospace", fontSize: 11 }}>
+                            {methodName}
+                          </td>
+                          <td>
+                            {sourceFile ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setShowEndpointsModal(false);
+                                  handleSelectPopoverFile(sourceFile);
+                                }}
+                                title={`Open file preview: ${sourceFile}`}
+                                style={{
+                                  background: "none",
+                                  border: "none",
+                                  padding: 0,
+                                  color: "#2563eb",
+                                  cursor: "pointer",
+                                  fontSize: 12,
+                                  textDecoration: "underline",
+                                  textAlign: "left",
+                                }}
+                              >
+                                {extractFileName(sourceFile)}
+                              </button>
+                            ) : (
+                              <span style={{ color: "#94a3b8" }}>—</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
             </div>
           </div>
         </div>
