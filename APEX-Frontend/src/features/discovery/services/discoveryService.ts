@@ -8,6 +8,7 @@ import type {
   RepoFile,
   SpringBootConversionEligibility,
   FrameworkRecommendations,
+  DiscoveredApiEndpoint,
 } from "@/shared/types/domain";
 
 /* -------------------------------------------------------------------------- */
@@ -40,17 +41,13 @@ export interface DiscoveryProject {
   // extras used to faithfully populate the existing UI
   dependencies?: DiscoveryDependency[];
   hasTests?: boolean;
-  apiEndpoints?: {
-    id: string;
-    httpMethod: string;
-    path: string;
-    controller: string;
-    handlerMethod: string;
-    sourceFile: string;
-    module: string;
-    framework: string;
-    detectionStatus: string;
-  }[];
+  apiEndpoints?:
+    | DiscoveredApiEndpoint[]
+    | {
+        count?: number;
+        endpoints?: DiscoveredApiEndpoint[];
+      };
+  apiEndpointCount?: number;
   javaFileCount?: number;
   javaFiles?: string[];
   configFileCount?: number;
@@ -252,7 +249,53 @@ export function mapDiscoveryToRepoAnalysis(response: DiscoveryResponse): RepoAna
       view_technologies: (extraProj.viewTechnologies ?? extraProj.view_technologies ?? undefined) as RepoAnalysis["view_technologies"],
     has_tests: Boolean(project.hasTests),
     dependencies,
-    api_endpoints: project.apiEndpoints ?? [],
+    ...(() => {
+      const rawApiEndpoints = (project.apiEndpoints ?? extraProj.api_endpoints ?? extraProj.apiEndpoints) as
+        | DiscoveredApiEndpoint[]
+        | { count?: number; endpoints?: DiscoveredApiEndpoint[] }
+        | undefined;
+      let apiEndpointsList: DiscoveredApiEndpoint[] = [];
+      let apiEndpointCount = 0;
+
+      if (Array.isArray(rawApiEndpoints)) {
+        apiEndpointsList = rawApiEndpoints;
+        apiEndpointCount = typeof project.apiEndpointCount === "number"
+          ? project.apiEndpointCount
+          : rawApiEndpoints.length;
+      } else if (rawApiEndpoints && typeof rawApiEndpoints === "object") {
+        if (Array.isArray(rawApiEndpoints.endpoints)) {
+          apiEndpointsList = rawApiEndpoints.endpoints;
+        }
+        apiEndpointCount = typeof rawApiEndpoints.count === "number"
+          ? rawApiEndpoints.count
+          : (typeof project.apiEndpointCount === "number" ? project.apiEndpointCount : apiEndpointsList.length);
+      } else if (typeof project.apiEndpointCount === "number") {
+        apiEndpointCount = project.apiEndpointCount;
+      }
+
+      const normalizedApiEndpoints: DiscoveredApiEndpoint[] = apiEndpointsList.map((ep, idx) => ({
+        id: ep.id || `${ep.controller || ep.className || "Controller"}:${ep.methodName || ep.handlerMethod || "method"}:${ep.httpMethod || ep.method || "GET"}:${ep.path || ep.urlPath || ep.endpoint || ""}:${idx}`,
+        httpMethod: (ep.httpMethod || ep.method || "GET").toUpperCase(),
+        method: (ep.httpMethod || ep.method || "GET").toUpperCase(),
+        path: ep.path || ep.urlPath || ep.endpoint || "/",
+        urlPath: ep.urlPath || ep.path || ep.endpoint || "/",
+        endpoint: ep.endpoint || ep.path || ep.urlPath || "/",
+        controller: ep.controller || ep.className || "Controller",
+        className: ep.className || ep.controller || "Controller",
+        handlerMethod: ep.handlerMethod || ep.methodName || "",
+        methodName: ep.methodName || ep.handlerMethod || "",
+        sourceFile: ep.sourceFile || ep.file || "",
+        file: ep.file || ep.sourceFile || "",
+        module: ep.module || "",
+        framework: ep.framework || "Spring Boot",
+        detectionStatus: ep.detectionStatus || "DETECTED",
+      }));
+
+      return {
+        api_endpoints: normalizedApiEndpoints,
+        api_endpoint_count: apiEndpointCount || normalizedApiEndpoints.length,
+      };
+    })(),
     detected_frameworks: (project.frameworks ?? []).map((f) => ({
       name: f,
       path: project.detectedFiles?.pomXml ? "pom.xml" : "build.gradle",
