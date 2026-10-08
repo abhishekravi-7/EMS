@@ -366,6 +366,18 @@ export interface GithubDocumentRequest {
   target_java_version?: string;
   document_type?: string;
   analysis?: Record<string, unknown>;
+  brd_instructions?: string;
+  brd_focus_prompt?: string;
+  brd_system_prompt?: string;
+  brd_generation_enabled?: boolean;
+  brd_microservices_enabled?: boolean;
+  brd_migration_target?: string;
+  brd_category_business_workflows?: boolean;
+  brd_category_database_data?: boolean;
+  brd_category_architecture?: boolean;
+  brd_category_apis_integrations?: boolean;
+  brd_category_security_access?: boolean;
+  brd_category_reliability_performance?: boolean;
 }
 
 export interface LocalProjectDocumentRequest extends GithubDocumentRequest {

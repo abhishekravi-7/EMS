@@ -225,6 +225,12 @@ export interface AnalyzedDependencyItem {
   artifact: string;
   name: string;
   version: string;
+  recommended_version?: string | null;
+  upgrade_status?: "UPGRADE_REQUIRED" | "UPGRADE_RECOMMENDED" | "NO_UPGRADE_REQUIRED" | "INCOMPATIBLE" | "UNKNOWN" | string;
+  java_compatibility?: "Compatible" | "Not Compatible" | "Unknown" | string;
+  framework_compatibility?: "Compatible" | "Not Compatible" | "Unknown" | string;
+  upgrade_reason?: string;
+  upgrade_confidence?: "High" | "Medium" | "Low" | string;
   category: string;
   risk: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | string;
   explanation: string;
