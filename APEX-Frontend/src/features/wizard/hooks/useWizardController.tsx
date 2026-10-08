@@ -4381,36 +4381,6 @@ export function useWizardController() {
         },
       ]);
 
-      const stageTimer1 = window.setTimeout(() => {
-        setDiscoveryStages((prev) =>
-          prev.map((s) => {
-            if (s.id === "repository_map") return { ...s, status: "complete", detail: "Repository structure mapped" };
-            if (s.id === "preview_signals") return { ...s, status: "in_progress", detail: "Detecting Java version & compiler settings..." };
-            return s;
-          })
-        );
-      }, 700);
-
-      const stageTimer2 = window.setTimeout(() => {
-        setDiscoveryStages((prev) =>
-          prev.map((s) => {
-            if (s.id === "preview_signals") return { ...s, status: "complete", detail: "Java version identified" };
-            if (s.id === "dependency_graph") return { ...s, status: "in_progress", detail: "Resolving dependencies and build plugins..." };
-            return s;
-          })
-        );
-      }, 1400);
-
-      const stageTimer3 = window.setTimeout(() => {
-        setDiscoveryStages((prev) =>
-          prev.map((s) => {
-            if (s.id === "dependency_graph") return { ...s, status: "complete", detail: "Dependency graph constructed" };
-            if (s.id === "service_fit") return { ...s, status: "in_progress", detail: "Detecting frameworks & service fit..." };
-            return s;
-          })
-        );
-      }, 2100);
-
       if (isRerun) {
         setRepoAnalysis(null);
         setRepoPreviewInitialized(false);
@@ -4424,6 +4394,33 @@ export function useWizardController() {
         fetchedDependencyAnalysisKeyRef.current = "";
       }
 
+      let pollTimer: number | undefined;
+      if (effectiveJobId && !isLocalProject) {
+        pollTimer = window.setInterval(async () => {
+          try {
+            const prog = await getDiscoveryProgress(effectiveJobId);
+            if (prog && prog.activeStageId) {
+              setDiscoveryStages((prev) =>
+                prev.map((s) => {
+                  const order: DiscoveryStageId[] = ["repository_map", "preview_signals", "dependency_graph", "service_fit"];
+                  const activeIdx = order.indexOf(prog.activeStageId!);
+                  const currentIdx = order.indexOf(s.id);
+                  if (s.id === prog.activeStageId) {
+                    return { ...s, status: "in_progress", detail: prog.detail || s.detail, progressPercent: prog.progressPercent };
+                  }
+                  if (currentIdx < activeIdx) {
+                    return { ...s, status: "complete" };
+                  }
+                  return s;
+                })
+              );
+            }
+          } catch {
+            // non-fatal polling error
+          }
+        }, 800);
+      }
+
       try {
         const analyzePromise = effectiveJobId
           ? runDiscovery(effectiveJobId, currentToken, isRerun)
@@ -4435,9 +4432,7 @@ export function useWizardController() {
               .then(async (result) => enrichAnalysisWithPomVersion(result.analysis as RepoAnalysis, selectedRepo.url, currentToken));
 
         const analysis = await analyzePromise;
-        window.clearTimeout(stageTimer1);
-        window.clearTimeout(stageTimer2);
-        window.clearTimeout(stageTimer3);
+        if (pollTimer) window.clearInterval(pollTimer);
 
         const stagesData = (analysis as unknown as Record<string, unknown>).discovery_stages as Record<string, { summary?: string }> | undefined;
         const repoMapSummary = stagesData?.repositoryMap?.summary ||
@@ -4490,9 +4485,7 @@ export function useWizardController() {
         setIsJavaProject(true);
         applyRepositoryAnalysis(analysis);
       } catch (err: unknown) {
-        window.clearTimeout(stageTimer1);
-        window.clearTimeout(stageTimer2);
-        window.clearTimeout(stageTimer3);
+        if (pollTimer) window.clearInterval(pollTimer);
 
         const message = (err as Error)?.message || "Failed to analyze repository.";
         setDiscoveryStages((prev) =>

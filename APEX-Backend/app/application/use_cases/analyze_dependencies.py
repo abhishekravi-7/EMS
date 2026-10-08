@@ -29,6 +29,7 @@ except ImportError:
 
 from sqlalchemy.orm import Session
 
+from app.core.config import BACKEND_ROOT
 from app.core.context import user_id_ctx, llm_values_ctx
 from app.core.exceptions import LLMResponseInvalidError
 from app.infrastructure.llm.chat_llm import ChatLLM
