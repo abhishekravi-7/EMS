@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   FaSpinner,
+  FaRedo,
   FaDownload,
   FaTerminal,
   FaTimes,
@@ -16,6 +17,7 @@ import {
   FaTimesCircle,
   FaHourglassHalf,
   FaMinusCircle,
+  FaClock,
   FaFileCode,
   FaChevronDown,
   FaChevronUp,
@@ -52,7 +54,7 @@ export function MigrationProposedTestSection({
   const jobId = migrationJob?.job_id || "";
   const [proposals, setProposals] = useState<ProposedTestCase[]>([]);
   const [metrics, setMetrics] = useState<ProposedTestMetrics | null>(null);
-  const [_comparison, setComparison] = useState<ProposedTestComparisonResponse | null>(null);
+  const [comparison, setComparison] = useState<ProposedTestComparisonResponse | null>(null);
   const [logs, setLogs] = useState<Array<{ ts?: string; msg?: string; level?: string }>>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -198,7 +200,7 @@ export function MigrationProposedTestSection({
         .map((p) => p.id);
       setSelectedTestIds(new Set(validIds.length > 0 ? validIds : proposals.map((p) => p.id)));
     }
-  }, [proposals, selectedTestIds.size]);
+  }, [proposals]);
 
   const handleToggleSelectAll = () => {
     if (selectedTestIds.size === proposals.length) {
@@ -307,8 +309,8 @@ export function MigrationProposedTestSection({
   const executedCount = metrics?.executed ?? proposals.filter((p) => p.status === "PASSED" || p.status === "FAILED" || p.status === "SKIPPED").length;
   const passedCount = metrics?.passed ?? proposals.filter((p) => p.status === "PASSED").length;
   const failedCount = metrics?.failed ?? proposals.filter((p) => p.status === "FAILED").length;
-  const _skippedCount = metrics?.skipped ?? proposals.filter((p) => p.status === "SKIPPED").length;
-  const _notExecutedCount = metrics?.not_executed ?? Math.max(0, totalProposed - executedCount);
+  const skippedCount = metrics?.skipped ?? proposals.filter((p) => p.status === "SKIPPED").length;
+  const notExecutedCount = metrics?.not_executed ?? Math.max(0, totalProposed - executedCount);
 
   // Validation Breakdown Counts (Inventory is fully preserved)
   const validCount = proposals.filter((p) => !p.validation || p.validation.status === "VALID" || p.validation.status === "PARTIALLY_VALID").length;
@@ -318,7 +320,7 @@ export function MigrationProposedTestSection({
 
   const passRateNum = executedCount > 0 ? Math.round((passedCount / executedCount) * 100) : 0;
   const passRateDisplay = `${passRateNum}%`;
-  const _durationDisplay = metrics?.duration || "0.0s";
+  const durationDisplay = metrics?.duration || "0.0s";
 
   // Dynamic source breakdown counts
   const functionalDocCount = proposals.filter(
@@ -342,8 +344,8 @@ export function MigrationProposedTestSection({
 
   const llmCount = Math.max(0, totalProposed - functionalDocCount - existingCount);
 
-  const _statusLabel = isRunning ? "running baseline tests" : executedCount > 0 ? "completed" : "ready for baseline run";
-  const _statusColor = isRunning ? "#0284c7" : executedCount > 0 ? (failedCount === 0 ? "#10b981" : "#ef4444") : "#d97706";
+  const statusLabel = isRunning ? "running baseline tests" : executedCount > 0 ? "completed" : "ready for baseline run";
+  const statusColor = isRunning ? "#0284c7" : executedCount > 0 ? (failedCount === 0 ? "#10b981" : "#ef4444") : "#d97706";
 
   // Breakdown Calculations
   const apiCount = proposals.filter(p => p.type === "API").length;
@@ -694,7 +696,7 @@ export function MigrationProposedTestSection({
                       <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 6, padding: "8px 12px" }}>
                         <div style={{ fontSize: 11, fontWeight: 700, color: "#475569", marginBottom: 6 }}>Assertion Verifications:</div>
                         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                          {apiTrace.assertions.map((a: { passed?: boolean; assertion?: string; expected?: unknown; actual?: unknown }, aIdx: number) => (
+                          {apiTrace.assertions.map((a: any, aIdx: number) => (
                             <div key={aIdx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11, fontFamily: "monospace", background: "#ffffff", border: "1px solid #f1f5f9", padding: "4px 8px", borderRadius: 4 }}>
                               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                                 {a.passed ? <FaCheckCircle size={11} color="#059669" /> : <FaTimesCircle size={11} color="#dc2626" />}
@@ -833,22 +835,58 @@ export function MigrationProposedTestSection({
 
       {/* ── SECTION 1: HEADER CARD ─────────────────────────────────────── */}
       <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 14, padding: "20px 24px", marginBottom: 16, boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
-        {/* Top row: Title + KPI strip + Pass Rate + Actions */}
-        <div style={{ display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap" }}>
-
+        {/* Row 1: Title + Action Buttons (Horizontal Row) */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, paddingBottom: 16, borderBottom: "1px solid #f1f5f9", flexWrap: "wrap", gap: 14 }}>
           {/* Title block */}
-          <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0, minWidth: 220 }}>
-            <div style={{ background: "linear-gradient(135deg, #2563eb, #7c3aed)", color: "#fff", width: 40, height: 40, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{ background: "linear-gradient(135deg, #2563eb, #7c3aed)", color: "#fff", width: 40, height: 40, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0, boxShadow: "0 2px 8px rgba(124, 58, 237, 0.2)" }}>
               <FaFileAlt />
             </div>
             <div>
               <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#0f172a", lineHeight: 1.2 }}>Proposed Test Case Information</h3>
-              <p style={{ margin: "3px 0 0 0", fontSize: 12, color: "#64748b", fontWeight: 500 }}>Automatically generated test cases from your application using LLM.</p>
+              <p style={{ margin: "2px 0 0 0", fontSize: 12, color: "#64748b", fontWeight: 500 }}>Automatically generated test cases from your application using LLM.</p>
             </div>
           </div>
 
-          {/* KPI Strip */}
-          <div style={{ display: "flex", gap: 12, flex: 1, flexWrap: "wrap", alignItems: "center" }}>
+          {/* Action Buttons (Horizontal Row) */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <button
+              onClick={handleRunAgain}
+              disabled={isRunning}
+              style={{ background: isRunning ? "#94a3b8" : "linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)", color: "#fff", border: "none", padding: "8px 16px", borderRadius: 8, fontSize: 12.5, fontWeight: 700, display: "flex", alignItems: "center", gap: 6, cursor: isRunning ? "default" : "pointer", whiteSpace: "nowrap", boxShadow: isRunning ? "none" : "0 2px 8px rgba(124, 58, 237, 0.25)" }}
+            >
+              {isRunning ? <FaSpinner className="animate-spin" size={11} /> : <FaPlay size={10} />}
+              {isRunning ? "Running..." : "Run Again"}
+            </button>
+            <button
+              onClick={handleViewAllureReport}
+              disabled={!allureReportAvailable && executedCount === 0}
+              style={{ background: allureReportAvailable || executedCount > 0 ? "#eff6ff" : "#f8fafc", color: allureReportAvailable || executedCount > 0 ? "#2563eb" : "#94a3b8", border: `1px solid ${allureReportAvailable || executedCount > 0 ? "#bfdbfe" : "#e2e8f0"}`, padding: "8px 14px", borderRadius: 8, fontSize: 12.5, fontWeight: 700, display: "flex", alignItems: "center", gap: 6, cursor: allureReportAvailable || executedCount > 0 ? "pointer" : "not-allowed", whiteSpace: "nowrap" }}
+            >
+              <FaExternalLinkAlt size={10} /> View Allure Report
+            </button>
+            <button
+              onClick={handleViewPlaywrightReport}
+              disabled={!playwrightReportAvailable && executedCount === 0}
+              style={{ background: playwrightReportAvailable || executedCount > 0 ? "#ecfdf5" : "#f8fafc", color: playwrightReportAvailable || executedCount > 0 ? "#059669" : "#94a3b8", border: `1px solid ${playwrightReportAvailable || executedCount > 0 ? "#a7f3d0" : "#e2e8f0"}`, padding: "8px 14px", borderRadius: 8, fontSize: 12.5, fontWeight: 700, display: "flex", alignItems: "center", gap: 6, cursor: playwrightReportAvailable || executedCount > 0 ? "pointer" : "not-allowed", whiteSpace: "nowrap" }}
+            >
+              <FaExternalLinkAlt size={10} /> View Playwright Report
+            </button>
+            <button
+              onClick={handleDownloadReport}
+              disabled={isDownloading}
+              style={{ background: "#ffffff", border: "1px solid #cbd5e1", padding: "8px 14px", borderRadius: 8, fontSize: 12.5, fontWeight: 700, color: "#0f172a", display: "flex", alignItems: "center", gap: 6, cursor: "pointer", whiteSpace: "nowrap", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}
+            >
+              {isDownloading ? <FaSpinner className="animate-spin" size={11} /> : <FaDownload size={11} />}
+              {isDownloading ? "Downloading..." : "Download Report"}
+            </button>
+          </div>
+        </div>
+
+        {/* Row 2: KPI Strip + Pass Rate Gauge */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20, flexWrap: "wrap" }}>
+          {/* KPI Strip (5 cards) */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 10, flex: 1, minWidth: 500 }}>
             {[
               { label: "Total Inventory", value: totalProposed, color: "#2563eb", bg: "#eff6ff", icon: <FaListUl size={13} /> },
               { label: "Valid", value: validCount, color: "#059669", bg: "#ecfdf5", icon: <FaCheckCircle size={13} /> },
@@ -856,66 +894,31 @@ export function MigrationProposedTestSection({
               { label: "Hallucinated", value: hallucinatedCount, color: "#7c3aed", bg: "#f5f3ff", icon: <FaMinusCircle size={13} /> },
               { label: "Invalid", value: invalidCount, color: "#dc2626", bg: "#fef2f2", icon: <FaTimesCircle size={13} /> },
             ].map((kpi, i) => (
-              <div key={i} style={{ background: kpi.bg, border: `1px solid ${kpi.color}22`, borderRadius: 10, padding: "10px 14px", display: "flex", alignItems: "center", gap: 10, minWidth: 110 }}>
-                <div style={{ color: kpi.color }}>{kpi.icon}</div>
+              <div key={i} style={{ background: kpi.bg, border: `1px solid ${kpi.color}22`, borderRadius: 10, padding: "10px 14px", display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ color: kpi.color, flexShrink: 0 }}>{kpi.icon}</div>
                 <div>
                   <div style={{ fontSize: 20, fontWeight: 800, color: kpi.color, lineHeight: 1 }}>{kpi.value}</div>
-                  <div style={{ fontSize: 10, fontWeight: 600, color: "#64748b", marginTop: 2 }}>{kpi.label}</div>
+                  <div style={{ fontSize: 10.5, fontWeight: 600, color: "#64748b", marginTop: 2, whiteSpace: "nowrap" }}>{kpi.label}</div>
                 </div>
               </div>
             ))}
           </div>
 
-          {/* Pass Rate Donut + Actions */}
-          <div style={{ display: "flex", alignItems: "center", gap: 16, flexShrink: 0 }}>
-            {/* Donut */}
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-              <div style={{ position: "relative", width: 80, height: 80 }}>
-                <svg width="80" height="80" viewBox="0 0 80 80">
-                  <circle cx="40" cy="40" r="34" fill="none" stroke="#e2e8f0" strokeWidth="8" />
-                  <circle cx="40" cy="40" r="34" fill="none" stroke={passRateNum > 0 ? "#2563eb" : "#cbd5e1"} strokeWidth="8"
-                    strokeDasharray={`${passRateNum * 2.136} 213.6`} strokeLinecap="round" transform="rotate(-90 40 40)" />
-                </svg>
-                <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-                  <span style={{ fontSize: 16, fontWeight: 800, color: "#0f172a" }}>{passRateDisplay}</span>
-                </div>
+          {/* Pass Rate Gauge */}
+          <div style={{ display: "flex", alignItems: "center", gap: 14, background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: "10px 16px", flexShrink: 0 }}>
+            <div style={{ position: "relative", width: 54, height: 54, flexShrink: 0 }}>
+              <svg width="54" height="54" viewBox="0 0 80 80">
+                <circle cx="40" cy="40" r="34" fill="none" stroke="#e2e8f0" strokeWidth="8" />
+                <circle cx="40" cy="40" r="34" fill="none" stroke={passRateNum > 0 ? "#2563eb" : "#cbd5e1"} strokeWidth="8"
+                  strokeDasharray={`${passRateNum * 2.136} 213.6`} strokeLinecap="round" transform="rotate(-90 40 40)" />
+              </svg>
+              <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <span style={{ fontSize: 13, fontWeight: 800, color: "#0f172a" }}>{passRateDisplay}</span>
               </div>
-              <div style={{ fontSize: 9, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em" }}>Pass Rate</div>
-              <div style={{ fontSize: 10, color: "#94a3b8", textAlign: "center", maxWidth: 110, lineHeight: 1.3 }}>Execution pass percentage across Playwright test suite.</div>
             </div>
-
-            {/* Action Buttons */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <button
-                onClick={handleRunAgain}
-                disabled={isRunning}
-                style={{ background: isRunning ? "#94a3b8" : "#7c3aed", color: "#fff", border: "none", padding: "9px 18px", borderRadius: 8, fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 8, cursor: isRunning ? "default" : "pointer", whiteSpace: "nowrap" }}
-              >
-                {isRunning ? <FaSpinner className="animate-spin" size={11} /> : <FaPlay size={10} />}
-                {isRunning ? "Running..." : "Run Again"}
-              </button>
-              <button
-                onClick={handleViewAllureReport}
-                disabled={!allureReportAvailable && executedCount === 0}
-                style={{ background: allureReportAvailable || executedCount > 0 ? "#2563eb" : "#94a3b8", color: "#fff", border: "none", padding: "9px 18px", borderRadius: 8, fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 8, cursor: "pointer", whiteSpace: "nowrap" }}
-              >
-                <FaExternalLinkAlt size={11} /> View Allure Report
-              </button>
-              <button
-                onClick={handleViewPlaywrightReport}
-                disabled={!playwrightReportAvailable && executedCount === 0}
-                style={{ background: playwrightReportAvailable || executedCount > 0 ? "#10b981" : "#94a3b8", color: "#fff", border: "none", padding: "9px 18px", borderRadius: 8, fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 8, cursor: "pointer", whiteSpace: "nowrap" }}
-              >
-                <FaExternalLinkAlt size={11} /> View Playwright Report
-              </button>
-              <button
-                onClick={handleDownloadReport}
-                disabled={isDownloading}
-                style={{ background: "#ffffff", border: "1px solid #e2e8f0", padding: "9px 18px", borderRadius: 8, fontSize: 13, fontWeight: 700, color: "#0f172a", display: "flex", alignItems: "center", gap: 8, cursor: "pointer", whiteSpace: "nowrap" }}
-              >
-                {isDownloading ? <FaSpinner className="animate-spin" size={11} /> : <FaDownload size={11} />}
-                {isDownloading ? "Downloading..." : "Download Report"}
-              </button>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 800, color: "#0f172a", textTransform: "uppercase", letterSpacing: "0.04em" }}>PASS RATE</div>
+              <div style={{ fontSize: 10.5, color: "#64748b", fontWeight: 500, marginTop: 1 }}>Playwright execution pass rate</div>
             </div>
           </div>
         </div>
@@ -1259,7 +1262,6 @@ export function MigrationProposedTestSection({
                 title="Copy Playwright execution logs to clipboard"
               >
                 {isLogsCopied ? <FaCheck size={11} /> : <FaCopy size={11} />}
-                {isLogsCopied ? "Copied!" : "Copy Logs"}
               </button>
               <button
                 type="button"

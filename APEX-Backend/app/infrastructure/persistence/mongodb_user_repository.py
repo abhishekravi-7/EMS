@@ -235,6 +235,7 @@ DEFAULT_SETTINGS_PERMISSIONS = {
     "functional_testing": True,
     "brd_testing": True,
     "test_connection": True,
+    "artifactory": True,
 }
 
 def normalize_permissions(raw_perms: Any) -> dict[str, bool]:
@@ -255,6 +256,7 @@ def normalize_permissions(raw_perms: Any) -> dict[str, bool]:
         "brd_testing": "brd_testing",
         "testconnection": "test_connection",
         "test_connection": "test_connection",
+        "artifactory": "artifactory",
     }
 
     for k, v in raw_perms.items():

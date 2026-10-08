@@ -56,6 +56,16 @@ const normalizeGithubUrl = (url: string): { valid: boolean; normalizedUrl: strin
   }
 
   let normalized = url.trim();
+
+  // Explicit check for other git hosting providers (GitLab, Bitbucket, Azure, etc.)
+  if (/(?:https?:\/\/)?(?:www\.)?(?:gitlab\.com|bitbucket\.org|dev\.azure\.com)/i.test(normalized)) {
+    return {
+      valid: false,
+      normalizedUrl: "",
+      message: "Only GitHub repositories are supported.",
+    };
+  }
+
   // Strip URL fragments (#...) and query strings (?...) — never part of a repo path
   normalized = normalized.replace(/[#?].*$/, "");
   normalized = normalized.replace(/\/tree\/[^/]+.*$/, "");
@@ -64,11 +74,19 @@ const normalizeGithubUrl = (url: string): { valid: boolean; normalizedUrl: strin
   normalized = normalized.replace(/\/$/, "");
   normalized = normalized.replace(/\.git$/, "");
 
-  const isGithubUrl = /^https?:\/\/(www\.)?github(\.[^/]+)?\.com\/[^/]+\/[^/\s]+$/.test(normalized);
-  const isGitlabUrl = /^https?:\/\/(www\.)?gitlab\.com\/[^/]+\/[^/\s]+$/.test(normalized);
-  const isShortFormat = /^[^/]+\/[^/\s]+$/.test(normalized);
+  const isGithubUrl = /^https?:\/\/(www\.)?github\.com\/[^/]+\/[^/\s]+$/i.test(normalized);
+  const isEnterpriseUrl = /^https?:\/\/(www\.)?github\.[^/]+\.com\/[^/]+\/[^/\s]+$/i.test(normalized);
+  const isShortFormat = /^[^/:\s]+\/[^/:\s]+$/.test(normalized) && !normalized.includes(".");
 
-  if (isGithubUrl || isGitlabUrl || isShortFormat) {
+  if (/^https?:\/\//i.test(normalized) && !isGithubUrl && !isEnterpriseUrl) {
+    return {
+      valid: false,
+      normalizedUrl: "",
+      message: "Only GitHub repositories are supported.",
+    };
+  }
+
+  if (isGithubUrl || isEnterpriseUrl || isShortFormat) {
     if (url !== normalized) {
       return {
         valid: true,
@@ -82,7 +100,7 @@ const normalizeGithubUrl = (url: string): { valid: boolean; normalizedUrl: strin
   return {
     valid: false,
     normalizedUrl: "",
-    message: "Invalid URL format. Use: https://github.com/owner/repo, https://github.<enterprise>.com/owner/repo, or owner/repo",
+    message: "Invalid URL format. Use: https://github.com/owner/repo or owner/repo",
   };
 };
 
@@ -131,7 +149,8 @@ export function useRepositoryConnect({
   const [githubUserLogin] = useState("");
   const [isPrivateRepo, setIsPrivateRepo] = useState(persistedIsPrivateRepo ?? false);
   const [patToken, setPatToken] = useState(persistedPatToken ?? "");
-  const [repoVisibility, setRepoVisibility] = useState<"unknown" | "checking" | "public" | "private">("unknown");
+  const [repoVisibility, setRepoVisibility] = useState<"unknown" | "checking" | "public" | "private" | "not_found">("unknown");
+  const [repoErrorMessage, setRepoErrorMessage] = useState("");
   const [isPatModeOpen, setIsPatModeOpen] = useState(false);
   const [jobId, setJobId] = useState<string>(() => {
     if (typeof window === "undefined") return "";
@@ -183,6 +202,7 @@ export function useRepositoryConnect({
     if (!urlValidation.valid) {
       lastCheckedUrlRef.current = "";
       setRepoVisibility("unknown");
+      setRepoErrorMessage("");
       setRepoAccessCheckLoading(false);
       lastConnectRef.current = null;
       return;
@@ -198,6 +218,7 @@ export function useRepositoryConnect({
     if (showEnterpriseToken) {
       lastCheckedUrlRef.current = normalizedUrl;
       setRepoVisibility("private");
+      setRepoErrorMessage("");
       setIsPrivateRepo(true);
       setIsPatModeOpen(true);
       setRepoAccessCheckLoading(false);
@@ -208,36 +229,60 @@ export function useRepositoryConnect({
     let cancelled = false;
     setRepoAccessCheckLoading(true);
     setRepoVisibility("checking");
+    setRepoErrorMessage("");
 
     const timer = setTimeout(() => {
       getRepoVisibility(normalizedUrl)
         .then((visibility) => {
           if (cancelled) return;
+          if (visibility.visibility === "not_found") {
+            setRepoVisibility("not_found");
+            setIsPrivateRepo(false);
+            setIsPatModeOpen(false);
+            setRepoErrorMessage(visibility.message || "Repository not found. Please check the URL.");
+            return;
+          }
           if (visibility.requires_token || visibility.visibility === "private" || visibility.visibility === "private_or_inaccessible") {
             setRepoVisibility("private");
             setIsPrivateRepo(true);
             setIsPatModeOpen(true);
+            setRepoErrorMessage("");
             setError("");
             resetAccessTokenValidationState();
           } else {
             setRepoVisibility("public");
             setIsPrivateRepo(false);
             setIsPatModeOpen(false);
+            setRepoErrorMessage("");
             setError("");
           }
         })
         .catch((err) => {
           if (cancelled) return;
+          const isNotFound = err?.status === 404;
           const isUrlError = err?.status === 400;
           const message = err instanceof Error ? err.message : "";
+
+          if (isNotFound) {
+            setRepoVisibility("not_found");
+            setIsPrivateRepo(false);
+            setIsPatModeOpen(false);
+            setRepoErrorMessage(message || "Repository not found. Please check the URL.");
+            return;
+          }
+
           const isPrivate = !isUrlError && isPrivateRepoAccessError(message);
           if (isPrivate) {
             setRepoVisibility("private");
             setIsPrivateRepo(true);
             setIsPatModeOpen(true);
+            setRepoErrorMessage("");
             resetAccessTokenValidationState();
           } else {
-            setRepoVisibility("unknown");
+            setRepoVisibility("not_found");
+            setIsPrivateRepo(false);
+            setIsPatModeOpen(false);
+            setRepoErrorMessage(message || "Failed to verify repository.");
           }
         })
         .finally(() => {
@@ -302,12 +347,14 @@ export function useRepositoryConnect({
         persistConnectResult(result, connectUrl, token);
         const detectedPrivateRepo = result.repoVisibility === "PRIVATE";
         setIsPrivateRepo(detectedPrivateRepo);
+        setRepoVisibility(detectedPrivateRepo ? "private" : "public");
+        setRepoErrorMessage("");
         setError("");
         setAccessTokenValidationState("valid");
         setAccessTokenValidationMessage(
           detectedPrivateRepo
-            ? "Token validated. Private repository access looks ready."
-            : "Token validated. Repository access looks ready."
+            ? "Token validated. Private repository access confirmed."
+            : "Token validated. Repository access confirmed."
         );
         lastValidatedTokenRef.current = { url: normalizedUrl, token, state: "valid" };
       } catch (err) {
@@ -402,6 +449,11 @@ export function useRepositoryConnect({
   const handleRepositoryContinue = async () => {
     if (!urlValidation.valid) return;
 
+    if (repoVisibility === "not_found") {
+      setError(repoErrorMessage || "Repository not found. Please verify the URL.");
+      return;
+    }
+
     const normalizedUrl = urlValidation.normalizedUrl;
     const token = currentToken.trim();
 
@@ -442,6 +494,7 @@ export function useRepositoryConnect({
           const isPriv = result.repoVisibility === "PRIVATE";
           setIsPrivateRepo(isPriv);
           setRepoVisibility(isPriv ? "private" : "public");
+          setRepoErrorMessage("");
         } catch (err) {
           setConnecting(false);
           const accessStatus =
@@ -449,15 +502,19 @@ export function useRepositoryConnect({
           const message =
             err instanceof Error ? err.message : "We couldn't verify the repository right now.";
 
-          // Private/denied/not-found: reveal the PAT field so the user can retry
-          // with a token and surface the clean backend message.
-          if (accessStatus === "ACCESS_DENIED" || accessStatus === "NOT_FOUND") {
+          if (accessStatus === "ACCESS_DENIED") {
             setRepoVisibility("private");
             setIsPrivateRepo(true);
             setIsPatModeOpen(true);
             resetAccessTokenValidationState();
             setAccessTokenValidationState("invalid");
-            setAccessTokenValidationMessage(message || "This is a private repository. Please provide a GitHub PAT to continue.");
+            setAccessTokenValidationMessage(message || "Invalid PAT or access denied. Please provide a valid GitHub PAT with repo scope.");
+          } else if (accessStatus === "NOT_FOUND") {
+            setRepoVisibility("not_found");
+            setIsPrivateRepo(false);
+            setIsPatModeOpen(false);
+            setRepoErrorMessage(message || "Repository not found. Please check the URL.");
+            setError(message || "Repository not found. Please check the URL.");
           } else {
             setError(message);
           }
@@ -490,11 +547,7 @@ export function useRepositoryConnect({
     if (files.length === 1 && files[0].name.toLowerCase().endsWith(".zip")) {
       return false;
     }
-    const totalSize = files.reduce((sum, file) => sum + file.size, 0);
-    return (
-      files.length > AUTO_ZIP_LOCAL_PROJECT_UPLOAD_FILES ||
-      totalSize > AUTO_ZIP_LOCAL_PROJECT_UPLOAD_SIZE_BYTES
-    );
+    return files.length > 1;
   };
 
   const zipLocalProjectFiles = async (files: File[]): Promise<Blob> => {
@@ -728,6 +781,8 @@ export function useRepositoryConnect({
     setIsPrivateRepo,
     repoVisibility,
     setRepoVisibility,
+    repoErrorMessage,
+    setRepoErrorMessage,
     isPatModeOpen,
     setIsPatModeOpen,
     patToken,

@@ -69,6 +69,18 @@ class RepositoryCloner:
                 raise CloneFailedError(
                     "Repository clone was interrupted by a server reload or process signal. Please try again."
                 )
+            if "authentication failed" in stderr.lower() or "bad credentials" in stderr.lower():
+                logger.warning("[GIT CLONE AUTH FAILED] - ExitCode: %s - Target: %s", result.exit_code, masked_url)
+                self._log(log_path, f"Clone auth failed: {stderr}")
+                raise CloneFailedError(
+                    "GitHub authentication failed. Please verify that your personal access token is valid and has 'repo' scope."
+                )
+            if "repository not found" in stderr.lower():
+                logger.warning("[GIT CLONE NOT FOUND] - ExitCode: %s - Target: %s", result.exit_code, masked_url)
+                self._log(log_path, f"Clone repo not found / access denied: {stderr}")
+                raise CloneFailedError(
+                    "Repository not found or access denied. If this is a private repository, please check your personal access token."
+                )
             logger.warning("[GIT CLONE FAILED] - ExitCode: %s - Target: %s - Error: %s", result.exit_code, masked_url, stderr)
             self._log(log_path, f"Clone failed (exit {result.exit_code}): {stderr}")
             raise CloneFailedError()

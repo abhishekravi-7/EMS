@@ -957,3 +957,118 @@
     width: 100% !important;
   }
 }
+
+/* ================================================================
+   ANIMATED & UNIQUE TAB NAVIGATION BAR
+   ================================================================ */
+.animated-tab-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  padding: 5px 8px;
+  border-radius: 16px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 4px 16px -4px rgba(0, 48, 135, 0.06);
+  margin-bottom: 10px;
+  overflow-x: auto;
+  position: relative;
+  scrollbar-width: none;
+}
+
+.animated-tab-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.animated-tab-button {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #64748b;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  outline: none;
+  user-select: none;
+}
+
+.animated-tab-button:hover {
+  color: #1e293b;
+  background: rgba(241, 245, 249, 0.9);
+  transform: translateY(-1px);
+}
+
+.animated-tab-button.is-active {
+  color: #ffffff;
+  font-weight: 700;
+  background: linear-gradient(135deg, #003087 0%, #0052cc 60%, #0073e6 100%);
+  border-color: rgba(255, 255, 255, 0.25);
+  box-shadow: 0 6px 20px -3px rgba(0, 82, 204, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  transform: translateY(-1px);
+}
+
+@keyframes tabGlowPulse {
+  0% { box-shadow: 0 6px 20px -3px rgba(0, 82, 204, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.3); }
+  100% { box-shadow: 0 8px 24px -2px rgba(0, 115, 230, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.4); }
+}
+
+.animated-tab-icon {
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.2s ease;
+}
+
+.animated-tab-button:hover .animated-tab-icon {
+  transform: scale(1.12) rotate(-3deg);
+}
+
+.animated-tab-button.is-active .animated-tab-icon {
+  color: #ffffff;
+  animation: iconBounce 0.4s ease;
+}
+
+@keyframes iconBounce {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-2px) scale(1.15); }
+}
+
+.animated-tab-badge {
+  font-size: 10px;
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: 10px;
+  letter-spacing: 0.01em;
+  transition: all 0.2s ease;
+}
+
+.animated-tab-button.is-active .animated-tab-badge {
+  background: rgba(255, 255, 255, 0.22);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  backdrop-filter: blur(4px);
+}
+
+.animated-tab-button:not(.is-active) .animated-tab-badge {
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+}
+
+.tab-panel-container {
+  animation: tabContentIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes tabContentIn {
+  from { opacity: 0; transform: translateY(12px) scale(0.99); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+

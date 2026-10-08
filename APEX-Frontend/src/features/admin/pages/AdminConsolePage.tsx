@@ -37,6 +37,7 @@ import UserQualityChecksSettings from "../components/UserQualityChecksSettings";
 import { TestCasesAdminSettings } from "../components/TestCasesAdminSettings";
 import { LlmAdminSettings } from "../components/LlmAdminSettings";
 import { LlmUserSettings } from "../components/LlmUserSettings";
+import { ArtifactorySettings } from "../components/ArtifactorySettings";
 import "./AdminConsolePage.css";
 
 const INITIAL_SYSTEM_SETTINGS: SystemSettings = {
@@ -65,14 +66,19 @@ const INITIAL_SYSTEM_SETTINGS: SystemSettings = {
   llm_enabled: true,
   llm_features: '["CODE_REVIEW","RISK_ANALYSIS","RECOMMENDATION","UNIT_TESTS"]',
   groq_models: '["gpt-4o","claude-3.5-sonnet","gemini-1.5-pro","mixtral-8x7b","llama-3-70b","qwen/qwen3.8-27b"]',
-  huggingface_models: '["meta-llama/Llama-3.1-8B-Instruct:novita"]'
+  huggingface_models: '["meta-llama/Llama-3.1-8B-Instruct:novita"]',
+  artifactory_provider: "maven_central",
+  artifactory_url: "",
+  artifactory_username: "",
+  artifactory_token: ""
 };
 
 const INITIAL_USER_SETTINGS: FullUserSettings = {
   github_config: { github_account: "", pat: "", pat_scope: "", repository: "", branch: "", user_access: "" },
   quality_checks_values: {},
   test_cases_values: {},
-  llm_values: {}
+  llm_values: {},
+  artifactory_values: {}
 };
 
 const DEFAULT_BRD_SYSTEM_PROMPT = `Generate a repository-specific, evidence-based Business Requirements Document (BRD).
@@ -84,7 +90,7 @@ Generate up to five distinct, prioritized acceptance criteria from the strongest
 
 Before finalizing, check whether important detected entry points, UI actions, jobs, tests, and integrations appear in the workflow section. Explain omissions and scan limitations. Omit irrelevant sections, never claim runtime success from code alone, and never invent routes, database tables, browser support, assertions, or business policies.`;
 
-type UserTab = "general" | "business" | "testing" | "quality_gate" | "llm" | "users";
+type UserTab = "general" | "business" | "testing" | "quality_gate" | "llm" | "users" | "artifactory";
 
 export default function AdminConsolePage() {
   const { currentUser } = useAuth();
@@ -140,6 +146,7 @@ export default function AdminConsolePage() {
     functional_testing: true,
     brd_testing: true,
     test_connection: true,
+    artifactory: true,
   });
   const [initialUserPerms, setInitialUserPerms] = useState<UserSettingsPermissions>({
     llm_settings: true,
@@ -148,6 +155,7 @@ export default function AdminConsolePage() {
     functional_testing: true,
     brd_testing: true,
     test_connection: true,
+    artifactory: true,
   });
   const [isUserPermsLoading, setIsUserPermsLoading] = useState<boolean>(false);
   const [isUserPermsSaving, setIsUserPermsSaving] = useState<boolean>(false);
@@ -222,6 +230,8 @@ export default function AdminConsolePage() {
       } else if (activeUserTab === "quality_gate" && myEffectivePerms.quality_checks === false) {
         setActiveUserTab("general");
       } else if (activeUserTab === "llm" && myEffectivePerms.llm_settings === false) {
+        setActiveUserTab("general");
+      } else if (activeUserTab === "artifactory" && myEffectivePerms.artifactory === false) {
         setActiveUserTab("general");
       }
     }
@@ -1220,6 +1230,27 @@ export default function AdminConsolePage() {
                       Allow access to BRD document generation and business analysis settings.
                     </p>
                   </div>
+
+                  {/* Artifactory Toggle */}
+                  <div className="settings-toggle-card">
+                    <div className="settings-toggle-header">
+                      <div className="settings-toggle-title"><FaCog style={{ color: "#2563eb" }} /> Artifactory Configuration</div>
+                      <div className="switch-wrap">
+                        <label className="switch-ios">
+                          <input
+                            type="checkbox"
+                            checked={selectedUserPerms.artifactory}
+                            onChange={e => setSelectedUserPerms(prev => ({ ...prev, artifactory: e.target.checked }))}
+                          />
+                          <span className="slider-ios"></span>
+                        </label>
+                        <span className="switch-label">{selectedUserPerms.artifactory ? "Enabled" : "Disabled"}</span>
+                      </div>
+                    </div>
+                    <p className="settings-toggle-desc">
+                      Allow access to Artifactory configuration settings and overrides.
+                    </p>
+                  </div>
                 </div>
 
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: "12px", marginTop: "24px" }}>
@@ -2203,6 +2234,28 @@ export default function AdminConsolePage() {
       );
     }
 
+    if (activeUserTab === "artifactory") {
+      return (
+        <ArtifactorySettings
+          settings={isAdminUser ? currentSys : (currentUserStg.artifactory_values || {})}
+          onChange={(key, val) => {
+            if (isAdminUser) {
+              handleAdminFieldChange(key as keyof SystemSettings, val);
+            } else {
+              setUserSettings(prev => ({
+                ...(prev || INITIAL_USER_SETTINGS),
+                artifactory_values: {
+                  ...((prev || INITIAL_USER_SETTINGS).artifactory_values || {}),
+                  [key]: val
+                }
+              }));
+            }
+          }}
+          isAdmin={isAdminUser}
+        />
+      );
+    }
+
     return null;
   };
 
@@ -2260,6 +2313,12 @@ export default function AdminConsolePage() {
               <FaBrain /> LLM Configuration
             </button>
             <button
+              className={`settings-sidebar-tab ${activeUserTab === "artifactory" ? "active" : ""}`}
+              onClick={() => setActiveUserTab("artifactory")}
+            >
+              <FaPlug /> Artifactory
+            </button>
+            <button
               className={`settings-sidebar-tab ${activeUserTab === "users" ? "active" : ""}`}
               onClick={() => setActiveUserTab("users")}
             >
@@ -2298,6 +2357,14 @@ export default function AdminConsolePage() {
                 onClick={() => setActiveUserTab("llm")}
               >
                 <FaBrain /> LLM Configuration
+              </button>
+            )}
+            {myEffectivePerms?.artifactory !== false && (
+              <button
+                className={`settings-sidebar-tab ${activeUserTab === "artifactory" ? "active" : ""}`}
+                onClick={() => setActiveUserTab("artifactory")}
+              >
+                <FaPlug /> Artifactory
               </button>
             )}
           </>

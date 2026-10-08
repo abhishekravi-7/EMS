@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Any
 
-from typing import Any, Dict
 import dotenv
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -13,6 +13,8 @@ from app.core.config import settings
 from app.infrastructure.persistence.mongodb import get_mongodb
 from app.infrastructure.persistence.mongodb_system_settings_repository import (
     get_all_settings as get_mongo_settings,
+)
+from app.infrastructure.persistence.mongodb_system_settings_repository import (
     upsert_setting as upsert_mongo_setting,
 )
 from app.schemas.system_settings_schema import SystemSettingsResponse, SystemSettingsUpdate
@@ -51,6 +53,10 @@ EXPOSED_KEYS = {
     "llm_features",
     "groq_models",
     "huggingface_models",
+    "artifactory_provider",
+    "artifactory_url",
+    "artifactory_username",
+    "artifactory_token",
 }
 
 ENV_PATH = Path(".env").resolve()
@@ -188,8 +194,8 @@ async def test_admin_playwright_connection(
     if current_user.role not in ("ADMIN", "SUPERADMIN"):
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    import subprocess
     import shlex
+    import subprocess
 
     env_values = _get_live_env_values()
     # The frontend only allows this if enabled, but we can test anyway
@@ -280,7 +286,11 @@ async def update_admin_user_permissions(
         raise HTTPException(status_code=403, detail="Forbidden")
 
     mongo_db = await get_mongodb()
-    from app.infrastructure.persistence.mongodb_user_repository import get_user_by_id, update_user, normalize_permissions
+    from app.infrastructure.persistence.mongodb_user_repository import (
+        get_user_by_id,
+        normalize_permissions,
+        update_user,
+    )
     user_doc = await get_user_by_id(mongo_db, user_id)
     if not user_doc:
         raise HTTPException(status_code=404, detail="User not found.")
