@@ -226,7 +226,8 @@ export interface AnalyzedDependencyItem {
   name: string;
   version: string;
   recommended_version?: string | null;
-  upgrade_status?: "UPGRADE_REQUIRED" | "UPGRADE_RECOMMENDED" | "NO_UPGRADE_REQUIRED" | "INCOMPATIBLE" | "UNKNOWN" | string;
+  upgrade_status?: "UPGRADED" | "DOWNGRADED / BOM ALIGNMENT" | "UNCHANGED" | "REMOVE / REPLACE" | "REVIEW REQUIRED" | string;
+  source?: "Target Spring Boot BOM" | "Project pom.xml/build.gradle" | "Independent compatibility review" | "Other authoritative source" | string;
   java_compatibility?: "Compatible" | "Not Compatible" | "Unknown" | string;
   framework_compatibility?: "Compatible" | "Not Compatible" | "Unknown" | string;
   upgrade_reason?: string;
@@ -265,6 +266,8 @@ export interface DependencyAnalysisResponse {
   counts: DependencyRiskCounts;
   dependencies: AnalyzedDependencyItem[];
   provider_used: string;
+  current_spring_boot_version?: string | null;
+  target_spring_boot_version?: string | null;
   categories?: Record<string, any>;
 }
 

@@ -102,7 +102,7 @@ class GenerateTechnicalDocumentUseCase:
     def _generate_from_repository(self, repo_root: Path, request: TechnicalDocumentRequest) -> dict[str, str]:
         job_id = (request.job_id or request.migration_job_id or "N/A").strip()
         logger.info("[DISCOVERY BRD SCAN START] - JobID: %s - Analyzing repository for technical document generation...", job_id)
-        
+
         # Hydrate from cache if available
         ast_cache = self._job_repository.read_ast_cache(job_id)
         if ast_cache and "analysis" in ast_cache and "classes" in ast_cache and "deep_view" in ast_cache:
@@ -2593,7 +2593,7 @@ class GenerateTechnicalDocumentUseCase:
             "Security and access": "brd_category_security_access",
             "Reliability and performance": "brd_category_reliability_performance",
         }
-        
+
         def is_cat_enabled(val: Any) -> bool:
             if val is None:
                 return True

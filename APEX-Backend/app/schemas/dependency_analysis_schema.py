@@ -17,6 +17,8 @@ class DependencyItemInput(BaseModel):
     status: Optional[str] = None
     category: Optional[str] = None
     type: Optional[str] = None
+    direct: Optional[bool] = None
+    transitive: Optional[bool] = None
 
 
 class DependencyAnalysisRequest(BaseModel):
@@ -42,7 +44,8 @@ class AnalyzedDependencyItem(BaseModel):
     name: str = ""
     version: str = "unknown"
     recommended_version: str = "Not Determined"
-    upgrade_status: str = "UNKNOWN"
+    upgrade_status: str = "REVIEW REQUIRED"
+    source: str = ""
     java_compatibility: str = "Unknown"
     framework_compatibility: str = "Unknown"
     upgrade_reason: str = ""
@@ -73,3 +76,5 @@ class DependencyAnalysisResponse(BaseModel):
     counts: DependencyRiskCounts = Field(default_factory=DependencyRiskCounts)
     dependencies: list[AnalyzedDependencyItem] = Field(default_factory=list)
     provider_used: str = "huggingface"
+    current_spring_boot_version: Optional[str] = None
+    target_spring_boot_version: Optional[str] = None

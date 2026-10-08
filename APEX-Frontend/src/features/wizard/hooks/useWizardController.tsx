@@ -1,13 +1,79 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { wizardStyles as styles } from "@/shared/components/wizard/wizardStyles";
 import {
+  FaCheck,
   FaCheckCircle,
+  FaCopy,
   FaFolderOpen,
   FaLink,
   FaProjectDiagram,
   FaRocket,
   FaSearch,
 } from "react-icons/fa";
+
+function CopyAllDependenciesButton({
+  text,
+  label = "Copy All",
+  title = "Copy all dependencies to clipboard",
+  style = {},
+}: {
+  text: string;
+  label?: string;
+  title?: string;
+  style?: React.CSSProperties;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!text) return;
+    void navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      title={copied ? "All dependencies copied!" : title}
+      aria-label={copied ? "Copied All" : title}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "6px",
+        padding: "6px 12px",
+        borderRadius: "6px",
+        border: "1px solid " + (copied ? "#86efac" : "#cbd5e1"),
+        background: copied ? "#ecfdf5" : "#ffffff",
+        color: copied ? "#166534" : "#1e293b",
+        fontWeight: 600,
+        fontSize: "12px",
+        cursor: "pointer",
+        flexShrink: 0,
+        boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
+        transition: "all 0.15s ease",
+        ...style,
+      }}
+      onMouseEnter={(e) => {
+        if (!copied) {
+          e.currentTarget.style.background = "#f8fafc";
+          e.currentTarget.style.borderColor = "#94a3b8";
+        }
+      }}
+      onMouseLeave={(e) => {
+        if (!copied) {
+          e.currentTarget.style.background = "#ffffff";
+          e.currentTarget.style.borderColor = "#cbd5e1";
+        }
+      }}
+    >
+      {copied ? <FaCheck size={12} style={{ color: "#166534" }} /> : <FaCopy size={12} />}
+      <span>{copied ? "Copied All!" : label}</span>
+    </button>
+  );
+}
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   buildHtmlFilename,
@@ -3058,15 +3124,25 @@ export function useWizardController() {
 
     return (
       <div style={styles.dependencyInsightsPanel}>
-        <div style={styles.dependencyInsightsHeader}>
-          <div style={styles.dependencyInsightsTitle}>Total Dependencies ({categorizedDependencies.length})</div>
-          <div style={styles.dependencyInsightsSubtitle}>
-            {!dependencyAnalysisLoading && dependencyAnalysis?.overall_explanation ? (
-              dependencyAnalysis.overall_explanation
-            ) : (
-              "Categorized from repository analysis. Risk levels are migration compatibility signals, not live CVE results."
-            )}
+        <div style={{ ...styles.dependencyInsightsHeader, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <div style={styles.dependencyInsightsTitle}>Total Dependencies ({categorizedDependencies.length})</div>
+            <div style={styles.dependencyInsightsSubtitle}>
+              {!dependencyAnalysisLoading && dependencyAnalysis?.overall_explanation ? (
+                dependencyAnalysis.overall_explanation
+              ) : (
+                "Categorized from repository analysis. Risk levels are migration compatibility signals, not live CVE results."
+              )}
+            </div>
           </div>
+          {categorizedDependencies.length > 0 && (
+            <CopyAllDependenciesButton
+              text={categorizedDependencies
+                .map((d) => (d.group_id && d.artifact_id ? `${d.group_id}:${d.artifact_id}` : d.displayName))
+                .join("\n")}
+              label="Copy All"
+            />
+          )}
         </div>
 
         <div style={styles.dependencySummaryGrid}>
@@ -4721,11 +4797,20 @@ export function useWizardController() {
   }, [step, repoAnalysis, detectedSourceVersionForTargets, detectedJavaVersion, riskLevel]);
 
   useEffect(() => {
-    if ((step !== 2 && step !== 3) || !repoAnalysis || !repoAnalysis.dependencies || repoAnalysis.dependencies.length === 0) {
+    if ((step !== 2 && step !== 3 && step !== 4) || !repoAnalysis || !repoAnalysis.dependencies || repoAnalysis.dependencies.length === 0) {
       return;
     }
 
-    const depsKey = `${repoAnalysis.java_version || repoAnalysis.java_version_from_build || ""}_${repoAnalysis.build_tool || ""}_${effectiveTargetVersion || ""}_${repoAnalysis.dependencies.map((d) => `${d.group_id}:${d.artifact_id}:${d.current_version}`).join(";")}`;
+    const normalizedDependencies = repoAnalysis.dependencies.map((d: any) => ({
+      group_id: d.group_id || d.groupId || d.group || "",
+      artifact_id: d.artifact_id || d.artifactId || d.artifact || "",
+      current_version: d.current_version || d.resolved_version || d.declared_version || d.version || "unknown",
+      scope: d.scope || "compile",
+      direct: d.direct ?? !d.transitive,
+      transitive: Boolean(d.transitive),
+    }));
+
+    const depsKey = `${repoAnalysis.java_version || repoAnalysis.java_version_from_build || ""}_${repoAnalysis.build_tool || ""}_${effectiveTargetVersion || ""}_${normalizedDependencies.map((d) => `${d.group_id}:${d.artifact_id}:${d.current_version}`).join(";")}`;
     if (fetchedDependencyAnalysisKeyRef.current === depsKey && dependencyAnalysis) {
       return;
     }
@@ -4735,7 +4820,7 @@ export function useWizardController() {
     setDependencyAnalysisLoading(true);
 
     analyzeDependencies({
-      dependencies: repoAnalysis.dependencies,
+      dependencies: normalizedDependencies,
       source_java_version: detectedSourceVersionForTargets,
       target_java_version: effectiveTargetVersion,
       build_tool: repoAnalysis.build_tool,

@@ -632,6 +632,7 @@ export default function MigrationWizardPage() {
             <ResultReportView
               resultExec={resultExecState}
               repoAnalysis={repoAnalysis}
+              dependencyAnalysis={dependencyAnalysis}
               runSonar={runSonar}
               runFossa={runFossa}
               runTests={runTests}

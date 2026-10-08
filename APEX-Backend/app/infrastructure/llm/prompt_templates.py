@@ -481,20 +481,35 @@ CHECKLIST FOR EVALUATION:
 
 DEPENDENCY_ANALYSIS_SYSTEM_PROMPT = """You are a senior Java migration and dependency architecture engineer analyzing the dependencies of an actual software repository. You always answer with a single, strict JSON object and nothing else - no markdown fences, no commentary outside the JSON.
 
-Use ONLY the repository context supplied to you. Assess each dependency based on its actual version, role, framework compatibility, Java version, application architecture, and migration target. The selected target Java version is the primary compatibility constraint, not a reason to blindly select the newest dependency release.
+Use ONLY the repository context supplied to you. Assess each dependency based on its exact groupId + artifactId, current version, role, framework compatibility, target Java version, application architecture, and target framework BOM.
 
-CRITICAL RULES:
-1. Do NOT classify dependencies solely because their names contain words like 'spring', 'jpa', 'security', 'jdbc', etc.
-2. Do NOT assign a risk merely because a dependency belongs to a particular category.
-3. NEVER invent CVEs, vulnerabilities, versions, usage, or compatibility problems that are not supported by the supplied context. Model memory alone is not verified release metadata.
-4. Risk levels are migration compatibility & architectural risks (e.g. Jakarta EE namespace jump, deprecated APIs, major breaking changes, unmaintained legacy versions), NOT confirmed CVE reports.
-5. If evidence is insufficient, state that the risk is uncertain or based on limited evidence.
-6. Return EXACTLY the input dependency IDs/coordinates provided - do not fabricate or drop any dependencies.
-7. For upgrades, consider target Java requirements, current version, detected framework and Spring Boot versions, and transitive compatibility. Do not recommend a release merely because it is latest.
-8. Recommend only a real released version you can establish from supplied evidence. No release catalog or candidate version list is supplied here; if the version cannot be established confidently, use recommended_version="Not Determined", upgrade_status="UNKNOWN", java_compatibility="Unknown", framework_compatibility="Unknown", and low confidence. Do not guess.
-9. Do not echo detected version as a recommendation. Echo it only with upgrade_status="NO_UPGRADE_REQUIRED" when evidence supports that it is already compatible and no change is needed. If an upgrade is needed but no valid target can be established, use "Not Determined" and explain the evidence gap.
-10. For Spring artifacts, preserve compatibility with the detected Spring Boot/framework line and target Java. Do not upgrade individual Spring modules across incompatible release trains.
-11. Use INCOMPATIBLE when repository evidence establishes that the detected release cannot run with the selected Java or detected framework line; still provide a replacement version only when a valid compatible release is established. Use UNKNOWN when compatibility itself cannot be established.
+AUTHORITATIVE TARGET BASELINE & RESOLUTION RULES:
+1. TARGET SPRING BOOT BOM IS PRIMARY BASELINE:
+    - For Spring Boot projects, use the official dependency-management BOM for the selected TARGET Spring Boot version as the primary authoritative source.
+    - Exact match by groupId + artifactId.
+    - First verify that the target Java version is supported by the selected target Spring Boot release. If support cannot be established from authoritative information, mark affected recommendations "REVIEW REQUIRED".
+
+2. CURRENT VS TARGET CLASSIFICATION & STATUS (STRICT):
+   - "UPGRADED": Target version is newer than current version.
+   - "DOWNGRADED / BOM ALIGNMENT": Target version is lower than current version because the dependency must align with the target Spring Boot BOM. Do NOT call this an upgrade.
+   - "UNCHANGED": Current version already matches the correct target version ("Current version already matches the target-compatible version.").
+   - "REMOVE / REPLACE": Dependency is obsolete, legacy (e.g. javax.* -> jakarta.*, Log4j 1.x, Struts), or does not exist in target Spring Boot and must be removed or replaced.
+   - "REVIEW REQUIRED": Dependency is not managed by target Spring Boot BOM or its target version cannot be safely determined from available candidates. Explain what is missing; do NOT invent a version.
+
+3. INDEPENDENT FAMILY RULE (NO VERSION FAMILY ASSUMPTIONS):
+   - NEVER assume unrelated dependencies share the same version line.
+   - Do NOT map Spring Data, Spring Security, Hibernate, Jackson, Tomcat, SLF4J, or Logback to the Spring Framework or Spring Boot version number unless explicitly mandated by the target BOM.
+   - Every dependency line must be resolved independently using its own groupId + artifactId.
+
+4. SOURCE IDENTIFICATION:
+   - "Target Spring Boot BOM": Managed by the target Spring Boot release BOM.
+   - "Project pom.xml/build.gradle": Direct project declaration override.
+   - "Independent compatibility review": Unmanaged third-party library evaluated for target JDK/framework compatibility.
+   - "Other authoritative source": Specific platform or Jakarta EE release migration catalog.
+
+5. ACCURACY & EVIDENCE CONSTRAINTS:
+   - NEVER invent fake version numbers or unverified release metadata. Use ONLY published candidates from the provided candidate list.
+   - Return EXACTLY the input dependency IDs/coordinates provided - do not fabricate or drop any dependencies.
 
 The JSON object must have exactly these keys:
 - "overall_risk": string, one of "CRITICAL", "HIGH", "MEDIUM", "LOW".
@@ -507,11 +522,12 @@ The JSON object must have exactly these keys:
     - "artifact": string (e.g. "spring-boot-starter-web").
     - "name": string, human-friendly dependency name or artifact name.
     - "version": string, the current/detected version from the input (do not change).
-    - "recommended_version": string; use a verified compatible released version, the current version only for NO_UPGRADE_REQUIRED, or exactly "Not Determined" when evidence is insufficient.
-    - "upgrade_status": exactly "UPGRADE_REQUIRED", "UPGRADE_RECOMMENDED", "NO_UPGRADE_REQUIRED", "INCOMPATIBLE", or "UNKNOWN".
+    - "recommended_version": string; use a verified compatible released version from candidate list, current version for UNCHANGED, or "Not Determined" when REVIEW REQUIRED.
+    - "upgrade_status": exactly "UPGRADED", "DOWNGRADED / BOM ALIGNMENT", "UNCHANGED", "REMOVE / REPLACE", or "REVIEW REQUIRED".
+    - "source": exactly "Target Spring Boot BOM", "Project pom.xml/build.gradle", "Independent compatibility review", or "Other authoritative source".
     - "java_compatibility": exactly "Compatible", "Not Compatible", or "Unknown".
     - "framework_compatibility": exactly "Compatible", "Not Compatible", or "Unknown".
-    - "upgrade_reason": concise explanation distinguishing evidence from uncertainty.
+    - "upgrade_reason": concise technical explanation explaining why this target version and status were selected.
     - "upgrade_confidence": exactly "High", "Medium", or "Low".
     - "category": string, one of "Framework", "Persistence", "Security", "Database", "Testing", "Logging", "Web", "Build", "Utility", "Other".
     - "risk": string, one of "CRITICAL", "HIGH", "MEDIUM", "LOW".
@@ -539,11 +555,12 @@ def build_dependency_analysis_prompt(
         aid = dep.get("artifact_id") or dep.get("artifactId") or dep.get("artifact") or ""
         ver = dep.get("current_version") or dep.get("resolved_version") or dep.get("version") or "unknown"
         scope = dep.get("scope") or "compile"
+        dependency_role = "TRANSITIVE / BOOT-MANAGED" if dep.get("transitive") or dep.get("direct") is False else "DIRECT"
         candidate_versions = dep.get("candidate_versions") or []
         coord = f"{gid}:{aid}" if gid and aid else (aid or gid or "unknown")
         dep_id = dep.get("id") or coord
         dep_items.append(
-            f"- id: \"{dep_id}\" | coordinate: \"{coord}\" | version: \"{ver}\" | scope: \"{scope}\" | published Maven Central candidates (newest first): {', '.join(str(v) for v in candidate_versions) or 'unavailable'}"
+            f"- id: \"{dep_id}\" | group: \"{gid}\" | artifact: \"{aid}\" | coordinate: \"{coord}\" | version: \"{ver}\" | scope: \"{scope}\" | role: \"{dependency_role}\" | published candidates (newest first, not a BOM source): {', '.join(str(v) for v in candidate_versions) or 'unavailable'}"
         )
 
     dep_block = "\n".join(dep_items) if dep_items else "No dependencies provided."
@@ -551,14 +568,21 @@ def build_dependency_analysis_prompt(
     fw_str = ", ".join(str(f.get("name") if isinstance(f, dict) else f) for f in frameworks) or "None detected"
     test_fw_str = ", ".join(str(t.get("name") if isinstance(t, dict) else t) for t in testing_frameworks) or "None detected"
 
-    return f"""Analyze the following dependencies for Java migration readiness from Java {source_java_version or 'unknown'} to Java {target_java_version or '17+'}.
+    boot_doc_url = (
+        f"https://docs.spring.io/spring-boot/docs/{target_spring_boot_version}/reference/html/dependency-versions.html"
+        if target_spring_boot_version and target_spring_boot_version != "Not applicable"
+        else "N/A"
+    )
 
-PROJECT CONTEXT:
+    return f"""Analyze the following dependencies for Java/Spring Boot migration readiness from Java {source_java_version or 'unknown'} to Java {target_java_version or '17+'}.
+
+AUTHORITATIVE TARGET BASELINE & CONTEXT:
 - Build Tool: {build_tool or 'unknown'}
-- Source Java Version: {source_java_version or 'unknown'}
+- Current Java Version: {source_java_version or 'unknown'}
 - Target Java Version: {target_java_version or '17+ (LTS)'}
-- Spring Boot Version: {spring_boot_version or 'Not detected / Not applicable'}
-- Spring Boot Target for selected Java: {target_spring_boot_version or 'Not applicable'}
+- Current Spring Boot Version: {spring_boot_version or 'Not detected / Not applicable'}
+- Target Spring Boot Version: {target_spring_boot_version or 'Not applicable'}
+- Target Spring Boot Managed BOM Reference: {boot_doc_url}
 - Spring Framework version managed by target Spring Boot BOM: {target_spring_framework_version or 'Not available'}
 - Detected Frameworks: {fw_str}
 - Testing Frameworks: {test_fw_str}
@@ -568,7 +592,18 @@ PROJECT CONTEXT:
 DEPENDENCY LIST TO EVALUATE:
 {dep_block}
 
-For every dependency, analyze the current version against Java {target_java_version or 'the selected target Java version'}, the detected framework/Spring Boot versions, the target Spring Boot version above, and transitive compatibility. When Spring Boot is present, treat the target Spring Boot release and its managed Spring Framework version as the alignment targets for managed artifacts. Use the BOM-managed Spring Framework version above for Spring Framework modules when its exact coordinate is among that dependency's published candidates. Use only the published Maven Central candidate versions listed beside each coordinate; never produce a version absent from that list. The candidate list proves publication, not Java/framework compatibility: recommend only a listed version whose compatibility you can establish. If none can be established, return recommended_version="Not Determined" and upgrade_status="UNKNOWN". Return an explicit compatibility result, reason, and confidence for every item. Return ONLY the strict JSON object matching the system prompt schema."""
+EVALUATION INSTRUCTIONS:
+1. First verify target Java ({target_java_version or 'selected target'}) is supported by Target Spring Boot ({target_spring_boot_version or 'BOM'}). If this cannot be verified, mark affected recommendations "REVIEW REQUIRED". Both are mandatory constraints.
+2. Exact match by groupId + artifactId against target Spring Boot BOM. The linked official dependency-management page is authoritative. A Maven Central candidate list is not proof of the target BOM version. If the exact target BOM mapping cannot be verified, use "REVIEW REQUIRED" and "Not Determined".
+3. Classify status strictly as one of:
+   - "UPGRADED": Target version > current version.
+   - "DOWNGRADED / BOM ALIGNMENT": Target version < current version due to BOM alignment.
+   - "UNCHANGED": Current version == target version ("Current version already matches the target-compatible version.").
+   - "REMOVE / REPLACE": Dependency obsolete or requires Jakarta EE / modern replacement.
+   - "REVIEW REQUIRED": Unmanaged by BOM or target version cannot be safely determined.
+4. Set source strictly to one of: "Target Spring Boot BOM", "Project pom.xml/build.gradle", "Independent compatibility review", or "Other authoritative source".
+5. NO VERSION FAMILY ASSUMPTIONS: Resolve each dependency independently by its own groupId + artifactId.
+6. Return ONLY the strict JSON object matching the system prompt schema."""
 
 
 REACT_MIGRATION_REVIEW_SYSTEM_PROMPT = """You are a principal frontend architect and Java-to-React migration reviewer. Review a migrated React application against its original JSP/JSF application and supplied backend evidence. The business domain is unknown and must be discovered from the evidence.
