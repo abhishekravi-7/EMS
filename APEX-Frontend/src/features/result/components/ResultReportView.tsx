@@ -1572,12 +1572,20 @@ export function ResultReportView({
               {[
                 { id: "general", label: "General", icon: <FaFileAlt />, badge: `${migrationJob?.files_modified ?? 0} files` },
                 { id: "unit-test", label: "Unit Test", icon: <FaCheckCircle />, badge: testsRun > 0 ? `${totalTestCases} tests` : undefined },
-                { id: "functional-test", label: "Functional Test", icon: <FaTasks />, badge: (runFunctionalTests ?? migrationJob.run_functional_tests ?? true) ? "Playwright Logs" : undefined },
+                { id: "functional-test", label: "Functional Test", icon: <FaTasks />, badge: (runFunctionalTests ?? migrationJob.run_functional_tests) ? "Playwright Logs" : undefined },
                 { id: "sonarqube", label: "SonarQube", icon: <FaBug />, badge: sonarTotalFindings > 0 ? `${sonarTotalFindings}` : "Passed" },
                 { id: "fossa", label: "FOSSA", icon: <FaShieldAlt />, badge: fossaPolicyStatus },
                 { id: "logs-issues", label: "Logs & Issues", icon: <FaTerminal />, badge: migrationJob.issues?.length ? `${migrationJob.issues.length}` : undefined },
                 { id: "reports", label: "Reports", icon: <FaDownload /> },
-              ].map((tab) => {
+              ]
+              .filter((tab) => {
+                if (tab.id === "unit-test") return Boolean(migrationJob?.run_tests ?? migrationJob?.runTests ?? runTests);
+                if (tab.id === "functional-test") return Boolean(migrationJob?.run_functional_tests ?? runFunctionalTests);
+                if (tab.id === "sonarqube") return Boolean(migrationJob?.run_sonar ?? migrationJob?.runSonar ?? runSonar);
+                if (tab.id === "fossa") return Boolean(migrationJob?.run_fossa ?? migrationJob?.runFossa ?? runFossa);
+                return true;
+              })
+              .map((tab) => {
                 const isActive = activeTab === tab.id;
                 return (
                   <button
