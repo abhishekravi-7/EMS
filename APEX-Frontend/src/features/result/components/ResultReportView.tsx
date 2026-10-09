@@ -112,6 +112,7 @@ interface ResultReportViewProps {
   runFunctionalTests?: boolean;
   selectedLLMProvider: string;
   useLLMTests: boolean;
+  isJUnitOnly?: boolean;
   resetWizard: () => void;
   onBack: () => void;
   onError: (message: string) => void;
@@ -191,6 +192,7 @@ export function ResultReportView({
   runFunctionalTests,
   selectedLLMProvider,
   useLLMTests,
+  isJUnitOnly = false,
   resetWizard,
   onBack,
   onError,
@@ -239,7 +241,7 @@ export function ResultReportView({
 
   const [activeTab, setActiveTab] = useState<
     "general" | "unit-test" | "functional-test" | "sonarqube" | "fossa" | "logs-issues" | "reports"
-  >("general");
+  >(isJUnitOnly ? "unit-test" : "general");
   const [selectedDiffIndex, setSelectedDiffIndex] = useState<number>(0);
   const [loadedFileDiffs, setLoadedFileDiffs] = useState<Record<string, {
     beforeLines: Array<{ num: number; text: string; type: string }>;
@@ -1210,7 +1212,7 @@ export function ResultReportView({
           <div style={styles.reportContainer}>
             <div style={styles.loadingBox}>
               <div style={styles.spinner}></div>
-              <span>Loading migration report...</span>
+              <span>{isJUnitOnly ? "Loading JUnit test summary..." : "Loading migration report..."}</span>
             </div>
           </div>
         }
@@ -1260,129 +1262,135 @@ export function ResultReportView({
                   </div>
                 </div>
                 <div>
-                  <h2 style={{ margin: "0 0 2px 0", fontSize: 24, fontWeight: 800, color: "#ffffff", letterSpacing: "-0.01em" }}>Migration Report</h2>
+                  <h2 style={{ margin: "0 0 2px 0", fontSize: 24, fontWeight: 800, color: "#ffffff", letterSpacing: "-0.01em" }}>
+                    {isJUnitOnly ? "JUnit Test Summary" : "Migration Report"}
+                  </h2>
                   <p style={{ margin: 0, color: "rgba(255, 255, 255, 0.9)", fontSize: 13, lineHeight: 1.4, fontWeight: 500, maxWidth: 460 }}>
-                    Your project has been successfully modernized from Java {migrationJob.source_java_version} to Java {migrationJob.target_java_version}.
+                    {isJUnitOnly
+                      ? "JUnit test suite execution summary and test coverage analysis for your project."
+                      : `Your project has been successfully modernized from Java ${migrationJob.source_java_version} to Java ${migrationJob.target_java_version}.`}
                   </p>
                 </div>
               </div>
 
-              <div style={{ display: "flex", alignItems: "center", gap: 18, zIndex: 1 }}>
-                {/* Java Version Badges Container */}
-                <div style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 12,
-                  background: "rgba(255, 255, 255, 0.04)",
-                  border: "1px solid rgba(255, 255, 255, 0.12)",
-                  borderRadius: 16,
-                  padding: "6px 14px"
-                }}>
+              {!isJUnitOnly && (
+                <div style={{ display: "flex", alignItems: "center", gap: 18, zIndex: 1 }}>
+                  {/* Java Version Badges Container */}
                   <div style={{
-                    background: "rgba(255, 255, 255, 0.06)",
-                    border: "1px solid rgba(255, 255, 255, 0.12)",
-                    borderRadius: 10,
-                    padding: "6px 12px",
                     display: "flex",
                     alignItems: "center",
-                    gap: 10,
-                    minWidth: 105,
-                    backdropFilter: "blur(8px)"
-                  }}>
-                    <div style={{ background: "rgba(0, 0, 0, 0.2)", width: 30, height: 30, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid rgba(255, 255, 255, 0.08)", flexShrink: 0 }}>
-                      <svg width="16" height="16" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M22 22C22 22 25 15 23 10C21 5 25 2 25 2C25 2 29 6 27 11C25 16 28 22 22 22Z" fill="#ff4d4d" />
-                        <path d="M32 20C32 20 35 14 33 9C31 4 35 1 35 1C35 1 39 5 37 10C35 15 38 20 32 20Z" fill="#ffa64d" />
-                        <path d="M41 23C41 23 43 18 41 14C39 10 43 7 43 7C43 7 46 10 45 15C44 20 46 23 41 23Z" fill="#ff4d4d" />
-                        <path d="M14 26H46C46 26 47 38 41 43C35 48 23 48 18 43C12 38 14 26 14 26Z" fill="#ffffff" />
-                        <path d="M45 30C45 30 52 30 52 34C52 38 45 38 45 38" stroke="#ffffff" strokeWidth="4" strokeLinecap="round" />
-                        <path d="M10 49C10 49 16 54 30 54C44 54 50 49 50 49C52 48 53 50 51 51C47 54 39 57 30 57C21 57 13 54 9 51C7 50 8 48 10 49Z" fill="#ffffff" opacity="0.85" />
-                        <path d="M15 45C22 47 38 47 45 45" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" opacity="0.5" />
-                      </svg>
-                    </div>
-                    <div style={{ textAlign: "left" }}>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: "#ffffff", lineHeight: 1.1 }}>Java {migrationJob.source_java_version}</div>
-                      <div style={{ fontSize: 10, color: "rgba(255, 255, 255, 0.5)", fontWeight: 500, marginTop: 1 }}>Legacy</div>
-                    </div>
-                  </div>
-
-                  <span style={{ color: "rgba(255,255,255,0.4)", fontSize: 14, fontWeight: 600 }}>→</span>
-
-                  <div style={{
-                    background: "rgba(255, 255, 255, 0.06)",
+                    gap: 12,
+                    background: "rgba(255, 255, 255, 0.04)",
                     border: "1px solid rgba(255, 255, 255, 0.12)",
-                    borderRadius: 10,
-                    padding: "6px 12px",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 10,
-                    minWidth: 115,
-                    backdropFilter: "blur(8px)"
+                    borderRadius: 16,
+                    padding: "6px 14px"
                   }}>
-                    <div style={{ background: "rgba(0, 0, 0, 0.2)", width: 30, height: 30, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid rgba(255, 255, 255, 0.08)", flexShrink: 0 }}>
-                      <svg width="16" height="16" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M22 22C22 22 25 15 23 10C21 5 25 2 25 2C25 2 29 6 27 11C25 16 28 22 22 22Z" fill="#ff4d4d" />
-                        <path d="M32 20C32 20 35 14 33 9C31 4 35 1 35 1C35 1 39 5 37 10C35 15 38 20 32 20Z" fill="#ffa64d" />
-                        <path d="M41 23C41 23 43 18 41 14C39 10 43 7 43 7C43 7 46 10 45 15C44 20 46 23 41 23Z" fill="#ff4d4d" />
-                        <path d="M14 26H46C46 26 47 38 41 43C35 48 23 48 18 43C12 38 14 26 14 26Z" fill="#ffffff" />
-                        <path d="M45 30C45 30 52 30 52 34C52 38 45 38 45 38" stroke="#ffffff" strokeWidth="4" strokeLinecap="round" />
-                        <path d="M10 49C10 49 16 54 30 54C44 54 50 49 50 49C52 48 53 50 51 51C47 54 39 57 30 57C21 57 13 54 9 51C7 50 8 48 10 49Z" fill="#ffffff" opacity="0.85" />
-                        <path d="M15 45C22 47 38 47 45 45" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" opacity="0.5" />
-                      </svg>
+                    <div style={{
+                      background: "rgba(255, 255, 255, 0.06)",
+                      border: "1px solid rgba(255, 255, 255, 0.12)",
+                      borderRadius: 10,
+                      padding: "6px 12px",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      minWidth: 105,
+                      backdropFilter: "blur(8px)"
+                    }}>
+                      <div style={{ background: "rgba(0, 0, 0, 0.2)", width: 30, height: 30, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid rgba(255, 255, 255, 0.08)", flexShrink: 0 }}>
+                        <svg width="16" height="16" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <path d="M22 22C22 22 25 15 23 10C21 5 25 2 25 2C25 2 29 6 27 11C25 16 28 22 22 22Z" fill="#ff4d4d" />
+                          <path d="M32 20C32 20 35 14 33 9C31 4 35 1 35 1C35 1 39 5 37 10C35 15 38 20 32 20Z" fill="#ffa64d" />
+                          <path d="M41 23C41 23 43 18 41 14C39 10 43 7 43 7C43 7 46 10 45 15C44 20 46 23 41 23Z" fill="#ff4d4d" />
+                          <path d="M14 26H46C46 26 47 38 41 43C35 48 23 48 18 43C12 38 14 26 14 26Z" fill="#ffffff" />
+                          <path d="M45 30C45 30 52 30 52 34C52 38 45 38 45 38" stroke="#ffffff" strokeWidth="4" strokeLinecap="round" />
+                          <path d="M10 49C10 49 16 54 30 54C44 54 50 49 50 49C52 48 53 50 51 51C47 54 39 57 30 57C21 57 13 54 9 51C7 50 8 48 10 49Z" fill="#ffffff" opacity="0.85" />
+                          <path d="M15 45C22 47 38 47 45 45" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" opacity="0.5" />
+                        </svg>
+                      </div>
+                      <div style={{ textAlign: "left" }}>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: "#ffffff", lineHeight: 1.1 }}>Java {migrationJob.source_java_version}</div>
+                        <div style={{ fontSize: 10, color: "rgba(255, 255, 255, 0.5)", fontWeight: 500, marginTop: 1 }}>Legacy</div>
+                      </div>
                     </div>
-                    <div style={{ textAlign: "left" }}>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: "#ffffff", lineHeight: 1.1 }}>Java {migrationJob.target_java_version}</div>
-                      <span style={{
-                        background: "rgba(16, 185, 129, 0.2)",
-                        color: "#34d399",
-                        border: "1px solid rgba(16, 185, 129, 0.25)",
-                        fontSize: 8.5,
-                        fontWeight: 700,
-                        padding: "1px 5px",
-                        borderRadius: 4,
-                        marginTop: 1,
-                        display: "inline-block",
-                        textTransform: "uppercase"
-                      }}>Modernized</span>
-                    </div>
-                  </div>
-                </div>
 
-                {/* Vertical Divider line */}
-                <div style={{ width: 1, height: 38, background: "rgba(255, 255, 255, 0.2)" }} />
+                    <span style={{ color: "rgba(255,255,255,0.4)", fontSize: 14, fontWeight: 600 }}>→</span>
 
-                {/* Timestamp and elapsed details */}
-                <div style={{ display: "flex", flexDirection: "column", gap: 5, minWidth: 135 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <FaRegCalendarAlt style={{ color: "rgba(255, 255, 255, 0.6)", fontSize: 13 }} />
-                    <div style={{ textAlign: "left" }}>
-                      <div style={{ fontSize: 10, color: "rgba(255, 255, 255, 0.5)", fontWeight: 600, textTransform: "uppercase" }}>Migration Date</div>
-                      <div style={{ fontSize: 12.5, color: "#ffffff", fontWeight: 700 }}>
-                        {migrationJob.completed_at ? new Date(migrationJob.completed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : "Sep 11, 2026"}, {migrationJob.completed_at ? new Date(migrationJob.completed_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) : "3:00 PM"}
+                    <div style={{
+                      background: "rgba(255, 255, 255, 0.06)",
+                      border: "1px solid rgba(255, 255, 255, 0.12)",
+                      borderRadius: 10,
+                      padding: "6px 12px",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      minWidth: 115,
+                      backdropFilter: "blur(8px)"
+                    }}>
+                      <div style={{ background: "rgba(0, 0, 0, 0.2)", width: 30, height: 30, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid rgba(255, 255, 255, 0.08)", flexShrink: 0 }}>
+                        <svg width="16" height="16" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <path d="M22 22C22 22 25 15 23 10C21 5 25 2 25 2C25 2 29 6 27 11C25 16 28 22 22 22Z" fill="#ff4d4d" />
+                          <path d="M32 20C32 20 35 14 33 9C31 4 35 1 35 1C35 1 39 5 37 10C35 15 38 20 32 20Z" fill="#ffa64d" />
+                          <path d="M41 23C41 23 43 18 41 14C39 10 43 7 43 7C43 7 46 10 45 15C44 20 46 23 41 23Z" fill="#ff4d4d" />
+                          <path d="M14 26H46C46 26 47 38 41 43C35 48 23 48 18 43C12 38 14 26 14 26Z" fill="#ffffff" />
+                          <path d="M45 30C45 30 52 30 52 34C52 38 45 38 45 38" stroke="#ffffff" strokeWidth="4" strokeLinecap="round" />
+                          <path d="M10 49C10 49 16 54 30 54C44 54 50 49 50 49C52 48 53 50 51 51C47 54 39 57 30 57C21 57 13 54 9 51C7 50 8 48 10 49Z" fill="#ffffff" opacity="0.85" />
+                          <path d="M15 45C22 47 38 47 45 45" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" opacity="0.5" />
+                        </svg>
+                      </div>
+                      <div style={{ textAlign: "left" }}>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: "#ffffff", lineHeight: 1.1 }}>Java {migrationJob.target_java_version}</div>
+                        <span style={{
+                          background: "rgba(16, 185, 129, 0.2)",
+                          color: "#34d399",
+                          border: "1px solid rgba(16, 185, 129, 0.25)",
+                          fontSize: 8.5,
+                          fontWeight: 700,
+                          padding: "1px 5px",
+                          borderRadius: 4,
+                          marginTop: 1,
+                          display: "inline-block",
+                          textTransform: "uppercase"
+                        }}>Modernized</span>
                       </div>
                     </div>
                   </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <FaStopwatch style={{ color: "rgba(255, 255, 255, 0.6)", fontSize: 13 }} />
-                    <div style={{ textAlign: "left" }}>
-                      <div style={{ fontSize: 10, color: "rgba(255, 255, 255, 0.5)", fontWeight: 600, textTransform: "uppercase" }}>Duration</div>
-                      <div style={{ fontSize: 13, color: "#ffffff", fontWeight: 800, fontFamily: "'JetBrains Mono', monospace" }}>
-                        {(() => {
-                          const secs = getMigrationElapsedSeconds(migrationJob, resultExec.migrationTimerNow);
-                          const h = Math.floor(secs / 3600);
-                          const m = Math.floor((secs % 3600) / 60).toString().padStart(2, "0");
-                          const s = (secs % 60).toString().padStart(2, "0");
-                          return h > 0 ? `${h.toString().padStart(2, "0")}:${m}:${s}` : `00:${m}:${s}`;
-                        })()}
+
+                  {/* Vertical Divider line */}
+                  <div style={{ width: 1, height: 38, background: "rgba(255, 255, 255, 0.2)" }} />
+
+                  {/* Timestamp and elapsed details */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 5, minWidth: 135 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <FaRegCalendarAlt style={{ color: "rgba(255, 255, 255, 0.6)", fontSize: 13 }} />
+                      <div style={{ textAlign: "left" }}>
+                        <div style={{ fontSize: 10, color: "rgba(255, 255, 255, 0.5)", fontWeight: 600, textTransform: "uppercase" }}>Migration Date</div>
+                        <div style={{ fontSize: 12.5, color: "#ffffff", fontWeight: 700 }}>
+                          {migrationJob.completed_at ? new Date(migrationJob.completed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : "Sep 11, 2026"}, {migrationJob.completed_at ? new Date(migrationJob.completed_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) : "3:00 PM"}
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <FaStopwatch style={{ color: "rgba(255, 255, 255, 0.6)", fontSize: 13 }} />
+                      <div style={{ textAlign: "left" }}>
+                        <div style={{ fontSize: 10, color: "rgba(255, 255, 255, 0.5)", fontWeight: 600, textTransform: "uppercase" }}>Duration</div>
+                        <div style={{ fontSize: 13, color: "#ffffff", fontWeight: 800, fontFamily: "'JetBrains Mono', monospace" }}>
+                          {(() => {
+                            const secs = getMigrationElapsedSeconds(migrationJob, resultExec.migrationTimerNow);
+                            const h = Math.floor(secs / 3600);
+                            const m = Math.floor((secs % 3600) / 60).toString().padStart(2, "0");
+                            const s = (secs % 60).toString().padStart(2, "0");
+                            return h > 0 ? `${h.toString().padStart(2, "0")}:${m}:${s}` : `00:${m}:${s}`;
+                          })()}
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
-              </div>
+              )}
             </div>
 
             {/* Single-Line Top Metrics Grid (5 Cards in 1 Row) */}
-            {(() => {
+            {!isJUnitOnly && (() => {
               const transformationsCount = migrationJob?.transformations_count ?? (migrationJob?.uiTransformations?.length ?? 0);
 
               const topHeroRowStats = [
@@ -1498,227 +1506,264 @@ export function ResultReportView({
             })()}
 
             {/* Smart Connected Repository Transformation Pipeline (Placed Above Tabs) */}
-            <div style={{
-              background: "#ffffff",
-              border: "1px solid #e2e8f0",
-              borderRadius: 16,
-              padding: "14px 18px",
-              boxShadow: "0 4px 20px rgba(0, 48, 135, 0.04)",
-              position: "relative",
-              overflow: "hidden",
-              marginBottom: 4
-            }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <div style={{ background: "linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)", color: "#2563eb", width: 32, height: 32, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, border: "1px solid #bfdbfe" }}>
-                    <FaLayerGroup />
-                  </div>
-                  <div>
-                    <h3 style={{ margin: 0, fontSize: 15, fontWeight: 800, color: "#0f172a" }}>Repository Information</h3>
-                    <div style={{ fontSize: 11, color: "#64748b", fontWeight: 500 }}>Connected source and modernized target workspace architecture</div>
-                  </div>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{
-                    background: "linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)",
-                    color: "#166534",
-                    fontSize: 11,
-                    fontWeight: 800,
-                    padding: "3px 12px",
-                    borderRadius: 20,
-                    border: "1px solid #86efac",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 5
-                  }}>
-                    <FaCheckCircle size={11} /> Modernized
-                  </span>
-                </div>
-              </div>
-
-              {/* Pipeline Flow Grid */}
+            {!isJUnitOnly && (
               <div style={{
-                display: "grid",
-                gridTemplateColumns: "1fr auto 1fr",
-                gap: 16,
-                alignItems: "center",
-                background: "#f8fafc",
-                border: "1px solid #f1f5f9",
-                borderRadius: 14,
-                padding: "12px 16px"
+                background: "#ffffff",
+                border: "1px solid #e2e8f0",
+                borderRadius: 16,
+                padding: "14px 18px",
+                boxShadow: "0 4px 20px rgba(0, 48, 135, 0.04)",
+                position: "relative",
+                overflow: "hidden",
+                marginBottom: 4
               }}>
-                {/* Source Repo Card */}
-                <div style={{
-                  background: "#ffffff",
-                  border: "1px solid #e2e8f0",
-                  borderRadius: 12,
-                  padding: "10px 14px",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 6,
-                  boxShadow: "0 2px 8px rgba(0,0,0,0.02)"
-                }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>
-                      <span style={{ color: "#475569", fontSize: 14 }}>
-                        {isLocalPath(migrationJob.source_repo) ? <FaFolderOpen /> : <FaGithub />}
-                      </span>
-                      Source Repository
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ background: "linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)", color: "#2563eb", width: 32, height: 32, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, border: "1px solid #bfdbfe" }}>
+                      <FaLayerGroup />
                     </div>
-                    <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 6, background: "#f1f5f9", color: "#475569", border: "1px solid #e2e8f0" }}>
-                      Java {migrationJob.source_java_version || "?"} Legacy
-                    </span>
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: 15, fontWeight: 800, color: "#0f172a" }}>
+                        {isJUnitOnly ? "JUnit Test Case Generator" : "Repository Information"}
+                      </h3>
+                      <div style={{ fontSize: 11, color: "#64748b", fontWeight: 500 }}>
+                        {isJUnitOnly ? "Connected repository — Generate and execute Unit Tests for your workspace" : "Connected source and modernized target workspace architecture"}
+                      </div>
+                    </div>
                   </div>
-
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: "#1e293b", wordBreak: "break-all", fontFamily: "'JetBrains Mono', monospace" }}>
-                      {migrationJob.source_repo || "N/A"}
-                    </div>
-                    <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
-                      <button
-                        type="button"
-                        onClick={() => handleCopyRepo(migrationJob.source_repo, "source")}
-                        title={copiedRepo === "source" ? "Copied!" : "Copy Source Repo Path"}
-                        style={{
-                          background: copiedRepo === "source" ? "#dcfce7" : "#f1f5f9",
-                          color: copiedRepo === "source" ? "#166534" : "#64748b",
-                          border: "1px solid #cbd5e1",
-                          borderRadius: 6,
-                          width: 28,
-                          height: 28,
-                          cursor: "pointer",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          transition: "all 0.15s ease"
-                        }}
-                      >
-                        {copiedRepo === "source" ? <FaCheck size={11} /> : <FaCopy size={11} />}
-                      </button>
-                      {!isLocalPath(migrationJob.source_repo) && getRepositoryLink(migrationJob.source_repo) && (
-                        <a
-                          href={getRepositoryLink(migrationJob.source_repo)!}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          title="Open Source Repository"
-                          style={{
-                            background: "#eff6ff",
-                            color: "#2563eb",
-                            border: "1px solid #bfdbfe",
-                            borderRadius: 6,
-                            width: 28,
-                            height: 28,
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            textDecoration: "none"
-                          }}
-                        >
-                          <FaExternalLinkAlt size={10} />
-                        </a>
-                      )}
-                    </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{
+                      background: "linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)",
+                      color: "#166534",
+                      fontSize: 11,
+                      fontWeight: 800,
+                      padding: "3px 12px",
+                      borderRadius: 20,
+                      border: "1px solid #86efac",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 5
+                    }}>
+                      <FaCheckCircle size={11} /> {isJUnitOnly ? "JUnit Mode Active" : "Modernized"}
+                    </span>
                   </div>
                 </div>
 
-                {/* Center Flow Connector */}
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "0 6px" }}>
-                  <div style={{ width: 28, height: 2, background: "linear-gradient(90deg, #93c5fd 0%, #2563eb 100%)", borderRadius: 2 }} />
+                {/* Pipeline Flow Grid */}
+                <div style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr auto 1fr",
+                  gap: 16,
+                  alignItems: "center",
+                  background: "#f8fafc",
+                  border: "1px solid #f1f5f9",
+                  borderRadius: 14,
+                  padding: "12px 16px"
+                }}>
+                  {/* Source Repo Card */}
                   <div style={{
-                    width: 30,
-                    height: 30,
-                    borderRadius: "50%",
-                    background: "linear-gradient(135deg, #003087 0%, #0052cc 100%)",
-                    color: "#ffffff",
+                    background: "#ffffff",
+                    border: "1px solid #e2e8f0",
+                    borderRadius: 12,
+                    padding: "10px 14px",
                     display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    boxShadow: "0 4px 12px rgba(0, 82, 204, 0.28)",
-                    border: "2px solid #ffffff",
-                    flexShrink: 0
+                    flexDirection: "column",
+                    gap: 6,
+                    boxShadow: "0 2px 8px rgba(0,0,0,0.02)"
                   }}>
-                    <FaArrowRight size={12} />
-                  </div>
-                  <div style={{ width: 28, height: 2, background: "linear-gradient(90deg, #2563eb 0%, #86efac 100%)", borderRadius: 2 }} />
-                </div>
-
-                {/* Target Repo Card */}
-                <div style={{
-                  background: "#ffffff",
-                  border: "1px solid #86efac",
-                  borderRadius: 12,
-                  padding: "10px 14px",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 6,
-                  boxShadow: "0 2px 12px rgba(34, 197, 94, 0.08)"
-                }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 700, color: "#15803d", textTransform: "uppercase" }}>
-                      <span style={{ color: "#16a34a", fontSize: 14 }}>
-                        {isLocalPath(migrationJob.target_repo) ? <FaFolderOpen /> : <FaGithub />}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>
+                        <span style={{ color: "#475569", fontSize: 14 }}>
+                          {isLocalPath(migrationJob.source_repo) ? <FaFolderOpen /> : <FaGithub />}
+                        </span>
+                        Source Repository
+                      </div>
+                      <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 6, background: "#f1f5f9", color: "#475569", border: "1px solid #e2e8f0" }}>
+                        Java {migrationJob.source_java_version || "?"} Legacy
                       </span>
-                      Target Repository
                     </div>
-                    <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 6, background: "#dcfce7", color: "#166534", border: "1px solid #86efac" }}>
-                      Java {migrationJob.target_java_version || "?"} Modernized
-                    </span>
-                  </div>
 
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: "#2563eb", wordBreak: "break-all", fontFamily: "'JetBrains Mono', monospace" }}>
-                      {migrationJob.target_repo || "N/A"}
-                    </div>
-                    <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
-                      <button
-                        type="button"
-                        onClick={() => handleCopyRepo(migrationJob.target_repo, "target")}
-                        title={copiedRepo === "target" ? "Copied!" : "Copy Target Repo Path"}
-                        style={{
-                          background: copiedRepo === "target" ? "#dcfce7" : "#f1f5f9",
-                          color: copiedRepo === "target" ? "#166534" : "#64748b",
-                          border: "1px solid #cbd5e1",
-                          borderRadius: 6,
-                          width: 28,
-                          height: 28,
-                          cursor: "pointer",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          transition: "all 0.15s ease"
-                        }}
-                      >
-                        {copiedRepo === "target" ? <FaCheck size={11} /> : <FaCopy size={11} />}
-                      </button>
-                      {!isLocalPath(migrationJob.target_repo) && getRepositoryLink(migrationJob.target_repo) && (
-                        <a
-                          href={getRepositoryLink(migrationJob.target_repo)!}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          title="Open Target Repository"
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "#1e293b", wordBreak: "break-all", fontFamily: "'JetBrains Mono', monospace" }}>
+                        {migrationJob.source_repo || "N/A"}
+                      </div>
+                      <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                        <button
+                          type="button"
+                          onClick={() => handleCopyRepo(migrationJob.source_repo, "source")}
+                          title={copiedRepo === "source" ? "Copied!" : "Copy Source Repo Path"}
                           style={{
-                            background: "#eff6ff",
-                            color: "#2563eb",
-                            border: "1px solid #bfdbfe",
+                            background: copiedRepo === "source" ? "#dcfce7" : "#f1f5f9",
+                            color: copiedRepo === "source" ? "#166534" : "#64748b",
+                            border: "1px solid #cbd5e1",
                             borderRadius: 6,
                             width: 28,
                             height: 28,
+                            cursor: "pointer",
                             display: "flex",
                             alignItems: "center",
                             justifyContent: "center",
-                            textDecoration: "none"
+                            transition: "all 0.15s ease"
                           }}
                         >
-                          <FaExternalLinkAlt size={10} />
-                        </a>
-                      )}
+                          {copiedRepo === "source" ? <FaCheck size={11} /> : <FaCopy size={11} />}
+                        </button>
+                        {!isLocalPath(migrationJob.source_repo) && getRepositoryLink(migrationJob.source_repo) && (
+                          <a
+                            href={getRepositoryLink(migrationJob.source_repo)!}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="Open Source Repository"
+                            style={{
+                              background: "#eff6ff",
+                              color: "#2563eb",
+                              border: "1px solid #bfdbfe",
+                              borderRadius: 6,
+                              width: 28,
+                              height: 28,
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              textDecoration: "none"
+                            }}
+                          >
+                            <FaExternalLinkAlt size={10} />
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Center Flow Connector */}
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "0 6px" }}>
+                    <div style={{ width: 28, height: 2, background: "linear-gradient(90deg, #93c5fd 0%, #2563eb 100%)", borderRadius: 2 }} />
+                    <div style={{
+                      width: 30,
+                      height: 30,
+                      borderRadius: "50%",
+                      background: "linear-gradient(135deg, #003087 0%, #0052cc 100%)",
+                      color: "#ffffff",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      boxShadow: "0 4px 12px rgba(0, 82, 204, 0.28)",
+                      border: "2px solid #ffffff",
+                      flexShrink: 0
+                    }}>
+                      <FaArrowRight size={12} />
+                    </div>
+                    <div style={{ width: 28, height: 2, background: "linear-gradient(90deg, #2563eb 0%, #86efac 100%)", borderRadius: 2 }} />
+                  </div>
+
+                  {/* Target Repo Card */}
+                  <div style={{
+                    background: "#ffffff",
+                    border: "1px solid #86efac",
+                    borderRadius: 12,
+                    padding: "10px 14px",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 6,
+                    boxShadow: "0 2px 12px rgba(34, 197, 94, 0.08)"
+                  }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 700, color: "#15803d", textTransform: "uppercase" }}>
+                        <span style={{ color: "#16a34a", fontSize: 14 }}>
+                          {isLocalPath(migrationJob.target_repo) ? <FaFolderOpen /> : <FaGithub />}
+                        </span>
+                        Target Repository
+                      </div>
+                      <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 6, background: "#dcfce7", color: "#166534", border: "1px solid #86efac" }}>
+                        Java {migrationJob.target_java_version || "?"} Modernized
+                      </span>
+                    </div>
+
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "#2563eb", wordBreak: "break-all", fontFamily: "'JetBrains Mono', monospace" }}>
+                        {migrationJob.target_repo || "N/A"}
+                      </div>
+                      <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                        <button
+                          type="button"
+                          onClick={() => handleCopyRepo(migrationJob.target_repo, "target")}
+                          title={copiedRepo === "target" ? "Copied!" : "Copy Target Repo Path"}
+                          style={{
+                            background: copiedRepo === "target" ? "#dcfce7" : "#f1f5f9",
+                            color: copiedRepo === "target" ? "#166534" : "#64748b",
+                            border: "1px solid #cbd5e1",
+                            borderRadius: 6,
+                            width: 28,
+                            height: 28,
+                            cursor: "pointer",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            transition: "all 0.15s ease"
+                          }}
+                        >
+                          {copiedRepo === "target" ? <FaCheck size={11} /> : <FaCopy size={11} />}
+                        </button>
+                        {!isLocalPath(migrationJob.target_repo) && getRepositoryLink(migrationJob.target_repo) && (
+                          <a
+                            href={getRepositoryLink(migrationJob.target_repo)!}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="Open Target Repository"
+                            style={{
+                              background: "#eff6ff",
+                              color: "#2563eb",
+                              border: "1px solid #bfdbfe",
+                              borderRadius: 6,
+                              width: 28,
+                              height: 28,
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              textDecoration: "none"
+                            }}
+                          >
+                            <FaExternalLinkAlt size={10} />
+                          </a>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
-            </div>
+            )}
 
             {/* Animated & Unique Tab Navigation Bar */}
+            {!isJUnitOnly && (
+              <div className="animated-tab-bar">
+                {[
+                  { id: "general", label: "General", icon: <FaFileAlt />, badge: `${migrationJob?.files_modified ?? 0} files` },
+                  { id: "unit-test", label: "Unit Test", icon: <FaCheckCircle />, badge: testsRun > 0 ? `${totalTestCases} tests` : undefined },
+                  { id: "functional-test", label: "Functional Test", icon: <FaTasks />, badge: (runFunctionalTests ?? migrationJob.run_functional_tests ?? true) ? "Playwright Logs" : undefined },
+                  { id: "sonarqube", label: "SonarQube", icon: <FaBug />, badge: sonarTotalFindings > 0 ? `${sonarTotalFindings}` : "Passed" },
+                  { id: "fossa", label: "FOSSA", icon: <FaShieldAlt />, badge: fossaPolicyStatus },
+                  { id: "logs-issues", label: "Logs & Issues", icon: <FaTerminal />, badge: migrationJob.issues?.length ? `${migrationJob.issues.length}` : undefined },
+                  { id: "reports", label: "Reports", icon: <FaDownload /> },
+                ].map((tab) => {
+                  const isActive = activeTab === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setActiveTab(tab.id as any)}
+                      className={`animated-tab-button ${isActive ? "is-active" : ""}`}
+                    >
+                      <span className="animated-tab-icon">{tab.icon}</span>
+                      <span>{tab.label}</span>
+                      {tab.badge && (
+                        <span className="animated-tab-badge">
+                          {tab.badge}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
             <div className="animated-tab-bar">
               {[
                 { id: "general", label: "General", icon: <FaFileAlt />, badge: `${migrationJob?.files_modified ?? 0} files` },

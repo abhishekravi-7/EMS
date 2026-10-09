@@ -19,6 +19,7 @@ import {
   WIZARD_JOB_ID_KEY,
   WIZARD_REPO_URL_KEY,
   WIZARD_SELECTED_REPO_KEY,
+  WIZARD_IS_JUNIT_ONLY_KEY,
 } from "@/shared/utils/migrationWizardStorage";
 
 type AccessTokenValidationState = "idle" | "validating" | "valid" | "invalid";
@@ -45,12 +46,12 @@ const CHUNK_UPLOAD_SIZE_BYTES = 60 * 1024 * 1024;
 const WARN_LOCAL_PROJECT_UPLOAD_FILES = 500;
 const WARN_LOCAL_PROJECT_UPLOAD_SIZE_BYTES = 150 * 1024 * 1024;
 
-const isEnterpriseGithub = (url: string) => {
+export const isEnterpriseGithub = (url: string) => {
   const match = url.match(/^https?:\/\/(www\.)?github\.([^.]+)\.com\//i);
   return match && match[2] !== "" && match[2] !== "com";
 };
 
-const normalizeGithubUrl = (url: string): { valid: boolean; normalizedUrl: string; message: string } => {
+export const normalizeGithubUrl = (url: string): { valid: boolean; normalizedUrl: string; message: string } => {
   if (!url.trim()) {
     return { valid: false, normalizedUrl: "", message: "URL is required" };
   }
@@ -109,7 +110,7 @@ const normalizeGithubUrl = (url: string): { valid: boolean; normalizedUrl: strin
  * handles github.com repositories only; for GitLab / GitHub Enterprise / other
  * refs this returns null and the caller keeps the existing (non-backend) flow.
  */
-const buildConnectUrl = (value: string): string | null => {
+export const buildConnectUrl = (value: string): string | null => {
   const normalized = value.trim();
   if (!normalized) return null;
 
@@ -142,6 +143,14 @@ export function useRepositoryConnect({
     if (typeof window === "undefined") return "";
     return readPersistedValue(WIZARD_REPO_URL_KEY) || "";
   });
+  const [isJUnitOnly, setIsJUnitOnlyState] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return readPersistedValue(WIZARD_IS_JUNIT_ONLY_KEY) === "true";
+  });
+  const setIsJUnitOnly = useCallback((val: boolean) => {
+    setIsJUnitOnlyState(val);
+    writeSessionValue(WIZARD_IS_JUNIT_ONLY_KEY, val ? "true" : "false");
+  }, []);
   const [selectedRepo, setSelectedRepo] = useState<RepoInfo | null>(() =>
     readSessionJson<RepoInfo>(WIZARD_SELECTED_REPO_KEY)
   );
@@ -446,25 +455,47 @@ export function useRepositoryConnect({
   ]);
 
 
-  const handleRepositoryContinue = async () => {
-    if (!urlValidation.valid) return;
+  const handleRepositoryContinue = async (
+    overrideUrl?: string,
+    overrideToken?: string,
+    forceJUnitOnly?: boolean
+  ) => {
+    const targetUrl = (overrideUrl !== undefined ? overrideUrl : repoUrl).trim();
+    const targetValidation = targetUrl ? normalizeGithubUrl(targetUrl) : { valid: false, normalizedUrl: "", message: "" };
+    if (!targetValidation.valid) return;
 
-    if (repoVisibility === "not_found") {
+    if (overrideUrl !== undefined) {
+      setRepoUrl(targetValidation.normalizedUrl);
+      writeSessionValue(WIZARD_REPO_URL_KEY, targetValidation.normalizedUrl);
+    }
+    if (overrideToken !== undefined) {
+      setPatToken(overrideToken);
+      if (overrideToken.trim()) {
+        setIsPrivateRepo(true);
+      }
+    }
+    if (forceJUnitOnly !== undefined) {
+      setIsJUnitOnly(forceJUnitOnly);
+    }
+    const effectiveJUnit = forceJUnitOnly !== undefined ? forceJUnitOnly : isJUnitOnly;
+
+    if (!overrideUrl && repoVisibility === "not_found") {
       setError(repoErrorMessage || "Repository not found. Please verify the URL.");
       return;
     }
 
-    const normalizedUrl = urlValidation.normalizedUrl;
-    const token = currentToken.trim();
+    const normalizedUrl = targetValidation.normalizedUrl;
+    const isEnterprise = isEnterpriseGithub(normalizedUrl);
+    const token = (overrideToken !== undefined ? overrideToken : currentToken).trim();
 
-    if (showEnterpriseToken && !token) {
+    if (isEnterprise && !token) {
       setError("");
       setAccessTokenValidationState("invalid");
       setAccessTokenValidationMessage("Enter a GitHub Personal Access Token to analyze this GitHub Enterprise repository.");
       return;
     }
 
-    if ((isPrivateRepo || repoVisibility === "private") && !token) {
+    if (!overrideUrl && (isPrivateRepo || repoVisibility === "private") && !token) {
       setError("");
       setIsPatModeOpen(true);
       setAccessTokenValidationState("invalid");
@@ -536,7 +567,7 @@ export function useRepositoryConnect({
       description: "",
     });
 
-    if (finalResult?.isAlreadyMigrated) {
+    if (effectiveJUnit || finalResult?.isAlreadyMigrated) {
       setStep(7);
     } else {
       setStep(2);
@@ -613,7 +644,11 @@ export function useRepositoryConnect({
     }
   };
 
-  const handleLocalProjectUpload = async () => {
+  const handleLocalProjectUpload = async (forceJUnitOnly?: boolean) => {
+    if (forceJUnitOnly !== undefined) {
+      setIsJUnitOnly(forceJUnitOnly);
+    }
+    const effectiveJUnit = forceJUnitOnly !== undefined ? forceJUnitOnly : isJUnitOnly;
     if (localProjectUploadFiles.length === 0 || localProjectUploadError) return;
 
     setLocalProjectUploadLoading(true);
@@ -717,6 +752,8 @@ export function useRepositoryConnect({
 
     // Clear old job state before setting new job state
     resetRepositorySelectionState();
+    setRepoUrl("");
+    writeSessionValue(WIZARD_REPO_URL_KEY, "");
 
     if (result.jobId) {
       setJobId(result.jobId);
@@ -741,7 +778,7 @@ export function useRepositoryConnect({
       setRepoAnalysis(null);
     }
     setRepoFiles([]);
-    setStep(2);
+    setStep(effectiveJUnit ? 7 : 2);
   };
 
   useEffect(() => {
@@ -772,6 +809,8 @@ export function useRepositoryConnect({
   return {
     repoUrl,
     setRepoUrl,
+    isJUnitOnly,
+    setIsJUnitOnly,
     selectedRepo,
     setSelectedRepo,
     githubToken,
@@ -817,5 +856,6 @@ export function useRepositoryConnect({
     handleRepositoryContinue,
     handleLocalProjectFilesChange,
     handleLocalProjectUpload,
+    isLocalRepoRef,
   };
 }
