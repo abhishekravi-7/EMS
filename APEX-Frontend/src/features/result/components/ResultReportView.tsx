@@ -1217,7 +1217,26 @@ export function ResultReportView({
           </div>
         }
       >
-        {migrationJob && (
+        {migrationJob && isJUnitOnly && (
+          <div style={{ width: "100%", padding: "14px 20px" }}>
+            <MigrationUnitTestSection
+              styles={{...styles, reportSection: { width: '100%', maxWidth: 'none', margin: 0 }}}
+              migrationJob={migrationJob}
+              repoAnalysis={repoAnalysis}
+              isJUnitOnly={true}
+              testSummaryReportDate={testSummaryReportDate}
+              migrationJavaVersion={migrationJob.target_java_version}
+              summaryItems={testSummaryItems}
+              testsRun={testsRun}
+              runTests={Boolean(migrationJob.run_tests ?? migrationJob.runTests ?? runTests)}
+              onDownloadUnitTestReport={handleDownloadUnitTestReport}
+              onGenerateUnitTests={handleRerunTests}
+              isGenerating={rerunTestsLoading}
+            />
+          </div>
+        )}
+
+        {migrationJob && !isJUnitOnly && (
           <div style={{ ...styles.reportContainer, gap: 6, width: "100%", padding: "6px 12px" }}>
             {/* Top Header Card */}
             <div style={{
@@ -2142,6 +2161,8 @@ export function ResultReportView({
                 <MigrationUnitTestSection
                   styles={{...styles, reportSection: { width: '100%', maxWidth: 'none', margin: 0 }}}
                   migrationJob={migrationJob}
+                  repoAnalysis={repoAnalysis}
+                  isJUnitOnly={false}
                   testSummaryReportDate={testSummaryReportDate}
                   migrationJavaVersion={migrationJob.target_java_version}
                   summaryItems={testSummaryItems}
