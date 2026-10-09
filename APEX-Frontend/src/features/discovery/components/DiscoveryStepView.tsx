@@ -1308,7 +1308,7 @@ export function DiscoveryStepView({
       <div className="discovery-header-box">
         <div className="discovery-header-left" style={{ alignItems: "center" }}>
           <div className="discovery-header-icon-badge">
-            <FaSearch />
+            <span className="discovery-search-icon-animated"><FaSearch /></span>
           </div>
           <div className="discovery-header-titles">
              <h2 style={{ margin: 0, fontSize: 22 }}>Repository Discovery &amp; Dependencies</h2>

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { FaCode, FaCogs, FaJava, FaLeaf, FaProjectDiagram, FaCheckCircle, FaTimesCircle, FaBoxOpen, FaLayerGroup, FaCubes, FaWrench, FaCoffee, FaChevronDown, FaChevronUp, FaTimes, FaInfoCircle, FaFile, FaReact, FaAngular } from "react-icons/fa";
+import { FaCode, FaCogs, FaJava, FaLeaf, FaProjectDiagram, FaCheckCircle, FaTimesCircle, FaBoxOpen, FaLayerGroup, FaCubes, FaWrench, FaCoffee, FaChevronDown, FaChevronUp, FaTimes, FaInfoCircle, FaFile, FaReact, FaAngular, FaGitAlt, FaGithub, FaFolder, FaLongArrowAltRight } from "react-icons/fa";
 import { wizardStyles as styles } from "@/shared/components/wizard/wizardStyles";
 import {
   renderWizardIconBadge,
@@ -363,7 +363,7 @@ export function StrategyStepView({
     springEligibility?.eligibilityReason ??
     (repoAnalysis ? "Analyzing repository for Spring Boot eligibility..." : "Connect a repository to check Spring Boot eligibility.");
   const springBootTitle =
-    springBootPathwayStatus === "upgrade" ? "Spring Boot Version Upgrade" : "Spring -> Spring Boot";
+    springBootPathwayStatus === "upgrade" ? "Spring Boot Upgrade" : "Spring → Spring Boot";
   const springBootDesc =
     springBootPathwayStatus === "upgrade"
       ? "Upgrade the existing Spring Boot version toward your target Java version."
@@ -382,514 +382,421 @@ export function StrategyStepView({
   const [migrationPreviewOpen, setMigrationPreviewOpen] = useState(false);
 
   return (
-    <div className="discovery-dashboard-wrapper">
-      <div className="discovery-header-box">
-        <div className="discovery-header-left" style={{ alignItems: "center" }}>
-          <div className="discovery-header-icon-badge" style={{ background: "#fff7ed", color: "#f97316", borderColor: "#ffedd5" }}>
-            <FaProjectDiagram />
-          </div>
-          <div className="discovery-header-titles">
-            <h2 style={{ margin: 0, fontSize: 22 }}>Assessment &amp; Migration Strategy</h2>
-          </div>
+    <div className="discovery-dashboard-wrapper page-strategy">
+      {/* Top Topic Header */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 14, marginBottom: 24, paddingTop: 6 }}>
+        <div className="strat-topic-header-icon">
+          <span className="strat-layer-icon-animated"><FaLayerGroup /></span>
         </div>
+        <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "#0f172a", letterSpacing: "-0.01em" }}>
+          Assessment &amp; Migration Strategy
+        </h2>
       </div>
-
-      <div style={styles.card}>
 
       {selectedRepo && repoAnalysis && (
         <>
-          <WizardSectionHeading
-            title="Application Assessment"
-            style={{ marginBottom: 14, marginTop: 20 }}
-          />
+          {/* 1. Application Assessment Section */}
+          <div className="strat-section-box">
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18, position: "relative", zIndex: 100 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ background: "#eff6ff", color: "#2563eb", width: 34, height: 34, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>
+                  <FaCode />
+                </div>
+                <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#0f172a" }}>Application Assessment</h3>
+              </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
-            <div
-              style={{
-                ...styles.riskBadge,
-                backgroundColor: riskBadgeStyle.backgroundColor,
-                color: riskBadgeStyle.color,
-                marginBottom: 0,
-              }}
-            >
-              Risk Level: {calculatedRiskLevel}
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div
+                  style={{
+                    ...styles.riskBadge,
+                    backgroundColor: riskBadgeStyle.backgroundColor,
+                    color: riskBadgeStyle.color,
+                    marginBottom: 0,
+                  }}
+                >
+                  Risk Level: {calculatedRiskLevel}
+                </div>
+
+                <WizardInfoTooltip
+                  label="Risk level explanation"
+                  width={320}
+                  placement="right"
+                  panelStyle={{ borderRadius: 10, padding: "16px 20px", boxShadow: "0 18px 35px rgba(15, 23, 42, 0.25)" }}
+                >
+                  <div style={{ color: "#86efac", fontWeight: 800, fontSize: 14, marginBottom: 12 }}>
+                    ANALYSIS
+                  </div>
+                  <div style={{ fontSize: 14, fontWeight: 500, lineHeight: 1.45 }}>
+                    {effectiveRiskExplanation || getDefaultRiskExplanation(calculatedRiskLevel)}
+                  </div>
+                </WizardInfoTooltip>
+              </div>
             </div>
 
-            <WizardInfoTooltip
-              label="Risk level explanation"
-              width={300}
-              placement="left"
-              panelStyle={{ borderRadius: 10, padding: "16px 20px", boxShadow: "0 18px 35px rgba(15, 23, 42, 0.25)" }}
-            >
-              <div style={{ color: "#86efac", fontWeight: 800, fontSize: 14, marginBottom: 12 }}>
-                ANALYSIS
-              </div>
-              <div style={{ fontSize: 15, fontWeight: 600, lineHeight: 1.45 }}>
-                {effectiveRiskExplanation || getDefaultRiskExplanation(calculatedRiskLevel)}
-              </div>
-            </WizardInfoTooltip>
-
-          </div>
-
-          {/* ── Enhanced Assessment Cards ─────────────────────────── */}
-          <div className="strat-assessment-grid">
-
-            {/* 1. Build Tool */}
-            {(() => {
-              const tool = buildToolDisplayLabel.toLowerCase();
-              const isMaven  = tool.includes("maven");
-              const isGradle = tool.includes("gradle");
-              const isAnt    = tool.includes("ant");
-              const toolIcon = isMaven  ? <FaLayerGroup /> :
-                               isGradle ? <FaWrench />    :
-                               isAnt    ? <FaCogs />      :
-                                          <FaBoxOpen />;
-              return (
-                <div className="strat-assessment-card strat-card-build-tool" style={{ animationDelay: "0.05s" }}>
-                  <div className="strat-assessment-icon-wrap">
-                    {toolIcon}
-                  </div>
-                  <div className="strat-assessment-info">
-                    <div className="strat-assessment-label">Build Tool</div>
-                    <div className="strat-assessment-value">{buildToolDisplayLabel}</div>
-                  </div>
-                </div>
-              );
-            })()}
-
-            {/* 2. Java Version */}
-            {(() => {
-              const ver = parseInt(repoAnalysis.java_version || "0") || 0;
-              const vLabel = ver === 0 ? "Unknown" : `Java ${ver}`;
-              return (
-                <div className="strat-assessment-card strat-card-java-version" style={{ animationDelay: "0.12s" }}>
-                  <div className="strat-assessment-icon-wrap">
-                    <FaCoffee />
-                  </div>
-                  <div className="strat-assessment-info">
-                    <div className="strat-assessment-label">Java Version</div>
-                    <div className="strat-assessment-value">{vLabel}</div>
-                  </div>
-                </div>
-              );
-            })()}
-
-            {/* 3. Has Tests */}
-            {(() => {
-              const hasTests = repoAnalysis.has_tests;
-              return (
-                <div className={`strat-assessment-card strat-card-has-tests ${hasTests ? "strat-tests-pass" : "strat-tests-fail"}`} style={{ animationDelay: "0.19s" }}>
-                  <div className="strat-assessment-icon-wrap">
-                    {hasTests ? <FaCheckCircle /> : <FaTimesCircle />}
-                  </div>
-                  <div className="strat-assessment-info">
-                    <div className="strat-assessment-label">Has Tests</div>
-                    <div className="strat-assessment-value">
-                      {hasTests ? "Yes ✔" : "No ✘"}
+            {/* 6 Top Metric Cards */}
+            <div className="strat-assessment-grid">
+              {/* 1. Build Tool */}
+              {(() => {
+                const tool = buildToolDisplayLabel.toLowerCase();
+                const isMaven  = tool.includes("maven");
+                const isGradle = tool.includes("gradle");
+                const isAnt    = tool.includes("ant");
+                const toolIcon = isMaven  ? <FaLayerGroup /> :
+                                 isGradle ? <FaWrench />    :
+                                 isAnt    ? <FaCogs />      :
+                                            <FaBoxOpen />;
+                return (
+                  <div className="strat-assessment-card strat-card-build-tool" style={{ animationDelay: "0.05s" }}>
+                    <div className="strat-assessment-icon-wrap">
+                      {toolIcon}
+                    </div>
+                    <div className="strat-assessment-info">
+                      <div className="strat-assessment-label">Build Tool</div>
+                      <div className="strat-assessment-value">{buildToolDisplayLabel}</div>
                     </div>
                   </div>
-                </div>
-              );
-            })()}
+                );
+              })()}
 
-            {/* 4. Dependencies */}
-            {(() => {
-              const count = repoAnalysis.dependencies?.length || 0;
-
-              const isHigh = count > 30;
-              const isMed  = count > 10;
-              const _dColor = isHigh ? "#7c3aed" : isMed ? "#2563eb" : "#0ea5e9";
-              const _dBg    = isHigh ? "#ede9fe"  : isMed ? "#eff6ff"  : "#f0f9ff";
-              const _dLabel = count.toString();
-
-
-
-              return (
-                <div
-                  className="strat-assessment-card strat-card-dependencies"
-                  style={{ animationDelay: "0.26s" }}
-                >
-                  <div className="strat-assessment-icon-wrap">
-                    <FaCubes />
-                  </div>
-
-                  <div className="strat-assessment-info">
-                    <div className="strat-assessment-label">Dependencies</div>
-                    <div className="strat-assessment-value">
-                      {count}
+              {/* 2. Java Version */}
+              {(() => {
+                const ver = parseInt(repoAnalysis.java_version || "0") || 0;
+                const vLabel = ver === 0 ? "Unknown" : `Java ${ver}`;
+                return (
+                  <div className="strat-assessment-card strat-card-java-version" style={{ animationDelay: "0.12s" }}>
+                    <div className="strat-assessment-icon-wrap">
+                      <FaCoffee />
+                    </div>
+                    <div className="strat-assessment-info">
+                      <div className="strat-assessment-label">Java Version</div>
+                      <div className="strat-assessment-value">{vLabel}</div>
                     </div>
                   </div>
-                </div>
-              );
-            })()}
+                );
+              })()}
 
-            {/* 5. JSP */}
-            {repoAnalysis && (
-              <div
-                className="strat-assessment-card strat-card-jsp"
-                style={{ animationDelay: "0.33s" }}
-              >
+              {/* 3. Has Tests */}
+              {(() => {
+                const hasTests = repoAnalysis.has_tests;
+                return (
+                  <div className={`strat-assessment-card strat-card-has-tests ${hasTests ? "strat-tests-pass" : "strat-tests-fail"}`} style={{ animationDelay: "0.19s" }}>
+                    <div className="strat-assessment-icon-wrap">
+                      {hasTests ? <FaCheckCircle /> : <FaTimesCircle />}
+                    </div>
+                    <div className="strat-assessment-info">
+                      <div className="strat-assessment-label">Maven Tests</div>
+                      <div className="strat-assessment-value">
+                        {hasTests ? "Yes ✔" : "No ✘"}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* 4. Dependencies */}
+              {(() => {
+                const count = repoAnalysis.dependencies?.length || 0;
+                return (
+                  <div className="strat-assessment-card strat-card-dependencies" style={{ animationDelay: "0.26s" }}>
+                    <div className="strat-assessment-icon-wrap">
+                      <FaCubes />
+                    </div>
+                    <div className="strat-assessment-info">
+                      <div className="strat-assessment-label">Dependencies</div>
+                      <div className="strat-assessment-value">{count}</div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* 5. JSP */}
+              <div className="strat-assessment-card strat-card-jsp" style={{ animationDelay: "0.33s" }}>
                 <div className="strat-assessment-icon-wrap">
                   <FaCode />
                 </div>
                 <div className="strat-assessment-info">
                   <div className="strat-assessment-label">JSP</div>
-                  <div className="strat-assessment-value">
-                    {actualJspCount}
-                  </div>
+                  <div className="strat-assessment-value">{actualJspCount}</div>
                 </div>
               </div>
-            )}
 
-            {/* 6. JSF */}
-            {repoAnalysis && (
-              <div
-                className="strat-assessment-card strat-card-jsf"
-                style={{ animationDelay: "0.4s" }}
-              >
+              {/* 6. JSF */}
+              <div className="strat-assessment-card strat-card-jsf" style={{ animationDelay: "0.4s" }}>
                 <div className="strat-assessment-icon-wrap">
                   <FaCode />
                 </div>
                 <div className="strat-assessment-info">
                   <div className="strat-assessment-label">JSF</div>
-                  <div className="strat-assessment-value">
-                    {actualJsfCount}
+                  <div className="strat-assessment-value">{actualJsfCount}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* 2. Total Dependencies & Attention Cards */}
+          <div style={{ marginTop: 24 }}>
+            {repoAnalysis.dependencies && repoAnalysis.dependencies.length > 0 ? (
+              <div>
+                {renderCategorizedDependencies(repoAnalysis.dependencies)}
+              </div>
+            ) : (
+              <div className="strat-section-box" style={{ background: "linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%)", border: "1px solid #bbf7d0" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                    <div style={{ width: 44, height: 44, borderRadius: 12, background: "#dcfce7", color: "#16a34a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>
+                      <FaCheckCircle />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 16, fontWeight: 800, color: "#14532d", marginBottom: 2 }}>
+                        Clean Project — 0 External Dependencies
+                      </div>
+                      <div style={{ fontSize: 13, color: "#166534", fontWeight: 500 }}>
+                        No third-party dependencies detected in build configuration. Minimal security and breaking change risks.
+                      </div>
+                    </div>
                   </div>
+                  <span style={{ fontSize: 10, fontWeight: 800, padding: "4px 12px", borderRadius: 999, backgroundColor: "#dcfce7", color: "#15803d", textTransform: "uppercase", letterSpacing: "0.5px", whiteSpace: "nowrap" }}>
+                    Verified Clean
+                  </span>
                 </div>
               </div>
             )}
-
           </div>
 
-          {repoAnalysis.dependencies && repoAnalysis.dependencies.length > 0 && (
-            <div style={styles.field}>
-              {renderCategorizedDependencies(repoAnalysis.dependencies)}
-            </div>
-          )}
-
-          <div
-            style={{
-              background: "#fff",
-              border: "1px solid #dbe3ef",
-              borderRadius: 14,
-              padding: "26px 30px",
-              boxShadow: "0 2px 8px rgba(15, 23, 42, 0.06)",
-              marginBottom: 26,
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-                fontSize: 20,
-                fontWeight: 800,
-                color: "#0f172a",
-                marginBottom: 18,
-              }}
-            >
-              <span>Setup</span>
-              <span>Conversion Type</span>
+          {/* 3. FULL-WIDTH HORIZONTAL SECTION: SETUP CONVERSION TYPE */}
+          <div style={{ marginTop: 24 }} className="strat-section-box">
+            <div className="strat-right-section-title">
+              <div className="strat-right-section-icon"><FaCogs /></div>
+              Setup Conversion Type
             </div>
 
-            <div style={{ height: 1, background: "#dbe3ef", marginBottom: 18 }} />
-
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 14 }}>
+            <div className="strat-setup-conversion-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
               {(() => {
                 const targetJavaMajor = parseInt(effectiveTargetVersion || "17", 10);
                 const isJavaUpgradeSelected = selectedConversions.includes("java_version");
                 const isSpringBootForced = isJavaUpgradeSelected && springBootPathwayStatus === "upgrade" && targetJavaMajor >= 17;
 
                 const options = [
-                {
-                  key: "java_version",
-                  title: "Java Version Upgrade",
-                  desc: "Upgrade Java version with Dependencies update",
-                  icon: <FaJava />,
-                  color: "#2563eb",
-                  disabled: false,
-                  badgeLabel: "Active",
-                  detail: null as React.ReactNode,
-                },
-                {
-                  key: "build_conversion",
-                  title: "Maven -> Gradle | Gradle -> Maven",
-                  desc: "Convert pom.xml to build.gradle with dependency mapping",
-                  icon: <FaCogs />,
-                  color: "#8b5cf6",
-                  disabled: true,
-                  badgeLabel: "Coming Soon",
-                  detail: null as React.ReactNode,
-                },
-                {
-                  key: "microservices",
-                  title: "Monolithic -> Microservices",
-                  desc: "Decompose monolith into microservices architecture",
-                  icon: <FaProjectDiagram />,
-                  color: "#0ea5e9",
-                  disabled: true,
-                  badgeLabel: "Coming Soon",
-                  detail: null as React.ReactNode,
-                },
-                {
-                  key: "jakarta",
-                  title: "javax -> Jakarta EE | Jakarta EE -> javax",
-                  desc: "Migrate javax.* packages to jakarta.*",
-                  icon: <FaCode />,
-                  color: "#f59e0b",
-                  disabled: true,
-                  badgeLabel: "Coming Soon",
-                  detail: null as React.ReactNode,
-                },
-                {
-                  key: "spring_boot",
-                  title: springBootTitle,
-                  desc: springBootDesc,
-                  icon: <FaLeaf />,
-                  color: springBootPathwayStatus === "disabled" || springBootPathwayStatus === "loading"
-                    ? "#94a3b8"
-                    : isSpringBootForced
-                      ? "#d97706"   // Amber highlight when forced as required dependency
-                      : "#22c55e",
-                  disabled: springBootPathwayStatus === "disabled" || springBootPathwayStatus === "loading" || isSpringBootForced,
-                  badgeLabel: isSpringBootForced ? "Required Dependency" : springBootBadgeLabel,
-                  detail: (
-                    <span
-                      style={{
-                        fontWeight: 600,
-                        color: isSpringBootForced
-                          ? "#d97706"
-                          : (springBootPathwayStatus === "conversion" || springBootPathwayStatus === "upgrade"
-                            ? "#166534"
-                            : "#64748b"),
-                      }}
-                    >
-                      {isSpringBootForced ? "Mandatory: Spring Boot 3.x is required when upgrading to modern Java (17+)." : springBootReason}
-                    </span>
-                  ) as React.ReactNode,
-                },
-                (() => {
-                  const isActive = selectedConversions.includes("ui_modernization");
-                  const badgeLabel =
-                    uiModStatus === "loading"
-                      ? "Analyzing..."
-                      : uiModStatus === "disabled"
-                        ? "Not Eligible"
-                        : isActive
-                          ? "Active"
-                          : "Optional";
-
-                  return {
-                    key: "ui_modernization",
-                    title: "JSP/JSF -> Angular/React",
-                    desc: "Modernize legacy JSP/JSF views to Angular or React SPA",
-                    icon: (
+                  {
+                    key: "java_version",
+                    title: "Java Version Upgrade",
+                    desc: "Upgrade Java version with Dependencies update",
+                    icon: <FaJava />,
+                    color: "#2563eb",
+                    disabled: false,
+                    badgeLabel: "Active",
+                    detail: null as React.ReactNode,
+                  },
+                  {
+                    key: "build_conversion",
+                    title: "Maven → Gradle | Gradle → Maven",
+                    desc: "Convert pom.xml to build.gradle with dependency mapping",
+                    icon: <FaCogs />,
+                    color: "#8b5cf6",
+                    disabled: true,
+                    badgeLabel: "Coming Soon",
+                    detail: null as React.ReactNode,
+                  },
+                  {
+                    key: "microservices",
+                    title: "Monolithic → Microservices",
+                    desc: "Decompose monolith into microservices architecture",
+                    icon: <FaProjectDiagram />,
+                    color: "#0ea5e9",
+                    disabled: true,
+                    badgeLabel: "Coming Soon",
+                    detail: null as React.ReactNode,
+                  },
+                  {
+                    key: "jakarta",
+                    title: "javax → Jakarta EE | Jakarta EE → javax",
+                    desc: "Migrate javax.* packages to jakarta.*",
+                    icon: <FaCode />,
+                    color: "#f59e0b",
+                    disabled: true,
+                    badgeLabel: "Coming Soon",
+                    detail: null as React.ReactNode,
+                  },
+                  {
+                    key: "spring_boot",
+                    title: springBootTitle,
+                    desc: springBootDesc,
+                    icon: <FaLeaf />,
+                    color: springBootPathwayStatus === "disabled" || springBootPathwayStatus === "loading"
+                      ? "#94a3b8"
+                      : isSpringBootForced
+                        ? "#d97706"
+                        : "#22c55e",
+                    disabled: springBootPathwayStatus === "disabled" || springBootPathwayStatus === "loading" || isSpringBootForced,
+                    badgeLabel: isSpringBootForced ? "Required Dependency" : springBootBadgeLabel,
+                    detail: (
                       <span
                         style={{
-                          backgroundColor: "#22c55e",
-                          color: "white",
-                          padding: "4px 10px",
-                          borderRadius: 16,
-                          fontSize: 12,
-                          fontWeight: 700,
+                          display: "block",
+                          fontSize: 11,
+                          lineHeight: 1.35,
+                          fontWeight: 600,
+                          color: isSpringBootForced
+                            ? "#d97706"
+                            : (springBootPathwayStatus === "conversion" || springBootPathwayStatus === "upgrade"
+                              ? "#166534"
+                              : "#64748b"),
                         }}
                       >
-                        New
+                        {isSpringBootForced ? "Mandatory: Spring Boot 3.x is required when upgrading to modern Java (17+)." : springBootReason}
                       </span>
-                    ),
-                    color: uiModStatus === "disabled" || uiModStatus === "loading" ? "#94a3b8" : "#06b6d4",
-                    disabled: uiModStatus === "disabled" || uiModStatus === "loading",
-                    badgeLabel: badgeLabel,
-                    detail: (() => {
-                      if (uiModStatus === "loading") {
-                        return (
-                          <span style={{ fontWeight: 600, color: "#64748b", fontSize: 13 }}>
-                            Analyzing repository for UI modernization...
-                          </span>
-                        );
-                      }
-                      return (
-                        <div style={{ marginTop: 4 }}>
-                          <div
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 12,
-                              fontSize: 13,
-                              fontWeight: 600,
-                              color: uiModStatus === "disabled" ? "#64748b" : isActive ? "#0284c7" : "#475569",
-                            }}
-                          >
+                    ) as React.ReactNode,
+                  },
+                  (() => {
+                    const isActive = selectedConversions.includes("ui_modernization");
+                    const badgeLabel =
+                      uiModStatus === "loading"
+                        ? "Analyzing..."
+                        : uiModStatus === "disabled"
+                          ? "Not Eligible"
+                          : isActive
+                            ? "Active"
+                            : "Optional";
+
+                    return {
+                      key: "ui_modernization",
+                      title: "JSF/JSP → Angular/React",
+                      desc: "Modernize legacy JSF/JSP views to Angular or React SPA",
+                      icon: <FaCode />,
+                      color: uiModStatus === "disabled" || uiModStatus === "loading" ? "#94a3b8" : "#06b6d4",
+                      disabled: uiModStatus === "disabled" || uiModStatus === "loading",
+                      badgeLabel: badgeLabel,
+                      detail: (
+                        <div style={{ marginTop: 2 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 12, fontWeight: 600, color: uiModStatus === "disabled" ? "#64748b" : isActive ? "#0284c7" : "#475569" }}>
                             <span>JSP: {actualJspCount}</span>
                             <span>JSF: {actualJsfCount}</span>
                           </div>
-                          {uiModStatus === "disabled" && (
-                            <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2, fontWeight: 500 }}>
-                              JSP/JSF views were not detected in this repository.
-                            </div>
-                          )}
                         </div>
-                      );
-                    })(),
-                  };
-                })(),
-              ];
+                      ),
+                    };
+                  })(),
+                ];
 
-              return options.map((pathway) => {
-                const isActivePathway = selectedConversions.includes(pathway.key);
-                const isSpringBootPathway = pathway.key === "spring_boot";
-                const isUiModPathway = pathway.key === "ui_modernization";
+                return options.map((pathway) => {
+                  const isActivePathway = selectedConversions.includes(pathway.key);
+                  const isSpringBootPathway = pathway.key === "spring_boot";
+                  const isUiModPathway = pathway.key === "ui_modernization";
 
-                // When Spring Boot is forced, don't treat it as "disabled" for styling —
-                // it should look highlighted/locked, not grayed out.
-                const isForcedSpringBoot = isSpringBootPathway && isSpringBootForced;
-                const isDisabledPathway = isForcedSpringBoot ? false : pathway.disabled;
+                  const isForcedSpringBoot = isSpringBootPathway && isSpringBootForced;
+                  const isDisabledPathway = isForcedSpringBoot ? false : pathway.disabled;
 
-                const pathwayBadgeLabel =
-                  (isSpringBootPathway || isUiModPathway) && !pathway.disabled && isActivePathway && pathway.key !== "spring_boot"
-                    ? "Active"
-                    : (isForcedSpringBoot ? "Required Dependency" : (isActivePathway && isSpringBootPathway ? "Active" : pathway.badgeLabel));
-                    
-                const pathwayBadgeStyle: React.CSSProperties | undefined =
-                  isForcedSpringBoot
-                    ? { backgroundColor: "#fef3c7", color: "#92400e", boxShadow: "none", fontWeight: 700 }
-                    : isSpringBootPathway && !pathway.disabled
-                      ? isActivePathway
-                        ? { backgroundColor: "#22c55e", color: "#ffffff", boxShadow: "none" }
-                        : { backgroundColor: "#fef3c7", color: "#92400e", boxShadow: "none" }
-                      : isUiModPathway && !pathway.disabled
+                  const pathwayBadgeLabel =
+                    (isSpringBootPathway || isUiModPathway) && !pathway.disabled && isActivePathway && pathway.key !== "spring_boot"
+                      ? "Active"
+                      : (isForcedSpringBoot ? "Required" : (isActivePathway && isSpringBootPathway ? "Active" : pathway.badgeLabel));
+                      
+                  const pathwayBadgeStyle: React.CSSProperties | undefined =
+                    isForcedSpringBoot
+                      ? { backgroundColor: "#fef3c7", color: "#92400e", boxShadow: "none", fontWeight: 700 }
+                      : isSpringBootPathway && !pathway.disabled
                         ? isActivePathway
                           ? { backgroundColor: "#22c55e", color: "#ffffff", boxShadow: "none" }
-                          : { backgroundColor: "#e0f2fe", color: "#0369a1", boxShadow: "none" }
-                        : { boxShadow: "none" };
+                          : { backgroundColor: "#fef3c7", color: "#92400e", boxShadow: "none" }
+                        : isUiModPathway && !pathway.disabled
+                          ? isActivePathway
+                            ? { backgroundColor: "#22c55e", color: "#ffffff", boxShadow: "none" }
+                            : { backgroundColor: "#e0f2fe", color: "#0369a1", boxShadow: "none" }
+                          : { boxShadow: "none" };
 
-                return (
-                  <WizardOptionCard
-                    key={pathway.key}
-                    onClick={() => {
-                      if (isDisabledPathway || isForcedSpringBoot) return;
-                      if (pathway.key === "ui_modernization" && (!isAssessmentLoaded || !isUiModEligible)) {
-                        return;
-                      }
-                      
-                      setSelectedConversions((prev) => {
-                        let next = [...prev];
-                        const isCurrentlySelected = next.includes(pathway.key);
+                  return (
+                    <WizardOptionCard
+                      key={pathway.key}
+                      onClick={() => {
+                        if (isDisabledPathway || isForcedSpringBoot) return;
+                        if (pathway.key === "ui_modernization" && (!isAssessmentLoaded || !isUiModEligible)) {
+                          return;
+                        }
+                        
+                        setSelectedConversions((prev) => {
+                          let next = [...prev];
+                          const isCurrentlySelected = next.includes(pathway.key);
 
-                        if (pathway.key === "java_version") {
-                          if (isCurrentlySelected) {
-                            next = next.filter(k => k !== "java_version");
-                          } else {
-                            next.push("java_version");
-                            if (springBootPathwayStatus === "upgrade" && targetJavaMajor >= 17 && !next.includes("spring_boot")) {
+                          if (pathway.key === "java_version") {
+                            if (isCurrentlySelected) {
+                              next = next.filter(k => k !== "java_version");
+                            } else {
+                              next.push("java_version");
+                              if (springBootPathwayStatus === "upgrade" && targetJavaMajor >= 17 && !next.includes("spring_boot")) {
+                                next.push("spring_boot");
+                              }
+                            }
+                            return next;
+                          }
+
+                          if (pathway.key === "spring_boot") {
+                            if (isCurrentlySelected) {
+                              if (next.includes("java_version") && springBootPathwayStatus === "upgrade" && targetJavaMajor >= 17) {
+                                return prev;
+                              }
+                              next = next.filter(k => k !== "spring_boot");
+                            } else {
                               next.push("spring_boot");
                             }
+                            return next;
                           }
-                          return next;
-                        }
 
-                        if (pathway.key === "spring_boot") {
                           if (isCurrentlySelected) {
-                            if (next.includes("java_version") && springBootPathwayStatus === "upgrade" && targetJavaMajor >= 17) {
-                              // Cannot deselect because Java 17+ upgrade mandates Spring Boot 3 for existing Spring Boot apps
-                              return prev;
-                            }
-                            next = next.filter(k => k !== "spring_boot");
-                          } else {
-                            next.push("spring_boot");
+                            return next.filter((k) => k !== pathway.key);
                           }
-                          return next;
-                        }
-
-                        if (isCurrentlySelected) {
-                          return next.filter((k) => k !== pathway.key);
-                        }
-                        return [...next, pathway.key];
-                      });
-                    }}
-                    accent={pathway.color}
-                    selected={isActivePathway || isForcedSpringBoot}
-                    disabled={isDisabledPathway}
-                    iconBadge={renderWizardIconBadge(pathway.icon, pathway.color, "sm")}
-                    title={pathway.title}
-                    description={pathway.desc}
-                    detail={pathway.detail}
-                    topRight={
-                      <div
-                        className={`wizard-pathway-status${isDisabledPathway ? " is-disabled" : ""}`}
-                        style={pathwayBadgeStyle}
-                      >
-                        {isForcedSpringBoot && (
-                          <span style={{ marginRight: 4, fontSize: 11 }}>🔒</span>
-                        )}
-                        {pathwayBadgeLabel}
-                      </div>
-                    }
-                    containerStyle={{
-                      minHeight: 140,
-                      justifyContent: "flex-start",
-                      ...(isForcedSpringBoot ? {
-                        background: "#fffbeb",
-                        boxShadow: "0 0 0 1px #fbbf24, 0 4px 14px rgba(217, 119, 6, 0.15)",
-                        cursor: "not-allowed",
-                      } : {}),
-                    }}
-                    titleStyle={{ color: isActivePathway || isForcedSpringBoot ? pathway.color : "#1e293b" }}
-                    descriptionStyle={{ color: isDisabledPathway ? "#475569" : "#334155" }}
-                  />
-                );
-              })
+                          return [...next, pathway.key];
+                        });
+                      }}
+                      accent={pathway.color}
+                      selected={isActivePathway || isForcedSpringBoot}
+                      disabled={isDisabledPathway}
+                      iconBadge={renderWizardIconBadge(pathway.icon, pathway.color, "sm")}
+                      title={pathway.title}
+                      description={pathway.desc}
+                      detail={pathway.detail}
+                      topRight={
+                        <div
+                          className={`wizard-pathway-status${isDisabledPathway ? " is-disabled" : ""}`}
+                          style={pathwayBadgeStyle}
+                        >
+                          {isForcedSpringBoot && (
+                            <span style={{ marginRight: 4, fontSize: 11 }}>🔒</span>
+                          )}
+                          {pathwayBadgeLabel}
+                        </div>
+                      }
+                      containerStyle={{
+                        padding: "12px 14px",
+                        justifyContent: "flex-start",
+                        ...(isForcedSpringBoot ? {
+                          background: "#fffbeb",
+                          boxShadow: "0 0 0 1px #fbbf24, 0 4px 14px rgba(217, 119, 6, 0.15)",
+                          cursor: "not-allowed",
+                        } : {}),
+                      }}
+                      titleStyle={{
+                        color: isActivePathway || isForcedSpringBoot ? pathway.color : "#1e293b",
+                        ...(isSpringBootPathway ? { whiteSpace: "nowrap" } : {}),
+                      }}
+                      descriptionStyle={{ color: isDisabledPathway ? "#475569" : "#334155" }}
+                    />
+                  );
+                });
               })()}
             </div>
-          </div>
 
-          {/* JSP/JSF Configuration / Recommendation Section */}
-          {isUiModEligible && selectedConversions.includes("ui_modernization") && (
-            <div
-              style={{
-                background: "#fff",
-                border: "1px solid #dbe3ef",
-                borderRadius: 14,
-                padding: "26px 30px",
-                boxShadow: "0 2px 8px rgba(15, 23, 42, 0.06)",
-                marginBottom: 26,
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                  fontSize: 20,
-                  fontWeight: 800,
-                  color: "#0f172a",
-                  marginBottom: 18,
-                }}
-              >
-                <span>JSP/JSF Configuration</span>
-              </div>
+            {/* JSP/JSF Modernization Options inline inside Setup Conversion Type if active */}
+            {isUiModEligible && selectedConversions.includes("ui_modernization") && (
+              <div style={{ marginTop: 20, paddingTop: 18, borderTop: "1px solid #dbe3ef" }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#2563eb", marginBottom: 10, letterSpacing: "0.02em" }}>
+                  Frontend Conversion Type
+                </div>
 
-              <div style={{ height: 1, background: "#dbe3ef", marginBottom: 18 }} />
-
-              {/* Frontend Conversion Type Label */}
-              <div
-                style={{
-                  fontSize: 13,
-                  fontWeight: 700,
-                  color: "#2563eb",
-                  marginBottom: 10,
-                  letterSpacing: "0.02em",
-                }}
-              >
-                Frontend Conversion Type
-              </div>
-
-              {/* Conversion mode buttons */}
-              <div className="uimod-conv-grid">
-                {["JSP -> React", "JSP -> Angular", "JSF -> React", "JSF -> Angular"].map((mode) => {
-                  const enabled = isModeEnabled(mode);
-                  const isSelected = uiModMode === mode && enabled;
-                  return (
+                <div className="uimod-conv-grid">
+                  {["JSP -> React", "JSP -> Angular", "JSF -> React", "JSF -> Angular"].map((mode) => {
+                    const enabled = isModeEnabled(mode);
+                    const isSelected = uiModMode === mode && enabled;
+                    return (
                       <button
                         key={mode}
                         type="button"
@@ -914,510 +821,309 @@ export function StrategyStepView({
                         {mode.includes("React") ? <FaReact size={14} style={{ marginRight: 6, color: isSelected ? "#3b82f6" : undefined }} /> : <FaAngular size={14} style={{ marginRight: 6, color: isSelected ? "#e11d48" : undefined }} />}
                         {mode}
                       </button>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
 
-              {/* Detection info row */}
-              <div className="uimod-detect-row" style={{ marginBottom: 14 }}>
-                <FaInfoCircle size={14} style={{ flexShrink: 0, color: "#2563eb" }} />
-                <span style={{ flex: 1 }}>
-                  {actualJspCount} JSP {actualJspCount === 1 ? "file" : "files"} and {actualJsfCount} JSF {actualJsfCount === 1 ? "file" : "files"} detected in this repository.
-                </span>
-                {totalViewFiles > 0 && (
-                  <button
-                    type="button"
-                    className="uimod-viewfiles-btn"
-                    onClick={() => setViewFilesOpen(true)}
-                    aria-label="View detected JSP and JSF files"
-                  >
-                    View Files
-                  </button>
+                <div className="uimod-detect-row" style={{ marginBottom: 14 }}>
+                  <FaInfoCircle size={14} style={{ flexShrink: 0, color: "#2563eb" }} />
+                  <span style={{ flex: 1 }}>
+                    {actualJspCount} JSP {actualJspCount === 1 ? "file" : "files"} and {actualJsfCount} JSF {actualJsfCount === 1 ? "file" : "files"} detected in this repository.
+                  </span>
+                  {totalViewFiles > 0 && (
+                    <button
+                      type="button"
+                      className="uimod-viewfiles-btn"
+                      onClick={() => setViewFilesOpen(true)}
+                      aria-label="View detected JSP and JSF files"
+                    >
+                      View Files
+                    </button>
+                  )}
+                </div>
+
+                {frameworkRecs && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
+                    {primaryRec && (
+                      <div className="uimod-rec-panel is-primary">
+                        <div className="uimod-rec-header">
+                          <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                            <FaCheckCircle size={12} color="#16a34a" />
+                            <span className="uimod-rec-eyebrow">{primaryLabel}</span>
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                            <span className="uimod-rec-version" style={{ marginRight: 2 }}>{primaryRec.framework}</span>
+                            {primaryRec.availableVersions && primaryRec.availableVersions.length > 1 ? (
+                              <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
+                                <select
+                                  className="uimod-version-select"
+                                  value={(primaryRec.framework === "React" ? userReactVersion : userAngularVersion) || primaryRec.targetVersion}
+                                  onChange={(e) => {
+                                    if (primaryRec.framework === "React") setUserReactVersion(e.target.value);
+                                    else setUserAngularVersion(e.target.value);
+                                  }}
+                                  aria-label={`Select ${primaryRec.framework} version`}
+                                >
+                                  {primaryRec.availableVersions.map(v => (
+                                    <option key={v} value={v}>{v}</option>
+                                  ))}
+                                </select>
+                                <FaChevronDown size={8} color="#15803d" style={{ position: "absolute", right: 6, pointerEvents: "none" }} />
+                              </div>
+                            ) : (
+                              <span className="uimod-rec-version">{primaryRec.targetVersion}</span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="uimod-rec-compat">{primaryRec.compatibility}</div>
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
+            )}
+          </div>
 
-              {/* Recommended & Alternative panels */}
-              {frameworkRecs && (
-                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
-                  {primaryRec && (
-                    <div className="uimod-rec-panel is-primary">
-                      <div className="uimod-rec-header">
-                        <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                          <FaCheckCircle size={12} color="#16a34a" />
-                          <span className="uimod-rec-eyebrow">{primaryLabel}</span>
-                        </div>
-                        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                          <span className="uimod-rec-version" style={{ marginRight: 2 }}>{primaryRec.framework}</span>
-                          {primaryRec.availableVersions && primaryRec.availableVersions.length > 1 ? (
-                            <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
-                              <select
-                                className="uimod-version-select"
-                                value={(primaryRec.framework === "React" ? userReactVersion : userAngularVersion) || primaryRec.targetVersion}
-                                onChange={(e) => {
-                                  if (primaryRec.framework === "React") setUserReactVersion(e.target.value);
-                                  else setUserAngularVersion(e.target.value);
-                                }}
-                                aria-label={`Select ${primaryRec.framework} version`}
-                              >
-                                {primaryRec.availableVersions.map(v => (
-                                  <option key={v} value={v}>{v}</option>
-                                ))}
-                              </select>
-                              <FaChevronDown size={8} color="#15803d" style={{ position: "absolute", right: 6, pointerEvents: "none" }} />
-                            </div>
-                          ) : (
-                            <span className="uimod-rec-version">{primaryRec.targetVersion}</span>
-                          )}
-                        </div>
-                      </div>
-                      <div className="uimod-rec-compat">{primaryRec.compatibility}</div>
-                      {(primaryRec.architecture || primaryRec.routing) && (
-                        <div style={{ fontSize: 12, color: "#334155", marginTop: 4, marginBottom: 8, fontWeight: 500 }}>
-                          {primaryRec.architecture && <span style={{ marginRight: 12 }}>Architecture: {primaryRec.architecture}</span>}
-                          {primaryRec.routing && <span>Routing: {primaryRec.routing}</span>}
-                        </div>
-                      )}
-                      {primaryRec.reasons && primaryRec.reasons.length > 0 && (
-                        <div className="uimod-rec-badges">
-                          {primaryRec.reasons.map((r, i) => (
-                            <span key={i} className="uimod-badge is-green"><FaCheckCircle size={9} style={{ marginRight: 3 }} />{r}</span>
-                          ))}
-                        </div>
-                      )}
-                      {primaryRec.currentVersion && (
-                        <div className="uimod-rec-current">Current {primaryRec.framework}: {primaryRec.currentVersion}</div>
-                      )}
-                    </div>
-                  )}
-                  {alternativeRec && (
-                    <div className="uimod-rec-panel is-alt">
-                      <div className="uimod-rec-header">
-                        <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                          <span className="uimod-alt-dot">A</span>
-                          <span className="uimod-rec-eyebrow is-alt">Alternative</span>
-                        </div>
-                        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                          <span className="uimod-rec-version is-alt" style={{ marginRight: 2 }}>{alternativeRec.framework}</span>
-                          {alternativeRec.availableVersions && alternativeRec.availableVersions.length > 1 ? (
-                            <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
-                              <select
-                                className="uimod-version-select is-alt"
-                                value={(alternativeRec.framework === "React" ? userReactVersion : userAngularVersion) || alternativeRec.targetVersion}
-                                onChange={(e) => {
-                                  if (alternativeRec.framework === "React") setUserReactVersion(e.target.value);
-                                  else setUserAngularVersion(e.target.value);
-                                }}
-                                aria-label={`Select ${alternativeRec.framework} version`}
-                              >
-                                {alternativeRec.availableVersions.map(v => (
-                                  <option key={v} value={v}>{v}</option>
-                                ))}
-                              </select>
-                              <FaChevronDown size={8} color="#334155" style={{ position: "absolute", right: 6, pointerEvents: "none" }} />
-                            </div>
-                          ) : (
-                            <span className="uimod-rec-version is-alt">{alternativeRec.targetVersion}</span>
-                          )}
-                        </div>
-                      </div>
-                      <div className="uimod-rec-compat is-alt">{alternativeRec.compatibility}</div>
-                      {(alternativeRec.architecture || alternativeRec.routing) && (
-                        <div style={{ fontSize: 12, color: "#334155", marginTop: 4, marginBottom: 8, fontWeight: 500 }}>
-                          {alternativeRec.architecture && <span style={{ marginRight: 12 }}>Architecture: {alternativeRec.architecture}</span>}
-                          {alternativeRec.routing && <span>Routing: {alternativeRec.routing}</span>}
-                        </div>
-                      )}
-                      {alternativeRec.reasons && alternativeRec.reasons.length > 0 && (
-                        <div className="uimod-rec-badges">
-                          {alternativeRec.reasons.map((r, i) => (
-                            <span key={i} className="uimod-badge is-blue"><FaCheckCircle size={9} style={{ marginRight: 3 }} />{r}</span>
-                          ))}
-                        </div>
-                      )}
-                      {alternativeRec.currentVersion && (
-                        <div className="uimod-rec-current is-alt">Current {alternativeRec.framework}: {alternativeRec.currentVersion}</div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Migration Preview toggle */}
-              <button
-                type="button"
-                className="uimod-preview-toggle"
-                onClick={() => setMigrationPreviewOpen((p) => !p)}
-                aria-expanded={migrationPreviewOpen}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-                  <span>💡</span>
-                  <div style={{ textAlign: "left" }}>
-                    <div style={{ fontWeight: 700, fontSize: 13, color: "#0f172a" }}>Migration Preview &amp; Guidance</div>
-                    <div style={{ fontSize: 11, color: "#64748b" }}>View what will be converted and key considerations</div>
+          {/* 4. TWO-COLUMN GRID: SOURCE & TARGET JAVA VERSION (50% LEFT) | MIGRATION DESTINATION (50% RIGHT) */}
+          <div className="strat-bottom-dual-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, marginTop: 24, alignItems: "stretch" }}>
+            {/* Left Box: Source & Target Java Version */}
+            <div className="strat-section-box strat-jdk-card-box" style={{ height: "100%", display: "flex", flexDirection: "column", gap: 14 }}>
+              {/* Card Header Bar */}
+              <div className="strat-right-section-title" style={{ justifyContent: "space-between", marginBottom: 4 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div className="strat-right-section-icon" style={{ background: "#eff6ff", color: "#2563eb", border: "1px solid #bfdbfe" }}>
+                    <FaCoffee />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 16, fontWeight: 800, color: "#0f172a" }}>Source &amp; Target Java Version</div>
+                    <div style={{ fontSize: 12, color: "#64748b", fontWeight: 500, marginTop: 1 }}>Configure and select your target JDK upgrade path</div>
                   </div>
                 </div>
-                {migrationPreviewOpen ? <FaChevronUp size={11} color="#94a3b8" /> : <FaChevronDown size={11} color="#94a3b8" />}
-              </button>
+                <span style={{ fontSize: 10.5, fontWeight: 800, padding: "3px 10px", borderRadius: 999, backgroundColor: "#f1f5f9", color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", border: "1px solid #e2e8f0" }}>
+                  JDK Setup
+                </span>
+              </div>
 
-              {/* Migration Preview body */}
-              {migrationPreviewOpen && (
-                <div className="uimod-preview-body">
-                  {[
-                    { label: "Detected view layer", value: [hasJsp && `JSP (${actualJspCount} files)`, hasJsf && `JSF (${actualJsfCount} files)`].filter(Boolean).join(" + ") || "—" },
-                    { label: "Conversion", value: uiModMode || "Not selected" },
-                    (primaryRec || uiFrameworkVersion) ? { label: "Target", value: `${uiFrameworkTarget} ${uiFrameworkVersion || primaryRec?.targetVersion || ""}`.trim() } : null,
-                  ].filter(Boolean).map((row: any, i) => (
-                    <div key={i} className="uimod-preview-row">
-                      <span className="uimod-preview-label">{row?.label}</span>
-                      <span className="uimod-preview-value">{row?.value}</span>
+              {/* Neat Form Grid: Source Version & Target Selection */}
+              <div className="strat-jdk-neat-grid">
+                {/* Source Field */}
+                <div className="strat-jdk-neat-field">
+                  <label className="strat-jdk-neat-label">
+                    Source Java Version
+                  </label>
+                  <div className="strat-jdk-neat-source-box">
+                    <div className="strat-jdk-neat-source-val">
+                      <FaCoffee style={{ color: "#2563eb", fontSize: 14 }} />
+                      <span>Java {userSelectedVersion ? selectedSourceVersion : (repoAnalysis?.java_version && repoAnalysis?.java_version !== "unknown" ? repoAnalysis.java_version : "Not Found")}</span>
                     </div>
-                  ))}
-                  {detectedConstructs.length > 0 && (
-                    <div style={{ marginTop: 8 }}>
-                      <div className="uimod-preview-label" style={{ marginBottom: 5 }}>Detected constructs</div>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                        {detectedConstructs.map((c, i) => (
-                          <span key={i} className="uimod-construct-badge">{c.label}</span>
-                        ))}
-                      </div>
+                    <span className={`strat-jdk-neat-chip ${userSelectedVersion ? "manual" : "detected"}`}>
+                      {userSelectedVersion ? "Manual" : "Detected"}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Target Field */}
+                <div className="strat-jdk-neat-field">
+                  <label className="strat-jdk-neat-label">
+                    Target Java Version <span style={{ color: "#ef4444" }}>*</span>
+                  </label>
+                  {availableTargetVersions.length > 0 ? (
+                    <select
+                      className="strat-jdk-neat-select"
+                      value={effectiveTargetVersion}
+                      onChange={(e) => handleTargetVersionChange(e.target.value)}
+                    >
+                      <option value="" disabled>Select Target Version</option>
+                      {availableTargetVersions.map((v) => (
+                        <option key={v.value} value={v.value}>{v.label}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div className="strat-jdk-neat-source-box" style={{ background: "#fff1f2", borderColor: "#fecdd3", color: "#9f1239" }}>
+                      No newer JDK targets available
                     </div>
                   )}
-                  {primaryRec?.constraints && primaryRec.constraints.length > 0 && (
-                    <div style={{ marginTop: 8 }}>
-                      <div className="uimod-preview-label" style={{ marginBottom: 5 }}>Considerations</div>
-                      {primaryRec.constraints.map((c, i) => (
-                        <div key={i} className="uimod-consideration">
-                          <span style={{ color: "#f59e0b" }}>⚠</span>
-                          <span>{c}</span>
-                        </div>
-                      ))}
-                    </div>
+                  {targetVersionRequiredError && (
+                    <p style={{ ...styles.fieldErrorText, marginTop: 2 }}>Target Java Version is required.</p>
                   )}
                 </div>
-              )}
+              </div>
 
-              {/* View Files Modal */}
-              {viewFilesOpen && (
-                <div
-                  className="uimod-modal-overlay"
-                  onClick={() => setViewFilesOpen(false)}
-                  role="dialog"
-                  aria-modal="true"
-                  aria-label="Detected JSP/JSF Files"
-                >
-                  <div className="uimod-modal" onClick={(e) => e.stopPropagation()}>
-                    <div className="uimod-modal-header">
-                      <div>
-                        <div style={{ fontWeight: 800, fontSize: 15, color: "#0f172a" }}>Detected View Files</div>
-                        <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>{totalViewFiles} {totalViewFiles === 1 ? "file" : "files"} found</div>
+              {/* Selected Target Version Overview Card */}
+              {(() => {
+                const activeCard = versionRecommendationCards.find(
+                  (c) => c.version === (selectedTargetVersion || effectiveTargetVersion)
+                ) || versionRecommendationCards[0];
+
+                if (!activeCard) return null;
+
+                const cleanedDesc = (activeCard.description || "")
+                  .replace(/\b(JDK\s*\d+)\s+\1\b/gi, "$1")
+                  .replace(/\b(Java\s*\d+)\s+\1\b/gi, "$1");
+
+                return (
+                  <div className="strat-jdk-insight-box">
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 2 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 800, color: "#0f172a" }}>
+                        <FaCheckCircle style={{ color: "#2563eb", fontSize: 13 }} />
+                        <span>Java {activeCard.version} Upgrade Target Overview</span>
                       </div>
-                      <button type="button" className="uimod-modal-close" onClick={() => setViewFilesOpen(false)} aria-label="Close">
-                        <FaTimes size={14} />
-                      </button>
+                      <span style={{ fontSize: 9.5, fontWeight: 800, padding: "2px 7px", borderRadius: 999, backgroundColor: "#eff6ff", color: "#1d4ed8", border: "1px solid #bfdbfe", textTransform: "uppercase" }}>
+                        {activeCard.eyebrow}
+                      </span>
                     </div>
-                    <div className="uimod-modal-body">
-                      {allJspFiles && allJspFiles.length > 0 && (
-                        <div style={{ marginBottom: 10 }}>
-                          <div className="uimod-files-group-header">
-                            <span className="uimod-files-badge is-jsp">JSP</span>
-                            <span style={{ fontSize: 11, color: "#64748b" }}>{allJspFiles.length} {allJspFiles.length === 1 ? "file" : "files"}</span>
+                    <p style={{ margin: 0, fontSize: 11.5, color: "#475569", lineHeight: 1.4, fontWeight: 500 }}>
+                      {cleanedDesc}
+                    </p>
+                  </div>
+                );
+              })()}
+
+              {/* Neat Target Options Section */}
+              {availableTargetVersions.length > 0 && !versionRecommendationLoading && versionRecommendation && (
+                <div className="strat-jdk-neat-options-section">
+                  <div className="strat-jdk-neat-section-label">
+                    Target Recommendations
+                  </div>
+
+                  <div className="strat-jdk-neat-chips-grid">
+                    {versionRecommendationCards.map((card) => {
+                      const isSelected = selectedTargetVersion === card.version;
+                      const cleanedDescription = (card.description || "")
+                        .replace(/\b(JDK\s*\d+)\s+\1\b/gi, "$1")
+                        .replace(/\b(Java\s*\d+)\s+\1\b/gi, "$1");
+
+                      return (
+                        <div
+                          key={card.version}
+                          onClick={() => handleTargetVersionChange(card.version)}
+                          className={`strat-jdk-neat-option-btn ${isSelected ? "is-selected" : ""}`}
+                        >
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            {isSelected && <FaCheckCircle size={12} style={{ color: "#2563eb" }} />}
+                            <span className="strat-jdk-neat-opt-title">Java {card.version}</span>
                           </div>
-                          {allJspFiles.map((f, i) => {
-                            const parts = f.replace(/\\/g, "/").split("/");
-                            const name = parts[parts.length - 1];
-                            const dir = parts.slice(0, -1).join("/");
-                            return (
-                              <div key={i} className="uimod-file-row">
-                                <FaFile size={11} color="#db2777" style={{ flexShrink: 0, marginTop: 2 }} />
-                                <div style={{ minWidth: 0 }}>
-                                  <div style={{ fontWeight: 600, fontSize: 12, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
-                                  {dir && <div style={{ fontSize: 10, color: "#94a3b8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{dir}</div>}
-                                </div>
+
+                          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                            <span className="strat-jdk-neat-opt-tag">
+                              {card.eyebrow}
+                            </span>
+                            <div className="strat-jdk-neat-info-wrap" onClick={(e) => e.stopPropagation()}>
+                              <FaInfoCircle className="strat-jdk-neat-info-icon" />
+                              <div className="strat-jdk-neat-tooltip">
+                                <div className="strat-jdk-neat-tooltip-title">Java {card.version} Overview</div>
+                                <div className="strat-jdk-neat-tooltip-body">{cleanedDescription}</div>
                               </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                      {allJsfFiles && allJsfFiles.length > 0 && (
-                        <div>
-                          <div className="uimod-files-group-header">
-                            <span className="uimod-files-badge is-jsf">JSF</span>
-                            <span style={{ fontSize: 11, color: "#64748b" }}>{allJsfFiles.length} {allJsfFiles.length === 1 ? "file" : "files"}</span>
+                            </div>
                           </div>
-                          {allJsfFiles.map((f, i) => {
-                            const parts = f.replace(/\\/g, "/").split("/");
-                            const name = parts[parts.length - 1];
-                            const dir = parts.slice(0, -1).join("/");
-                            return (
-                              <div key={i} className="uimod-file-row">
-                                <FaFile size={11} color="#7c3aed" style={{ flexShrink: 0, marginTop: 2 }} />
-                                <div style={{ minWidth: 0 }}>
-                                  <div style={{ fontWeight: 600, fontSize: 12, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
-                                  {dir && <div style={{ fontSize: 10, color: "#94a3b8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{dir}</div>}
-                                </div>
-                              </div>
-                            );
-                          })}
                         </div>
-                      )}
-                      {totalViewFiles === 0 && (
-                        <div style={{ textAlign: "center", color: "#64748b", fontSize: 13, padding: "20px 0" }}>No view files detected.</div>
-                      )}
-                    </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
             </div>
-          )}
+
+            {/* Right Box: Migration Destination */}
+            <div className="strat-section-box" style={{ height: "100%", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+              <div>
+                <div className="strat-right-section-title" style={{ justifyContent: "space-between", marginBottom: 18 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div className="strat-right-section-icon"><FaProjectDiagram /></div>
+                    <span>Migration Destination</span>
+                  </div>
+                  <span style={{ fontSize: 10, fontWeight: 800, padding: "3px 10px", borderRadius: 999, backgroundColor: "#f0fdf4", color: "#15803d", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                    {migrationApproach === "branch" ? "Branch Mode" : migrationApproach === "local" ? "Local Mode" : "Fork Mode"}
+                  </span>
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                  {/* Approach Selection Cards (Vertical Layout for 30% Column) */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    {migrationApproachOptions.map((opt) => (
+                      <WizardOptionCard
+                        key={opt.value}
+                        accent={opt.color}
+                        selected={migrationApproach === opt.value}
+                        iconBadge={renderWizardIconBadge(opt.icon, opt.color, "sm")}
+                        title={opt.label}
+                        description={opt.desc}
+                        onClick={() => {
+                          setMigrationApproach(opt.value);
+                          setTargetRepoNameError("");
+                        }}
+                        headerStyle={{ alignItems: "center" }}
+                        titleStyle={{ marginBottom: 2 }}
+                        containerStyle={{ padding: "12px 14px", minHeight: 70 }}
+                      />
+                    ))}
+                  </div>
+
+                  {/* Target Name Input Panel */}
+                  <div style={{ padding: 16, borderRadius: 12, background: "#f8fafc", border: "1px solid #e2e8f0" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                      <label style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "#334155" }}>
+                        {migrationApproach === "branch"
+                          ? "Target Branch Name"
+                          : migrationApproach === "local"
+                            ? "Target Local Folder Path"
+                            : "Target Repository Name"}
+                      </label>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: "#64748b", background: "#e2e8f0", padding: "2px 8px", borderRadius: 999 }}>
+                        Auto-generated
+                      </span>
+                    </div>
+
+                    <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+                      <input
+                        type="text"
+                        style={{
+                          ...styles.input,
+                          width: "100%",
+                          backgroundColor: "#ffffff",
+                          borderColor: targetRepoNameError ? "#ef4444" : "#cbd5e1",
+                          color: "#1e293b",
+                          fontWeight: 600,
+                          fontSize: 13,
+                          paddingLeft: 34,
+                          boxShadow: "0 1px 3px rgba(15, 23, 42, 0.05)",
+                          cursor: "default"
+                        }}
+                        value={targetRepoName}
+                        onChange={(e) => handleTargetRepoNameChange(e.target.value)}
+                        readOnly={true}
+                        tabIndex={-1}
+                        placeholder={
+                          migrationApproach === "branch"
+                            ? getAutoGeneratedTargetName("branch")
+                            : migrationApproach === "local"
+                              ? getAutoGeneratedTargetName("local")
+                              : getAutoGeneratedTargetName("fork")
+                        }
+                      />
+                      <div style={{ position: "absolute", left: 12, color: "#64748b", fontSize: 14, display: "flex", alignItems: "center" }}>
+                        {migrationApproach === "branch" ? <FaGitAlt /> : migrationApproach === "local" ? <FaFolder /> : <FaGithub />}
+                      </div>
+                    </div>
+                    {targetRepoNameError && (
+                      <p style={{ ...styles.fieldErrorText, marginTop: 6, marginBottom: 0 }}>{targetRepoNameError}</p>
+                    )}
+                    <p style={{ fontSize: 11, color: "#64748b", margin: "8px 0 0 0", lineHeight: 1.4 }}>
+                      {migrationApproach === "branch"
+                        ? "Target branch where upgraded code & migrated dependencies will be committed."
+                        : migrationApproach === "local"
+                          ? "Local directory path where updated project files will be stored."
+                          : "Target repository fork for committing the migrated codebase."}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </>
       )}
 
-      <div style={styles.row}>
-        <div style={styles.field}>
-          <label style={styles.label}>Source Java Version</label>
-          <div style={{
-            padding: "12px 14px",
-            fontSize: 14,
-            borderRadius: 8,
-            border: "1px solid #d1d5db",
-            backgroundColor: "#f9fafb",
-            color: userSelectedVersion ? "#1e293b" : "#6b7280",
-            fontWeight: userSelectedVersion ? 600 : 500
-          }}>
-            {userSelectedVersion
-              ? `Java ${selectedSourceVersion} (manually selected)`
-              : (repoAnalysis?.java_version && repoAnalysis?.java_version !== "unknown"
-                  ? `Java ${repoAnalysis.java_version} (detected)`
-                  : "Source don't have a java version")
-            }
-          </div>
-          <p style={styles.helpText}>
-            {userSelectedVersion
-              ? "Source version manually selected in discovery step"
-              : (repoAnalysis?.java_version && repoAnalysis?.java_version !== "unknown"
-                  ? "Java version detected from build configuration"
-                  : "No Java version found - please select a source version below")
-            }
-          </p>
-          {!userSelectedVersion && (!((repoAnalysis?.java_version || repoAnalysis?.java_version_from_build)) || (repoAnalysis?.java_version || repoAnalysis?.java_version_from_build) === "unknown") && (
-            <div style={{ marginTop: 12 }}>
-              <select
-                value={selectedSourceVersion}
-                onChange={(e) => {
-                  setSelectedSourceVersion(e.target.value);
-                  setUserSelectedVersion(e.target.value);
-                }}
-                style={{
-                  padding: "10px 14px",
-                  borderRadius: 6,
-                  border: "1px solid #d97706",
-                  fontSize: 14,
-                  backgroundColor: "#fff",
-                  cursor: "pointer",
-                  width: "100%"
-                }}
-              >
-                <option value="7">Java 7 (Legacy)</option>
-                <option value="8">Java 8 (LTS)</option>
-                <option value="11">Java 11 (LTS)</option>
-                <option value="17">Java 17 (LTS)</option>
-                <option value="21">Java 21 (LTS)</option>
-                <option value="22">Java 22</option>
-                <option value="23">Java 23</option>
-                <option value="24">Java 24</option>
-                <option value="25">Java 25 (LTS)</option>
-              </select>
-              <div style={{ fontSize: 11, color: "#a16207", marginTop: 6 }}>
-                Select the correct Java version for your project. This will be used as the source version for migration.
-              </div>
-            </div>
-          )}
-        </div>
-        <div style={styles.field}>
-          <label style={{ ...styles.label, ...(targetVersionRequiredError ? styles.labelError : {}) }}>
-            Target Java Version <span style={styles.requiredMark}>*</span>
-          </label>
-          <select
-            style={{ ...styles.select, ...(targetVersionRequiredError ? styles.selectError : {}) }}
-            value={effectiveTargetVersion}
-            onChange={(e) => handleTargetVersionChange(e.target.value)}
-            disabled={availableTargetVersions.length === 0}
-          >
-            <option value="" disabled>Select Java Version</option>
-            {availableTargetVersions.map((v) => <option key={v.value} value={v.value}>{v.label}</option>)}
-          </select>
-          {targetVersionRequiredError && (
-            <p style={styles.fieldErrorText}>Target Java Version is required.</p>
-          )}
-          <p style={styles.helpText}>
-            {availableTargetVersions.length === 0
-              ? `No supported target Java version is newer than detected Java ${detectedSourceVersion}.`
-              : "Only versions newer than the detected source Java version are available"}
-          </p>
-        </div>
-      </div>
-
-      {availableTargetVersions.length > 0 && versionRecommendationLoading && (
-        <div style={{ ...styles.infoBox, marginBottom: 20 }}>
-          {getJavaVersionRecommendationLoadingLabel("huggingface")}
-        </div>
-      )}
-      {availableTargetVersions.length > 0 && !versionRecommendationLoading && versionRecommendationError && (
-        <div style={{ ...styles.errorBox, marginBottom: 20 }}>
-          {versionRecommendationError}
-        </div>
-      )}
-      {availableTargetVersions.length > 0 && !versionRecommendationLoading && !versionRecommendationError && versionRecommendation && (
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
-            {versionRecommendationCards.map((card) => {
-              const isSelected = selectedTargetVersion === card.version;
-              return (
-                <button
-                  key={card.version}
-                  type="button"
-                  onClick={() => handleTargetVersionChange(card.version)}
-                  style={{
-                    textAlign: "left",
-                    padding: 12,
-                    borderRadius: 10,
-                    border: `2px solid ${isSelected ? "#22c55e" : "#e2e8f0"}`,
-                    background: isSelected
-                      ? "linear-gradient(135deg, #ecfdf5 0%, #f0fdf4 100%)"
-                      : "#fff",
-                    boxShadow: isSelected
-                      ? "0 8px 24px rgba(34, 197, 94, 0.18)"
-                      : "0 2px 8px rgba(15, 23, 42, 0.06)",
-                    cursor: "pointer",
-                    transition: "all 0.2s ease",
-                  }}
-                >
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                    <span
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        padding: "2px 7px",
-                        borderRadius: 999,
-                        backgroundColor: isSelected ? "#22c55e" : card.badgeBackground,
-                        color: isSelected ? "#fff" : card.badgeColor,
-                        fontSize: 9,
-                        fontWeight: 800,
-                        textTransform: "uppercase",
-                        letterSpacing: "0.4px",
-                      }}
-                    >
-                      {isSelected ? "Selected" : card.eyebrow}
-                    </span>
-                  </div>
-                  <div style={{ fontSize: 20, fontWeight: 800, color: "#1e293b", marginBottom: 3 }}>
-                    Java {card.version}
-                  </div>
-                  <div style={{ fontSize: 10, color: "#64748b", fontWeight: 600, marginBottom: 7 }}>
-                    {card.label}
-                  </div>
-                  <div style={{ fontSize: 11, color: "#334155", lineHeight: 1.4, minHeight: 48 }}>
-                    {card.description}
-                  </div>
-                  <div style={{ fontSize: 9, color: isSelected ? "#16a34a" : "#94a3b8", marginTop: 8, fontWeight: 700 }}>
-                    {isSelected ? `Selected for migration` : card.helper}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      <WizardSectionHeading
-        title="Migration Destination"
-        style={{ marginBottom: 14, marginTop: 20 }}
-      />
-      <div style={styles.field}>
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: `repeat(${migrationApproachOptions.length}, minmax(0, 1fr))`,
-          gap: 14
-        }}>
-          {migrationApproachOptions.map((opt) => (
-            <WizardOptionCard
-              key={opt.value}
-              accent={opt.color}
-              selected={migrationApproach === opt.value}
-              iconBadge={renderWizardIconBadge(opt.icon, opt.color, "md")}
-              title={opt.label}
-              description={opt.desc}
-              onClick={() => {
-                setMigrationApproach(opt.value);
-                setTargetRepoNameError("");
-              }}
-              topRight={
-                <div style={{ position: "absolute", top: 12, right: 12 }}>
-                  <WizardInfoTooltip
-                    label={`${opt.label} details`}
-                    triggerClassName="ui-info-trigger ui-info-trigger-light"
-                  >
-                    <div style={{ fontWeight: 600, marginBottom: 8, color: "#94a3b8" }}>
-                      {opt.label} Details
-                    </div>
-                    <div>{opt.tooltip}</div>
-                  </WizardInfoTooltip>
-                </div>
-              }
-              headerStyle={{ alignItems: "center" }}
-              titleStyle={{ marginBottom: 4 }}
-            />
-          ))}
-        </div>
-      </div>
-
-      <div style={styles.field}>
-        <label style={{ ...styles.label, ...(targetRepoNameError ? styles.labelError : {}) }}>
-          {migrationApproach === "branch"
-            ? "Target Branch Name"
-            : migrationApproach === "local"
-              ? "Target Local Folder Path"
-              : "Target Repository Name"}
-        </label>
-        <div style={{ display: "flex", gap: 8 }}>
-          <input
-            type="text"
-            style={{
-              ...styles.input,
-              flex: 1,
-              backgroundColor: migrationApproach === "fork" ? "#f8fafc" : "#ffffff",
-              borderColor: targetRepoNameError ? "#ef4444" : "#cbd5e1",
-              color: migrationApproach === "fork" ? "#64748b" : styles.input.color,
-              cursor: "default",
-              pointerEvents: "none"
-            }}
-            value={targetRepoName}
-            onChange={(e) => handleTargetRepoNameChange(e.target.value)}
-            readOnly={true}
-            tabIndex={-1}
-            placeholder={
-              migrationApproach === "branch"
-                ? getAutoGeneratedTargetName("branch")
-                : migrationApproach === "local"
-                  ? getAutoGeneratedTargetName("local")
-                  : getAutoGeneratedTargetName("fork")
-            }
-          />
-        </div>
-        {targetRepoNameError && (
-          <p style={styles.fieldErrorText}>{targetRepoNameError}</p>
-        )}
-        {migrationApproach === "local" && (
-          <p style={styles.helpText}>
-            Enter either a folder name or a full absolute path. If only a folder name is provided, the backend migration workspace will be used.
-          </p>
-        )}
-      </div>
-
-
-      </div>
-
-      <div style={{ ...styles.btnRow, justifyContent: "flex-end" }} className="strategy-nav-btn-row">
+      <div style={{ ...styles.btnRow, justifyContent: "flex-end", marginTop: 24 }} className="strategy-nav-btn-row">
         <button style={styles.primaryBtn} onClick={onContinue}>{renderForwardButtonLabel("Continue to Migration")}</button>
       </div>
     </div>

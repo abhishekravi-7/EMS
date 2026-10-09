@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef, useMemo, type Dispatch, type SetStateAction } from "react";
 import { createPortal } from "react-dom";
-import { FaRocket, FaSearch, FaShieldAlt, FaFileAlt, FaFlask } from "react-icons/fa";
+import { FaRocket, FaSearch, FaShieldAlt, FaFileAlt, FaFlask, FaCheck, FaPlus } from "react-icons/fa";
 import {
   scanExistingTests,
   getCachedExistingTests,
@@ -890,13 +890,14 @@ setIsLlmConfiguredMod(
   const hasNoTestPermissions = !isUserSettingsLoading && !isQualityChecksPermitted && !isUnitTestPermitted && !isFunctionalTestPermitted;
 
   return (
-    <>
-      <div style={styles.card}>
-      <div style={styles.stepHeader}>
-        {renderWizardIconBadge(<FaRocket />, "#f59e0b", "xl")}
-        <div>
-          <h2 style={styles.title}>Build Modernization &amp; Migration</h2>
+    <div className="discovery-dashboard-wrapper page-modernization">
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 14, marginBottom: 24, paddingTop: 6 }}>
+        <div className="mod-topic-header-icon">
+          <span className="mod-rocket-icon-animated"><FaRocket /></span>
         </div>
+        <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "#0f172a", letterSpacing: "-0.01em" }}>
+          Build Modernization &amp; Migration
+        </h2>
       </div>
 
       {hasNoTestPermissions && (
@@ -965,264 +966,132 @@ setIsLlmConfiguredMod(
 
       {/* ── Quality Gates & Test Suites Selection (Rendered only when permitted) ── */}
       {ciEnabled && cdEnabled && (isQualityChecksPermitted || isUnitTestPermitted || isFunctionalTestPermitted) && (
-        <div style={{ marginBottom: 28, marginTop: 24 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-            <FaShieldAlt style={{ fontSize: 18, color: "#0f172a" }} />
-            <span style={{ fontWeight: 800, fontSize: 18, color: "#0f172a" }}>Quality Gates</span>
+        <div className="mod-qgate-row-panel">
+          <div className="mod-qgate-row-header">
+            <div className="mod-qgate-row-title">
+              <span style={{ fontWeight: 800, fontSize: 17, color: "#0f172a", letterSpacing: "-0.2px" }}>
+                Quality Gates
+              </span>
+            </div>
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14 }}>
+          <div className="mod-qgate-single-row">
             {/* 1. SonarQube */}
             {isQualityChecksPermitted && (
               <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 12,
-                  padding: "14px 18px",
-                  borderRadius: 12,
-                  border: `2px solid ${runSonar && isSonarAvailable ? "#2563eb" : "#e2e8f0"}`,
-                  background: runSonar && isSonarAvailable ? "#eff6ff" : (isSonarAvailable ? "#fff" : "#f8fafc"),
-                  cursor: isSonarAvailable ? "pointer" : "not-allowed",
-                  transition: "all 0.15s ease",
-                  minHeight: 88,
-                  opacity: isSonarAvailable ? 1 : 0.6,
-                }}
+                className={`mod-qgate-pill-card ${runSonar && isSonarAvailable ? "mod-qgate-pill-active" : ""} ${!isSonarAvailable ? "mod-qgate-pill-disabled" : ""}`}
                 onClick={() => {
                   if (isSonarAvailable) setRunSonar(!runSonar);
                 }}
               >
-                <input
-                  type="checkbox"
-                  checked={runSonar && isSonarAvailable}
-                  disabled={!isSonarAvailable}
-                  onChange={(e) => {
-                    e.stopPropagation();
-                    if (isSonarAvailable) setRunSonar(e.target.checked);
-                  }}
-                  style={{ width: 18, height: 18, accentColor: "#2563eb", cursor: isSonarAvailable ? "pointer" : "not-allowed", flexShrink: 0 }}
-                />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a", display: "flex", alignItems: "center", gap: 8 }}>
-                    <FaSearch style={{ fontSize: 12, color: runSonar && isSonarAvailable ? "#2563eb" : "#64748b", flexShrink: 0 }} />
-                    <span style={{ whiteSpace: "nowrap" }}>SonarQube</span>
+                <div className="mod-qgate-pill-top">
+                  <div className="mod-qgate-pill-icon">
+                    <FaSearch />
                   </div>
-                  <div style={{ fontSize: 12, color: "#64748b", marginTop: 2, lineHeight: 1.3 }}>
-                    {getSonarSubtitle()}
+                  <div className={`mod-qgate-morph-btn ${runSonar && isSonarAvailable ? "mod-qgate-morph-btn-active" : ""}`}>
+                    {runSonar && isSonarAvailable ? <FaCheck /> : <FaPlus />}
                   </div>
                 </div>
-                <span
-                  style={{
-                    marginLeft: "auto",
-                    fontSize: 10,
-                    fontWeight: 700,
-                    padding: "3px 8px",
-                    borderRadius: 6,
-                    background: runSonar && isSonarAvailable ? "#dbeafe" : "#f1f5f9",
-                    color: runSonar && isSonarAvailable ? "#1e40af" : "#64748b",
-                    flexShrink: 0,
-                  }}
-                >
-                  RECOMMENDED
-                </span>
+                <div className="mod-qgate-pill-body">
+                  <div className="mod-qgate-pill-name">SonarQube</div>
+                  <div className="mod-qgate-pill-sub">{getSonarSubtitle()}</div>
+                </div>
               </div>
             )}
 
             {/* 2. FOSSA */}
             {isQualityChecksPermitted && (
               <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 12,
-                  padding: "14px 18px",
-                  borderRadius: 12,
-                  border: `2px solid ${runFossa && isFossaAvailable ? "#2563eb" : "#e2e8f0"}`,
-                  background: runFossa && isFossaAvailable ? "#eff6ff" : (isFossaAvailable ? "#fff" : "#f8fafc"),
-                  cursor: isFossaAvailable ? "pointer" : "not-allowed",
-                  transition: "all 0.15s ease",
-                  minHeight: 88,
-                  opacity: isFossaAvailable ? 1 : 0.6,
-                }}
+                className={`mod-qgate-pill-card ${runFossa && isFossaAvailable ? "mod-qgate-pill-active" : ""} ${!isFossaAvailable ? "mod-qgate-pill-disabled" : ""}`}
                 onClick={() => {
                   if (isFossaAvailable) setRunFossa(!runFossa);
                 }}
               >
-                <input
-                  type="checkbox"
-                  checked={runFossa && isFossaAvailable}
-                  disabled={!isFossaAvailable}
-                  onChange={(e) => {
-                    e.stopPropagation();
-                    if (isFossaAvailable) setRunFossa(e.target.checked);
-                  }}
-                  style={{ width: 18, height: 18, accentColor: "#2563eb", cursor: isFossaAvailable ? "pointer" : "not-allowed", flexShrink: 0 }}
-                />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a", display: "flex", alignItems: "center", gap: 8 }}>
-                    <FaShieldAlt style={{ fontSize: 12, color: runFossa && isFossaAvailable ? "#2563eb" : "#64748b", flexShrink: 0 }} />
-                    <span style={{ whiteSpace: "nowrap" }}>FOSSA</span>
+                <div className="mod-qgate-pill-top">
+                  <div className="mod-qgate-pill-icon">
+                    <FaShieldAlt />
                   </div>
-                  <div style={{ fontSize: 12, color: "#64748b", marginTop: 2, lineHeight: 1.3 }}>
-                    {getFossaSubtitle()}
+                  <div className={`mod-qgate-morph-btn ${runFossa && isFossaAvailable ? "mod-qgate-morph-btn-active" : ""}`}>
+                    {runFossa && isFossaAvailable ? <FaCheck /> : <FaPlus />}
                   </div>
                 </div>
-                <span
-                  style={{
-                    marginLeft: "auto",
-                    fontSize: 10,
-                    fontWeight: 700,
-                    padding: "3px 8px",
-                    borderRadius: 6,
-                    background: runFossa && isFossaAvailable ? "#dbeafe" : "#f1f5f9",
-                    color: runFossa && isFossaAvailable ? "#1e40af" : "#64748b",
-                    flexShrink: 0,
-                  }}
-                >
-                  RECOMMENDED
-                </span>
+                <div className="mod-qgate-pill-body">
+                  <div className="mod-qgate-pill-name">FOSSA</div>
+                  <div className="mod-qgate-pill-sub">{getFossaSubtitle()}</div>
+                </div>
               </div>
             )}
 
             {/* 3. Cycode */}
             {isQualityChecksPermitted && (
-              <label style={{
-                display: "flex", alignItems: "center", gap: 12, padding: "14px 18px", borderRadius: 12,
-                border: `2px solid ${runCycode && isCycodeAvailable ? "#2563eb" : "#e2e8f0"}`,
-                background: runCycode && isCycodeAvailable ? "#eff6ff" : "#f8fafc",
-                cursor: isCycodeAvailable ? "pointer" : "not-allowed", minHeight: 88,
-                opacity: isCycodeAvailable ? 1 : 0.6,
-              }}>
-                <input type="checkbox" aria-label="Run Cycode security scans"
-                  checked={runCycode && isCycodeAvailable} disabled={!isCycodeAvailable}
-                  onChange={(event) => setRunCycode(event.target.checked)}
-                  style={{ width: 18, height: 18, accentColor: "#2563eb", flexShrink: 0 }} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a", display: "flex", alignItems: "center", gap: 8 }}>
-                    <FaShieldAlt aria-hidden="true" style={{ color: runCycode && isCycodeAvailable ? "#2563eb" : "#64748b" }} />
-                    <span style={{ whiteSpace: "nowrap" }}>Cycode</span>
+              <div
+                className={`mod-qgate-pill-card ${runCycode && isCycodeAvailable ? "mod-qgate-pill-active" : ""} ${!isCycodeAvailable ? "mod-qgate-pill-disabled" : ""}`}
+                onClick={() => {
+                  if (isCycodeAvailable) setRunCycode(!runCycode);
+                }}
+              >
+                <div className="mod-qgate-pill-top">
+                  <div className="mod-qgate-pill-icon">
+                    <FaShieldAlt />
                   </div>
-                  <div style={{ fontSize: 12, color: "#64748b", marginTop: 2, lineHeight: 1.3 }}>{cycodeSubtitle}</div>
+                  <div className={`mod-qgate-morph-btn ${runCycode && isCycodeAvailable ? "mod-qgate-morph-btn-active" : ""}`}>
+                    {runCycode && isCycodeAvailable ? <FaCheck /> : <FaPlus />}
+                  </div>
                 </div>
-                <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 6,
-                  color: runCycode && isCycodeAvailable ? "#1e40af" : "#64748b",
-                  background: runCycode && isCycodeAvailable ? "#dbeafe" : "#f1f5f9", flexShrink: 0 }}>
-                  {runCycode && isCycodeAvailable ? "ENABLED" : "OPTIONAL"}
-                </span>
-              </label>
+                <div className="mod-qgate-pill-body">
+                  <div className="mod-qgate-pill-name">Cycode</div>
+                  <div className="mod-qgate-pill-sub">{cycodeSubtitle}</div>
+                </div>
+              </div>
             )}
 
             {/* 4. Run Unit Test Suite */}
             {isUnitTestPermitted && (
               <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 12,
-                  padding: "14px 18px",
-                  borderRadius: 12,
-                  border: `2px solid ${runTests && isTestsAvailable ? "#2563eb" : "#e2e8f0"}`,
-                  background: runTests && isTestsAvailable ? "#eff6ff" : (isTestsAvailable ? "#fff" : "#f8fafc"),
-                  cursor: isTestsAvailable ? "pointer" : "not-allowed",
-                  transition: "all 0.15s ease",
-                  minHeight: 88,
-                  opacity: isTestsAvailable ? 1 : 0.6,
-                }}
+                className={`mod-qgate-pill-card ${runTests && isTestsAvailable ? "mod-qgate-pill-active" : ""} ${!isTestsAvailable ? "mod-qgate-pill-disabled" : ""}`}
                 onClick={() => {
                   if (isTestsAvailable) setRunTests(!runTests);
                 }}
               >
-                <input
-                  type="checkbox"
-                  checked={runTests && isTestsAvailable}
-                  disabled={!isTestsAvailable}
-                  onChange={(e) => {
-                    e.stopPropagation();
-                    if (isTestsAvailable) setRunTests(e.target.checked);
-                  }}
-                  style={{ width: 18, height: 18, accentColor: "#2563eb", cursor: isTestsAvailable ? "pointer" : "not-allowed", flexShrink: 0 }}
-                />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a", display: "flex", alignItems: "center", gap: 8 }}>
-                    <FaFileAlt style={{ fontSize: 12, color: runTests && isTestsAvailable ? "#2563eb" : "#64748b", flexShrink: 0 }} />
-                    <span style={{ whiteSpace: "nowrap" }}>Run Unit Test Suite</span>
+                <div className="mod-qgate-pill-top">
+                  <div className="mod-qgate-pill-icon">
+                    <FaFileAlt />
                   </div>
-                  <div style={{ fontSize: 12, color: "#64748b", marginTop: 2, lineHeight: 1.3 }}>
-                    {getTestsSubtitle()}
+                  <div className={`mod-qgate-morph-btn ${runTests && isTestsAvailable ? "mod-qgate-morph-btn-active" : ""}`}>
+                    {runTests && isTestsAvailable ? <FaCheck /> : <FaPlus />}
                   </div>
                 </div>
-                <span
-                  style={{
-                    marginLeft: "auto",
-                    fontSize: 10,
-                    fontWeight: 700,
-                    padding: "3px 8px",
-                    borderRadius: 6,
-                    background: runTests && isTestsAvailable ? "#dbeafe" : "#f1f5f9",
-                    color: runTests && isTestsAvailable ? "#1e40af" : "#64748b",
-                    flexShrink: 0,
-                  }}
-                >
-                  RECOMMENDED
-                </span>
+                <div className="mod-qgate-pill-body">
+                  <div className="mod-qgate-pill-name">Run Unit Test Suite</div>
+                  <div className="mod-qgate-pill-sub">{getTestsSubtitle()}</div>
+                </div>
               </div>
             )}
 
             {/* 5. Functional Testing */}
             {isFunctionalTestPermitted && (
               <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 12,
-                  padding: "14px 18px",
-                  borderRadius: 12,
-                  border: `2px solid ${runFunctionalTests && isFunctionalTestAvailable ? "#2563eb" : "#e2e8f0"}`,
-                  background: runFunctionalTests && isFunctionalTestAvailable ? "#eff6ff" : (isFunctionalTestAvailable ? "#fff" : "#f8fafc"),
-                  cursor: isFunctionalTestAvailable ? "pointer" : "not-allowed",
-                  transition: "all 0.15s ease",
-                  minHeight: 88,
-                  opacity: isFunctionalTestAvailable ? 1 : 0.6,
-                }}
+                className={`mod-qgate-pill-card ${runFunctionalTests && isFunctionalTestAvailable ? "mod-qgate-pill-active" : ""} ${!isFunctionalTestAvailable ? "mod-qgate-pill-disabled" : ""}`}
                 onClick={() => {
                   if (isFunctionalTestAvailable) setRunFunctionalTests(!runFunctionalTests);
                 }}
               >
-                <input
-                  type="checkbox"
-                  checked={runFunctionalTests && isFunctionalTestAvailable}
-                  disabled={!isFunctionalTestAvailable}
-                  onChange={(e) => {
-                    e.stopPropagation();
-                    if (isFunctionalTestAvailable) setRunFunctionalTests(e.target.checked);
-                  }}
-                  style={{ width: 18, height: 18, accentColor: "#2563eb", cursor: isFunctionalTestAvailable ? "pointer" : "not-allowed", flexShrink: 0 }}
-                />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a", display: "flex", alignItems: "center", gap: 8 }}>
-                    <FaFlask style={{ fontSize: 12, color: runFunctionalTests && isFunctionalTestAvailable ? "#2563eb" : "#64748b", flexShrink: 0 }} />
-                    <span style={{ whiteSpace: "nowrap" }}>Functional Testing</span>
+                <div className="mod-qgate-pill-top">
+                  <div className="mod-qgate-pill-icon">
+                    <FaFlask />
                   </div>
-                  <div style={{ fontSize: 12, color: "#64748b", marginTop: 2, lineHeight: 1.3 }}>
-                    {runFunctionalTests
-                      ? "Upload & run functional test scenarios from a document."
-                      : "Functional testing disabled — document upload hidden."}
+                  <div className={`mod-qgate-morph-btn ${runFunctionalTests && isFunctionalTestAvailable ? "mod-qgate-morph-btn-active" : ""}`}>
+                    {runFunctionalTests && isFunctionalTestAvailable ? <FaCheck /> : <FaPlus />}
                   </div>
                 </div>
-                <span
-                  style={{
-                    marginLeft: "auto",
-                    fontSize: 10,
-                    fontWeight: 700,
-                    padding: "3px 8px",
-                    borderRadius: 6,
-                    background: runFunctionalTests && isFunctionalTestAvailable ? "#dbeafe" : "#f1f5f9",
-                    color: runFunctionalTests && isFunctionalTestAvailable ? "#1e40af" : "#64748b",
-                    flexShrink: 0,
-                  }}
-                >
-                  {runFunctionalTests ? "RECOMMENDED" : "OPTIONAL"}
-                </span>
+                <div className="mod-qgate-pill-body">
+                  <div className="mod-qgate-pill-name">Functional Testing</div>
+                  <div className="mod-qgate-pill-sub">
+                    {runFunctionalTests
+                      ? "Upload & run functional test scenarios"
+                      : "Functional testing disabled"}
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -1245,9 +1114,6 @@ setIsLlmConfiguredMod(
           }}
         />
       )}
-
-      {/* Functional Testing Document Upload Section — only shown when enabled and permitted */}
-      {isFunctionalTestPermitted && runFunctionalTests && <FunctionalTestingDocumentCard jobId={jobId} />}
 
       {/* Test Validation Report Modal */}
       {showValidationReport && existingExecResult && (
@@ -1492,9 +1358,6 @@ setIsLlmConfiguredMod(
         </div>,
         document.body
       )}
-
-      </div>
-
       {!hasNoTestPermissions && (
         <div style={{ ...styles.btnRow, justifyContent: "flex-end" }} className="modernization-nav-btn-row">
           <button
@@ -1506,6 +1369,6 @@ setIsLlmConfiguredMod(
           </button>
         </div>
       )}
-    </>
+    </div>
   );
 }
