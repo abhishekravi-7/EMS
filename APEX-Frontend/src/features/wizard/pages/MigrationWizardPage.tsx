@@ -572,6 +572,8 @@ export default function MigrationWizardPage() {
               jobId={connectState.jobId}
               modernization={modernizationState}
               repoAnalysis={repoAnalysis}
+              dependencyAnalysis={dependencyAnalysis}
+              targetJavaVersion={effectiveTargetVersion}
               selectedRepo={selectedRepo}
               repoUrl={repoUrl}
               currentToken={currentToken}
@@ -630,6 +632,7 @@ export default function MigrationWizardPage() {
             <ResultReportView
               resultExec={resultExecState}
               repoAnalysis={repoAnalysis}
+              dependencyAnalysis={dependencyAnalysis}
               runSonar={runSonar}
               runFossa={runFossa}
               runTests={runTests}
