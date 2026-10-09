@@ -143,6 +143,7 @@ class UnitTestSuiteResult(BaseModel):
     original_coverage: dict[str, Any] | None = None
     final_coverage: dict[str, Any] | None = None
     coverage_improvement: dict[str, Any] | None = None
+    coverage: dict[str, Any] | None = None
     line_coverage_pct: float | None = None
     branch_coverage_pct: float | None = None
     instruction_coverage_pct: float | None = None

@@ -3,11 +3,13 @@ import {
   FaCheckCircle,
   FaShieldAlt,
   FaExclamationTriangle,
+  FaRedo,
   FaDownload,
   FaTerminal,
   FaStopwatch,
   FaFileAlt,
   FaCode,
+  FaLayerGroup,
   FaFileArchive,
   FaFileCode,
   FaExternalLinkAlt,
@@ -20,10 +22,10 @@ import {
   FaTasks,
   FaLightbulb,
   FaTimes,
-  FaTimesCircle,
-  FaSpinner
+  FaTimesCircle
 } from "react-icons/fa";
 export { MigrationProposedTestSection } from "./MigrationProposedTestSection";
+import { API_BASE_URL } from "@/services/config/env";
 import {
   type MigrationResult,
   downloadMigratedProject,
@@ -43,7 +45,7 @@ interface MigrationUnitTestSectionProps {
   migrationJob: MigrationResult;
   testSummaryReportDate: string;
   migrationJavaVersion: string | null;
-  summaryItems: Record<string, unknown>[];
+  summaryItems?: any[];
   testsRun: number;
   runTests?: boolean;
   onDownloadUnitTestReport: () => Promise<void> | void;
@@ -54,14 +56,20 @@ interface MigrationUnitTestSectionProps {
 export function MigrationUnitTestSection({
   styles,
   migrationJob,
-  summaryItems,
+  testSummaryReportDate,
+  migrationJavaVersion,
+  summaryItems = [],
+  testsRun,
   runTests,
   onDownloadUnitTestReport,
   onGenerateUnitTests,
-  isGenerating,
+  isGenerating = false,
 }: MigrationUnitTestSectionProps) {
+  void testSummaryReportDate;
+  void migrationJavaVersion;
+  void testsRun;
   const [showAllModal, setShowAllModal] = useState(false);
-  const [_savedPrompt, setSavedPrompt] = useState<string | null>(null);
+  const [savedPrompt, setSavedPrompt] = useState<string | null>(null);
   const [selectedPromptTab, setSelectedPromptTab] = useState<string | null>(null);
 
   useEffect(() => {
@@ -86,52 +94,27 @@ export function MigrationUnitTestSection({
             </div>
             Unit Test Information
           </h3>
-          <span style={{ padding: "6px 16px", borderRadius: 20, background: isGenerating ? "#fef3c7" : "#f1f5f9", color: isGenerating ? "#d97706" : "#475569", fontSize: 12, fontWeight: 700, border: "1px solid " + (isGenerating ? "#fde68a" : "#e2e8f0") }}>
-            {isGenerating ? "GENERATING..." : "NOT EXECUTED"}
+          <span style={{ padding: "6px 16px", borderRadius: 20, background: "#f1f5f9", color: "#475569", fontSize: 12, fontWeight: 700, border: "1px solid #e2e8f0" }}>
+            NOT EXECUTED
           </span>
         </div>
         <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: "28px 24px", textAlign: "center", flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
           <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 44, height: 44, borderRadius: "50%", background: "#f1f5f9", color: "#64748b", marginBottom: 12, fontSize: 20 }}>
-            {isGenerating ? <FaSpinner className="animate-spin" /> : <FaFileAlt />}
+            <FaFileAlt />
           </div>
           <div style={{ fontSize: 15, fontWeight: 700, color: "#334155", marginBottom: 6 }}>
-            {isGenerating ? "Generating Unit Tests..." : "Unit test suite was not executed for this migration."}
+            Unit test suite was not executed for this migration.
           </div>
-          <div style={{ fontSize: 13, color: "#64748b", maxWidth: 520, margin: "0 auto", marginBottom: 20 }}>
-            {isGenerating 
-              ? "Please wait while unit tests are being generated and executed. This may take a few minutes."
-              : "Automated unit test execution was not enabled during the migration configuration."}
+          <div style={{ fontSize: 13, color: "#64748b", maxWidth: 520, margin: "0 auto" }}>
+            Automated unit test execution was not enabled during the migration configuration.
           </div>
-          {!isGenerating && onGenerateUnitTests && (
-            <button
-              onClick={onGenerateUnitTests}
-              style={{
-                background: "#2563eb",
-                color: "#ffffff",
-                border: "none",
-                borderRadius: 8,
-                padding: "10px 24px",
-                fontSize: 14,
-                fontWeight: 700,
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                transition: "background 0.2s"
-              }}
-              onMouseOver={(e) => (e.currentTarget.style.background = "#1d4ed8")}
-              onMouseOut={(e) => (e.currentTarget.style.background = "#2563eb")}
-            >
-              <FaCode /> Generate Unit Tests
-            </button>
-          )}
         </div>
       </div>
     );
   }
 
   const getValueByLabel = (pattern: string, fallback: string | number = 0) => {
-    const found = (summaryItems as { label: string; value: string | number }[]).find((i) => i.label.toUpperCase().includes(pattern.toUpperCase()));
+    const found = (summaryItems || []).find((i: any) => i?.label && String(i.label).toUpperCase().includes(pattern.toUpperCase()));
     return found ? found.value : fallback;
   };
 
@@ -146,13 +129,11 @@ export function MigrationUnitTestSection({
     ? parseFloat(jacocoCoverageRaw.toString().replace("%", ""))
     : null;
 
-  type TestPipe = { executed_test_details?: unknown[]; generated_test_files?: unknown[]; generated_test_execution?: unknown; coverage_result?: Record<string, unknown> };
-  const testPipeline = (migrationJob?.test_pipeline as TestPipe | undefined) ?? {};
-  const executedDetails = testPipeline?.executed_test_details ?? [];
-  const generatedFiles = testPipeline?.generated_test_files ?? [];
-  const genExec = testPipeline?.generated_test_execution ?? {};
-  type CovData = { available?: boolean; original?: { line_coverage_pct?: number }; final?: { line_coverage_pct?: number }; line_coverage_pct?: number };
-  const covResult = (testPipeline?.coverage_result || (migrationJob as typeof migrationJob & { coverage_result?: CovData; coverage?: CovData })?.coverage_result || (migrationJob as typeof migrationJob & { coverage_result?: CovData; coverage?: CovData })?.coverage) as CovData | undefined;
+  const testPipeline = migrationJob?.test_pipeline ?? {};
+  const executedDetails = (testPipeline as any)?.executed_test_details || [];
+  const generatedFiles = (testPipeline as any)?.generated_test_files || [];
+  const genExec = (testPipeline as any)?.generated_test_execution || {};
+  const covResult = (testPipeline as any)?.coverage_result || (migrationJob as any)?.coverage_result || (migrationJob as any)?.coverage;
   const isCovAvailable = Boolean(covResult?.available);
   const originalCov = isCovAvailable && typeof covResult?.original?.line_coverage_pct === "number" ? covResult.original.line_coverage_pct : null;
   const finalCov = isCovAvailable
@@ -197,11 +178,11 @@ export function MigrationUnitTestSection({
 
   const genMethodCount = Number(genExec.generated_test_methods ?? parseInt(String(generatedTestCases).replace("+", "")) ?? 0) || 0;
   const execGenCount = Number(genExec.executed_generated_test_methods ?? genExec.executed ?? executedDetails.length) || 0;
-  const passedGenCount = Number(genExec.passed_generated_test_methods ?? genExec.passed ?? (executedDetails as Record<string, unknown>[]).filter((d) => d.status === "PASSED").length) || 0;
-  const failedGenCount = Number(genExec.failed_generated_test_methods ?? genExec.failed ?? (executedDetails as Record<string, unknown>[]).filter((d) => d.status === "FAILED").length) || 0;
-  const skippedGenCount = Number(genExec.skipped_generated_test_methods ?? genExec.skipped ?? (executedDetails as Record<string, unknown>[]).filter((d) => d.status === "SKIPPED").length) || 0;
+  const passedGenCount = Number(genExec.passed_generated_test_methods ?? genExec.passed ?? executedDetails.filter((d: any) => d?.status === "PASSED").length) || 0;
+  const failedGenCount = Number(genExec.failed_generated_test_methods ?? genExec.failed ?? executedDetails.filter((d: any) => d?.status === "FAILED").length) || 0;
+  const skippedGenCount = Number(genExec.skipped_generated_test_methods ?? genExec.skipped ?? executedDetails.filter((d: any) => d?.status === "SKIPPED").length) || 0;
 
-  const rawExecStatus = (testPipeline as Record<string, unknown>)?.execution_status || (execGenCount > 0 ? (failedGenCount === 0 ? "EXECUTED" : (passedGenCount > 0 ? "PARTIAL" : "FAILED")) : "NOT_EXECUTED");
+  const rawExecStatus = (testPipeline as any)?.execution_status || (execGenCount > 0 ? (failedGenCount === 0 ? "EXECUTED" : (passedGenCount > 0 ? "PARTIAL" : "FAILED")) : "NOT_EXECUTED");
   const execStatusLabel =
     rawExecStatus === "EXECUTED"
       ? "EXECUTED"
@@ -223,22 +204,27 @@ export function MigrationUnitTestSection({
 
   return (
     <div style={{ ...styles.reportSection, background: "#ffffff", border: "1px solid #eef2f6", borderRadius: 16, padding: "24px 32px", boxShadow: "0 4px 20px rgba(0,0,0,0.03)", height: "100%", display: "flex", flexDirection: "column" }}>
-      {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+      {/* Header Bar */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 22, paddingBottom: 16, borderBottom: "1px solid #f1f5f9" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <div style={{ background: "#2563eb", color: "#fff", width: 32, height: 32, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>
-          <FaFileAlt />
-        </div>
-        <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#0f172a" }}>Unit Test Information</h3>
+          <div style={{ background: "linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)", color: "#2563eb", width: 38, height: 38, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, border: "1px solid #bfdbfe", boxShadow: "0 2px 8px rgba(37, 99, 235, 0.12)" }}>
+            <FaFileAlt />
+          </div>
+          <div>
+            <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#0f172a", letterSpacing: "-0.01em" }}>Unit Test Information</h3>
+            <div style={{ fontSize: 12, color: "#64748b", fontWeight: 500, marginTop: 1 }}>Automated unit test execution, JaCoCo line coverage, and testcase verification</div>
+          </div>
         </div>
         <div style={{
           background: migrationJob?.status === "completed" ? "#dcfce7" : "#fff7ed",
           color: migrationJob?.status === "completed" ? "#166534" : "#f97316",
-          padding: "4px 12px",
+          padding: "4px 14px",
           borderRadius: 20,
           fontSize: 11,
-          fontWeight: 700,
-          border: `1px solid ${migrationJob?.status === "completed" ? "#86efac" : "#ffedd5"}`
+          fontWeight: 800,
+          border: `1px solid ${migrationJob?.status === "completed" ? "#86efac" : "#ffedd5"}`,
+          textTransform: "lowercase",
+          letterSpacing: "0.02em"
         }}>
           {migrationJob?.status === "completed" ? "completed" : "awaiting first run"}
         </div>
@@ -256,24 +242,37 @@ export function MigrationUnitTestSection({
         </div>
       ) : (
         <>
-      {/* Metrics Row */}
-      <div style={{ display: "flex", alignItems: "center", gap: 24, marginBottom: 20 }}>
+      {/* Metrics Row (JaCoCo Gauge + 6 Stat Metric Cards) */}
+      <div style={{ display: "flex", alignItems: "stretch", gap: 20, marginBottom: 20 }}>
         {/* Radial Gauge & JaCoCo Breakdown */}
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, flexShrink: 0, minWidth: 124 }}>
-          <div style={{ position: "relative", width: 110, height: 110 }}>
-            <svg width="110" height="110" viewBox="0 0 110 110">
-              <circle cx="55" cy="55" r="48" fill="none" stroke="#f1f5f9" strokeWidth="10" />
-              <circle cx="55" cy="55" r="48" fill="none" stroke="#22c55e" strokeWidth="10" strokeDasharray={`${typeof finalCov === "number" ? Math.min(100, Math.max(0, finalCov)) * 3 : 0} 301`} strokeLinecap="round" transform="rotate(-90 55 55)" />
+        <div style={{
+          background: "#f8fafc",
+          border: "1px solid #e2e8f0",
+          borderRadius: 14,
+          padding: "16px 20px",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 8,
+          flexShrink: 0,
+          minWidth: 140,
+          boxShadow: "0 2px 8px rgba(0,0,0,0.02)"
+        }}>
+          <div style={{ position: "relative", width: 96, height: 96 }}>
+            <svg width="96" height="96" viewBox="0 0 110 110">
+              <circle cx="55" cy="55" r="48" fill="none" stroke="#e2e8f0" strokeWidth="10" />
+              <circle cx="55" cy="55" r="48" fill="none" stroke={typeof finalCov === "number" ? "#22c55e" : "#cbd5e1"} strokeWidth="10" strokeDasharray={`${typeof finalCov === "number" ? Math.min(100, Math.max(0, finalCov)) * 3 : 0} 301`} strokeLinecap="round" transform="rotate(-90 55 55)" />
             </svg>
             <div style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center" }}>
-              <div style={{ fontSize: 24, fontWeight: 800, color: "#0f172a" }}>
+              <div style={{ fontSize: 22, fontWeight: 800, color: "#0f172a" }}>
                 {typeof finalCov === "number" ? `${finalCov.toFixed(1)}%` : "N/A"}
               </div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", lineHeight: 1.1 }}>JaCoCo<br/>Coverage</div>
+              <div style={{ fontSize: 9.5, fontWeight: 800, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.04em", lineHeight: 1.1 }}>JaCoCo<br/>Coverage</div>
             </div>
           </div>
           {typeof originalCov === "number" && (
-            <div style={{ fontSize: 11, color: "#334155", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, padding: "4px 8px", width: "100%" }}>
+            <div style={{ fontSize: 10.5, color: "#334155", background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 8, padding: "4px 8px", width: "100%" }}>
               <div style={{ display: "flex", justifyContent: "space-between", gap: 6 }}>
                 <span style={{ color: "#64748b" }}>Original:</span>
                 <span style={{ fontWeight: 700 }}>{originalCov.toFixed(1)}%</span>
@@ -296,7 +295,6 @@ export function MigrationUnitTestSection({
               </div>
             </div>
           )}
-          
           {/* MCP Stats */}
           {(testPipeline as any)?.mcp_stats && (
             <div style={{ fontSize: 11, color: "#334155", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 8, padding: "8px", width: "100%", marginTop: 8 }}>
@@ -346,7 +344,7 @@ export function MigrationUnitTestSection({
           )}
         </div>
 
-        {/* 6 Metric Cards */}
+        {/* 6 Metric Cards (3x2 Grid) */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, flex: 1 }}>
           {[
             { label: "Total Files in Repo", value: totalFiles },
@@ -354,11 +352,11 @@ export function MigrationUnitTestSection({
             { label: "Existing Test Files", value: existingTestFiles },
             { label: "New Test Files", value: newTestFiles },
             { label: "Existing Test Cases", value: existingTestCases },
-            { label: "Generated Test Cases", value: generatedTestCases, color: "#f59e0b" },
+            { label: "Generated Test Cases", value: generatedTestCases, color: "#d97706" },
           ].map((item, i) => (
-            <div key={i} style={{ background: "#f8fafc", border: "1px solid #eef2f6", borderRadius: 12, padding: "12px 8px", textAlign: "center" }}>
-              <div style={{ fontSize: 22, fontWeight: 800, color: item.color || "#0f172a" }}>{item.value}</div>
-              <div style={{ fontSize: 12, fontWeight: 600, color: "#64748b", marginTop: 4, lineHeight: 1.2 }}>{item.label}</div>
+            <div key={i} style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 12, padding: "14px 12px", textAlign: "center", boxShadow: "0 2px 6px rgba(0,0,0,0.02)", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center" }}>
+              <div style={{ fontSize: 22, fontWeight: 800, color: item.color || "#0f172a", lineHeight: 1 }}>{item.value}</div>
+              <div style={{ fontSize: 11.5, fontWeight: 600, color: "#64748b", marginTop: 6, lineHeight: 1.2 }}>{item.label}</div>
             </div>
           ))}
         </div>
@@ -367,19 +365,23 @@ export function MigrationUnitTestSection({
       {/* JaCoCo Missing Notice Banner */}
       {(!isCovAvailable || typeof finalCov !== "number") && (
         <div style={{
-          background: "#fffbeb",
-          border: "1px solid #fef3c7",
+          background: "linear-gradient(135deg, #fffdf5 0%, #fff7ed 100%)",
+          border: "1px solid #fde68a",
           borderRadius: 12,
-          padding: "10px 16px",
-          marginBottom: 16,
-          fontSize: 12,
+          padding: "12px 18px",
+          marginBottom: 18,
+          fontSize: 12.5,
           color: "#92400e",
           display: "flex",
           alignItems: "center",
-          gap: 8,
+          gap: 10,
+          boxShadow: "0 2px 8px rgba(245, 158, 11, 0.05)"
         }}>
-          <strong>JaCoCo Coverage: N/A</strong>
-          <span style={{ color: "#b45309" }}>— Reason: {covResult?.error || covResult?.final?.error || "JaCoCo XML report was not generated."}</span>
+          <FaExclamationTriangle size={15} color="#d97706" style={{ flexShrink: 0 }} />
+          <div>
+            <strong style={{ color: "#78350f" }}>JaCoCo Coverage: N/A</strong>
+            <span style={{ color: "#b45309", marginLeft: 8 }}>— Reason: {covResult?.error || covResult?.final?.error || "JaCoCo XML report was not generated."}</span>
+          </div>
         </div>
       )}
 
@@ -425,13 +427,13 @@ export function MigrationUnitTestSection({
         </div>
       )}
 
-      {/* Execution Summary Banner */}
+      {/* Execution Summary Control Bar */}
       <div style={{
         background: "#f8fafc",
         border: "1px solid #e2e8f0",
-        borderRadius: 12,
-        padding: "14px 20px",
-        marginBottom: 24,
+        borderRadius: 14,
+        padding: "12px 20px",
+        marginBottom: 22,
         display: "flex",
         flexWrap: "wrap",
         alignItems: "center",
@@ -439,86 +441,79 @@ export function MigrationUnitTestSection({
         gap: 14,
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ fontSize: 12, fontWeight: 800, color: "#0f172a", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+          <div style={{ fontSize: 11, fontWeight: 800, color: "#475569", textTransform: "uppercase", letterSpacing: "0.05em" }}>
             Execution Status:
           </div>
           <span style={{
             background: isGenerating ? "#fef3c7" : execStatusColor.bg,
             color: isGenerating ? "#d97706" : execStatusColor.text,
             border: `1px solid ${isGenerating ? "#fde68a" : execStatusColor.border}`,
-            padding: "3px 10px",
+            padding: "4px 12px",
             borderRadius: 14,
             fontSize: 11,
             fontWeight: 800,
-            letterSpacing: "0.02em",
-            display: "flex",
-            alignItems: "center",
-            gap: 6
+            letterSpacing: "0.02em"
           }}>
-            {isGenerating && <FaSpinner className="animate-spin" />}
-            {isGenerating ? "GENERATING..." : execStatusLabel}
+            {execStatusLabel}
           </span>
           {(!execGenCount || execGenCount === 0) && !isGenerating && onGenerateUnitTests && (
             <button
               onClick={onGenerateUnitTests}
               style={{
-                background: "#2563eb",
+                background: "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)",
                 color: "#ffffff",
                 border: "none",
                 borderRadius: 14,
-                padding: "4px 12px",
+                padding: "5px 14px",
                 fontSize: 11,
                 fontWeight: 700,
                 cursor: "pointer",
                 display: "flex",
                 alignItems: "center",
                 gap: 6,
-                transition: "background 0.2s"
+                boxShadow: "0 2px 8px rgba(37, 99, 235, 0.2)",
+                transition: "all 0.15s ease"
               }}
-              onMouseOver={(e) => (e.currentTarget.style.background = "#1d4ed8")}
-              onMouseOut={(e) => (e.currentTarget.style.background = "#2563eb")}
             >
-              <FaCode /> Generate Tests
+              <FaCode size={11} /> Generate Tests
             </button>
           )}
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap" }}>
-          <div style={{ fontSize: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+          <div style={{ fontSize: 12, background: "#ffffff", padding: "4px 10px", borderRadius: 8, border: "1px solid #e2e8f0" }}>
             <span style={{ color: "#64748b", fontWeight: 600 }}>Generated: </span>
             <strong style={{ color: "#0f172a" }}>{genMethodCount}</strong>
           </div>
-          <div style={{ fontSize: 12 }}>
+          <div style={{ fontSize: 12, background: "#ffffff", padding: "4px 10px", borderRadius: 8, border: "1px solid #e2e8f0" }}>
             <span style={{ color: "#64748b", fontWeight: 600 }}>Executed: </span>
             <strong style={{ color: execGenCount > 0 ? "#2563eb" : "#64748b" }}>{execGenCount}</strong>
           </div>
-          <div style={{ fontSize: 12 }}>
-            <span style={{ color: "#64748b", fontWeight: 600 }}>Passed: </span>
-            <strong style={{ color: passedGenCount > 0 ? "#16a34a" : "#64748b" }}>{passedGenCount}</strong>
+          <div style={{ fontSize: 12, background: "#ecfdf5", padding: "4px 10px", borderRadius: 8, border: "1px solid #a7f3d0" }}>
+            <span style={{ color: "#059669", fontWeight: 600 }}>Passed: </span>
+            <strong style={{ color: "#166534" }}>{passedGenCount}</strong>
           </div>
-          <div style={{ fontSize: 12 }}>
-            <span style={{ color: "#64748b", fontWeight: 600 }}>Failed: </span>
-            <strong style={{ color: failedGenCount > 0 ? "#dc2626" : "#64748b" }}>{failedGenCount}</strong>
+          <div style={{ fontSize: 12, background: "#fef2f2", padding: "4px 10px", borderRadius: 8, border: "1px solid #fecdd3" }}>
+            <span style={{ color: "#dc2626", fontWeight: 600 }}>Failed: </span>
+            <strong style={{ color: "#991b1b" }}>{failedGenCount}</strong>
           </div>
-          <div style={{ fontSize: 12 }}>
-            <span style={{ color: "#64748b", fontWeight: 600 }}>Skipped: </span>
-            <strong style={{ color: skippedGenCount > 0 ? "#d97706" : "#64748b" }}>{skippedGenCount}</strong>
+          <div style={{ fontSize: 12, background: "#fffbeb", padding: "4px 10px", borderRadius: 8, border: "1px solid #fde68a" }}>
+            <span style={{ color: "#d97706", fontWeight: 600 }}>Skipped: </span>
+            <strong style={{ color: "#92400e" }}>{skippedGenCount}</strong>
           </div>
         </div>
       </div>
 
       {/* PROMPT COMPLIANCE ANALYSIS */}
       {(() => {
-        type CompItem = { prompt_id?: string; prompt_name?: string; compliance_percentage?: number };
-        type PromptComp = { compliance_items?: CompItem[]; overall_compliance_percentage?: number };
-        const promptCompliance = (testPipeline as { prompt_compliance?: PromptComp })?.prompt_compliance;
+        const promptCompliance = (testPipeline as any)?.prompt_compliance;
         if (!promptCompliance || !promptCompliance.compliance_items || promptCompliance.compliance_items.length === 0) {
           return null;
         }
 
         const items = promptCompliance.compliance_items;
         const activeTabId = selectedPromptTab || items[0]?.prompt_id;
-        const activeItem = items.find((i) => i.prompt_id === activeTabId) || items[0];
+        const activeItem = items.find((i: any) => i.prompt_id === activeTabId) || items[0];
         const overallPct = promptCompliance.overall_compliance_percentage ?? 0;
         const isPassed = overallPct >= 80;
 
@@ -641,7 +636,7 @@ export function MigrationUnitTestSection({
                 borderRadius: 10,
               }}
             >
-              {items.map((it) => {
+              {items.map((it: any) => {
                 const isSelected = it.prompt_id === activeTabId;
                 return (
                   <button
@@ -861,7 +856,7 @@ export function MigrationUnitTestSection({
                 </tr>
               </thead>
               <tbody>
-                {(generatedFiles as Record<string, unknown>[]).map((gf, idx: number) => {
+                {generatedFiles.map((gf: any, idx: number) => {
                   const statusRaw = (gf.execution_status || (gf.status === "CREATED" ? (execGenCount > 0 ? "EXECUTED" : "NOT EXECUTED") : gf.status || "NOT EXECUTED")).toUpperCase();
                   let statusLabel = "NOT EXECUTED";
                   let statusBg = "#f1f5f9";
@@ -940,7 +935,7 @@ export function MigrationUnitTestSection({
           </thead>
           <tbody>
             {executedDetails.length > 0 ? (
-              (executedDetails as Record<string, unknown>[]).map((row, i: number) => (
+              executedDetails.map((row: any, i: number) => (
                 <tr key={i} style={{ borderBottom: "1px solid #f1f5f9", background: i % 2 === 0 ? "#fff" : "#fafbfc" }}>
                   <td style={{ padding: "12px 20px", color: "#2563eb", fontWeight: 600 }}>{row.test_class}</td>
                   <td style={{ padding: "12px 20px", color: "#475569" }}>{row.test_method}</td>
@@ -1018,7 +1013,7 @@ export function MigrationUnitTestSection({
                     </tr>
                   </thead>
                   <tbody>
-                    {(executedDetails as Record<string, unknown>[]).map((row, i: number) => (
+                    {executedDetails.map((row: any, i: number) => (
                       <tr key={i} style={{ borderBottom: "1px solid #f1f5f9", background: i % 2 === 0 ? "#fff" : "#fafbfc" }}>
                         <td style={{ padding: "14px 20px", color: "#2563eb", fontWeight: 600 }}>{row.test_class}</td>
                         <td style={{ padding: "14px 20px", color: "#475569" }}>{row.test_method}</td>
@@ -1086,8 +1081,7 @@ export function MigrationSonarSection({
       </div>
     );
   }
-  type SonarRep = { quality_gate?: string; coverage?: string | number; bugs?: number; vulnerabilities?: number; code_smells?: number; security_hotspots?: number; analysis_url?: string; dashboard_url?: string; project_key?: string };
-  const sonarReport = (migrationJob?.sonar_report as SonarRep | undefined) || {};
+  const sonarReport = (migrationJob?.sonar_report as any) || {};
   const qualityGateStatus = sonarReport?.quality_gate || "UNAVAILABLE";
   const qualityGateColor = qualityGateStatus === "PASSED" || qualityGateStatus === "OK" ? "#22c55e" : "#f59e0b";
 
@@ -1106,17 +1100,16 @@ export function MigrationSonarSection({
   const codeSmellsCount = sonarReport?.code_smells || 0;
   const hotspotsCount = sonarReport?.security_hotspots || 0;
 
-  type JobExtraProps = { sonar_project_url?: string; project_key?: string };
   const rawSonarUrl =
     migrationJob?.sonar_analysis_url ||
-    (migrationJob?.sonar_report as SonarRep | undefined)?.analysis_url ||
-    (migrationJob?.sonar_report as SonarRep | undefined)?.dashboard_url ||
-    (migrationJob as typeof migrationJob & JobExtraProps)?.sonar_project_url;
+    (migrationJob?.sonar_report as any)?.analysis_url ||
+    (migrationJob?.sonar_report as any)?.dashboard_url ||
+    (migrationJob as any)?.sonar_project_url;
 
   const projectKey =
     migrationJob?.sonar_project_key ||
-    (migrationJob?.sonar_report as SonarRep | undefined)?.project_key ||
-    (migrationJob as typeof migrationJob & JobExtraProps)?.project_key;
+    (migrationJob?.sonar_report as any)?.project_key ||
+    (migrationJob as any)?.project_key;
 
   const effectiveSonarUrl =
     rawSonarUrl ||
@@ -1603,7 +1596,7 @@ export function MigrationLogSection({ styles, migrationLogs }: MigrationLogSecti
 
 interface MigrationIssuesSectionProps {
   styles: StyleMap;
-  issues: MigrationIssue[];
+  issues: any[];
   isOpen: boolean;
   onToggle: () => void;
 }
@@ -1684,85 +1677,31 @@ interface MigrationReportActionsProps {
 }
 
 export function MigrationReportActions({
-  migrationJob,
   resetWizard,
-  onDownloadUnitTestReport,
-}: MigrationReportActionsProps & { onDownloadUnitTestReport: () => void }) {
-  const jobId = migrationJob?.job_id;
-
-  const handleDownload = async (type: "project" | "markdown" | "testcases" | "html") => {
-    if (!jobId) return;
-    try {
-      let blob: Blob;
-      let filename = "";
-      switch (type) {
-        case "project":
-          blob = await downloadMigratedProject(jobId);
-          filename = `modernized-project-${jobId}.zip`;
-          break;
-        case "markdown":
-          blob = await downloadTestcaseDoc(jobId);
-          filename = `testcase-report-${jobId}.md`;
-          break;
-        case "testcases":
-          blob = await downloadTestcaseReport(jobId);
-          filename = `testcases-and-changes-${jobId}.html`;
-          break;
-        case "html":
-          blob = await downloadUnitTestReport(jobId);
-          filename = `unit-test-report-${jobId}.html`;
-          break;
-        default: return;
-      }
-      triggerBlobDownload(blob, filename);
-    } catch (err) {
-      console.error("Download failed:", err);
-    }
-  };
-
+}: MigrationReportActionsProps & { onDownloadUnitTestReport?: () => void }) {
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0", marginTop: 4, borderTop: "1px solid #eef2f6", flexWrap: "wrap", gap: 12 }}>
-      <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-        <button onClick={() => handleDownload("project")} style={{ background: "#fff", border: "1px solid #e2e8f0", padding: "10px 20px", borderRadius: 10, fontSize: 13, fontWeight: 700, color: "#334155", display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-          <FaFileArchive style={{ color: "#d97706" }} /> Download ZIP
-        </button>
-        <button onClick={onDownloadUnitTestReport} style={{ background: "#fff", border: "1px solid #e2e8f0", padding: "10px 20px", borderRadius: 10, fontSize: 13, fontWeight: 700, color: "#334155", display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-          <FaExternalLinkAlt style={{ color: "#2563eb" }} /> Open Full Report
-        </button>
-      </div>
-
-      <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-        <button onClick={() => handleDownload("markdown")} style={{ background: "#fff", border: "1px solid #e2e8f0", padding: "10px 20px", borderRadius: 10, fontSize: 13, fontWeight: 700, color: "#334155", display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-          <FaMarkdown style={{ color: "#7c3aed" }} /> Download Markdown Report
-        </button>
-        <button onClick={() => handleDownload("testcases")} style={{ background: "#fff", border: "1px solid #e2e8f0", padding: "10px 20px", borderRadius: 10, fontSize: 13, fontWeight: 700, color: "#334155", display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-          <FaCode style={{ color: "#059669" }} /> Download Testcases & Changes
-        </button>
-        <button onClick={() => handleDownload("html")} style={{ background: "#fff", border: "1px solid #e2e8f0", padding: "10px 20px", borderRadius: 10, fontSize: 13, fontWeight: 700, color: "#334155", display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-          <FaFileCode style={{ color: "#0284c7" }} /> Download Testcase HTML
-        </button>
-        <button
-          type="button"
-          onClick={resetWizard}
-          style={{
-            background: "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)",
-            border: "1px solid #1d4ed8",
-            padding: "10px 20px",
-            borderRadius: 10,
-            fontSize: 13,
-            fontWeight: 700,
-            color: "#ffffff",
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            cursor: "pointer",
-            boxShadow: "0 2px 8px rgba(37, 99, 235, 0.25)",
-            transition: "all 0.2s ease",
-          }}
-        >
-          <FaRocket style={{ color: "#ffffff" }} /> Start New Migration
-        </button>
-      </div>
+    <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", padding: "12px 0", marginTop: 4, borderTop: "1px solid #eef2f6" }}>
+      <button
+        type="button"
+        onClick={resetWizard}
+        style={{
+          background: "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)",
+          border: "1px solid #1d4ed8",
+          padding: "10px 22px",
+          borderRadius: 10,
+          fontSize: 13,
+          fontWeight: 700,
+          color: "#ffffff",
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          cursor: "pointer",
+          boxShadow: "0 4px 14px rgba(37, 99, 235, 0.25)",
+          transition: "all 0.2s ease",
+        }}
+      >
+        <FaRocket style={{ color: "#ffffff" }} /> Start New Migration
+      </button>
     </div>
   );
 }

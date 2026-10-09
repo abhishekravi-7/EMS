@@ -181,6 +181,7 @@ async def get_user_github_settings(
             "functional_testing": global_functional,
             "brd_testing": global_brd,
             "test_connection": global_test_conn,
+            "artifactory": True,
         }
     else:
         effective_permissions = {
@@ -190,6 +191,7 @@ async def get_user_github_settings(
             "functional_testing": bool(global_functional and user_perms.get("functional_testing", True)),
             "brd_testing": bool(global_brd and user_perms.get("brd_testing", True)),
             "test_connection": bool(global_test_conn and user_perms.get("test_connection", True)),
+            "artifactory": bool(user_perms.get("artifactory", True)),
         }
 
     if not effective_permissions.get("llm_settings", True):
@@ -525,6 +527,7 @@ async def get_my_settings_permissions(
             "functional_testing": global_functional,
             "brd_testing": global_brd,
             "test_connection": global_test_conn,
+            "artifactory": True,
         }
     else:
         effective = {
@@ -534,6 +537,7 @@ async def get_my_settings_permissions(
             "functional_testing": bool(global_functional and user_perms.get("functional_testing", True)),
             "brd_testing": bool(global_brd and user_perms.get("brd_testing", True)),
             "test_connection": bool(global_test_conn and user_perms.get("test_connection", True)),
+            "artifactory": bool(user_perms.get("artifactory", True)),
         }
 
     return {

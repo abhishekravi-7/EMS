@@ -68,6 +68,39 @@ class JobRepository:
         """Read back a previously saved discovery report, if it exists."""
         return self._read_json_file(self._reports_dir(job_id) / "discovery-report.json")
 
+    def save_discovery_progress(self, job_id: str, progress: dict[str, Any]) -> Path:
+        """Write ``discovery-progress.json`` for tracking active stage progress."""
+        reports_dir = self._reports_dir(job_id)
+        reports_dir.mkdir(parents=True, exist_ok=True)
+
+        progress_path = reports_dir / "discovery-progress.json"
+        progress_path.write_text(json.dumps(progress, indent=2), encoding="utf-8")
+        return progress_path
+
+    def read_discovery_progress(self, job_id: str) -> dict[str, Any] | None:
+        """Read back active discovery progress, if present."""
+        return self._read_json_file(self._reports_dir(job_id) / "discovery-progress.json")
+
+    def save_ast_cache(self, job_id: str, analysis: Any, classes: Any, deep_view: Any) -> Path:
+        """Save the ProjectAnalysis, JavaClassInfo list, and DeepViewAnalysis using pickle."""
+        import pickle
+        reports_dir = self._reports_dir(job_id)
+        reports_dir.mkdir(parents=True, exist_ok=True)
+        cache_path = reports_dir / "ast-cache.pkl"
+        cache_path.write_bytes(pickle.dumps({"analysis": analysis, "classes": classes, "deep_view": deep_view}))
+        return cache_path
+
+    def read_ast_cache(self, job_id: str) -> dict[str, Any] | None:
+        """Read back a previously saved AST cache."""
+        import pickle
+        cache_path = self._reports_dir(job_id) / "ast-cache.pkl"
+        if not cache_path.exists():
+            return None
+        try:
+            return pickle.loads(cache_path.read_bytes())
+        except Exception:
+            return None
+
     def save_migration_config_report(self, job_id: str, report: dict[str, Any]) -> Path:
         """Write ``migration-config-report.json`` for the job and return its path."""
         reports_dir = self._reports_dir(job_id)

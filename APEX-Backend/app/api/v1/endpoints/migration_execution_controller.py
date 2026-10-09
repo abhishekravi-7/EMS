@@ -451,6 +451,39 @@ async def get_file_diff(
 
 _unit_test_report_gen = UnitTestReportGenerator()
 
+import os
+import shutil
+import tempfile
+from fastapi.responses import FileResponse
+from starlette.background import BackgroundTask
+
+@router.get("/migration/{job_id}/download-zip", summary="Download migrated project as ZIP")
+async def download_migrated_project_zip(
+    job_id: str,
+    current_user: User = Depends(get_current_user),  # noqa: B008
+) -> FileResponse:
+    await verify_job_ownership(job_id, current_user)
+    paths = WorkspacePaths(job_id)
+    if not paths.migrated_repo_dir.exists():
+        raise HTTPException(status_code=404, detail="Migrated repository not found.")
+        
+    fd, temp_path = tempfile.mkstemp(suffix=".zip")
+    os.close(fd)
+    
+    try:
+        shutil.make_archive(temp_path[:-4], 'zip', paths.migrated_repo_dir)
+    except Exception as e:
+        logger.error(f"Failed to create ZIP for job {job_id}: {e}")
+        os.remove(temp_path)
+        raise HTTPException(status_code=500, detail="Failed to create zip archive.")
+        
+    return FileResponse(
+        path=temp_path,
+        media_type="application/zip",
+        filename=f"migrated-project-{job_id}.zip",
+        background=BackgroundTask(os.remove, temp_path)
+    )
+
 
 from fastapi import Response
 

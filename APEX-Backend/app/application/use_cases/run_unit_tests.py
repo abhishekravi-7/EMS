@@ -551,90 +551,90 @@ class RunUnitTestSuiteUseCase:
             final_coverage = {"available": False, "line_coverage_pct": None}
             coverage_improvement = {"improvement_pct": 0.0, "text": None, "available": False}
 
+            import os
             import sys
-            try:
-                from coverage_agent.agent import JaCoCoCoverageAgent
-                from coverage_agent.llm import JsonLLMAdapter
-                from coverage_agent.models import CoverageAgentRequest
-                
-                logger.info("[JUnit] Launching MCP Coverage Agent loop...")
-                
-                from app.infrastructure.llm.chat_llm import ChatLLM
-                mcp_chat_llm = ChatLLM()
-                class DisabledGroq:
-                    is_configured = False
-                mcp_chat_llm._groq = DisabledGroq()
-                
-                class RobustJsonLLMAdapter(JsonLLMAdapter):
-                    async def generate(self, prompt: str) -> str:
-                        import json
-                        import re
-                        raw = await super().generate(prompt)
-                        text = raw.strip()
-                        if text.startswith("```"):
-                            text = text.split("\n", 1)[-1]
-                            if text.endswith("```"):
-                                text = text[:-3]
-                        try:
-                            # Try normal parse
-                            parsed = json.loads(text, strict=False)
-                            return json.dumps(parsed)
-                        except json.JSONDecodeError:
-                            # Heuristic fix for trailing commas, missing commas
-                            fixed = re.sub(r'}\s*{', '}, {', text)
-                            fixed = re.sub(r',\s*}', '}', fixed)
-                            fixed = re.sub(r',\s*]', ']', fixed)
-                            try:
-                                parsed = json.loads(fixed, strict=False)
-                                return json.dumps(parsed)
-                            except json.JSONDecodeError:
-                                # Fallback: return a valid empty JSON so it doesn't crash the loop
-                                logger.error(f"[JUnit] MCP Coverage Agent completely failed to parse JSON from LLM: {fixed}")
-                                return '{"changes": [], "reasoning": "Failed to parse LLM JSON"}'
-
-                agent_llm = RobustJsonLLMAdapter(mcp_chat_llm)
-                coverage_agent = JaCoCoCoverageAgent(llm=agent_llm)
-                
-                agent_req = CoverageAgentRequest(
-                    project_dir=str(project_dir),
-                    build_tool=req.build_tool,
-                    java_version=str(target_major) if target_major else None,
-                    target_coverage=80.0,
-                    max_iterations=5,
-                    coverage_metric="LINE",
-                )
-                import time
-                mcp_start_time = time.time()
-                agent_result = await coverage_agent.ensure_coverage(agent_req)
-                mcp_elapsed = time.time() - mcp_start_time
-                
-                logger.info("[JUnit] MCP Coverage Agent finished. Reached target: %s", agent_result.success)
-                
-                if agent_result.final_coverage is not None:
-                    final_coverage = {
-                        "available": True,
-                        "line_coverage_pct": float(agent_result.final_coverage),
-                    }
-                    if agent_result.initial_coverage is not None:
-                        imp = float(agent_result.final_coverage - agent_result.initial_coverage)
-                        coverage_improvement = {
-                            "improvement_pct": max(0.0, imp),
-                            "text": f"Improved by {imp:.2f}%",
-                            "available": True
-                        }
-                        
-                    final_res.mcp_stats = {
+            import time
+            final_res.coverage = None
+            if os.getenv("JAVAAPEX_COVERAGE_ENFORCE", "false").lower() == "true":
+                try:
+                    from coverage_agent.agent import JaCoCoCoverageAgent
+                    from coverage_agent.models import CoverageAgentRequest
+                    from mcp_server.server import EnvLLM
+                    
+                    class TrackingEnvLLM(EnvLLM):
+                        def __init__(self, *args, **kwargs):
+                            super().__init__(*args, **kwargs)
+                            self.total_calls = 0
+                            
+                        async def generate(self, prompt: str) -> str:
+                            self.total_calls += 1
+                            return await super().generate(prompt)
+                    
+                    logger.info("[JUnit] Launching MCP Coverage Agent loop (JAVAAPEX_COVERAGE_ENFORCE=true)...")
+                    agent_llm = TrackingEnvLLM()
+                    coverage_agent = JaCoCoCoverageAgent(llm=agent_llm)
+                    
+                    agent_req = CoverageAgentRequest(
+                        project_dir=str(project_dir),
+                        build_tool=req.build_tool,
+                        java_version=str(target_major) if target_major else None,
+                        target_coverage=80.0,
+                        max_iterations=30,
+                        coverage_metric="LINE",
+                    )
+                    
+                    mcp_start_time = time.time()
+                    agent_result = await coverage_agent.ensure_coverage(agent_req)
+                    mcp_elapsed = time.time() - mcp_start_time
+                    
+                    logger.info("[JUnit] MCP Coverage Agent finished. Reached target: %s", agent_result.success)
+                    
+                    # Log iteration history
+                    for iteration in agent_result.iteration_history:
+                        shards = iteration.shard or "unknown"
+                        logger.info(f"[JUnit] iter {iteration.iteration} [{shards}]: {iteration.coverage_before:.1f} -> {iteration.coverage_after:.1f}")
+                    
+                    # Calculate LLM stats
+                    llm_calls = agent_llm.total_calls
+                    fallbacks = getattr(agent_llm._llm, "fallbacks", 0) if hasattr(agent_llm, "_llm") and agent_llm._llm else 0
+                    
+                    final_res.coverage = {
+                        "initial": agent_result.initial_coverage,
+                        "final": agent_result.final_coverage,
+                        "target": agent_result.target_coverage,
                         "success": agent_result.success,
                         "iterations": getattr(agent_result, "iterations", 0),
-                        "tests_created": getattr(agent_result, "tests_created", 0),
-                        "tests_modified": getattr(agent_result, "tests_modified", 0),
-                        "compilation_repairs": getattr(agent_result, "compilation_repairs", 0),
-                        "time_elapsed_seconds": round(mcp_elapsed, 2)
+                        "llm_calls": llm_calls,
+                        "fallbacks": fallbacks,
+                        "remaining_gaps": [gap.model_dump() for gap in agent_result.remaining_gaps[:10]],
+                        "failure_reason": agent_result.failure_reason,
                     }
-            except ImportError as ie:
-                logger.warning(f"[JUnit] MCP coverage_agent package not found or import failed: {ie}. Skipping intelligent coverage loop.")
-            except Exception as e:
-                logger.error(f"[JUnit] MCP coverage_agent execution failed: {e}")
+                    
+                    if agent_result.final_coverage is not None:
+                        final_coverage = {
+                            "available": True,
+                            "line_coverage_pct": float(agent_result.final_coverage),
+                        }
+                        if agent_result.initial_coverage is not None:
+                            imp = float(agent_result.final_coverage - agent_result.initial_coverage)
+                            coverage_improvement = {
+                                "improvement_pct": max(0.0, imp),
+                                "text": f"Improved by {imp:.2f}%",
+                                "available": True
+                            }
+                            
+                        final_res.mcp_stats = {
+                            "success": agent_result.success,
+                            "iterations": getattr(agent_result, "iterations", 0),
+                            "tests_created": getattr(agent_result, "tests_created", 0),
+                            "tests_modified": getattr(agent_result, "tests_modified", 0),
+                            "compilation_repairs": getattr(agent_result, "compilation_repairs", 0),
+                            "time_elapsed_seconds": round(mcp_elapsed, 2)
+                        }
+                except ImportError as ie:
+                    logger.warning(f"[JUnit] MCP coverage_agent package not found or import failed: {ie}. Skipping intelligent coverage loop.")
+                except Exception as e:
+                    logger.error(f"[JUnit] MCP coverage_agent execution failed: {e}")
 
             # Real generated test execution metrics
             total_gen_methods = sum(

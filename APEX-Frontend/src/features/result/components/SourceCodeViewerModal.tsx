@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef } from "react";
 import {
   FaTimes,
+  FaCode,
   FaFileCode,
   FaExchangeAlt,
   FaListUl,
+  FaExternalLinkAlt,
   FaCheck,
   FaCopy,
 } from "react-icons/fa";
@@ -209,7 +211,6 @@ export const SourceCodeViewerModal: React.FC<SourceCodeViewerModalProps> = ({
               title="Copy code to clipboard"
             >
               {copied ? <FaCheck size={12} color="#4ade80" /> : <FaCopy size={12} />}
-              <span>{copied ? "Copied!" : "Copy"}</span>
             </button>
 
             {/* Close Button */}
