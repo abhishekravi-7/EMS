@@ -80,12 +80,17 @@ def point_id(repository_url: str, chunk_type: str, index: int) -> str:
 
 def delete_repository(repository_url: str) -> None:
     """Remove every point belonging to a repository (used before re-index)."""
-    from qdrant_client import models
+    try:
+        from qdrant_client import models
+    except ImportError:
+        return
 
     from app.infrastructure.rag.repo_index_locator import normalize_repository_url
 
     repository_url = normalize_repository_url(repository_url)
     client = _get_client()
+    if client is None:
+        return
     existing = {c.name for c in client.get_collections().collections}
     if settings.qdrant_collection not in existing:
         return
@@ -108,10 +113,15 @@ def upsert(vectors: list[list[float]], payloads: list[dict[str, Any]], ids: list
     """Insert or overwrite points. All three lists must be the same length."""
     if not vectors:
         return
-    from qdrant_client import models
+    try:
+        from qdrant_client import models
+    except ImportError:
+        return
 
     _ensure_collection(len(vectors[0]))
     client = _get_client()
+    if client is None:
+        return
     points = [
         models.PointStruct(id=pid, vector=vector, payload=payload)
         for pid, vector, payload in zip(ids, vectors, payloads, strict=True)
@@ -121,12 +131,17 @@ def upsert(vectors: list[list[float]], payloads: list[dict[str, Any]], ids: list
 
 def search(query_vector: list[float], repository_url: str, top_k: int, job_id: str | None = None) -> list[dict[str, Any]]:
     """Return the top-K payloads for a repository, ranked by similarity."""
-    from qdrant_client import models
+    try:
+        from qdrant_client import models
+    except ImportError:
+        return []
 
     from app.infrastructure.rag.repo_index_locator import normalize_repository_url
 
     repository_url = normalize_repository_url(repository_url)
     client = _get_client()
+    if client is None:
+        return []
     existing = {c.name for c in client.get_collections().collections}
     if settings.qdrant_collection not in existing:
         return []
@@ -165,6 +180,8 @@ def search(query_vector: list[float], repository_url: str, top_k: int, job_id: s
 def list_repositories() -> list[dict[str, Any]]:
     """Return the distinct indexed repositories (url + name + metadata)."""
     client = _get_client()
+    if client is None:
+        return []
     existing = {c.name for c in client.get_collections().collections}
     if settings.qdrant_collection not in existing:
         return []
