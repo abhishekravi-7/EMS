@@ -170,6 +170,71 @@ class ArtifactoryVersionResolver:
         resolved = self.resolve_version("org.springframework.boot", "spring-boot-starter-parent", default_fallback=default_fallback)
         return resolved
 
+    def get_spring_framework_version_for_boot(self, spring_boot_version: str | None) -> str:
+        """Return the Spring Framework version managed by the given Spring Boot release."""
+        if not spring_boot_version:
+            return "6.1.14"
+        sb = str(spring_boot_version).strip()
+        if sb.startswith("3.2"):
+            return "6.1.14"
+        if sb.startswith("3.1"):
+            return "6.0.14"
+        if sb.startswith("3.0"):
+            return "6.0.14"
+        if sb.startswith("3."):
+            return "6.1.14"
+        if sb.startswith("2.7"):
+            return "5.3.31"
+        if sb.startswith("2.6"):
+            return "5.3.23"
+        if sb.startswith("2.5"):
+            return "5.3.15"
+        if sb.startswith("2."):
+            return "5.3.31"
+        if sb.startswith("1.5"):
+            return "4.3.30.RELEASE"
+        if sb.startswith("1.3"):
+            return "4.2.9.RELEASE"
+        if sb.startswith("1."):
+            return "4.3.30.RELEASE"
+        return "6.1.14"
+
+    def resolve_candidate_versions(self, group_id: str, artifact_id: str) -> list[str]:
+        """Fetch candidate release versions for group_id:artifact_id."""
+        cache_key = f"candidates:{self.provider}:{self.base_url}:{group_id}:{artifact_id}"
+        now = time.time()
+
+        if cache_key in _VERSION_CACHE:
+            cached_val, expiry = _VERSION_CACHE[cache_key]
+            if now < expiry and isinstance(cached_val, list):
+                return cached_val
+
+        candidates: list[str] = []
+        try:
+            if self.provider == "MAVEN_CENTRAL":
+                query = f'g:"{group_id}" AND a:"{artifact_id}"'
+                url = f"https://search.maven.org/solrsearch/select?q={urllib.parse.quote(query)}&core=gav&rows=25&wt=json"
+                req = urllib.request.Request(url, headers={"User-Agent": "JavaApex-Migration-Engine/2.0"})
+                with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                    if resp.status == 200:
+                        data = json.loads(resp.read().decode("utf-8"))
+                        docs = data.get("response", {}).get("docs", [])
+                        if docs and isinstance(docs, list):
+                            for doc in docs:
+                                v = doc.get("v") or doc.get("latestVersion")
+                                if v and self._is_valid_version(str(v)) and str(v) not in candidates:
+                                    candidates.append(str(v))
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Failed to fetch candidate versions for %s:%s: %s", group_id, artifact_id, exc)
+
+        if not candidates:
+            latest = self.resolve_version(group_id, artifact_id)
+            if latest and latest not in candidates:
+                candidates.append(latest)
+
+        _VERSION_CACHE[cache_key] = (candidates, now + CACHE_TTL_SECONDS)
+        return candidates
+
     def get_jakarta_artifact_coordinates(self, javax_artifact_id: str) -> tuple[str, str, str]:
         """Return (jakarta_group_id, jakarta_artifact_id, latest_version) for legacy javax artifact."""
         mapping = {

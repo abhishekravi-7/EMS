@@ -58,6 +58,9 @@ export interface DependencyInfo {
   declaredVersion?: string | null;
   resolvedVersion?: string | null;
   versionSource?: string | null;
+  direct?: boolean;
+  transitive?: boolean;
+  scope?: string | null;
 }
 
 export interface DetectedFramework {

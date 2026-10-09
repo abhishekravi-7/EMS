@@ -326,8 +326,19 @@ export function buildMigrationState(params: BuildMigrationStateParams): Migratio
         status: String(d.status || "UPGRADED").toUpperCase(),
       });
     });
-  } else {
-    // No dependency upgrade data available from backend — leave depItems empty
+  } else if (Array.isArray(repoAnalysis?.dependencies) && repoAnalysis.dependencies.length > 0) {
+    (repoAnalysis.dependencies as Record<string, unknown>[]).forEach((d) => {
+      const group = (d.group_id || d.groupId || "") as string;
+      const art = (d.artifact_id || d.artifactId || d.name || "") as string;
+      const coord = group && art ? `${group}:${art}` : ((d.coordinate || art) as string);
+      depItems.push({
+        coordinate: coord,
+        name: art || coord,
+        beforeVersion: (d.current_version || d.resolved_version || d.version || null) as string | null,
+        afterVersion: (d.recommended_version || d.new_version || null) as string | null,
+        status: "UPGRADED",
+      });
+    });
   }
 
   const depError = migrationJob?.error_message?.toLowerCase().includes("dependency")
