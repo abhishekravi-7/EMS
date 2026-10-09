@@ -534,10 +534,7 @@ export function ExistingTestAnalytics({
                 }}
               >
                 <span>{riskMode === "PRIORITY" ? "TYPE/RISK" : "TYPE"}</span>
-                <span style={{ display: "flex", gap: 18 }}>
-                  <span style={{ minWidth: 32, textAlign: "right" }}>TESTS</span>
-                  <span style={{ minWidth: 40, textAlign: "right" }}>%</span>
-                </span>
+                <span>TESTS</span>
               </div>
 
               {/* Rows */}
@@ -547,12 +544,9 @@ export function ExistingTestAnalytics({
                     <span style={{ width: 8, height: 8, borderRadius: "50%", background: item.color, flexShrink: 0 }} />
                     <span style={{ fontSize: 11, fontWeight: 700, color: "#334155" }}>{item.label}</span>
                   </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
+                  <div>
                     <span style={{ fontSize: 11, fontWeight: 800, color: "#0f172a", minWidth: 32, textAlign: "right" }}>
                       {item.value}
-                    </span>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: "#64748b", minWidth: 40, textAlign: "right" }}>
-                      {item.percentage}%
                     </span>
                   </div>
                 </div>

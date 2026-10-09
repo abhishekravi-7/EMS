@@ -24,16 +24,10 @@ function MetricCard({ label, value, color, bgColor, icon }: MetricCardProps) {
 
   return (
     <div
+      className="mod-metric-tile"
       style={{
-        background: bgColor,
-        border: `1px solid ${color}15`,
-        borderRadius: 12,
-        padding: "16px 18px",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 12,
-        transition: "transform 0.2s, box-shadow 0.2s",
+        background: bgColor || "#ffffff",
+        borderColor: `${color}25`,
       }}
     >
       <div style={{ flex: 1, minWidth: 0 }}>
@@ -54,27 +48,20 @@ function MetricCard({ label, value, color, bgColor, icon }: MetricCardProps) {
         </div>
         <div
           style={{
-            fontSize: 20,
+            fontSize: 22,
             fontWeight: 900,
             color: color,
-            lineHeight: 1.2,
+            lineHeight: 1.1,
           }}
         >
           {displayValue}
         </div>
       </div>
       <div
+        className="mod-metric-icon-box"
         style={{
-          width: 36,
-          height: 36,
-          borderRadius: 8,
-          background: "rgba(0, 0, 0, 0.02)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
+          background: `${color}15`,
           color: color,
-          fontSize: 15,
-          flexShrink: 0,
         }}
       >
         {icon}
