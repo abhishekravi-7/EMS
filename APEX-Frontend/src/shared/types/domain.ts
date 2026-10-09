@@ -194,6 +194,7 @@ export interface RepoAnalysis {
   }[];
   test_file_list?: { path: string; tool: string }[];
   dependencies: DependencyInfo[];
+  frontend_dependencies?: DependencyInfo[];
   api_endpoints?: DiscoveredApiEndpoint[];
   api_endpoint_count?: number;
   // Optional extras consumed by the wizard/modernization views (populated by
