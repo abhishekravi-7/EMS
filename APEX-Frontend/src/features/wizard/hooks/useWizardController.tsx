@@ -1,13 +1,82 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { wizardStyles as styles } from "@/shared/components/wizard/wizardStyles";
 import {
+  FaCheck,
   FaCheckCircle,
+  FaChevronDown,
+  FaChevronUp,
+  FaExclamationTriangle,
+  FaCopy,
   FaFolderOpen,
   FaLink,
   FaProjectDiagram,
   FaRocket,
   FaSearch,
 } from "react-icons/fa";
+
+function CopyAllDependenciesButton({
+  text,
+  label = "Copy All",
+  title = "Copy all dependencies to clipboard",
+  style = {},
+}: {
+  text: string;
+  label?: string;
+  title?: string;
+  style?: React.CSSProperties;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!text) return;
+    void navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      title={copied ? "All dependencies copied!" : title}
+      aria-label={copied ? "Copied All" : title}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "6px",
+        padding: "6px 12px",
+        borderRadius: "6px",
+        border: "1px solid " + (copied ? "#86efac" : "#cbd5e1"),
+        background: copied ? "#ecfdf5" : "#ffffff",
+        color: copied ? "#166534" : "#1e293b",
+        fontWeight: 600,
+        fontSize: "12px",
+        cursor: "pointer",
+        flexShrink: 0,
+        boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
+        transition: "all 0.15s ease",
+        ...style,
+      }}
+      onMouseEnter={(e) => {
+        if (!copied) {
+          e.currentTarget.style.background = "#f8fafc";
+          e.currentTarget.style.borderColor = "#94a3b8";
+        }
+      }}
+      onMouseLeave={(e) => {
+        if (!copied) {
+          e.currentTarget.style.background = "#ffffff";
+          e.currentTarget.style.borderColor = "#cbd5e1";
+        }
+      }}
+    >
+      {copied ? <FaCheck size={12} style={{ color: "#166534" }} /> : <FaCopy size={12} />}
+      <span>{copied ? "Copied All!" : label}</span>
+    </button>
+  );
+}
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   buildHtmlFilename,
@@ -44,6 +113,7 @@ import {
   type StrategyPageContext,
 } from "@/features/strategy/services/strategyService";
 import { ApiError } from "@/services/http/client";
+import { getUserSettings } from "@/features/admin/services/adminService";
 import { formatLlmAwareError, isLlmNotConfiguredError } from "@/shared/utils/llmError";
 import {
   getMigrationDetail,
@@ -1428,6 +1498,9 @@ export function useWizardController() {
   const [versionRecommendationLoading, setVersionRecommendationLoading] = useState(false);
   const [versionRecommendationError, setVersionRecommendationError] = useState("");
   const [dependencyRiskFilter, setDependencyRiskFilter] = useState<DependencyRiskFilter>("all");
+  const [dependencySearchQuery, setDependencySearchQuery] = useState("");
+  const [dependencyActiveTab, setDependencyActiveTab] = useState<"attention" | "all" | "low">("attention");
+  const [expandedDepIndex, setExpandedDepIndex] = useState<number | null>(null);
 
   // Functional test tool selection for Strategy page (multi-select)
   const [functionalTestToolMethod, setFunctionalTestToolMethod] = useState<string[]>(
@@ -2040,20 +2113,23 @@ export function useWizardController() {
     setError("");
 
     try {
-      const prefetchedAssetReady = prefetchedBrdDocument && documentPrefetchStatus === "ready";
-      const activePrefetchPromise =
-        !prefetchedAssetReady && documentPrefetchStatus === "loading"
-          ? documentPrefetchPromiseRef.current
-          : null;
-      const generatedAsset = prefetchedAssetReady
-        ? prefetchedBrdDocument
-        : await (async () => {
-          if (activePrefetchPromise) {
-            const prefetchedAsset = await activePrefetchPromise;
-            if (prefetchedAsset) {
-              return prefetchedAsset;
-            }
-          }
+      const brdSettings = await getUserSettings().catch(() => ({} as Awaited<ReturnType<typeof getUserSettings>>));
+      const brdValues = brdSettings.quality_checks_values || {};
+      const brdInstructions = String(brdValues.brd_instructions ?? brdValues.brd_focus_prompt ?? "");
+      const brdRequestSettings = {
+        ...(brdInstructions.trim() ? { brd_instructions: brdInstructions } : {}),
+        brd_generation_enabled: brdValues.brd_generation_enabled !== false,
+        brd_system_prompt: typeof brdValues.brd_system_prompt === "string" ? brdValues.brd_system_prompt : undefined,
+        brd_migration_target: typeof brdValues.brd_migration_target === "string" ? brdValues.brd_migration_target : undefined,
+        brd_microservices_enabled: brdValues.brd_microservices_enabled !== false,
+        brd_category_business_workflows: brdValues.brd_category_business_workflows !== false,
+        brd_category_database_data: brdValues.brd_category_database_data !== false,
+        brd_category_architecture: brdValues.brd_category_architecture !== false,
+        brd_category_apis_integrations: brdValues.brd_category_apis_integrations !== false,
+        brd_category_security_access: brdValues.brd_category_security_access !== false,
+        brd_category_reliability_performance: brdValues.brd_category_reliability_performance !== false,
+      };
+      const generatedAsset = await (async () => {
 
           const result = isLocalRepoRef(repoReference)
             ? await generateLocalProjectDocument({
@@ -2065,6 +2141,7 @@ export function useWizardController() {
               source_java_version: repoAnalysis?.java_version || selectedSourceVersion || undefined,
               target_java_version: effectiveTargetVersion || undefined,
               document_type: "BRD",
+              ...brdRequestSettings,
               analysis: repoAnalysis as unknown as Record<string, unknown>,
             })
             : await generateGithubDocument("brd", {
@@ -2080,6 +2157,7 @@ export function useWizardController() {
               source_java_version: repoAnalysis?.java_version || selectedSourceVersion || undefined,
               target_java_version: effectiveTargetVersion || undefined,
               document_type: "BRD",
+              ...brdRequestSettings,
               analysis: repoAnalysis as unknown as Record<string, unknown>,
             });
 
@@ -2095,11 +2173,8 @@ export function useWizardController() {
 
           throw new Error("Generated BRD document did not include HTML content or a download URL.");
         })();
-
-      if (!prefetchedAssetReady) {
-        setPrefetchedBrdDocument(generatedAsset);
-        setDocumentPrefetchStatus("ready");
-      }
+      setPrefetchedBrdDocument(generatedAsset);
+      setDocumentPrefetchStatus("ready");
 
       if (generatedAsset.html) {
         await downloadHtmlDocument(generatedAsset.html, generatedAsset.filename);
@@ -2954,188 +3029,522 @@ export function useWizardController() {
       },
       { critical: 0, high: 0, medium: 0, low: 0 } as Record<DependencyRiskLevel, number>
     );
-    const visibleDependencies =
-      dependencyRiskFilter === "all"
-        ? categorizedDependencies
-        : categorizedDependencies.filter((dep) => dep.risk === dependencyRiskFilter);
-    const attentionDependencies = visibleDependencies.filter((dep) => dep.risk !== "low");
-    const otherDependencies = visibleDependencies.filter((dep) => dep.risk === "low");
-    const dominantRisk: DependencyRiskLevel =
-      (dependencyAnalysis?.overall_risk?.toLowerCase() as DependencyRiskLevel) ||
-      (riskCounts.critical > 0 ? "critical" : riskCounts.high > 0 ? "high" : riskCounts.medium > 0 ? "medium" : "low");
-    const topAttentionNames = attentionDependencies.slice(0, 5).map((dep) => dep.artifact_id).join(", ");
-    const activeFilterLabel = dependencyRiskFilter === "all" ? "All Dependencies" : `${dependencyRiskFilter.toUpperCase()} Only`;
 
-    const getSummaryCardStyle = (risk: DependencyRiskFilter) => {
-      const isActive = dependencyRiskFilter === risk;
-      const colors = risk === "all" ? getDependencyRiskColors(dominantRisk) : getDependencyRiskColors(risk);
+    const attentionDependenciesAll = categorizedDependencies.filter((dep) => dep.risk !== "low");
+    const lowDependenciesAll = categorizedDependencies.filter((dep) => dep.risk === "low");
 
-      return {
-        ...styles.dependencySummaryCard,
-        borderColor: colors.border,
-        background: isActive ? colors.background : "#fff",
-        boxShadow: isActive ? `0 0 0 2px ${colors.border}33` : styles.dependencySummaryCard.boxShadow,
-        cursor: "pointer",
-      };
-    };
+    // Filter by Tab
+    let tabFiltered = categorizedDependencies;
+    if (dependencyActiveTab === "attention") {
+      tabFiltered = attentionDependenciesAll;
+    } else if (dependencyActiveTab === "low") {
+      tabFiltered = lowDependenciesAll;
+    }
 
-    const handleRiskFilterClick = (risk: DependencyRiskFilter) => {
-      if (risk === "all") {
-        setDependencyRiskFilter("all");
-        return;
-      }
+    // Filter by Risk Pill
+    let riskFiltered = tabFiltered;
+    if (dependencyRiskFilter !== "all") {
+      riskFiltered = tabFiltered.filter((dep) => dep.risk === dependencyRiskFilter);
+    }
 
-      setDependencyRiskFilter((currentFilter) => (currentFilter === risk ? "all" : risk));
-    };
+    // Filter by Search Query
+    const searchLower = dependencySearchQuery.trim().toLowerCase();
+    const finalFilteredDependencies = searchLower
+      ? riskFiltered.filter(
+          (dep) =>
+            dep.displayName.toLowerCase().includes(searchLower) ||
+            dep.artifact_id.toLowerCase().includes(searchLower) ||
+            dep.group_id?.toLowerCase().includes(searchLower) ||
+            dep.category?.toLowerCase().includes(searchLower) ||
+            dep.reason?.toLowerCase().includes(searchLower)
+        )
+      : riskFiltered;
 
-    const renderDependencyCard = (dep: CategorizedDependency, idx: number) => {
-      const colors = getDependencyRiskColors(dep.risk);
-      return (
-        <div
-          key={`${dep.displayName}:${idx}`}
-          style={{
-            ...styles.categorizedDependencyCard,
-            background: colors.background,
-            borderColor: colors.border,
-          }}
-          title={dep.reason}
-        >
-          <div style={styles.categorizedDependencyHeader}>
-            <div style={styles.categorizedDependencyName}>{dep.displayName}</div>
-            <span
-              style={{
-                ...styles.dependencyRiskBadge,
-                backgroundColor: colors.badgeBackground,
-                color: colors.badgeColor,
-              }}
-            >
-              {dep.risk.toUpperCase()}
-            </span>
-          </div>
-          <div style={styles.categorizedDependencyVersion}>
-            {(dep.resolvedVersion && dep.resolvedVersion !== "Unknown version") ||
-              (dep.current_version && dep.current_version !== "Unknown version")
-              ? dep.resolvedVersion || dep.current_version
-              : "Version unavailable"}
-            {dep.versionSource && (
-              <span style={{ fontSize: 11, color: "#64748b", marginLeft: 6, fontWeight: 500 }}>
-                · {dep.versionSource}
-              </span>
-            )}
-          </div>
-          <div style={styles.dependencyMetaRow}>
-            <span style={styles.dependencyCategoryBadge}>{dep.category}</span>
-            {dep.status && (
-              <span style={{ ...styles.dependencyStatusPill, color: colors.textColor }}>
-                {getDependencyStatusLabel(dep.status)}
-              </span>
-            )}
-          </div>
-          <div style={{ ...styles.dependencyReasonText, color: colors.textColor }}>{dep.reason}</div>
-          {dep.recommendation && (
-            <div
-              style={{
-                marginTop: 8,
-                padding: "6px 10px",
-                borderRadius: 6,
-                background: "rgba(255, 255, 255, 0.7)",
-                border: `1px solid ${colors.border}`,
-                fontSize: 12,
-                lineHeight: 1.4,
-                color: colors.textColor,
-              }}
-            >
-              <strong style={{ fontWeight: 700 }}>Recommendation: </strong>
-              {dep.recommendation}
-            </div>
-          )}
-        </div>
-      );
-    };
+    const totalCount = categorizedDependencies.length;
+    const attentionCount = attentionDependenciesAll.length;
+    const lowCount = lowDependenciesAll.length;
+    const topAttentionNames = attentionDependenciesAll.slice(0, 5).map((dep) => dep.artifact_id).join(", ");
+
+    const radius = 38;
+    const strokeWidth = 10;
+    const circumference = 2 * Math.PI * radius;
+
+    const criticalPct = totalCount > 0 ? riskCounts.critical / totalCount : 0;
+    const highPct = totalCount > 0 ? riskCounts.high / totalCount : 0;
+    const mediumPct = totalCount > 0 ? riskCounts.medium / totalCount : 0;
+    const lowPct = totalCount > 0 ? riskCounts.low / totalCount : 0;
+
+    const criticalDash = criticalPct * circumference;
+    const highDash = highPct * circumference;
+    const mediumDash = mediumPct * circumference;
+    const lowDash = lowPct * circumference;
+
+    let currentOffset = 0;
+    const criticalOffset = currentOffset;
+    currentOffset += criticalDash;
+    const highOffset = currentOffset;
+    currentOffset += highDash;
+    const mediumOffset = currentOffset;
+    currentOffset += mediumDash;
+    const lowOffset = currentOffset;
 
     return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+        {/* Total Dependencies Top Container matching mockup (Commented Out) */}
+        {/*
+        <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 16, padding: "22px 24px", boxShadow: "0 4px 14px rgba(15, 23, 42, 0.04)" }}>
+          <div style={{ marginBottom: 16 }}>
+            <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#0f172a", fontFamily: "Inter, sans-serif" }}>Total Dependencies ({totalCount})</h3>
+            <p style={{ margin: "4px 0 0 0", fontSize: 13, color: "#64748b" }}>
+              Based on {totalCount} dependencies, {attentionCount} require explicit migration attention.
+            </p>
+          </div>
       <div style={styles.dependencyInsightsPanel}>
-        <div style={styles.dependencyInsightsHeader}>
-          <div style={styles.dependencyInsightsTitle}>Total Dependencies ({categorizedDependencies.length})</div>
-          <div style={styles.dependencyInsightsSubtitle}>
-            {!dependencyAnalysisLoading && dependencyAnalysis?.overall_explanation ? (
-              dependencyAnalysis.overall_explanation
-            ) : (
-              "Categorized from repository analysis. Risk levels are migration compatibility signals, not live CVE results."
-            )}
+        <div style={{ ...styles.dependencyInsightsHeader, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <div style={styles.dependencyInsightsTitle}>Total Dependencies ({categorizedDependencies.length})</div>
+            <div style={styles.dependencyInsightsSubtitle}>
+              {!dependencyAnalysisLoading && dependencyAnalysis?.overall_explanation ? (
+                dependencyAnalysis.overall_explanation
+              ) : (
+                "Categorized from repository analysis. Risk levels are migration compatibility signals, not live CVE results."
+              )}
+            </div>
           </div>
-        </div>
-
-        <div style={styles.dependencySummaryGrid}>
-          <div style={getSummaryCardStyle("all")} onClick={() => handleRiskFilterClick("all")}>
-            <div style={styles.dependencySummaryLabel}>Overall Risk</div>
-            <div style={styles.dependencySummaryValue}>{dominantRisk.toUpperCase()}</div>
-          </div>
-          <div style={getSummaryCardStyle("critical")} onClick={() => handleRiskFilterClick("critical")}>
-            <div style={styles.dependencySummaryLabel}>Critical</div>
-            <div style={{ ...styles.dependencySummaryValue, color: "#dc2626" }}>{riskCounts.critical}</div>
-          </div>
-          <div style={getSummaryCardStyle("high")} onClick={() => handleRiskFilterClick("high")}>
-            <div style={styles.dependencySummaryLabel}>High</div>
-            <div style={{ ...styles.dependencySummaryValue, color: "#f97316" }}>{riskCounts.high}</div>
-          </div>
-          <div style={getSummaryCardStyle("medium")} onClick={() => handleRiskFilterClick("medium")}>
-            <div style={styles.dependencySummaryLabel}>Medium</div>
-            <div style={{ ...styles.dependencySummaryValue, color: "#d97706" }}>{riskCounts.medium}</div>
-          </div>
-          <div style={getSummaryCardStyle("low")} onClick={() => handleRiskFilterClick("low")}>
-            <div style={styles.dependencySummaryLabel}>Low</div>
-            <div style={{ ...styles.dependencySummaryValue, color: "#16a34a" }}>{riskCounts.low}</div>
-          </div>
-        </div>
-
-        <div style={styles.dependencyFilterBar}>
-          <span style={styles.dependencyFilterLabel}>Showing: {activeFilterLabel}</span>
-          {dependencyRiskFilter !== "all" && (
-            <button
-              type="button"
-              style={styles.dependencyFilterClearButton}
-              onClick={() => setDependencyRiskFilter("all")}
-            >
-              Clear Filter
-            </button>
+          {categorizedDependencies.length > 0 && (
+            <CopyAllDependenciesButton
+              text={categorizedDependencies
+                .map((d) => (d.group_id && d.artifact_id ? `${d.group_id}:${d.artifact_id}` : d.displayName))
+                .join("\n")}
+              label="Copy All"
+            />
           )}
         </div>
 
-        {attentionDependencies.length > 0 && (
-          <>
-            <div style={styles.dependencyAlertBox}>
-              <div style={styles.dependencyAlertTitle}>Warning: {attentionDependencies.length} dependencies need migration attention</div>
-              <div style={styles.dependencyAlertText}>
-                Review runtime-facing, legacy, or incomplete-version dependencies first.
-                {topAttentionNames ? ` Priority artifacts: ${topAttentionNames}${attentionDependencies.length > 5 ? "..." : ""}` : ""}
+          <div style={{ display: "grid", gridTemplateColumns: "320px 1fr", gap: 20, alignItems: "stretch" }}>
+            <div style={{ background: "#ffffff", border: "1px solid #e8eef7", borderRadius: 14, padding: "16px 20px", display: "flex", alignItems: "center", gap: 20 }}>
+              <div style={{ flexShrink: 0 }}>
+                <svg width="105" height="105" viewBox="0 0 100 100" style={{ transform: "rotate(-90deg)" }}>
+                  <circle cx="50" cy="50" r={radius} fill="none" stroke="#f1f5f9" strokeWidth={strokeWidth} />
+                  {lowDash > 0 && (
+                    <circle
+                      cx="50" cy="50" r={radius} fill="none"
+                      stroke="#34d399" strokeWidth={strokeWidth}
+                      strokeDasharray={`${lowDash} ${circumference - lowDash}`}
+                      strokeDashoffset={-lowOffset}
+                      strokeLinecap="round"
+                    />
+                  )}
+                  {mediumDash > 0 && (
+                    <circle
+                      cx="50" cy="50" r={radius} fill="none"
+                      stroke="#facc15" strokeWidth={strokeWidth}
+                      strokeDasharray={`${mediumDash} ${circumference - mediumDash}`}
+                      strokeDashoffset={-mediumOffset}
+                      strokeLinecap="round"
+                    />
+                  )}
+                  {highDash > 0 && (
+                    <circle
+                      cx="50" cy="50" r={radius} fill="none"
+                      stroke="#fb923c" strokeWidth={strokeWidth}
+                      strokeDasharray={`${highDash} ${circumference - highDash}`}
+                      strokeDashoffset={-highOffset}
+                      strokeLinecap="round"
+                    />
+                  )}
+                  {criticalDash > 0 && (
+                    <circle
+                      cx="50" cy="50" r={radius} fill="none"
+                      stroke="#f87171" strokeWidth={strokeWidth}
+                      strokeDasharray={`${criticalDash} ${circumference - criticalDash}`}
+                      strokeDashoffset={-criticalOffset}
+                      strokeLinecap="round"
+                    />
+                  )}
+                  <g transform="rotate(90 50 50)">
+                    <text x="50" y="47" textAnchor="middle" fontSize="22" fontWeight="800" fill="#0f172a">{totalCount}</text>
+                    <text x="50" y="63" textAnchor="middle" fontSize="11" fontWeight="600" fill="#94a3b8">Total</text>
+                  </g>
+                </svg>
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 13, fontWeight: 600 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#475569" }}>
+                    <span style={{ width: 10, height: 10, borderRadius: "50%", background: "#f87171" }} />
+                    Critical
+                  </div>
+                  <span style={{ fontWeight: 800, color: "#0f172a" }}>{riskCounts.critical}</span>
+                </div>
+
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 13, fontWeight: 600 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#475569" }}>
+                    <span style={{ width: 10, height: 10, borderRadius: "50%", background: "#fb923c" }} />
+                    High
+                  </div>
+                  <span style={{ fontWeight: 800, color: "#0f172a" }}>{riskCounts.high}</span>
+                </div>
+
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 13, fontWeight: 600 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#475569" }}>
+                    <span style={{ width: 10, height: 10, borderRadius: "50%", background: "#facc15" }} />
+                    Medium
+                  </div>
+                  <span style={{ fontWeight: 800, color: "#0f172a" }}>{riskCounts.medium}</span>
+                </div>
+
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 13, fontWeight: 600 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#475569" }}>
+                    <span style={{ width: 10, height: 10, borderRadius: "50%", background: "#34d399" }} />
+                    Low
+                  </div>
+                  <span style={{ fontWeight: 800, color: "#0f172a" }}>{riskCounts.low}</span>
+                </div>
               </div>
             </div>
-            <div style={styles.categorizedDependenciesSection}>
-              <div style={styles.categorizedDependenciesSectionTitle}>Dependencies Requiring Attention ({attentionDependencies.length})</div>
-              <div style={styles.categorizedDependenciesGrid}>
-                {attentionDependencies.map(renderDependencyCard)}
+
+            <div style={{ background: "#fff7ed", border: "1px solid #ffedd5", borderRadius: 16, padding: "20px 24px", display: "flex", alignItems: "flex-start", gap: 16, position: "relative" }}>
+              <div style={{ width: 44, height: 44, borderRadius: 12, background: "#fed7aa", color: "#ea580c", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, flexShrink: 0, marginTop: 2 }}>
+                <FaExclamationTriangle />
+              </div>
+
+              <div style={{ flex: 1, paddingRight: 32 }}>
+                <div style={{ fontSize: 15, fontWeight: 800, color: "#ea580c", marginBottom: 6 }}>
+                  Warning: {attentionCount} dependencies need migration attention
+                </div>
+                <div style={{ fontSize: 13, color: "#64748b", lineHeight: 1.5 }}>
+                  Review runtime-facing, legacy, or incomplete-version dependencies first.
+                  {topAttentionNames ? ` Priority artifacts: ${topAttentionNames}${attentionCount > 5 ? "..." : ""}` : ""}
+                </div>
+              </div>
+
+              <div
+                onClick={() => setDependencyActiveTab("attention")}
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: "50%",
+                  background: "#ffffff",
+                  border: "1px solid #fed7aa",
+                  color: "#ea580c",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 14,
+                  fontWeight: 800,
+                  flexShrink: 0,
+                  boxShadow: "0 2px 6px rgba(234, 88, 12, 0.12)",
+                  cursor: "pointer",
+                }}
+                title="Jump to attention dependencies"
+              >
+                ➔
               </div>
             </div>
-          </>
-        )}
+          </div>
+        </div>
+        */}
 
-        {otherDependencies.length > 0 && (
-          <div style={styles.categorizedDependenciesSection}>
-            <div style={{ ...styles.categorizedDependenciesSectionTitle, color: "#166534" }}>
-              Other Dependencies ({otherDependencies.length})
+        {/* COMPACT TABBED DATA TABLE */}
+        <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 16, padding: "20px 24px", boxShadow: "0 4px 14px rgba(15, 23, 42, 0.04)" }}>
+          {/* Header Controls: Tabs + Search */}
+          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 14, marginBottom: 16 }}>
+            {/* Segmented Tabs */}
+            <div style={{ display: "flex", background: "#f1f5f9", borderRadius: 10, padding: 3, gap: 4 }}>
+              <button
+                type="button"
+                onClick={() => setDependencyActiveTab("attention")}
+                style={{
+                  padding: "6px 14px",
+                  borderRadius: 8,
+                  border: "none",
+                  background: dependencyActiveTab === "attention" ? "#ffffff" : "transparent",
+                  color: dependencyActiveTab === "attention" ? "#ea580c" : "#64748b",
+                  fontWeight: 700,
+                  fontSize: 13,
+                  cursor: "pointer",
+                  boxShadow: dependencyActiveTab === "attention" ? "0 1px 4px rgba(15,23,42,0.08)" : "none",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  transition: "all 0.15s ease",
+                }}
+              >
+                <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#f97316" }} />
+                Attention Needed ({attentionCount})
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setDependencyActiveTab("all")}
+                style={{
+                  padding: "6px 14px",
+                  borderRadius: 8,
+                  border: "none",
+                  background: dependencyActiveTab === "all" ? "#ffffff" : "transparent",
+                  color: dependencyActiveTab === "all" ? "#0f172a" : "#64748b",
+                  fontWeight: 700,
+                  fontSize: 13,
+                  cursor: "pointer",
+                  boxShadow: dependencyActiveTab === "all" ? "0 1px 4px rgba(15,23,42,0.08)" : "none",
+                  transition: "all 0.15s ease",
+                }}
+              >
+                All ({totalCount})
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setDependencyActiveTab("low")}
+                style={{
+                  padding: "6px 14px",
+                  borderRadius: 8,
+                  border: "none",
+                  background: dependencyActiveTab === "low" ? "#ffffff" : "transparent",
+                  color: dependencyActiveTab === "low" ? "#16a34a" : "#64748b",
+                  fontWeight: 700,
+                  fontSize: 13,
+                  cursor: "pointer",
+                  boxShadow: dependencyActiveTab === "low" ? "0 1px 4px rgba(15,23,42,0.08)" : "none",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  transition: "all 0.15s ease",
+                }}
+              >
+                <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#34d399" }} />
+                Compatible ({lowCount})
+              </button>
             </div>
-            <div style={styles.categorizedDependenciesGrid}>
-              {otherDependencies.map(renderDependencyCard)}
+
+            {/* Search Input Box */}
+            <div style={{ position: "relative", width: 260 }}>
+              <FaSearch style={{ position: "absolute", left: 10, top: 10, color: "#94a3b8", fontSize: 13 }} />
+              <input
+                type="text"
+                placeholder="Search dependencies..."
+                value={dependencySearchQuery}
+                onChange={(e) => setDependencySearchQuery(e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "6px 12px 6px 32px",
+                  fontSize: 13,
+                  borderRadius: 8,
+                  border: "1px solid #cbd5e1",
+                  outline: "none",
+                  background: "#f8fafc",
+                }}
+              />
+              {dependencySearchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setDependencySearchQuery("")}
+                  style={{
+                    position: "absolute",
+                    right: 8,
+                    top: 6,
+                    border: "none",
+                    background: "transparent",
+                    color: "#94a3b8",
+                    fontSize: 12,
+                    cursor: "pointer",
+                  }}
+                >
+                  ✕
+                </button>
+              )}
             </div>
           </div>
-        )}
 
-        {visibleDependencies.length === 0 && (
-          <div style={styles.dependencyEmptyState}>
-            No dependencies match the selected risk filter.
+          {/* Risk Level Sub-Filter Pills */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, overflowX: "auto", paddingBottom: 4 }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: "#64748b" }}>Risk Level:</span>
+            {[
+              { level: "all", label: `All (${tabFiltered.length})` },
+              { level: "critical", label: `Critical (${tabFiltered.filter((d) => d.risk === "critical").length})` },
+              { level: "high", label: `High (${tabFiltered.filter((d) => d.risk === "high").length})` },
+              { level: "medium", label: `Medium (${tabFiltered.filter((d) => d.risk === "medium").length})` },
+              { level: "low", label: `Low (${tabFiltered.filter((d) => d.risk === "low").length})` },
+            ].map(({ level, label }) => {
+              const isSelected = dependencyRiskFilter === level;
+              return (
+                <button
+                  key={level}
+                  type="button"
+                  onClick={() => setDependencyRiskFilter(level as any)}
+                  style={{
+                    padding: "3px 10px",
+                    borderRadius: 20,
+                    border: isSelected ? "1px solid #2563eb" : "1px solid #e2e8f0",
+                    background: isSelected ? "#eff6ff" : "#ffffff",
+                    color: isSelected ? "#1d4ed8" : "#475569",
+                    fontSize: 12,
+                    fontWeight: isSelected ? 700 : 500,
+                    cursor: "pointer",
+                    transition: "all 0.15s ease",
+                  }}
+                >
+                  {label}
+                </button>
+              );
+            })}
           </div>
-        )}
+
+          {/* High-Density Compact Scrollable Table */}
+          <div style={{ border: "1px solid #e2e8f0", borderRadius: 10, overflow: "hidden", maxHeight: 360, overflowY: "auto", background: "#ffffff" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: 13 }}>
+              <thead>
+                <tr style={{ background: "#f8fafc", borderBottom: "1px solid #e2e8f0", position: "sticky", top: 0, zIndex: 2 }}>
+                  <th style={{ padding: "10px 14px", color: "#475569", fontWeight: 700, fontSize: 12 }}>ARTIFACT / MODULE</th>
+                  <th style={{ padding: "10px 14px", color: "#475569", fontWeight: 700, fontSize: 12 }}>VERSION</th>
+                  <th style={{ padding: "10px 14px", color: "#475569", fontWeight: 700, fontSize: 12 }}>RISK</th>
+                  <th style={{ padding: "10px 14px", color: "#475569", fontWeight: 700, fontSize: 12 }}>STATUS</th>
+                  <th style={{ padding: "10px 14px", color: "#475569", fontWeight: 700, fontSize: 12 }}>DETAILS & RECOMMENDATION</th>
+                </tr>
+              </thead>
+              <tbody>
+                {finalFilteredDependencies.length > 0 ? (
+                  finalFilteredDependencies.map((dep, idx) => {
+                    const colors = getDependencyRiskColors(dep.risk);
+                    const isExpanded = expandedDepIndex === idx;
+                    const versionStr =
+                      (dep.resolvedVersion && dep.resolvedVersion !== "Unknown version") ||
+                      (dep.current_version && dep.current_version !== "Unknown version")
+                        ? dep.resolvedVersion || dep.current_version
+                        : "Unknown";
+
+                    return (
+                      <React.Fragment key={`${dep.displayName}:${idx}`}>
+                        <tr
+                          onClick={() => setExpandedDepIndex(isExpanded ? null : idx)}
+                          style={{
+                            borderBottom: "1px solid #f1f5f9",
+                            background: isExpanded ? "#f8fafc" : "#ffffff",
+                            cursor: "pointer",
+                            transition: "background 0.15s ease",
+                          }}
+                        >
+                          {/* 1. Artifact Name */}
+                          <td style={{ padding: "10px 14px", fontWeight: 700, color: "#0f172a" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <span>{dep.displayName}</span>
+                              <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "#f1f5f9", color: "#64748b", fontWeight: 600 }}>
+                                {dep.category}
+                              </span>
+                            </div>
+                            {dep.group_id && (
+                              <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 400, marginTop: 2 }}>
+                                {dep.group_id}
+                              </div>
+                            )}
+                          </td>
+
+                          {/* 2. Version */}
+                          <td style={{ padding: "10px 14px", color: "#334155", fontWeight: 600 }}>
+                            {versionStr}
+                            {dep.versionSource && (
+                              <span style={{ fontSize: 11, color: "#94a3b8", marginLeft: 4, fontWeight: 400 }}>
+                                ({dep.versionSource})
+                              </span>
+                            )}
+                          </td>
+
+                          {/* 3. Risk Badge */}
+                          <td style={{ padding: "10px 14px" }}>
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "2px 8px",
+                                borderRadius: 6,
+                                fontSize: 11,
+                                fontWeight: 800,
+                                textTransform: "uppercase",
+                                backgroundColor: colors.badgeBackground,
+                                color: colors.badgeColor,
+                                border: `1px solid ${colors.border}`,
+                              }}
+                            >
+                              {dep.risk}
+                            </span>
+                          </td>
+
+                          {/* 4. Status */}
+                          <td style={{ padding: "10px 14px" }}>
+                            {dep.status ? (
+                              <span style={{ fontSize: 12, fontWeight: 600, color: colors.textColor }}>
+                                {getDependencyStatusLabel(dep.status)}
+                              </span>
+                            ) : (
+                              <span style={{ fontSize: 12, color: "#94a3b8" }}>—</span>
+                            )}
+                          </td>
+
+                          {/* 5. Details & Accordion Toggle */}
+                          <td style={{ padding: "10px 14px", color: "#475569" }}>
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                              <span style={{ fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 260 }}>
+                                {dep.reason}
+                              </span>
+                              <span style={{ fontSize: 12, color: "#2563eb", fontWeight: 700, marginLeft: 8, display: "flex", alignItems: "center", gap: 4 }}>
+                                {isExpanded ? <FaChevronUp size={11} /> : <FaChevronDown size={11} />}
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+
+                        {/* Expanded Detail Panel */}
+                        {isExpanded && (
+                          <tr style={{ background: "#f8fafc", borderBottom: "1px solid #e2e8f0" }}>
+                            <td colSpan={5} style={{ padding: "12px 18px" }}>
+                              <div style={{ background: "#ffffff", border: `1px solid ${colors.border}`, borderRadius: 8, padding: "12px 16px" }}>
+                                <div style={{ fontSize: 13, color: colors.textColor, marginBottom: 6 }}>
+                                  <strong style={{ fontWeight: 700 }}>Rationale: </strong>{dep.reason}
+                                </div>
+                                {dep.recommendation && (
+                                  <div style={{ fontSize: 12, color: "#0f172a", background: "#f1f5f9", padding: "8px 12px", borderRadius: 6, marginTop: 6 }}>
+                                    <strong style={{ fontWeight: 700, color: "#2563eb" }}>Migration Action: </strong>
+                                    {dep.recommendation}
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })
+                ) : (
+                  <tr>
+                    <td colSpan={5} style={{ padding: "28px", textAlign: "center", color: "#64748b" }}>
+                      No dependencies match the current search query or risk filter.
+                      {(dependencySearchQuery || dependencyRiskFilter !== "all") && (
+                        <div style={{ marginTop: 8 }}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDependencySearchQuery("");
+                              setDependencyRiskFilter("all");
+                            }}
+                            style={{ padding: "4px 12px", borderRadius: 6, border: "1px solid #cbd5e1", background: "#ffffff", color: "#2563eb", fontWeight: 600, fontSize: 12, cursor: "pointer" }}
+                          >
+                            Clear Filters
+                          </button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Footer Bar */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12, fontSize: 12, color: "#64748b" }}>
+            <span>Showing <strong>{finalFilteredDependencies.length}</strong> of {totalCount} dependencies</span>
+            <span style={{ fontStyle: "italic" }}>Click any row for detailed migration recommendations</span>
+          </div>
+        </div>
       </div>
     );
   };
@@ -4422,12 +4831,12 @@ export function useWizardController() {
       }
 
       try {
-        const analyzePromise = effectiveJobId
-          ? runDiscovery(effectiveJobId, currentToken, isRerun)
-            .then(async (result) => enrichAnalysisWithPomVersion(result.analysis as RepoAnalysis, selectedRepo.url, currentToken))
-          : isLocalProject
-            ? analyzeLocalProject(extractLocalRepoPath(selectedRepo.url))
-              .then(async (result) => enrichAnalysisWithPomVersion(result.analysis as RepoAnalysis, selectedRepo.url, ""))
+        const analyzePromise = isLocalProject
+          ? analyzeLocalProject(extractLocalRepoPath(selectedRepo.url))
+            .then(async (result) => enrichAnalysisWithPomVersion(result.analysis as RepoAnalysis, selectedRepo.url, ""))
+          : effectiveJobId
+            ? runDiscovery(effectiveJobId, currentToken, isRerun)
+              .then(async (result) => enrichAnalysisWithPomVersion(result.analysis as RepoAnalysis, selectedRepo.url, currentToken))
             : analyzeRepoUrl(selectedRepo.url, currentToken, true)
               .then(async (result) => enrichAnalysisWithPomVersion(result.analysis as RepoAnalysis, selectedRepo.url, currentToken));
 
@@ -4711,11 +5120,20 @@ export function useWizardController() {
   }, [step, repoAnalysis, detectedSourceVersionForTargets, detectedJavaVersion, riskLevel]);
 
   useEffect(() => {
-    if ((step !== 2 && step !== 3) || !repoAnalysis || !repoAnalysis.dependencies || repoAnalysis.dependencies.length === 0) {
+    if ((step !== 2 && step !== 3 && step !== 4) || !repoAnalysis || !repoAnalysis.dependencies || repoAnalysis.dependencies.length === 0) {
       return;
     }
 
-    const depsKey = `${repoAnalysis.java_version || repoAnalysis.java_version_from_build || ""}_${repoAnalysis.build_tool || ""}_${effectiveTargetVersion || ""}_${repoAnalysis.dependencies.map((d) => `${d.group_id}:${d.artifact_id}:${d.current_version}`).join(";")}`;
+    const normalizedDependencies = repoAnalysis.dependencies.map((d: any) => ({
+      group_id: d.group_id || d.groupId || d.group || "",
+      artifact_id: d.artifact_id || d.artifactId || d.artifact || "",
+      current_version: d.current_version || d.resolved_version || d.declared_version || d.version || "unknown",
+      scope: d.scope || "compile",
+      direct: d.direct ?? !d.transitive,
+      transitive: Boolean(d.transitive),
+    }));
+
+    const depsKey = `${repoAnalysis.java_version || repoAnalysis.java_version_from_build || ""}_${repoAnalysis.build_tool || ""}_${effectiveTargetVersion || ""}_${normalizedDependencies.map((d) => `${d.group_id}:${d.artifact_id}:${d.current_version}`).join(";")}`;
     if (fetchedDependencyAnalysisKeyRef.current === depsKey && dependencyAnalysis) {
       return;
     }
@@ -4725,12 +5143,13 @@ export function useWizardController() {
     setDependencyAnalysisLoading(true);
 
     analyzeDependencies({
-      dependencies: repoAnalysis.dependencies,
+      dependencies: normalizedDependencies,
       source_java_version: detectedSourceVersionForTargets,
       target_java_version: effectiveTargetVersion,
       build_tool: repoAnalysis.build_tool,
       frameworks: repoAnalysis.frameworks || [],
       testing_frameworks: (repoAnalysis.testing_frameworks as unknown[]) || [],
+      spring_boot_version: repoAnalysis.spring_boot_version || undefined,
       api_endpoint_count: repoAnalysis.api_endpoints?.length ?? 0,
       job_id: jobId || undefined,
     })
@@ -4871,77 +5290,90 @@ export function useWizardController() {
     setPrefetchedBrdDocument(null);
 
     let cancelled = false;
-    const timeoutId = setTimeout(() => {
-      if (cancelled) return;
+    const githubRequest = {
+      repo_url: repoReference,
+      repository_url: repoReference,
+      source_repo_url: repoReference,
+      token: currentToken || undefined,
+      github_token: currentToken || undefined,
+      job_id: effectiveJobId || migrationJob?.job_id || undefined,
+      migration_job_id: migrationJob?.job_id || undefined,
+      source_repo: migrationJob?.source_repo || repoReference,
+      target_repo: migrationJob?.target_repo || null,
+      source_java_version: repoAnalysis?.java_version || selectedSourceVersion || undefined,
+      target_java_version: effectiveTargetVersion || undefined,
+      document_type: "BRD",
+      analysis: repoAnalysis as unknown as Record<string, unknown>,
+    };
+    const localProjectRequest = {
+      repo_url: repoReference,
+      repository_url: repoReference,
+      source_repo_url: repoReference,
+      source_repo: selectedRepo?.name || repoAnalysis?.name || repoReference,
+      target_repo: migrationJob?.target_repo || null,
+      source_java_version: repoAnalysis?.java_version || selectedSourceVersion || undefined,
+      target_java_version: effectiveTargetVersion || undefined,
+      document_type: "BRD",
+      analysis: repoAnalysis as unknown as Record<string, unknown>,
+    };
 
-      const githubRequest = {
-        repo_url: repoReference,
-        repository_url: repoReference,
-        source_repo_url: repoReference,
-        token: currentToken || undefined,
-        github_token: currentToken || undefined,
-        job_id: effectiveJobId || migrationJob?.job_id || undefined,
-        migration_job_id: migrationJob?.job_id || undefined,
-        source_repo: migrationJob?.source_repo || repoReference,
-        target_repo: migrationJob?.target_repo || null,
-        source_java_version: repoAnalysis?.java_version || selectedSourceVersion || undefined,
-        target_java_version: effectiveTargetVersion || undefined,
-        document_type: "BRD",
-        analysis: repoAnalysis as unknown as Record<string, unknown>,
+    const prefetchPromise = getUserSettings().catch(() => ({} as Awaited<ReturnType<typeof getUserSettings>>)).then((settings) => {
+      const values = settings.quality_checks_values || {};
+      if (values.brd_generation_enabled === false) return null;
+      const brdInstructions = String(values.brd_instructions ?? values.brd_focus_prompt ?? "");
+      const brdSettings = {
+        ...(brdInstructions.trim() ? { brd_instructions: brdInstructions } : {}),
+        brd_generation_enabled: values.brd_generation_enabled !== false,
+        brd_system_prompt: typeof values.brd_system_prompt === "string" ? values.brd_system_prompt : undefined,
+        brd_migration_target: typeof values.brd_migration_target === "string" ? values.brd_migration_target : undefined,
+        brd_microservices_enabled: values.brd_microservices_enabled !== false,
+        brd_category_business_workflows: values.brd_category_business_workflows !== false,
+        brd_category_database_data: values.brd_category_database_data !== false,
+        brd_category_architecture: values.brd_category_architecture !== false,
+        brd_category_apis_integrations: values.brd_category_apis_integrations !== false,
+        brd_category_security_access: values.brd_category_security_access !== false,
+        brd_category_reliability_performance: values.brd_category_reliability_performance !== false,
       };
-      const localProjectRequest = {
-        repo_url: repoReference,
-        repository_url: repoReference,
-        source_repo_url: repoReference,
-        source_repo: selectedRepo?.name || repoAnalysis?.name || repoReference,
-        target_repo: migrationJob?.target_repo || null,
-        source_java_version: repoAnalysis?.java_version || selectedSourceVersion || undefined,
-        target_java_version: effectiveTargetVersion || undefined,
-        document_type: "BRD",
-        analysis: repoAnalysis as unknown as Record<string, unknown>,
-      };
+      return isLocalRepoRef(repoReference)
+        ? generateLocalProjectDocument({ ...localProjectRequest, ...brdSettings })
+        : generateGithubDocument("brd", { ...githubRequest, ...brdSettings });
+    })
+      .then(async (result) => {
+        if (cancelled || !result) return null;
+        const generatedAsset = await resolveGeneratedDocumentAsset(result);
+        const filename = buildHtmlFilename(result.filename, technicalDocumentFallbackRepoName);
+        if (cancelled) return null;
 
-      const prefetchPromise = (isLocalRepoRef(repoReference)
-        ? generateLocalProjectDocument(localProjectRequest)
-        : generateGithubDocument("brd", githubRequest))
-        .then(async (result) => {
-          if (cancelled) return null;
-          const generatedAsset = await resolveGeneratedDocumentAsset(result);
-          const filename = buildHtmlFilename(result.filename, technicalDocumentFallbackRepoName);
-          if (cancelled) return null;
+        if (generatedAsset.html) {
+          return {
+            filename,
+            html: generatedAsset.html,
+          } satisfies PrefetchedBrdDocument;
+        }
 
-          if (generatedAsset.html) {
-            return {
-              filename,
-              html: generatedAsset.html,
-            } satisfies PrefetchedBrdDocument;
-          }
-
-          throw new Error("Generated BRD document did not include HTML content or a download URL.");
-        })
-        .then((preparedAsset) => {
-          if (cancelled || !preparedAsset) return null;
-          setPrefetchedBrdDocument(preparedAsset);
-          setDocumentPrefetchStatus("ready");
-          return preparedAsset;
-        })
-        .catch((err) => {
-          if (cancelled) return null;
-          console.error("Failed to prefetch technical specification document", err);
-          setDocumentPrefetchStatus("error");
-          return null;
-        })
-        .finally(() => {
-          if (documentPrefetchPromiseRef.current === prefetchPromise) {
-            documentPrefetchPromiseRef.current = null;
-          }
-        });
-      documentPrefetchPromiseRef.current = prefetchPromise;
-    }, 1500); // Debounce for 1.5 seconds
+        throw new Error("Generated BRD document did not include HTML content or a download URL.");
+      })
+      .then((preparedAsset) => {
+        if (cancelled || !preparedAsset) return null;
+        setPrefetchedBrdDocument(preparedAsset);
+        setDocumentPrefetchStatus("ready");
+        return preparedAsset;
+      })
+      .catch((err) => {
+        if (cancelled) return null;
+        console.error("Failed to prefetch technical specification document", err);
+        setDocumentPrefetchStatus("error");
+        return null;
+      })
+      .finally(() => {
+        if (documentPrefetchPromiseRef.current === prefetchPromise) {
+          documentPrefetchPromiseRef.current = null;
+        }
+      });
+    documentPrefetchPromiseRef.current = prefetchPromise;
 
     return () => {
       cancelled = true;
-      clearTimeout(timeoutId);
     };
   }, [
     connectState?.jobId,

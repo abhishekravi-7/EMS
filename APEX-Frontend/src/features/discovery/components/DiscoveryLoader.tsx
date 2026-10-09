@@ -229,10 +229,7 @@ export function DiscoveryLoader({
     <div className={`discovery-analysis-container${compact ? " is-compact" : ""}`}>
       {/* Top Header Card Info */}
       <div className="discovery-analysis-header">
-        <div className="discovery-loader-eyebrow">
-          Repository Intelligence Engine
-          {elapsedLabel ? <span className="discovery-loader-timer">{elapsedLabel}</span> : null}
-        </div>
+        <div className="discovery-loader-eyebrow">Repository Intelligence Engine</div>
         <div className="discovery-loader-title">{title}</div>
         <div className="discovery-loader-subtitle">{subtitle}</div>
       </div>

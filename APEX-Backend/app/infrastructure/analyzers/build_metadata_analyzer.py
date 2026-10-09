@@ -55,6 +55,7 @@ class BuildMetadataAnalyzer:
         dependencies: list[Dependency],
         build_gradle_text: str,
         spring_boot_signal: bool = False,
+        frontend_dependencies: list[Dependency] | None = None,
     ) -> list[str]:
         frameworks: set[str] = set()
         coordinates = {
@@ -63,6 +64,7 @@ class BuildMetadataAnalyzer:
         }
         groups = {dependency.group_id.lower() for dependency in dependencies}
 
+        # Java Backend Frameworks & Libraries
         if (
             spring_boot_version
             or spring_boot_signal
@@ -75,7 +77,7 @@ class BuildMetadataAnalyzer:
             frameworks.add("spring-security")
         if any(item.startswith("org.springframework.cloud:") for item in coordinates):
             frameworks.add("spring-cloud")
-        if any("spring-data" in item for item in coordinates):
+        if any("spring-data" in item or "starter-data-" in item for item in coordinates):
             frameworks.add("spring-data")
         if any(item.startswith("org.hibernate") for item in groups) or any("hibernate" in item for item in coordinates):
             frameworks.add("hibernate")
@@ -101,6 +103,102 @@ class BuildMetadataAnalyzer:
             frameworks.add("mybatis")
         if "org.springframework.boot" in build_gradle_text:
             frameworks.add("spring-boot")
+
+        # Frontend Frameworks & Libraries
+        all_frontend_deps = list(frontend_dependencies or [])
+        # Also check if any npm dependencies were passed in dependencies directly
+        for d in dependencies:
+            if d.type and d.type.startswith("npm"):
+                all_frontend_deps.append(d)
+
+        if all_frontend_deps:
+            fe_names = {(d.name or d.artifact_id or "").lower() for d in all_frontend_deps}
+            fe_coords = {f"{d.group_id}:{d.artifact_id}".lower() for d in all_frontend_deps}
+
+            # Angular: @angular/core as primary evidence
+            if (
+                "@angular/core" in fe_names
+                or any(d.group_id == "@angular" and d.artifact_id in ("core", "@angular/core") for d in all_frontend_deps)
+                or any(c in ("@angular:core", "@angular:@angular/core") for c in fe_coords)
+            ):
+                frameworks.add("angular")
+
+            # Angular Router
+            if (
+                "@angular/router" in fe_names
+                or any(d.group_id == "@angular" and d.artifact_id in ("router", "@angular/router") for d in all_frontend_deps)
+            ):
+                frameworks.add("angular-router")
+
+            # React: react or react-dom as primary evidence
+            if (
+                "react" in fe_names
+                or "react-dom" in fe_names
+                or any(d.artifact_id in ("react", "react-dom") for d in all_frontend_deps)
+            ):
+                frameworks.add("react")
+
+            # React Router: react-router or react-router-dom
+            if (
+                "react-router" in fe_names
+                or "react-router-dom" in fe_names
+                or any(d.artifact_id in ("react-router", "react-router-dom") for d in all_frontend_deps)
+            ):
+                frameworks.add("react-router")
+
+            # Vue
+            if "vue" in fe_names or any(d.artifact_id == "vue" for d in all_frontend_deps):
+                frameworks.add("vue")
+
+            # Svelte
+            if "svelte" in fe_names or any(d.artifact_id == "svelte" for d in all_frontend_deps):
+                frameworks.add("svelte")
+
+            # TypeScript
+            if "typescript" in fe_names or any(d.artifact_id == "typescript" for d in all_frontend_deps):
+                frameworks.add("typescript")
+
+            # Vite
+            if "vite" in fe_names or any(d.artifact_id == "vite" for d in all_frontend_deps):
+                frameworks.add("vite")
+
+            # Webpack
+            if "webpack" in fe_names or any(d.artifact_id == "webpack" for d in all_frontend_deps):
+                frameworks.add("webpack")
+
+            # Tailwind CSS
+            if "tailwindcss" in fe_names or any(d.artifact_id == "tailwindcss" for d in all_frontend_deps):
+                frameworks.add("tailwindcss")
+
+            # Axios
+            if "axios" in fe_names or any(d.artifact_id == "axios" for d in all_frontend_deps):
+                frameworks.add("axios")
+
+            # Next.js
+            if "next" in fe_names or any(d.artifact_id == "next" for d in all_frontend_deps):
+                frameworks.add("next")
+
+            # Redux
+            if (
+                "redux" in fe_names
+                or "@reduxjs/toolkit" in fe_names
+                or any("redux" in d.artifact_id.lower() for d in all_frontend_deps)
+            ):
+                frameworks.add("redux")
+
+            # Testing Tools
+            if "jest" in fe_names or any(d.artifact_id == "jest" for d in all_frontend_deps):
+                frameworks.add("jest")
+            if "vitest" in fe_names or any(d.artifact_id == "vitest" for d in all_frontend_deps):
+                frameworks.add("vitest")
+            if "cypress" in fe_names or any(d.artifact_id == "cypress" for d in all_frontend_deps):
+                frameworks.add("cypress")
+            if (
+                "@playwright/test" in fe_names
+                or "playwright" in fe_names
+                or any(d.artifact_id in ("playwright", "@playwright/test") for d in all_frontend_deps)
+            ):
+                frameworks.add("playwright")
 
         return sorted(frameworks)
 

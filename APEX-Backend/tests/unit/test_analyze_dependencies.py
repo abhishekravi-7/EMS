@@ -167,7 +167,7 @@ async def test_analyze_dependencies_batching():
 
     use_case = AnalyzeDependenciesUseCase(llm_client=mock_llm_client)
 
-    # 45 dependencies should be split into 2 batches (max batch size = 30)
+    # 45 dependencies should be split into batches (batch size = 5, total = 9 batches)
     deps = [
         DependencyItemInput(
             group_id="com.example",
@@ -187,4 +187,4 @@ async def test_analyze_dependencies_batching():
 
     assert len(response.dependencies) == 45
     assert response.counts.total == 45
-    assert mock_llm_client.chat_json.call_count == 2
+    assert mock_llm_client.chat_json.call_count == 9
