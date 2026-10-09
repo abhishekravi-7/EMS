@@ -38,6 +38,7 @@ import {
   getMigrationFileDiff,
   getMigrationLogs,
   rerunMigrationTests,
+  getMigrationDetail,
   getMigrationReportDetails,
   type ReportDetailsResponse,
   type SonarIssueDetail,
@@ -215,6 +216,26 @@ export function ResultReportView({
     reportDependencyPage,
     setReportDependencyPage,
   } = resultExec;
+
+  useEffect(() => {
+    let pollInterval: ReturnType<typeof setInterval>;
+    const rawExecStatus = (migrationJob?.test_pipeline as any)?.execution_status;
+    if (rawExecStatus === "IN_PROGRESS" && migrationJob?.job_id) {
+      pollInterval = setInterval(async () => {
+        try {
+          const updatedJob = await getMigrationDetail(migrationJob.job_id);
+          if (updatedJob) {
+            setMigrationJob(updatedJob);
+          }
+        } catch (e) {
+          console.error("Failed to poll migration job details", e);
+        }
+      }, 5000);
+    }
+    return () => {
+      if (pollInterval) clearInterval(pollInterval);
+    };
+  }, [migrationJob?.job_id, (migrationJob?.test_pipeline as any)?.execution_status, setMigrationJob]);
 
   const [activeTab, setActiveTab] = useState<
     "general" | "unit-test" | "functional-test" | "sonarqube" | "fossa" | "logs-issues" | "reports"

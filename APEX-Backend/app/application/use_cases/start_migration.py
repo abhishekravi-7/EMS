@@ -52,6 +52,7 @@ from app.application.pipelines.frontend_migration.ui_migration_handler import (
     UIMigrationHandler,
 )
 from app.shared import file_utils
+import asyncio
 
 logger = logging.getLogger("migration")
 
@@ -670,6 +671,22 @@ class StartMigrationUseCase:
             # Optional Quality Gates (SonarQube/FOSSA)
             self._run_quality_gates(store, job_id, result.project_dir or paths.migrated_repo_dir, report)
             store.update(progressPercent=75)
+            
+            # Run Unit Tests if requested
+            run_tests = report.get("run_tests", report.get("runTests", True))
+            options = report.get("options", {})
+            if run_tests:
+                from app.api.v1.endpoints.migration_execution_controller import _run_migration_tests_background_logic
+                store.append_logs(["[UNIT TESTS] Starting Junit improvisation process via MCP agent..."])
+                try:
+                    llm_provider = options.get("selectedLLMProvider", "Ollama (qwen2.5-coder:7b)")
+                    use_llm_tests = str(options.get("useLLMTests", True))
+                    asyncio.run(_run_migration_tests_background_logic(job_id, llm_provider, use_llm_tests))
+                    store.append_logs(["[UNIT TESTS] Junit improvisation completed successfully."])
+                except Exception as exc:
+                    logger.exception("[UNIT TESTS] Error generating unit tests: %s", exc)
+                    store.append_logs([f"[UNIT TESTS] Error generating unit tests: {exc}"])
+            
 
             # --- Migration Checkpoint ---
             progress_service.set_stage(

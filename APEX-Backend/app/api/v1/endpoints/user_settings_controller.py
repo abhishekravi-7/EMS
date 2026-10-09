@@ -696,6 +696,7 @@ class LlmTestPayload(BaseModel):
     provider: str
     api_key: str
     selected_model: str
+    url: str | None = None
 
 @router.post("/user/settings/llm/test")
 async def test_user_llm_connection(
@@ -714,7 +715,7 @@ async def test_user_llm_connection(
         existing_llm_values = user_doc.get("llm_values", {})
         api_key = existing_llm_values.get(f"{provider}_api_key", api_key)
 
-    if not api_key:
+    if not api_key and provider != "ollama":
         raise HTTPException(status_code=400, detail="No API Key provided.")
 
     # Since we can't do a full LLM instantiation and test generation cleanly without
@@ -735,9 +736,10 @@ async def test_user_llm_connection(
                     headers={"Authorization": f"Bearer {api_key}"}
                 )
             elif provider == "ollama":
-                # Ollama typically doesn't need an API key but we can just check models endpoint
+                ollama_url = payload.url or "http://localhost:11434"
+                ollama_url = ollama_url.rstrip("/")
                 response = await client.get(
-                    "http://localhost:11434/api/tags"
+                    f"{ollama_url}/api/tags"
                 )
             else:
                 raise HTTPException(status_code=400, detail=f"Unsupported provider: {provider}")
