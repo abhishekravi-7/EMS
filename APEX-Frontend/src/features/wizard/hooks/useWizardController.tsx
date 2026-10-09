@@ -3802,6 +3802,7 @@ export function useWizardController() {
 
   // Step 5: Results completed (strictly when migration is completed for THIS job or Results route is reached)
   const isResultsCompleted = Boolean(
+    connectState.isJUnitOnly ||
     isMigrationCompleted ||
     isJobTerminalSuccess ||
     persistedMigrationCompletedFlag ||
@@ -3822,11 +3823,18 @@ export function useWizardController() {
             : 0;
 
   const isStepCompleted = (stepId: number): boolean => {
+    if (connectState.isJUnitOnly && (stepId === 2 || stepId === 3 || stepId === 4)) {
+      return false;
+    }
     return stepId <= highestCompletedStep;
   };
 
   const isStepAccessible = (stepId: number): boolean => {
     if (stepId === 1) return true;
+    if (connectState.isJUnitOnly) {
+      if (stepId === 2 || stepId === 3 || stepId === 4) return false;
+      return true;
+    }
     if (isResultsCompleted || isMigrationCompleted || isJobTerminalSuccess || persistedMigrationCompletedFlag) {
       return true;
     }
@@ -3851,7 +3859,7 @@ export function useWizardController() {
   };
 
   const getMaxAllowedRouteStep = (highestCompleted: number): number => {
-    if (isMigrationCompleted || isResultsCompleted || isJobTerminalSuccess || persistedMigrationCompletedFlag || isMigrationFinishedState) {
+    if (connectState.isJUnitOnly || isMigrationCompleted || isResultsCompleted || isJobTerminalSuccess || persistedMigrationCompletedFlag || isMigrationFinishedState) {
       return 7;
     }
     if (activeJobId || jobId || Boolean(selectedRepo) || Boolean(repoUrl)) {
@@ -6095,6 +6103,7 @@ export function useWizardController() {
     highestCompletedStep,
     isStepCompleted,
     isStepAccessible,
+    isJUnitOnly: connectState.isJUnitOnly,
     isConnectCompleted,
     isDiscoveryCompleted,
     isStrategyCompleted,
