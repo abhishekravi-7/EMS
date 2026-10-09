@@ -371,6 +371,9 @@ class RunDiscoveryUseCase:
             "multiModule": analysis.multi_module,
             "modules": analysis.modules,
             "dependencies": [dep.to_dict() for dep in analysis.dependencies],
+            "frontendDependencies": [
+                dep.to_dict() for dep in getattr(analysis, "frontend_dependencies", [])
+            ],
             "buildPlugins": [plugin.to_dict() for plugin in analysis.build_plugins],
             "bomVersions": [bom.to_dict() for bom in analysis.bom_versions],
             "frameworks": analysis.frameworks,
@@ -531,6 +534,7 @@ class RunDiscoveryUseCase:
                 "frontendDetected": frontend_detected,
                 "frontendType": frontend_type,
                 "dependencies": report.get("dependencies", []),
+                "frontendDependencies": report.get("frontendDependencies", []),
                 "buildPlugins": report.get("buildPlugins", []),
                 "bomVersions": report.get("bomVersions", []),
                 "frameworks": report.get("frameworks", []),

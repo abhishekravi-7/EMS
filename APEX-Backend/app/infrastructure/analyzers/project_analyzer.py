@@ -80,6 +80,7 @@ class ProjectAnalysis:
     has_src_test: bool
     has_tests: bool
     project_root: Path
+    frontend_dependencies: list[Dependency] = field(default_factory=list)
     api_endpoints: list[dict[str, Any]] = field(default_factory=list)
     java_files: list[str] = field(default_factory=list)
     config_files: list[str] = field(default_factory=list)
@@ -235,6 +236,7 @@ class ProjectAnalyzer:
 
         notify(52, "dependency_graph", "Parsing direct and transitive dependency trees...")
         dependencies = self._dependencies.analyze(pom_root, build_gradle_text, project_root)
+        frontend_dependencies = self._dependencies.analyze_frontend(root)
         build_plugins = self._metadata.detect_plugins(pom_root, build_gradle_text)
         bom_versions = self._metadata.detect_boms(pom_root, build_gradle_text)
         notify(62, "dependency_graph", f"Extracted {len(dependencies)} dependencies and {len(build_plugins)} build plugins.")
@@ -244,6 +246,7 @@ class ProjectAnalyzer:
             dependencies=dependencies,
             build_gradle_text=build_gradle_text,
             spring_boot_signal=spring_boot_signal,
+            frontend_dependencies=frontend_dependencies,
         )
         modules = self._modules.detect(pom_root, settings_gradle_text)
         project_type = self._project_type.detect(
@@ -287,6 +290,7 @@ class ProjectAnalyzer:
             multi_module=modules.multi_module,
             modules=modules.modules,
             dependencies=dependencies,
+            frontend_dependencies=frontend_dependencies,
             build_plugins=build_plugins,
             bom_versions=bom_versions,
             frameworks=frameworks,
