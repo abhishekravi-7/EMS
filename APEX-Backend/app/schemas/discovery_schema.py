@@ -135,6 +135,10 @@ class DiscoveryProject(BaseModel):
     framework_recommendations: Optional[FrameworkRecommendations] = Field(
         None, alias="frameworkRecommendations"
     )
+    frameworks: list[str] = Field(default_factory=list)
+    frontend_dependencies: list[DiscoveryDependency] = Field(
+        default_factory=list, alias="frontendDependencies"
+    )
 
     model_config = {"populate_by_name": True}
 

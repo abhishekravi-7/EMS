@@ -56,31 +56,30 @@ export function WizardOptionCard({
         ...containerStyle,
       }}
     >
-      {topRight}
       <div style={{ flex: footer ? 1 : undefined, ...bodyStyle }}>
         <div
           style={{
             display: "flex",
             alignItems: "flex-start",
             gap: 12,
-            marginBottom: 12,
-            paddingRight: topRight ? 44 : 0,
+            marginBottom: 8,
             ...headerStyle,
           }}
         >
           {iconBadge}
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div className="wizard-select-card-title" style={titleStyle}>
+            <div className="wizard-select-card-title" style={{ fontSize: 13.5, fontWeight: 700, lineHeight: 1.3, ...titleStyle }}>
               {title}
             </div>
             {titleAccessory}
           </div>
+          {topRight ? <div style={{ flexShrink: 0, marginLeft: 6 }}>{topRight}</div> : null}
         </div>
         <div className="wizard-select-card-description" style={descriptionStyle}>
           {description}
         </div>
         {detail ? (
-          <div className="wizard-select-card-detail" style={{ marginTop: 10, ...detailStyle }}>
+          <div className="wizard-select-card-detail" style={{ marginTop: 6, ...detailStyle }}>
             {detail}
           </div>
         ) : null}
