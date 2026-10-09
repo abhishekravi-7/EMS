@@ -8,6 +8,7 @@ import type {
   RepoFile,
   SpringBootConversionEligibility,
   FrameworkRecommendations,
+  DiscoveredApiEndpoint,
 } from "@/shared/types/domain";
 
 /* -------------------------------------------------------------------------- */
@@ -39,18 +40,15 @@ export interface DiscoveryProject {
   frontendType: string | null;
   // extras used to faithfully populate the existing UI
   dependencies?: DiscoveryDependency[];
+  frontendDependencies?: DiscoveryDependency[];
   hasTests?: boolean;
-  apiEndpoints?: {
-    id: string;
-    httpMethod: string;
-    path: string;
-    controller: string;
-    handlerMethod: string;
-    sourceFile: string;
-    module: string;
-    framework: string;
-    detectionStatus: string;
-  }[];
+  apiEndpoints?:
+  | DiscoveredApiEndpoint[]
+  | {
+    count?: number;
+    endpoints?: DiscoveredApiEndpoint[];
+  };
+  apiEndpointCount?: number;
   javaFileCount?: number;
   javaFiles?: string[];
   configFileCount?: number;
@@ -179,18 +177,18 @@ export function mapDiscoveryToRepoAnalysis(response: DiscoveryResponse): RepoAna
     project.springBootConversion ??
     (typeof project.javaMigrationEligible === "boolean"
       ? {
-          repositoryAnalyzed: true,
-          javaMigrationEligible: project.javaMigrationEligible,
-          javaMigrationReason: project.javaMigrationReason ?? "",
-          springDetected: Boolean(project.springDetected),
-          springBootDetected: Boolean(project.springBootDetected),
-          springVersion: project.springFrameworkVersion ?? null,
-          springBootVersion: project.springBootVersion ?? null,
-          buildTool: project.buildTool,
-          springBootConversionEligible: Boolean(project.springBootConversionEligible),
-          springBootUpgradeEligible: Boolean(project.springBootUpgradeEligible),
-          eligibilityReason: project.eligibilityReason ?? "",
-        }
+        repositoryAnalyzed: true,
+        javaMigrationEligible: project.javaMigrationEligible,
+        javaMigrationReason: project.javaMigrationReason ?? "",
+        springDetected: Boolean(project.springDetected),
+        springBootDetected: Boolean(project.springBootDetected),
+        springVersion: project.springFrameworkVersion ?? null,
+        springBootVersion: project.springBootVersion ?? null,
+        buildTool: project.buildTool,
+        springBootConversionEligible: Boolean(project.springBootConversionEligible),
+        springBootUpgradeEligible: Boolean(project.springBootUpgradeEligible),
+        eligibilityReason: project.eligibilityReason ?? "",
+      }
       : undefined);
   const dependencies: DependencyInfo[] = (project.dependencies ?? []).map((dep) => ({
     group_id: dep.groupId,
@@ -203,62 +201,134 @@ export function mapDiscoveryToRepoAnalysis(response: DiscoveryResponse): RepoAna
     versionSource: dep.versionSource,
   }));
 
-    const rawOtherFiles: string[] = project.otherFiles ?? (project as { other_files?: string[] }).other_files ?? [];
-    const cleanOtherFiles = rawOtherFiles.filter((f: string) => {
-      const lower = (typeof f === "string" ? f : "").toLowerCase();
-      return (
-        !lower.endsWith(".jsp") &&
-        !lower.endsWith(".jspf") &&
-        !lower.endsWith(".jspx") &&
-        !lower.endsWith(".xhtml") &&
-        !lower.endsWith(".jsf")
-      );
-    });
-    const cleanOtherCount =
-      cleanOtherFiles.length !== rawOtherFiles.length
-        ? cleanOtherFiles.length
-        : (project.otherFileCount ?? cleanOtherFiles.length);
+  const frontendDependencies: DependencyInfo[] = (
+    project.frontendDependencies ?? (project as any).frontend_dependencies ?? []
+  ).map((dep) => ({
+    group_id: dep.groupId,
+    artifact_id: dep.artifactId,
+    current_version: dep.version ?? "",
+    new_version: null,
+    status: "detected",
+    name: dep.name || (dep.groupId && dep.artifactId ? `${dep.groupId}:${dep.artifactId}` : ""),
+    type: dep.type || "npm",
+    scope: dep.scope || "dependencies",
+    module: dep.module || "root",
+    declaredVersion: dep.declaredVersion,
+    resolvedVersion: dep.resolvedVersion,
+    versionSource: dep.versionSource,
+  }));
 
-    type ExtraProjectFields = {
-      java_files?: string[];
-      config_files?: string[];
-      file_metrics?: unknown;
-      viewTechnologies?: unknown;
-      view_technologies?: unknown;
-    };
-    const extraProj = project as ExtraProjectFields;
+  const rawOtherFiles: string[] = project.otherFiles ?? (project as { other_files?: string[] }).other_files ?? [];
+  const cleanOtherFiles = rawOtherFiles.filter((f: string) => {
+    const lower = (typeof f === "string" ? f : "").toLowerCase();
+    return (
+      !lower.endsWith(".jsp") &&
+      !lower.endsWith(".jspf") &&
+      !lower.endsWith(".jspx") &&
+      !lower.endsWith(".xhtml") &&
+      !lower.endsWith(".jsf")
+    );
+  });
+  const cleanOtherCount =
+    cleanOtherFiles.length !== rawOtherFiles.length
+      ? cleanOtherFiles.length
+      : (project.otherFileCount ?? cleanOtherFiles.length);
 
-    return {
-      name: repository.repoName,
-      full_name: `${repository.owner}/${repository.repoName}`,
-      default_branch: project.defaultBranch || "main",
-      language: "Java",
-      build_tool: normalizeBuildTool(project.buildTool),
-      java_version: javaVersion,
-      java_version_from_build: javaVersion,
-      spring_boot_version: project.springBootVersion ?? null,
-      java_files: project.javaFiles ?? extraProj.java_files ?? [],
-      java_file_count: project.javaFileCount ?? (project.javaFiles?.length || 0),
-      config_files: project.configFiles ?? extraProj.config_files ?? [],
-      config_file_count: project.configFileCount ?? (project.configFiles?.length || 0),
-      other_files: cleanOtherFiles,
-      other_file_count: cleanOtherCount,
-      total_file_count: project.totalFileCount,
-      file_metrics: (project.fileMetrics ?? extraProj.file_metrics) as RepoAnalysis["file_metrics"],
-      jsp_count: project.jspFileCount,
-      jsf_count: project.jsfFileCount,
-      jsp_files: project.jspFiles ?? [],
-      jsf_files: project.jsfFiles ?? [],
-      view_technologies: (extraProj.viewTechnologies ?? extraProj.view_technologies ?? undefined) as RepoAnalysis["view_technologies"],
+  type ExtraProjectFields = {
+    java_files?: string[];
+    config_files?: string[];
+    file_metrics?: unknown;
+    viewTechnologies?: unknown;
+    view_technologies?: unknown;
+  };
+  const extraProj = project as ExtraProjectFields;
+
+  return {
+    name: repository.repoName,
+    full_name: `${repository.owner}/${repository.repoName}`,
+    default_branch: project.defaultBranch || "main",
+    language: "Java",
+    build_tool: normalizeBuildTool(project.buildTool),
+    java_version: javaVersion,
+    java_version_from_build: javaVersion,
+    spring_boot_version: project.springBootVersion ?? null,
+    java_files: project.javaFiles ?? extraProj.java_files ?? [],
+    java_file_count: project.javaFileCount ?? (project.javaFiles?.length || 0),
+    config_files: project.configFiles ?? extraProj.config_files ?? [],
+    config_file_count: project.configFileCount ?? (project.configFiles?.length || 0),
+    other_files: cleanOtherFiles,
+    other_file_count: cleanOtherCount,
+    total_file_count: project.totalFileCount,
+    file_metrics: (project.fileMetrics ?? extraProj.file_metrics) as RepoAnalysis["file_metrics"],
+    jsp_count: project.jspFileCount,
+    jsf_count: project.jsfFileCount,
+    jsp_files: project.jspFiles ?? [],
+    jsf_files: project.jsfFiles ?? [],
+    view_technologies: (extraProj.viewTechnologies ?? extraProj.view_technologies ?? undefined) as RepoAnalysis["view_technologies"],
     has_tests: Boolean(project.hasTests),
     dependencies,
-    api_endpoints: project.apiEndpoints ?? [],
-    detected_frameworks: (project.frameworks ?? []).map((f) => ({
-      name: f,
-      path: project.detectedFiles?.pomXml ? "pom.xml" : "build.gradle",
-      type: "FRAMEWORK",
-    })),
+    ...(() => {
+      const rawApiEndpoints = (project.apiEndpoints ?? extraProj.api_endpoints ?? extraProj.apiEndpoints) as
+        | DiscoveredApiEndpoint[]
+        | { count?: number; endpoints?: DiscoveredApiEndpoint[] }
+        | undefined;
+      let apiEndpointsList: DiscoveredApiEndpoint[] = [];
+      let apiEndpointCount = 0;
+
+      if (Array.isArray(rawApiEndpoints)) {
+        apiEndpointsList = rawApiEndpoints;
+        apiEndpointCount = typeof project.apiEndpointCount === "number"
+          ? project.apiEndpointCount
+          : rawApiEndpoints.length;
+      } else if (rawApiEndpoints && typeof rawApiEndpoints === "object") {
+        if (Array.isArray(rawApiEndpoints.endpoints)) {
+          apiEndpointsList = rawApiEndpoints.endpoints;
+        }
+        apiEndpointCount = typeof rawApiEndpoints.count === "number"
+          ? rawApiEndpoints.count
+          : (typeof project.apiEndpointCount === "number" ? project.apiEndpointCount : apiEndpointsList.length);
+      } else if (typeof project.apiEndpointCount === "number") {
+        apiEndpointCount = project.apiEndpointCount;
+      }
+
+      const normalizedApiEndpoints: DiscoveredApiEndpoint[] = apiEndpointsList.map((ep, idx) => ({
+        id: ep.id || `${ep.controller || ep.className || "Controller"}:${ep.methodName || ep.handlerMethod || "method"}:${ep.httpMethod || ep.method || "GET"}:${ep.path || ep.urlPath || ep.endpoint || ""}:${idx}`,
+        httpMethod: (ep.httpMethod || ep.method || "GET").toUpperCase(),
+        method: (ep.httpMethod || ep.method || "GET").toUpperCase(),
+        path: ep.path || ep.urlPath || ep.endpoint || "/",
+        urlPath: ep.urlPath || ep.path || ep.endpoint || "/",
+        endpoint: ep.endpoint || ep.path || ep.urlPath || "/",
+        controller: ep.controller || ep.className || "Controller",
+        className: ep.className || ep.controller || "Controller",
+        handlerMethod: ep.handlerMethod || ep.methodName || "",
+        methodName: ep.methodName || ep.handlerMethod || "",
+        sourceFile: ep.sourceFile || ep.file || "",
+        file: ep.file || ep.sourceFile || "",
+        module: ep.module || "",
+        framework: ep.framework || "Spring Boot",
+        detectionStatus: ep.detectionStatus || "DETECTED",
+      }));
+
+      return {
+        api_endpoints: normalizedApiEndpoints,
+        api_endpoint_count: apiEndpointCount || normalizedApiEndpoints.length,
+      };
+    })(),
+    detected_frameworks: (project.frameworks ?? []).map((f) => {
+      const lower = f.toLowerCase();
+      const isFrontend = [
+        "angular", "angular-router", "react", "react-router", "vue", "svelte",
+        "vite", "webpack", "typescript", "tailwindcss", "axios", "next",
+        "redux", "jest", "vitest", "cypress", "playwright"
+      ].includes(lower);
+      return {
+        name: f,
+        path: isFrontend ? "package.json" : (project.detectedFiles?.pomXml ? "pom.xml" : "build.gradle"),
+        type: isFrontend ? "FRONTEND" : "FRAMEWORK",
+      };
+    }),
     frameworks: project.frameworks ?? [],
+    frontend_dependencies: frontendDependencies,
     structure: {
       has_pom_xml: Boolean(project.detectedFiles?.pomXml),
       has_build_gradle: Boolean(project.detectedFiles?.buildGradle),
@@ -312,6 +382,26 @@ export async function runDiscovery(
   };
 }
 
+export interface DiscoveryProgressResponse {
+  jobId: string;
+  status: string;
+  stage: string;
+  progressPercent: number;
+  detail: string;
+  activeStageId?: import("../hooks/useDiscoveryState").DiscoveryStageId;
+}
+
+export async function getDiscoveryProgress(jobId: string): Promise<DiscoveryProgressResponse | null> {
+  try {
+    return await requestJson<DiscoveryProgressResponse>(
+      `/v1/discovery/${encodeURIComponent(jobId)}/progress`,
+      "Failed to fetch discovery progress"
+    );
+  } catch {
+    return null;
+  }
+}
+
 interface MicroserviceEligibilityAnalysisSnapshot {
   build_tool: string | null;
   java_file_count: number;
@@ -346,6 +436,18 @@ export interface GithubDocumentRequest {
   target_java_version?: string;
   document_type?: string;
   analysis?: Record<string, unknown>;
+  brd_instructions?: string;
+  brd_focus_prompt?: string;
+  brd_system_prompt?: string;
+  brd_generation_enabled?: boolean;
+  brd_microservices_enabled?: boolean;
+  brd_migration_target?: string;
+  brd_category_business_workflows?: boolean;
+  brd_category_database_data?: boolean;
+  brd_category_architecture?: boolean;
+  brd_category_apis_integrations?: boolean;
+  brd_category_security_access?: boolean;
+  brd_category_reliability_performance?: boolean;
 }
 
 export interface LocalProjectDocumentRequest extends GithubDocumentRequest {

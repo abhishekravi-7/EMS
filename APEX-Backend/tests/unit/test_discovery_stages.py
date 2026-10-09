@@ -150,3 +150,64 @@ def test_force_refresh_reruns_fresh_analysis(tmp_path):
     assert outcome.report["discoveryStages"]["repositoryMap"]["status"] == "COMPLETE"
     assert outcome.report["discoveryStages"]["serviceFit"]["status"] == "COMPLETE"
     assert job_repo.save_discovery_report.called
+
+
+def test_discovery_progress_tracking(tmp_path):
+    job_repo = MagicMock()
+    job_repo.read_connect_report.return_value = {
+        "repoUrl": "https://github.com/example/demo-repo",
+        "owner": "example",
+        "repoName": "demo-repo",
+    }
+    job_repo.read_discovery_report.return_value = None
+
+    cloner = MagicMock()
+    analyzer = MagicMock()
+    def side_effect(path, progress_callback=None):
+        if progress_callback:
+            progress_callback(25, "preview_signals", "Analyzing project files...")
+        return ProjectAnalysis(
+            build_tool="MAVEN",
+            primary_build_tool="MAVEN",
+            build_warning=None,
+            current_java_version="17",
+            spring_boot_version="3.1.0",
+            spring_framework_version="6.0.0",
+            spring_boot_signal=True,
+            spring_entry_class="com.example.App",
+            project_type="SPRING_BOOT",
+            multi_module=False,
+            modules=[],
+            dependencies=[],
+            build_plugins=[],
+            bom_versions=[],
+            frameworks=["Spring Boot"],
+            frontend=FrontendResult(detected=False, type="none", path=None, package_manager=None),
+            has_pom_xml=True,
+            has_build_gradle=False,
+            has_build_gradle_kts=False,
+            has_package_json=False,
+            has_src_main=True,
+            has_src_test=True,
+            has_tests=True, project_root=Path("."), api_endpoints=[],
+            java_files=["src/main/java/com/example/App.java"],
+            config_files=["pom.xml"],
+            other_files=[],
+            total_file_count=2,
+        )
+
+    analyzer.analyze.side_effect = side_effect
+
+    use_case = RunDiscoveryUseCase(job_repository=job_repo, cloner=cloner, analyzer=analyzer)
+    use_case.execute(job_id="progress-job-123", force_refresh=True)
+
+    # Verify progress updates were emitted across all stages
+    assert job_repo.save_discovery_progress.call_count >= 6
+    saved_calls = [call[0][1] for call in job_repo.save_discovery_progress.call_args_list]
+    stages_saved = [c["stage"] for c in saved_calls]
+    assert "CLONING_REPOSITORY" in stages_saved
+    assert "ANALYZING_PROJECT" in stages_saved
+    assert "ANALYZING_DEPENDENCIES" in stages_saved
+    assert "AST_SCANNING" in stages_saved
+    assert "DISCOVERY_COMPLETED" in stages_saved
+    assert saved_calls[-1]["progressPercent"] == 100

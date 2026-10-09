@@ -515,7 +515,19 @@ export function MigrationUnitTestSection({
           {migrationJob?.status === "completed" ? "completed" : "awaiting first run"}
         </div>
       </div>
-
+      {rawExecStatus === "IN_PROGRESS" ? (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "48px 0", gap: 16, flex: 1 }}>
+          <div style={{ width: 48, height: 48, border: "4px solid #eef2f6", borderTopColor: "#2563eb", borderRadius: "50%", animation: "spin 1s linear infinite" }} />
+          <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: "#0f172a", marginBottom: 4 }}>Generating Unit Tests...</div>
+            <div style={{ fontSize: 13, color: "#64748b", maxWidth: 400 }}>
+              The MCP Agent and local LLM are currently analyzing your code and writing tests. This can take several minutes.
+            </div>
+          </div>
+        </div>
+      ) : (
+        <>
       {/* Metrics Row (JaCoCo Gauge + 6 Stat Metric Cards) */}
       <div style={{ display: "flex", alignItems: "stretch", gap: 20, marginBottom: 20 }}>
         {/* Radial Gauge & JaCoCo Breakdown */}
@@ -567,6 +579,53 @@ export function MigrationUnitTestSection({
                   <span style={{ fontWeight: 700, color: "#64748b" }}>N/A</span>
                 )}
               </div>
+            </div>
+          )}
+          {/* MCP Stats */}
+          {(testPipeline as any)?.mcp_stats && (
+            <div style={{ fontSize: 11, color: "#334155", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 8, padding: "8px", width: "100%", marginTop: 8 }}>
+              <div style={{ fontWeight: 800, color: "#1e3a8a", marginBottom: 4, display: "flex", alignItems: "center", gap: 4 }}>
+                MCP Agent <span style={{ background: (testPipeline as any).mcp_stats.success ? "#dcfce7" : "#fee2e2", color: (testPipeline as any).mcp_stats.success ? "#166534" : "#991b1b", padding: "2px 6px", borderRadius: 4, fontSize: 9 }}>{(testPipeline as any).mcp_stats.success ? "SUCCESS" : "FAILED"}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 6 }}>
+                <span style={{ color: "#64748b" }}>Iterations:</span>
+                <span style={{ fontWeight: 700 }}>{(testPipeline as any).mcp_stats.iterations}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 6 }}>
+                <span style={{ color: "#64748b" }}>Tests Added:</span>
+                <span style={{ fontWeight: 700 }}>{(testPipeline as any).mcp_stats.tests_created}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 6 }}>
+                <span style={{ color: "#64748b" }}>Tests Edited:</span>
+                <span style={{ fontWeight: 700 }}>{(testPipeline as any).mcp_stats.tests_modified}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 6 }}>
+                <span style={{ color: "#64748b" }}>Repairs:</span>
+                <span style={{ fontWeight: 700 }}>{(testPipeline as any).mcp_stats.compilation_repairs}</span>
+              </div>
+              {(testPipeline as any).mcp_stats.time_elapsed_seconds !== undefined && (
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 6 }}>
+                  <span style={{ color: "#64748b" }}>Time Elapsed:</span>
+                  <span style={{ fontWeight: 700 }}>{(testPipeline as any).mcp_stats.time_elapsed_seconds}s</span>
+                </div>
+              )}
+            </div>
+          )}
+          
+          {/* Git Publish Status */}
+          {(testPipeline as any)?.git_publish_status && (
+            <div style={{ fontSize: 11, color: "#334155", background: (testPipeline as any).git_publish_status === "SUCCESS" ? "#f0fdf4" : "#fef2f2", border: `1px solid ${(testPipeline as any).git_publish_status === "SUCCESS" ? "#bbf7d0" : "#fecaca"}`, borderRadius: 8, padding: "8px", width: "100%", marginTop: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 6 }}>
+                <span style={{ color: "#64748b", fontWeight: 700 }}>Git Push:</span>
+                <span style={{ fontWeight: 800, color: (testPipeline as any).git_publish_status === "SUCCESS" ? "#166534" : "#991b1b" }}>
+                  {(testPipeline as any).git_publish_status}
+                </span>
+              </div>
+              {(testPipeline as any).git_publish_error && (
+                <div style={{ marginTop: 4, color: "#991b1b", fontSize: 9, wordBreak: "break-all" }}>
+                  {(testPipeline as any).git_publish_error}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -1258,6 +1317,8 @@ export function MigrationUnitTestSection({
               </div>
            </div>
         </div>
+      )}
+      </>
       )}
     </div>
   );

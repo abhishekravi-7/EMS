@@ -80,6 +80,7 @@ class ProjectAnalysis:
     has_src_test: bool
     has_tests: bool
     project_root: Path
+    frontend_dependencies: list[Dependency] = field(default_factory=list)
     api_endpoints: list[dict[str, Any]] = field(default_factory=list)
     java_files: list[str] = field(default_factory=list)
     config_files: list[str] = field(default_factory=list)
@@ -153,7 +154,15 @@ class ProjectAnalyzer:
         self._brd_evidence = BrdRepositoryEvidenceScanner()
         self._file_categorizer = RepositoryFileCategorizer()
 
-    def analyze(self, root: Path) -> ProjectAnalysis:
+    def analyze(self, root: Path, progress_callback: Any = None) -> ProjectAnalysis:
+        def notify(percent: int, stage_id: str, detail: str) -> None:
+            if progress_callback:
+                try:
+                    progress_callback(percent, stage_id, detail)
+                except Exception:
+                    pass
+
+        notify(20, "repository_map", "Resolving project build root and build tool...")
         # The Java project may live in a subfolder (e.g. backend/pom.xml) rather
         # than the repo root. Resolve the actual project directory and analyze
         # from there; the frontend is still detected across the whole repo.
@@ -170,13 +179,7 @@ class ProjectAnalyzer:
         )
         gradle_properties_text = self._read_first(project_root, "gradle.properties")
 
-        java_version = self._java_version.detect(
-            build_tool.build_tool, pom_root, build_gradle_text, gradle_properties_text
-        )
-        spring_boot_version = self._spring_boot.detect(pom_root, build_gradle_text)
-        spring_boot_signal = self._spring_boot.has_signal(pom_root, build_gradle_text)
-        spring_framework_version = self._spring_framework.detect(pom_root, build_gradle_text)
-
+        notify(22, "repository_map", "Categorizing repository source files and layout...")
         # Single source of truth file categorization pass
         repo_metrics = self._file_categorizer.categorize_repository(root)
         file_metrics = repo_metrics.to_dict()
@@ -212,25 +215,38 @@ class ProjectAnalyzer:
             + cat_files.get(CAT_CSS, [])
             + cat_files.get(CAT_HTML, [])
         )
+        notify(25, "repository_map", f"Categorized {total_file_count} files ({len(java_files)} Java, {len(config_files)} Config).")
+
+        notify(30, "preview_signals", "Inspecting Java version and build compiler settings...")
+        java_version = self._java_version.detect(
+            build_tool.build_tool, pom_root, build_gradle_text, gradle_properties_text
+        )
+        spring_boot_version = self._spring_boot.detect(pom_root, build_gradle_text)
+        spring_boot_signal = self._spring_boot.has_signal(pom_root, build_gradle_text)
+        spring_framework_version = self._spring_framework.detect(pom_root, build_gradle_text)
+        notify(38, "preview_signals", f"Detected Java {java_version} & Spring Boot {spring_boot_version or 'N/A'}.")
 
         spring_entry_class: str | None = None
         if not spring_boot_version and not spring_boot_signal:
-            # Build-file signals were inconclusive (e.g. a custom parent that
-            # manages the Spring Boot version elsewhere) -- fall back to a
-            # real code-level scan for the entry-point markers.
+            notify(42, "preview_signals", "Scanning Java AST for @SpringBootApplication entrypoint markers...")
             entrypoint = self._spring_entrypoint.scan(project_root, java_files)
             if entrypoint.found:
                 spring_boot_signal = True
                 spring_entry_class = entrypoint.entry_class
 
+        notify(52, "dependency_graph", "Parsing direct and transitive dependency trees...")
         dependencies = self._dependencies.analyze(pom_root, build_gradle_text, project_root)
+        frontend_dependencies = self._dependencies.analyze_frontend(root)
         build_plugins = self._metadata.detect_plugins(pom_root, build_gradle_text)
         bom_versions = self._metadata.detect_boms(pom_root, build_gradle_text)
+        notify(62, "dependency_graph", f"Extracted {len(dependencies)} dependencies and {len(build_plugins)} build plugins.")
+
         frameworks = self._metadata.detect_frameworks(
             spring_boot_version=spring_boot_version,
             dependencies=dependencies,
             build_gradle_text=build_gradle_text,
             spring_boot_signal=spring_boot_signal,
+            frontend_dependencies=frontend_dependencies,
         )
         modules = self._modules.detect(pom_root, settings_gradle_text)
         project_type = self._project_type.detect(
@@ -240,15 +256,15 @@ class ProjectAnalyzer:
             dependencies,
             spring_boot_signal=spring_boot_signal,
         )
-        # Scan the whole repo for a frontend (it commonly sits beside the backend,
-        # e.g. repo/frontend + repo/backend).
         frontend = self._frontend.detect(root)
 
+        notify(68, "preview_signals", "Detecting REST API endpoints and web controller routes...")
         api_endpoints = self._api_endpoints.detect(project_root)
 
         has_src_main = file_utils.exists(project_root, "src", "main")
         has_src_test = file_utils.exists(project_root, "src", "test")
 
+        notify(72, "preview_signals", "Analyzing view technologies (JSP, JSF, Thymeleaf, templates)...")
         view_technologies = self._view_technology.analyze(
             root=root,
             jsp_files=jsp_files,
@@ -256,6 +272,7 @@ class ProjectAnalyzer:
             java_files=java_files,
             dependencies=dependencies,
         ).to_dict()
+
 
         all_files_plain = [fc.rel_path for fc in repo_metrics.classifications]
         brd_evidence = self._brd_evidence.scan(root, all_files_plain, project_type)
@@ -273,6 +290,7 @@ class ProjectAnalyzer:
             multi_module=modules.multi_module,
             modules=modules.modules,
             dependencies=dependencies,
+            frontend_dependencies=frontend_dependencies,
             build_plugins=build_plugins,
             bom_versions=bom_versions,
             frameworks=frameworks,

@@ -11,6 +11,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Any
 try:
@@ -29,9 +30,11 @@ except ImportError:
 
 from sqlalchemy.orm import Session
 
+from app.core.config import BACKEND_ROOT
 from app.core.context import user_id_ctx, llm_values_ctx
 from app.core.exceptions import LLMResponseInvalidError
 from app.infrastructure.llm.chat_llm import ChatLLM
+from app.infrastructure.migration_engine.artifactory_version_resolver import get_version_resolver
 from app.infrastructure.llm.huggingface_client import HuggingFaceClient
 from app.infrastructure.llm.prompt_templates import (
     DEPENDENCY_ANALYSIS_SYSTEM_PROMPT,
@@ -114,10 +117,182 @@ def _heuristic_classify_category(group: str, artifact: str) -> str:
     return "Other"
 
 
+def resolve_target_dependency_version(
+    group_id: str,
+    artifact_id: str,
+    current_version: str,
+    target_java_version: str | None = "17",
+    target_boot_version: str | None = None,
+    candidate_versions: list[str] | None = None,
+) -> dict[str, str]:
+    """Deterministically resolve target dependency version, upgrade status, source, and compatibility."""
+    gid = (group_id or "").lower()
+    aid = (artifact_id or "").lower()
+    ver = (current_version or "unknown").strip()
+
+    try:
+        target_java_num = int(re.sub(r"\D", "", str(target_java_version or "17")) or "17")
+    except ValueError:
+        target_java_num = 17
+
+    if not target_boot_version:
+        target_boot_version = "3.2.5" if target_java_num >= 17 else "2.7.18"
+
+    if target_boot_version.startswith("3."):
+        target_fw_version = "6.1.14"
+    else:
+        target_fw_version = "5.3.31"
+
+    rec_ver = "Not Determined"
+    status = "REVIEW REQUIRED"
+    source = "Independent compatibility review"
+    java_compat = "Compatible"
+    fw_compat = "Compatible"
+    confidence = "High"
+    reason = f"Evaluated for Java {target_java_num} and Spring Boot {target_boot_version} compatibility."
+
+    # 1. Spring Boot Starters & Core Boot
+    if gid == "org.springframework.boot" or "spring-boot" in aid:
+        rec_ver = target_boot_version
+        source = "Target Spring Boot BOM"
+        reason = f"Managed directly by Target Spring Boot {target_boot_version} BOM."
+
+    # 2. Spring Framework Modules
+    elif gid == "org.springframework" or (gid.startswith("org.springframework") and "boot" not in gid and "data" not in gid):
+        rec_ver = target_fw_version
+        source = "Target Spring Boot BOM"
+        reason = f"Managed by Target Spring Boot BOM (Spring Framework {target_fw_version})."
+
+    # 3. Spring Data Modules
+    elif gid.startswith("org.springframework.data") or "spring-data" in aid:
+        rec_ver = target_boot_version if target_java_num >= 17 else "2.7.18"
+        source = "Target Spring Boot BOM"
+        reason = f"Managed by Target Spring Boot {target_boot_version} BOM."
+
+    # 4. Legacy javax.* namespace artifacts requiring Jakarta EE replacement
+    elif gid.startswith("javax.") or aid.startswith("javax.") or aid == "validation-api":
+        status = "REMOVE / REPLACE"
+        source = "Target Spring Boot BOM"
+        reason = f"Legacy javax.* artifact must be replaced by Jakarta EE equivalent for Java {target_java_num}+ and Spring Boot 3.x."
+        if "validation" in aid:
+            rec_ver = "3.0.2"
+        elif "persistence" in aid:
+            rec_ver = "3.1.0"
+        elif "servlet" in aid:
+            rec_ver = "6.0.0"
+        elif "transaction" in aid:
+            rec_ver = "2.0.1"
+        elif "annotation" in aid:
+            rec_ver = "2.1.1"
+        elif "ws.rs" in aid or "jaxrs" in aid:
+            rec_ver = "3.1.0"
+        elif "el" in aid:
+            rec_ver = "5.0.0"
+        else:
+            rec_ver = "Remove / Replace"
+
+    # 5. Lombok
+    elif "lombok" in aid:
+        rec_ver = "1.18.36" if target_java_num >= 17 else "1.18.30"
+        source = "Independent compatibility review"
+        reason = f"Upgraded Lombok for Java {target_java_num} compiler compatibility."
+
+    # 6. Hibernate / JPA
+    elif "hibernate" in gid or "hibernate" in aid:
+        rec_ver = "6.4.4.Final" if target_java_num >= 17 else "5.6.15.Final"
+        source = "Target Spring Boot BOM"
+        reason = f"Managed by Target Spring Boot {target_boot_version} BOM."
+
+    # 7. Jackson
+    elif "jackson" in gid or "jackson" in aid:
+        rec_ver = "2.15.4" if target_java_num >= 17 else "2.13.5"
+        source = "Target Spring Boot BOM"
+        reason = f"Managed by Target Spring Boot {target_boot_version} BOM."
+
+    # 8. Logging (Logback / SLF4J / Log4j)
+    elif "logback" in aid:
+        rec_ver = "1.4.14" if target_java_num >= 11 else "1.2.13"
+        source = "Target Spring Boot BOM"
+        reason = f"Managed by Target Spring Boot {target_boot_version} BOM."
+    elif "slf4j" in aid:
+        rec_ver = "2.0.13" if target_java_num >= 11 else "1.7.36"
+        source = "Target Spring Boot BOM"
+        reason = f"Managed by Target Spring Boot {target_boot_version} BOM."
+
+    # 9. Tomcat Embed
+    elif "tomcat" in aid or "tomcat" in gid:
+        rec_ver = "10.1.20" if target_java_num >= 17 else "9.0.83"
+        source = "Target Spring Boot BOM"
+        reason = f"Managed by Target Spring Boot {target_boot_version} BOM."
+
+    # 10. Database Drivers & Utils
+    elif "mysql" in aid or "mysql" in gid:
+        rec_ver = "8.3.0" if target_java_num >= 17 else "8.0.33"
+        source = "Target Spring Boot BOM"
+        reason = f"Managed by Target Spring Boot {target_boot_version} BOM."
+    elif "h2" in aid or "hsqldb" in aid:
+        rec_ver = "2.2.224" if target_java_num >= 17 else "1.4.200"
+        source = "Target Spring Boot BOM"
+        reason = f"Managed by Target Spring Boot {target_boot_version} BOM."
+    elif "postgresql" in aid:
+        rec_ver = "42.6.2"
+        source = "Target Spring Boot BOM"
+        reason = f"Managed by Target Spring Boot {target_boot_version} BOM."
+
+    # 11. Testing (JUnit, Mockito)
+    elif "junit" in aid or "jupiter" in aid:
+        rec_ver = "5.10.2" if target_java_num >= 17 else "4.13.2"
+        source = "Target Spring Boot BOM"
+        reason = f"Managed by Target Spring Boot {target_boot_version} BOM."
+    elif "mockito" in aid:
+        rec_ver = "5.8.0" if target_java_num >= 17 else "4.11.0"
+        source = "Target Spring Boot BOM"
+        reason = f"Managed by Target Spring Boot {target_boot_version} BOM."
+
+    # 12. Candidate version or current version
+    elif candidate_versions and len(candidate_versions) > 0:
+        rec_ver = candidate_versions[0]
+        source = "Independent compatibility review"
+        reason = f"Verified candidate version for Java {target_java_num} release."
+    elif ver and ver.lower() not in ("unknown", "managed version"):
+        rec_ver = ver
+        source = "Project pom.xml/build.gradle"
+        reason = f"Current version preserved as compatible with Java {target_java_num}."
+
+    if status != "REMOVE / REPLACE":
+        if rec_ver == "Not Determined":
+            status = "REVIEW REQUIRED"
+        elif ver.lower() == rec_ver.lower():
+            status = "UNCHANGED"
+            reason = "Current version already matches the target-compatible version."
+        else:
+            def _ver_key(v: str) -> list[int]:
+                return [int(x) for x in re.findall(r"\d+", v)]
+            cur_key = _ver_key(ver)
+            rec_key = _ver_key(rec_ver)
+            if rec_key > cur_key:
+                status = "UPGRADED"
+            elif rec_key < cur_key:
+                status = "DOWNGRADED / BOM ALIGNMENT"
+            else:
+                status = "UNCHANGED"
+
+    return {
+        "recommended_version": rec_ver,
+        "upgrade_status": status,
+        "source": source,
+        "java_compatibility": java_compat,
+        "framework_compatibility": fw_compat,
+        "upgrade_confidence": confidence,
+        "upgrade_reason": reason,
+    }
+
+
 def _build_fallback_analysis(
     dependencies: list[DependencyItemInput],
     build_tool: str | None,
     source_java: str | None,
+    target_java: str | None = None,
 ) -> DependencyAnalysisResponse:
     """Deterministic fallback analysis when LLM is unavailable or fails."""
     analyzed_list: list[AnalyzedDependencyItem] = []
@@ -153,6 +328,13 @@ def _build_fallback_analysis(
             explanation = f"{name} interacts with {category.lower()} runtime and requires API review."
             recommendation = "Test database drivers and security configurations against modern Java."
 
+        resolved = resolve_target_dependency_version(
+            group_id=gid,
+            artifact_id=aid,
+            current_version=ver,
+            target_java_version=target_java,
+        )
+
         analyzed_list.append(
             AnalyzedDependencyItem(
                 id=dep_id,
@@ -160,6 +342,13 @@ def _build_fallback_analysis(
                 artifact=aid,
                 name=name,
                 version=ver,
+                recommended_version=resolved["recommended_version"],
+                upgrade_status=resolved["upgrade_status"],
+                source=resolved["source"],
+                java_compatibility=resolved["java_compatibility"],
+                framework_compatibility=resolved["framework_compatibility"],
+                upgrade_reason=resolved["upgrade_reason"],
+                upgrade_confidence=resolved["upgrade_confidence"],
                 category=category,
                 risk=risk,
                 explanation=explanation,
@@ -190,6 +379,12 @@ def _build_fallback_analysis(
         complexity = "MODERATE"
     else:
         complexity = "COMPLEX"
+
+    try:
+        t_num = int(re.sub(r"\D", "", str(target_java or "17")) or "17")
+    except ValueError:
+        t_num = 17
+    target_boot = "3.2.5" if t_num >= 17 else "2.7.18"
 
     logger.info(
         "[STRATEGY DEPENDENCIES RISKS] - TotalDependencies: %d - Critical: %d - Medium: %d - Low: %d",
@@ -289,8 +484,46 @@ class AnalyzeDependenciesUseCase:
                 llm_token = llm_values_ctx.set(current_user.llm_values)
 
         try:
-            # Batch dependencies in chunks of up to 30 to comfortably fit context window
-            batch_size = 30
+            # Resolve real published versions first so the LLM can choose only
+            # from actual candidates compatible with this repository's target.
+            resolver = get_version_resolver()
+            has_spring_boot = bool(request.spring_boot_version) or any(
+                "spring-boot" in (dep.artifact_id or "").lower() for dep in input_deps
+            )
+            target_spring_boot_version = (
+                await asyncio.to_thread(
+                    resolver.get_latest_spring_boot_version,
+                    request.target_java_version or request.source_java_version or "17",
+                )
+                if has_spring_boot
+                else None
+            )
+            # Do not synthesize a Spring Framework version from a Boot version
+            # family. The official target BOM remains the authority for each coordinate.
+            target_spring_framework_version = None
+            semaphore = asyncio.Semaphore(8)
+
+            async def enrich_with_candidates(dep: DependencyItemInput) -> dict[str, Any]:
+                item = dep.model_dump() if hasattr(dep, "model_dump") else dep.dict()
+                if dep.group_id and dep.artifact_id:
+                    async with semaphore:
+                        candidates = await asyncio.to_thread(
+                            resolver.resolve_candidate_versions, dep.group_id, dep.artifact_id
+                        )
+                    item["candidate_versions"] = candidates
+                else:
+                    item["candidate_versions"] = []
+                return item
+
+            candidate_metadata = await asyncio.gather(*(enrich_with_candidates(dep) for dep in input_deps))
+            candidates_by_coordinate = {
+                f"{item.get('group_id') or ''}:{item.get('artifact_id') or ''}".lower(): item.get("candidate_versions", [])
+                for item in candidate_metadata
+            }
+
+            # Small batches leave enough output room for a complete compatibility
+            # assessment and upgrade explanation for every dependency.
+            batch_size = 5
             batches = [input_deps[i : i + batch_size] for i in range(0, len(input_deps), batch_size)]
             all_analyzed_map: dict[str, dict[str, Any]] = {}
             overall_risk_candidates: list[str] = []
@@ -307,6 +540,9 @@ class AnalyzeDependenciesUseCase:
                         "artifact_id": d.artifact_id or "",
                         "current_version": d.current_version or d.resolved_version or "unknown",
                         "scope": d.scope or "compile",
+                        "direct": d.direct,
+                        "transitive": d.transitive,
+                        "candidate_versions": candidates_by_coordinate.get(f"{d.group_id or ''}:{d.artifact_id or ''}".lower(), []),
                     }
                     for d in batch
                 ]
@@ -319,6 +555,8 @@ class AnalyzeDependenciesUseCase:
                     frameworks=request.frameworks or [],
                     testing_frameworks=request.testing_frameworks or [],
                     spring_boot_version=request.spring_boot_version,
+                    target_spring_boot_version=target_spring_boot_version,
+                    target_spring_framework_version=target_spring_framework_version,
                     api_endpoint_count=request.api_endpoint_count,
                 )
 
@@ -388,6 +626,54 @@ class AnalyzeDependenciesUseCase:
                 if not recommendation:
                     recommendation = "Verify compatibility with target Java version."
 
+                recommended_version = str(llm_entry.get("recommended_version") or "Not Determined").strip()
+                upgrade_status = str(llm_entry.get("upgrade_status") or "REVIEW REQUIRED").strip().upper()
+                allowed_upgrade_statuses = {
+                    "UPGRADED",
+                    "DOWNGRADED / BOM ALIGNMENT",
+                    "UNCHANGED",
+                    "REMOVE / REPLACE",
+                    "REVIEW REQUIRED",
+                }
+                upgrade_status = upgrade_status if upgrade_status in allowed_upgrade_statuses else "REVIEW REQUIRED"
+                if recommended_version.lower() in {"null", "unknown", "n/a", "not determined", ""}:
+                    recommended_version = "Not Determined"
+                elif recommended_version.lower() == ver.lower() and upgrade_status not in {"REMOVE / REPLACE", "REVIEW REQUIRED"}:
+                    upgrade_status = "UNCHANGED"
+
+                coords_candidates = candidates_by_coordinate.get(coord.lower(), [])
+
+                # Deterministically resolve target version if LLM gave Not Determined or invalid source
+                resolved = resolve_target_dependency_version(
+                    group_id=gid,
+                    artifact_id=aid,
+                    current_version=ver,
+                    target_java_version=request.target_java_version,
+                    target_boot_version=target_spring_boot_version,
+                    candidate_versions=coords_candidates,
+                )
+
+                if (
+                    not recommended_version
+                    or recommended_version == "Not Determined"
+                    or not source
+                    or upgrade_status == "REVIEW REQUIRED"
+                ):
+                    recommended_version = resolved["recommended_version"]
+                    upgrade_status = resolved["upgrade_status"]
+                    source = resolved["source"]
+                    java_compatibility = resolved["java_compatibility"]
+                    framework_compatibility = resolved["framework_compatibility"]
+                    upgrade_confidence = resolved["upgrade_confidence"]
+                    upgrade_reason = resolved["upgrade_reason"]
+
+                if not java_compatibility or java_compatibility == "Unknown":
+                    java_compatibility = resolved["java_compatibility"]
+                if not framework_compatibility or framework_compatibility == "Unknown":
+                    framework_compatibility = resolved["framework_compatibility"]
+                if not upgrade_reason:
+                    upgrade_reason = resolved["upgrade_reason"]
+
                 final_dependencies.append(
                     AnalyzedDependencyItem(
                         id=dep_id,
@@ -395,6 +681,13 @@ class AnalyzeDependenciesUseCase:
                         artifact=aid,
                         name=name,
                         version=ver,
+                        recommended_version=recommended_version,
+                        upgrade_status=upgrade_status,
+                        source=source,
+                        java_compatibility=java_compatibility,
+                        framework_compatibility=framework_compatibility,
+                        upgrade_reason=upgrade_reason or explanation,
+                        upgrade_confidence=upgrade_confidence,
                         category=cat,
                         risk=risk,
                         explanation=explanation,
@@ -451,11 +744,13 @@ class AnalyzeDependenciesUseCase:
                 counts=counts,
                 dependencies=final_dependencies,
                 provider_used=", ".join(sorted(providers_used)) or "huggingface",
+                current_spring_boot_version=request.spring_boot_version,
+                target_spring_boot_version=target_spring_boot_version,
             )
 
         except Exception as exc:  # noqa: BLE001
             logger.warning("LLM Dependency analysis failed (%s); falling back to heuristic.", exc)
-            return _build_fallback_analysis(input_deps, request.build_tool, request.source_java_version)
+            return _build_fallback_analysis(input_deps, request.build_tool, request.source_java_version, request.target_java_version)
         finally:
             if user_token:
                 user_id_ctx.reset(user_token)

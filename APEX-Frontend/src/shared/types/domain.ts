@@ -19,6 +19,24 @@ export interface RepoFile {
   url: string;
 }
 
+export interface DiscoveredApiEndpoint {
+  id?: string;
+  httpMethod: string;
+  method?: string;
+  path: string;
+  urlPath?: string;
+  endpoint?: string;
+  controller?: string;
+  className?: string;
+  handlerMethod?: string;
+  methodName?: string;
+  sourceFile?: string;
+  file?: string;
+  module?: string;
+  framework?: string;
+  detectionStatus?: string;
+}
+
 export interface UserResponse {
   id: number | string;
   userId?: number | string;
@@ -40,6 +58,9 @@ export interface DependencyInfo {
   declaredVersion?: string | null;
   resolvedVersion?: string | null;
   versionSource?: string | null;
+  direct?: boolean;
+  transitive?: boolean;
+  scope?: string | null;
 }
 
 export interface DetectedFramework {
@@ -176,17 +197,9 @@ export interface RepoAnalysis {
   }[];
   test_file_list?: { path: string; tool: string }[];
   dependencies: DependencyInfo[];
-  api_endpoints: {
-    id: string;
-    httpMethod: string;
-    path: string;
-    controller: string;
-    handlerMethod: string;
-    sourceFile: string;
-    module: string;
-    framework: string;
-    detectionStatus: string;
-  }[];
+  frontend_dependencies?: DependencyInfo[];
+  api_endpoints?: DiscoveredApiEndpoint[];
+  api_endpoint_count?: number;
   // Optional extras consumed by the wizard/modernization views (populated by
   // some analysis paths, absent in others).
   all_files?: Array<string | { path?: string }>;

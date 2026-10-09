@@ -62,6 +62,28 @@ class RunDiscoveryUseCase:
         self._scanner = scanner or JavaClassScanner()
         self._view_inspector = view_inspector or ViewTechnologyInspector()
 
+    def _update_progress(
+        self,
+        job_id: str,
+        stage: str,
+        percent: int,
+        detail: str,
+        active_stage_id: str = "repository_map",
+    ) -> None:
+        try:
+            data = {
+                "jobId": job_id,
+                "status": "IN_PROGRESS" if percent < 100 else "DISCOVERY_COMPLETED",
+                "stage": stage,
+                "progressPercent": percent,
+                "detail": detail,
+                "activeStageId": active_stage_id,
+                "updatedAt": datetime.now(timezone.utc).isoformat(),
+            }
+            self._job_repository.save_discovery_progress(job_id, data)
+        except Exception as exc:
+            logger.debug("Failed saving discovery progress for job %s: %s", job_id, exc)
+
     def execute(self, job_id: str, request_token: str | None = None, force_refresh: bool = False) -> DiscoveryOutcome:
         # 1. Connect report must exist.
         connect = self._job_repository.read_connect_report(job_id)
@@ -88,10 +110,13 @@ class RunDiscoveryUseCase:
                 and paths.original_repo_dir.is_dir()
             ):
                 logger.warning("[DISCOVERY REUSE] - JobID: %s - Reusing existing discovery report from cache", job_id)
+                self._update_progress(job_id, "DISCOVERY_COMPLETED", 100, "Discovery loaded from cache.", "service_fit")
                 response = self._reconstruct_response_from_report(
                     job_id, repo_url, owner, repo_name, visibility, existing_report
                 )
                 return DiscoveryOutcome(response=response, report=existing_report)
+
+        self._update_progress(job_id, "CONNECT_VERIFIED", 5, "Connect report verified. Preparing workspace...", "repository_map")
 
         # The PAT is never persisted with the connect report (secret at rest);
         # it comes from the client on this request, falling back to the env token.
@@ -114,25 +139,34 @@ class RunDiscoveryUseCase:
             if not paths.original_repo_dir.is_dir() or not any(paths.original_repo_dir.iterdir()):
                 logger.error("[DISCOVERY ERROR] - JobID: %s - Local workspace empty or missing", job_id)
                 raise UnsupportedProjectError()
+            self._update_progress(job_id, "REPOSITORY_CLONED", 30, "Local workspace files verified.", "repository_map")
         else:
             workspace.prepare_original_repo_target()
             logger.info("[DISCOVERY CLONE] - JobID: %s - Cloning repository into workspace...", job_id)
+            self._update_progress(job_id, "CLONING_REPOSITORY", 15, "Cloning repository into workspace...", "repository_map")
             self._cloner.clone(
                 repo_url,
                 paths.original_repo_dir,
                 token=token,
                 log_path=paths.discovery_log_path,
             )
+            self._update_progress(job_id, "REPOSITORY_CLONED", 30, "Repository cloned. Categorizing source files and layout...", "repository_map")
             logger.info("[DISCOVERY ANALYSIS] - JobID: %s - Analyzing project files...", job_id)
 
         # 3. Analyze the cloned project (read-only).
-        analysis = self._analyzer.analyze(paths.original_repo_dir)
+        def analyzer_progress(pct: int, stage_id: str, detail: str) -> None:
+            self._update_progress(job_id, "ANALYZING_PROJECT", pct, detail, stage_id)
+
+        analysis = self._analyzer.analyze(paths.original_repo_dir, progress_callback=analyzer_progress)
         if not analysis.is_supported:
             logger.error("[DISCOVERY FAILED] - JobID: %s - Unsupported project (no Maven/Gradle build file found)", job_id)
             raise UnsupportedProjectError()
 
+        self._update_progress(job_id, "ANALYZING_DEPENDENCIES", 60, f"Extracted {analysis.dependency_count} dependencies and {len(analysis.build_plugins)} build plugins.", "dependency_graph")
+
         # Run deeper AST and view analysis for the technical document generation
         logger.info("[DISCOVERY AST SCAN] - JobID: %s - Scanning Java classes and views...", job_id)
+        self._update_progress(job_id, "AST_SCANNING", 75, "Scanning Java AST classes, endpoints, and view technologies...", "preview_signals")
         classes = self._scanner.scan(paths.original_repo_dir)
         deep_view = self._view_inspector.inspect(
             repo_root=paths.original_repo_dir,
@@ -142,6 +176,7 @@ class RunDiscoveryUseCase:
         )
         self._job_repository.save_ast_cache(job_id, analysis, classes, deep_view)
 
+        self._update_progress(job_id, "EVALUATING_SERVICE_FIT", 88, "Evaluating Spring Boot conversion eligibility and architecture fit...", "service_fit")
         eligibility = compute_eligibility(
             build_tool_supported=analysis.is_supported,
             build_tool=analysis.build_tool,
@@ -206,7 +241,10 @@ class RunDiscoveryUseCase:
         # 4b. Index the report into the Strategy chatbot's vector store so the
         # first chat question is fast. Best-effort: an indexing failure (e.g.
         # embedding model not yet downloaded) must never break Discovery.
+        self._update_progress(job_id, "FINALIZING_INDEXING", 95, "Indexing discovery report for AI strategy chatbot...", "service_fit")
         self._index_for_chatbot(job_id, report)
+
+        self._update_progress(job_id, "DISCOVERY_COMPLETED", 100, "Repository discovery completed successfully.", "service_fit")
 
         # 5. Build the clean summary response.
         response = self._build_response(
@@ -220,6 +258,7 @@ class RunDiscoveryUseCase:
             framework_recommendations=framework_recommendations,
         )
         return DiscoveryOutcome(response=response, report=report)
+
 
     # -- chatbot indexing (best-effort) -------------------------------------- #
 
@@ -332,6 +371,9 @@ class RunDiscoveryUseCase:
             "multiModule": analysis.multi_module,
             "modules": analysis.modules,
             "dependencies": [dep.to_dict() for dep in analysis.dependencies],
+            "frontendDependencies": [
+                dep.to_dict() for dep in getattr(analysis, "frontend_dependencies", [])
+            ],
             "buildPlugins": [plugin.to_dict() for plugin in analysis.build_plugins],
             "bomVersions": [bom.to_dict() for bom in analysis.bom_versions],
             "frameworks": analysis.frameworks,
@@ -492,6 +534,7 @@ class RunDiscoveryUseCase:
                 "frontendDetected": frontend_detected,
                 "frontendType": frontend_type,
                 "dependencies": report.get("dependencies", []),
+                "frontendDependencies": report.get("frontendDependencies", []),
                 "buildPlugins": report.get("buildPlugins", []),
                 "bomVersions": report.get("bomVersions", []),
                 "frameworks": report.get("frameworks", []),

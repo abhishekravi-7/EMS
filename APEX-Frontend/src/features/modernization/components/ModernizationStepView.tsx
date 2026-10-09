@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef, useMemo, type Dispatch, type SetStateAction } from "react";
 import { createPortal } from "react-dom";
-import { FaRocket, FaSearch, FaShieldAlt, FaFileAlt, FaFlask, FaCheck, FaPlus } from "react-icons/fa";
+import { FaRocket, FaSearch, FaShieldAlt, FaFileAlt, FaFlask, FaCopy,FaCheck, FaPlus } from "react-icons/fa";
 import {
   scanExistingTests,
   getCachedExistingTests,
@@ -13,13 +13,79 @@ import {
 import { ExistingTestCasesPanel } from "./ExistingTestCasesPanel";
 import { ExistingTestValidationReport } from "./ExistingTestValidationReport";
 import { FunctionalTestingDocumentCard } from "./FunctionalTestingDocumentCard";
+import { DetectedDependenciesTable } from "./DetectedDependenciesTable";
 import { TestReportsModal, type TestReportData } from "./TestReportsModal";
 import { wizardStyles as styles } from "@/shared/components/wizard/wizardStyles";
 import { renderWizardIconBadge, renderForwardButtonLabel } from "@/shared/components/wizard";
 import type { RepoAnalysis, RepoInfo } from "@/shared/types/domain";
+import type { DependencyAnalysisResponse } from "@/features/strategy/services/strategyService";
 import type { FunctionalTestScopePreview } from "../services/modernizationService";
 import type { useModernizationState } from "../hooks/useModernizationState";
 import { getUserSettings, saveUserSettings, getQualityChecksAdminConfig, type FullUserSettings } from "@/features/admin/services/adminService";
+
+function CopyAllDependenciesButton({
+  text,
+  label = "Copy All",
+  title = "Copy all dependencies to clipboard",
+  style = {},
+}: {
+  text: string;
+  label?: string;
+  title?: string;
+  style?: React.CSSProperties;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!text) return;
+    void navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      title={copied ? "All dependencies copied!" : title}
+      aria-label={copied ? "Copied All" : title}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "6px",
+        padding: "5px 10px",
+        borderRadius: "6px",
+        border: "1px solid " + (copied ? "#86efac" : "#cbd5e1"),
+        background: copied ? "#ecfdf5" : "#ffffff",
+        color: copied ? "#166534" : "#1e293b",
+        fontWeight: 600,
+        fontSize: "12px",
+        cursor: "pointer",
+        flexShrink: 0,
+        boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
+        transition: "all 0.15s ease",
+        ...style,
+      }}
+      onMouseEnter={(e) => {
+        if (!copied) {
+          e.currentTarget.style.background = "#f8fafc";
+          e.currentTarget.style.borderColor = "#94a3b8";
+        }
+      }}
+      onMouseLeave={(e) => {
+        if (!copied) {
+          e.currentTarget.style.background = "#ffffff";
+          e.currentTarget.style.borderColor = "#cbd5e1";
+        }
+      }}
+    >
+      {copied ? <FaCheck size={12} style={{ color: "#166534" }} /> : <FaCopy size={12} />}
+      <span>{copied ? "Copied All!" : label}</span>
+    </button>
+  );
+}
 
 const _LLM_PROVIDERS = [
   { value: "groq", label: "Groq (Recommended — Llama 3.3 70B Fast)" },
@@ -140,6 +206,8 @@ interface ModernizationStepViewProps {
   jobId: string;
   modernization: ReturnType<typeof useModernizationState>;
   repoAnalysis: RepoAnalysis | null;
+  dependencyAnalysis: DependencyAnalysisResponse | null;
+  targetJavaVersion: string | null;
   selectedRepo: RepoInfo | null;
   repoUrl: string;
   currentToken: string;
@@ -162,6 +230,8 @@ export function ModernizationStepView({
   jobId,
   modernization,
   repoAnalysis,
+  dependencyAnalysis,
+  targetJavaVersion,
   selectedRepo: _selectedRepo,
   repoUrl: _repoUrl,
   currentToken: _currentToken,
@@ -1114,6 +1184,36 @@ setIsLlmConfiguredMod(
           }}
         />
       )}
+
+      {/* Detected technologies and their planned version changes */}
+      {(() => {
+        const javaCurrent = repoAnalysis?.java_version || repoAnalysis?.java_version_from_build;
+        const allDepLines: string[] = [];
+        if (javaCurrent) {
+          allDepLines.push(`Java: ${javaCurrent} -> ${targetJavaVersion || "Not selected"}`);
+        }
+        (repoAnalysis?.dependencies || []).forEach((dependency: any) => {
+          const gid = dependency.group_id || dependency.groupId || dependency.group || "";
+          const aid = dependency.artifact_id || dependency.artifactId || dependency.artifact || "";
+          const currentVer = dependency.current_version || dependency.resolved_version || dependency.declared_version || dependency.version || "Unknown";
+          const name = gid && aid ? `${gid}:${aid}` : aid || gid || "Dependency";
+          allDepLines.push(`${name} (${currentVer})`);
+        });
+        const allDepsText = allDepLines.join("\n");
+
+        return (
+          <DetectedDependenciesTable
+            repoAnalysis={repoAnalysis}
+            dependencyAnalysis={dependencyAnalysis}
+            targetJavaVersion={targetJavaVersion}
+            allDepsText={allDepsText}
+            CopyAllDependenciesButton={CopyAllDependenciesButton}
+          />
+        );
+      })()}
+
+      {/* Functional Testing Document Upload Section — only shown when enabled and permitted */}
+      {isFunctionalTestPermitted && runFunctionalTests && <FunctionalTestingDocumentCard jobId={jobId} />}
 
       {/* Test Validation Report Modal */}
       {showValidationReport && existingExecResult && (

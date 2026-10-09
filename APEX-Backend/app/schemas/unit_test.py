@@ -143,6 +143,7 @@ class UnitTestSuiteResult(BaseModel):
     original_coverage: dict[str, Any] | None = None
     final_coverage: dict[str, Any] | None = None
     coverage_improvement: dict[str, Any] | None = None
+    coverage: dict[str, Any] | None = None
     line_coverage_pct: float | None = None
     branch_coverage_pct: float | None = None
     instruction_coverage_pct: float | None = None
@@ -154,6 +155,9 @@ class UnitTestSuiteResult(BaseModel):
     prompt_analysis: TestingPromptAnalysis | None = None
     prompt_coverage_evaluation: PromptCoverageEvaluation | None = None
     prompt_compliance: PromptComplianceReport | None = None
+    mcp_stats: dict[str, Any] | None = None
+    git_publish_status: str | None = None
+    git_publish_error: str | None = None
     raw_logs: list[str] = Field(default_factory=list)
 
 

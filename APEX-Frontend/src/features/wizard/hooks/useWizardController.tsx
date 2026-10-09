@@ -1,16 +1,82 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { wizardStyles as styles } from "@/shared/components/wizard/wizardStyles";
 import {
+  FaCheck,
   FaCheckCircle,
   FaChevronDown,
   FaChevronUp,
   FaExclamationTriangle,
+  FaCopy,
   FaFolderOpen,
   FaLink,
   FaProjectDiagram,
   FaRocket,
   FaSearch,
 } from "react-icons/fa";
+
+function CopyAllDependenciesButton({
+  text,
+  label = "Copy All",
+  title = "Copy all dependencies to clipboard",
+  style = {},
+}: {
+  text: string;
+  label?: string;
+  title?: string;
+  style?: React.CSSProperties;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!text) return;
+    void navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      title={copied ? "All dependencies copied!" : title}
+      aria-label={copied ? "Copied All" : title}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "6px",
+        padding: "6px 12px",
+        borderRadius: "6px",
+        border: "1px solid " + (copied ? "#86efac" : "#cbd5e1"),
+        background: copied ? "#ecfdf5" : "#ffffff",
+        color: copied ? "#166534" : "#1e293b",
+        fontWeight: 600,
+        fontSize: "12px",
+        cursor: "pointer",
+        flexShrink: 0,
+        boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
+        transition: "all 0.15s ease",
+        ...style,
+      }}
+      onMouseEnter={(e) => {
+        if (!copied) {
+          e.currentTarget.style.background = "#f8fafc";
+          e.currentTarget.style.borderColor = "#94a3b8";
+        }
+      }}
+      onMouseLeave={(e) => {
+        if (!copied) {
+          e.currentTarget.style.background = "#ffffff";
+          e.currentTarget.style.borderColor = "#cbd5e1";
+        }
+      }}
+    >
+      {copied ? <FaCheck size={12} style={{ color: "#166534" }} /> : <FaCopy size={12} />}
+      <span>{copied ? "Copied All!" : label}</span>
+    </button>
+  );
+}
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   buildHtmlFilename,
@@ -47,6 +113,7 @@ import {
   type StrategyPageContext,
 } from "@/features/strategy/services/strategyService";
 import { ApiError } from "@/services/http/client";
+import { getUserSettings } from "@/features/admin/services/adminService";
 import { formatLlmAwareError, isLlmNotConfiguredError } from "@/shared/utils/llmError";
 import {
   getMigrationDetail,
@@ -2046,20 +2113,23 @@ export function useWizardController() {
     setError("");
 
     try {
-      const prefetchedAssetReady = prefetchedBrdDocument && documentPrefetchStatus === "ready";
-      const activePrefetchPromise =
-        !prefetchedAssetReady && documentPrefetchStatus === "loading"
-          ? documentPrefetchPromiseRef.current
-          : null;
-      const generatedAsset = prefetchedAssetReady
-        ? prefetchedBrdDocument
-        : await (async () => {
-          if (activePrefetchPromise) {
-            const prefetchedAsset = await activePrefetchPromise;
-            if (prefetchedAsset) {
-              return prefetchedAsset;
-            }
-          }
+      const brdSettings = await getUserSettings().catch(() => ({} as Awaited<ReturnType<typeof getUserSettings>>));
+      const brdValues = brdSettings.quality_checks_values || {};
+      const brdInstructions = String(brdValues.brd_instructions ?? brdValues.brd_focus_prompt ?? "");
+      const brdRequestSettings = {
+        ...(brdInstructions.trim() ? { brd_instructions: brdInstructions } : {}),
+        brd_generation_enabled: brdValues.brd_generation_enabled !== false,
+        brd_system_prompt: typeof brdValues.brd_system_prompt === "string" ? brdValues.brd_system_prompt : undefined,
+        brd_migration_target: typeof brdValues.brd_migration_target === "string" ? brdValues.brd_migration_target : undefined,
+        brd_microservices_enabled: brdValues.brd_microservices_enabled !== false,
+        brd_category_business_workflows: brdValues.brd_category_business_workflows !== false,
+        brd_category_database_data: brdValues.brd_category_database_data !== false,
+        brd_category_architecture: brdValues.brd_category_architecture !== false,
+        brd_category_apis_integrations: brdValues.brd_category_apis_integrations !== false,
+        brd_category_security_access: brdValues.brd_category_security_access !== false,
+        brd_category_reliability_performance: brdValues.brd_category_reliability_performance !== false,
+      };
+      const generatedAsset = await (async () => {
 
           const result = isLocalRepoRef(repoReference)
             ? await generateLocalProjectDocument({
@@ -2071,6 +2141,7 @@ export function useWizardController() {
               source_java_version: repoAnalysis?.java_version || selectedSourceVersion || undefined,
               target_java_version: effectiveTargetVersion || undefined,
               document_type: "BRD",
+              ...brdRequestSettings,
               analysis: repoAnalysis as unknown as Record<string, unknown>,
             })
             : await generateGithubDocument("brd", {
@@ -2086,6 +2157,7 @@ export function useWizardController() {
               source_java_version: repoAnalysis?.java_version || selectedSourceVersion || undefined,
               target_java_version: effectiveTargetVersion || undefined,
               document_type: "BRD",
+              ...brdRequestSettings,
               analysis: repoAnalysis as unknown as Record<string, unknown>,
             });
 
@@ -2101,11 +2173,8 @@ export function useWizardController() {
 
           throw new Error("Generated BRD document did not include HTML content or a download URL.");
         })();
-
-      if (!prefetchedAssetReady) {
-        setPrefetchedBrdDocument(generatedAsset);
-        setDocumentPrefetchStatus("ready");
-      }
+      setPrefetchedBrdDocument(generatedAsset);
+      setDocumentPrefetchStatus("ready");
 
       if (generatedAsset.html) {
         await downloadHtmlDocument(generatedAsset.html, generatedAsset.filename);
@@ -3030,6 +3099,27 @@ export function useWizardController() {
               Based on {totalCount} dependencies, {attentionCount} require explicit migration attention.
             </p>
           </div>
+      <div style={styles.dependencyInsightsPanel}>
+        <div style={{ ...styles.dependencyInsightsHeader, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <div style={styles.dependencyInsightsTitle}>Total Dependencies ({categorizedDependencies.length})</div>
+            <div style={styles.dependencyInsightsSubtitle}>
+              {!dependencyAnalysisLoading && dependencyAnalysis?.overall_explanation ? (
+                dependencyAnalysis.overall_explanation
+              ) : (
+                "Categorized from repository analysis. Risk levels are migration compatibility signals, not live CVE results."
+              )}
+            </div>
+          </div>
+          {categorizedDependencies.length > 0 && (
+            <CopyAllDependenciesButton
+              text={categorizedDependencies
+                .map((d) => (d.group_id && d.artifact_id ? `${d.group_id}:${d.artifact_id}` : d.displayName))
+                .join("\n")}
+              label="Copy All"
+            />
+          )}
+        </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "320px 1fr", gap: 20, alignItems: "stretch" }}>
             <div style={{ background: "#ffffff", border: "1px solid #e8eef7", borderRadius: 14, padding: "16px 20px", display: "flex", alignItems: "center", gap: 20 }}>
@@ -4708,36 +4798,6 @@ export function useWizardController() {
         },
       ]);
 
-      const stageTimer1 = window.setTimeout(() => {
-        setDiscoveryStages((prev) =>
-          prev.map((s) => {
-            if (s.id === "repository_map") return { ...s, status: "complete", detail: "Repository structure mapped" };
-            if (s.id === "preview_signals") return { ...s, status: "in_progress", detail: "Detecting Java version & compiler settings..." };
-            return s;
-          })
-        );
-      }, 700);
-
-      const stageTimer2 = window.setTimeout(() => {
-        setDiscoveryStages((prev) =>
-          prev.map((s) => {
-            if (s.id === "preview_signals") return { ...s, status: "complete", detail: "Java version identified" };
-            if (s.id === "dependency_graph") return { ...s, status: "in_progress", detail: "Resolving dependencies and build plugins..." };
-            return s;
-          })
-        );
-      }, 1400);
-
-      const stageTimer3 = window.setTimeout(() => {
-        setDiscoveryStages((prev) =>
-          prev.map((s) => {
-            if (s.id === "dependency_graph") return { ...s, status: "complete", detail: "Dependency graph constructed" };
-            if (s.id === "service_fit") return { ...s, status: "in_progress", detail: "Detecting frameworks & service fit..." };
-            return s;
-          })
-        );
-      }, 2100);
-
       if (isRerun) {
         setRepoAnalysis(null);
         setRepoPreviewInitialized(false);
@@ -4751,20 +4811,45 @@ export function useWizardController() {
         fetchedDependencyAnalysisKeyRef.current = "";
       }
 
+      let pollTimer: number | undefined;
+      if (effectiveJobId && !isLocalProject) {
+        pollTimer = window.setInterval(async () => {
+          try {
+            const prog = await getDiscoveryProgress(effectiveJobId);
+            if (prog && prog.activeStageId) {
+              setDiscoveryStages((prev) =>
+                prev.map((s) => {
+                  const order: DiscoveryStageId[] = ["repository_map", "preview_signals", "dependency_graph", "service_fit"];
+                  const activeIdx = order.indexOf(prog.activeStageId!);
+                  const currentIdx = order.indexOf(s.id);
+                  if (s.id === prog.activeStageId) {
+                    return { ...s, status: "in_progress", detail: prog.detail || s.detail, progressPercent: prog.progressPercent };
+                  }
+                  if (currentIdx < activeIdx) {
+                    return { ...s, status: "complete" };
+                  }
+                  return s;
+                })
+              );
+            }
+          } catch {
+            // non-fatal polling error
+          }
+        }, 800);
+      }
+
       try {
-        const analyzePromise = effectiveJobId
-          ? runDiscovery(effectiveJobId, currentToken, isRerun)
-            .then(async (result) => enrichAnalysisWithPomVersion(result.analysis as RepoAnalysis, selectedRepo.url, currentToken))
-          : isLocalProject
-            ? analyzeLocalProject(extractLocalRepoPath(selectedRepo.url))
-              .then(async (result) => enrichAnalysisWithPomVersion(result.analysis as RepoAnalysis, selectedRepo.url, ""))
+        const analyzePromise = isLocalProject
+          ? analyzeLocalProject(extractLocalRepoPath(selectedRepo.url))
+            .then(async (result) => enrichAnalysisWithPomVersion(result.analysis as RepoAnalysis, selectedRepo.url, ""))
+          : effectiveJobId
+            ? runDiscovery(effectiveJobId, currentToken, isRerun)
+              .then(async (result) => enrichAnalysisWithPomVersion(result.analysis as RepoAnalysis, selectedRepo.url, currentToken))
             : analyzeRepoUrl(selectedRepo.url, currentToken, true)
               .then(async (result) => enrichAnalysisWithPomVersion(result.analysis as RepoAnalysis, selectedRepo.url, currentToken));
 
         const analysis = await analyzePromise;
-        window.clearTimeout(stageTimer1);
-        window.clearTimeout(stageTimer2);
-        window.clearTimeout(stageTimer3);
+        if (pollTimer) window.clearInterval(pollTimer);
 
         const stagesData = (analysis as unknown as Record<string, unknown>).discovery_stages as Record<string, { summary?: string }> | undefined;
         const repoMapSummary = stagesData?.repositoryMap?.summary ||
@@ -4817,9 +4902,7 @@ export function useWizardController() {
         setIsJavaProject(true);
         applyRepositoryAnalysis(analysis);
       } catch (err: unknown) {
-        window.clearTimeout(stageTimer1);
-        window.clearTimeout(stageTimer2);
-        window.clearTimeout(stageTimer3);
+        if (pollTimer) window.clearInterval(pollTimer);
 
         const message = (err as Error)?.message || "Failed to analyze repository.";
         setDiscoveryStages((prev) =>
@@ -5045,11 +5128,20 @@ export function useWizardController() {
   }, [step, repoAnalysis, detectedSourceVersionForTargets, detectedJavaVersion, riskLevel]);
 
   useEffect(() => {
-    if ((step !== 2 && step !== 3) || !repoAnalysis || !repoAnalysis.dependencies || repoAnalysis.dependencies.length === 0) {
+    if ((step !== 2 && step !== 3 && step !== 4) || !repoAnalysis || !repoAnalysis.dependencies || repoAnalysis.dependencies.length === 0) {
       return;
     }
 
-    const depsKey = `${repoAnalysis.java_version || repoAnalysis.java_version_from_build || ""}_${repoAnalysis.build_tool || ""}_${effectiveTargetVersion || ""}_${repoAnalysis.dependencies.map((d) => `${d.group_id}:${d.artifact_id}:${d.current_version}`).join(";")}`;
+    const normalizedDependencies = repoAnalysis.dependencies.map((d: any) => ({
+      group_id: d.group_id || d.groupId || d.group || "",
+      artifact_id: d.artifact_id || d.artifactId || d.artifact || "",
+      current_version: d.current_version || d.resolved_version || d.declared_version || d.version || "unknown",
+      scope: d.scope || "compile",
+      direct: d.direct ?? !d.transitive,
+      transitive: Boolean(d.transitive),
+    }));
+
+    const depsKey = `${repoAnalysis.java_version || repoAnalysis.java_version_from_build || ""}_${repoAnalysis.build_tool || ""}_${effectiveTargetVersion || ""}_${normalizedDependencies.map((d) => `${d.group_id}:${d.artifact_id}:${d.current_version}`).join(";")}`;
     if (fetchedDependencyAnalysisKeyRef.current === depsKey && dependencyAnalysis) {
       return;
     }
@@ -5059,12 +5151,13 @@ export function useWizardController() {
     setDependencyAnalysisLoading(true);
 
     analyzeDependencies({
-      dependencies: repoAnalysis.dependencies,
+      dependencies: normalizedDependencies,
       source_java_version: detectedSourceVersionForTargets,
       target_java_version: effectiveTargetVersion,
       build_tool: repoAnalysis.build_tool,
       frameworks: repoAnalysis.frameworks || [],
       testing_frameworks: (repoAnalysis.testing_frameworks as unknown[]) || [],
+      spring_boot_version: repoAnalysis.spring_boot_version || undefined,
       api_endpoint_count: repoAnalysis.api_endpoints?.length ?? 0,
       job_id: jobId || undefined,
     })
@@ -5205,77 +5298,90 @@ export function useWizardController() {
     setPrefetchedBrdDocument(null);
 
     let cancelled = false;
-    const timeoutId = setTimeout(() => {
-      if (cancelled) return;
+    const githubRequest = {
+      repo_url: repoReference,
+      repository_url: repoReference,
+      source_repo_url: repoReference,
+      token: currentToken || undefined,
+      github_token: currentToken || undefined,
+      job_id: effectiveJobId || migrationJob?.job_id || undefined,
+      migration_job_id: migrationJob?.job_id || undefined,
+      source_repo: migrationJob?.source_repo || repoReference,
+      target_repo: migrationJob?.target_repo || null,
+      source_java_version: repoAnalysis?.java_version || selectedSourceVersion || undefined,
+      target_java_version: effectiveTargetVersion || undefined,
+      document_type: "BRD",
+      analysis: repoAnalysis as unknown as Record<string, unknown>,
+    };
+    const localProjectRequest = {
+      repo_url: repoReference,
+      repository_url: repoReference,
+      source_repo_url: repoReference,
+      source_repo: selectedRepo?.name || repoAnalysis?.name || repoReference,
+      target_repo: migrationJob?.target_repo || null,
+      source_java_version: repoAnalysis?.java_version || selectedSourceVersion || undefined,
+      target_java_version: effectiveTargetVersion || undefined,
+      document_type: "BRD",
+      analysis: repoAnalysis as unknown as Record<string, unknown>,
+    };
 
-      const githubRequest = {
-        repo_url: repoReference,
-        repository_url: repoReference,
-        source_repo_url: repoReference,
-        token: currentToken || undefined,
-        github_token: currentToken || undefined,
-        job_id: effectiveJobId || migrationJob?.job_id || undefined,
-        migration_job_id: migrationJob?.job_id || undefined,
-        source_repo: migrationJob?.source_repo || repoReference,
-        target_repo: migrationJob?.target_repo || null,
-        source_java_version: repoAnalysis?.java_version || selectedSourceVersion || undefined,
-        target_java_version: effectiveTargetVersion || undefined,
-        document_type: "BRD",
-        analysis: repoAnalysis as unknown as Record<string, unknown>,
+    const prefetchPromise = getUserSettings().catch(() => ({} as Awaited<ReturnType<typeof getUserSettings>>)).then((settings) => {
+      const values = settings.quality_checks_values || {};
+      if (values.brd_generation_enabled === false) return null;
+      const brdInstructions = String(values.brd_instructions ?? values.brd_focus_prompt ?? "");
+      const brdSettings = {
+        ...(brdInstructions.trim() ? { brd_instructions: brdInstructions } : {}),
+        brd_generation_enabled: values.brd_generation_enabled !== false,
+        brd_system_prompt: typeof values.brd_system_prompt === "string" ? values.brd_system_prompt : undefined,
+        brd_migration_target: typeof values.brd_migration_target === "string" ? values.brd_migration_target : undefined,
+        brd_microservices_enabled: values.brd_microservices_enabled !== false,
+        brd_category_business_workflows: values.brd_category_business_workflows !== false,
+        brd_category_database_data: values.brd_category_database_data !== false,
+        brd_category_architecture: values.brd_category_architecture !== false,
+        brd_category_apis_integrations: values.brd_category_apis_integrations !== false,
+        brd_category_security_access: values.brd_category_security_access !== false,
+        brd_category_reliability_performance: values.brd_category_reliability_performance !== false,
       };
-      const localProjectRequest = {
-        repo_url: repoReference,
-        repository_url: repoReference,
-        source_repo_url: repoReference,
-        source_repo: selectedRepo?.name || repoAnalysis?.name || repoReference,
-        target_repo: migrationJob?.target_repo || null,
-        source_java_version: repoAnalysis?.java_version || selectedSourceVersion || undefined,
-        target_java_version: effectiveTargetVersion || undefined,
-        document_type: "BRD",
-        analysis: repoAnalysis as unknown as Record<string, unknown>,
-      };
+      return isLocalRepoRef(repoReference)
+        ? generateLocalProjectDocument({ ...localProjectRequest, ...brdSettings })
+        : generateGithubDocument("brd", { ...githubRequest, ...brdSettings });
+    })
+      .then(async (result) => {
+        if (cancelled || !result) return null;
+        const generatedAsset = await resolveGeneratedDocumentAsset(result);
+        const filename = buildHtmlFilename(result.filename, technicalDocumentFallbackRepoName);
+        if (cancelled) return null;
 
-      const prefetchPromise = (isLocalRepoRef(repoReference)
-        ? generateLocalProjectDocument(localProjectRequest)
-        : generateGithubDocument("brd", githubRequest))
-        .then(async (result) => {
-          if (cancelled) return null;
-          const generatedAsset = await resolveGeneratedDocumentAsset(result);
-          const filename = buildHtmlFilename(result.filename, technicalDocumentFallbackRepoName);
-          if (cancelled) return null;
+        if (generatedAsset.html) {
+          return {
+            filename,
+            html: generatedAsset.html,
+          } satisfies PrefetchedBrdDocument;
+        }
 
-          if (generatedAsset.html) {
-            return {
-              filename,
-              html: generatedAsset.html,
-            } satisfies PrefetchedBrdDocument;
-          }
-
-          throw new Error("Generated BRD document did not include HTML content or a download URL.");
-        })
-        .then((preparedAsset) => {
-          if (cancelled || !preparedAsset) return null;
-          setPrefetchedBrdDocument(preparedAsset);
-          setDocumentPrefetchStatus("ready");
-          return preparedAsset;
-        })
-        .catch((err) => {
-          if (cancelled) return null;
-          console.error("Failed to prefetch technical specification document", err);
-          setDocumentPrefetchStatus("error");
-          return null;
-        })
-        .finally(() => {
-          if (documentPrefetchPromiseRef.current === prefetchPromise) {
-            documentPrefetchPromiseRef.current = null;
-          }
-        });
-      documentPrefetchPromiseRef.current = prefetchPromise;
-    }, 1500); // Debounce for 1.5 seconds
+        throw new Error("Generated BRD document did not include HTML content or a download URL.");
+      })
+      .then((preparedAsset) => {
+        if (cancelled || !preparedAsset) return null;
+        setPrefetchedBrdDocument(preparedAsset);
+        setDocumentPrefetchStatus("ready");
+        return preparedAsset;
+      })
+      .catch((err) => {
+        if (cancelled) return null;
+        console.error("Failed to prefetch technical specification document", err);
+        setDocumentPrefetchStatus("error");
+        return null;
+      })
+      .finally(() => {
+        if (documentPrefetchPromiseRef.current === prefetchPromise) {
+          documentPrefetchPromiseRef.current = null;
+        }
+      });
+    documentPrefetchPromiseRef.current = prefetchPromise;
 
     return () => {
       cancelled = true;
-      clearTimeout(timeoutId);
     };
   }, [
     connectState?.jobId,

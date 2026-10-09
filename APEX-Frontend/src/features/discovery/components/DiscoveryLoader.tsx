@@ -144,54 +144,55 @@ export function DiscoveryLoader({
 
   const allStagesDone = Boolean(stages && stages.length > 0 && stages.every((s) => s.status === "complete"));
 
-  // Determine status & percentage for each of the 4 scans
-  const isRepoComplete = allStagesDone || repoStage?.status === "complete";
-  const isJavaComplete = allStagesDone || prevStage?.status === "complete";
-  const isDepComplete = allStagesDone || depStage?.status === "complete";
-  const isFrameworkComplete = allStagesDone || fitStage?.status === "complete";
+  // Calculate overall progress percentage (prefer backend real progress)
+  let fallbackOverall = 0;
+  if (allStagesDone) {
+    fallbackOverall = 100;
+  } else {
+    // Smooth fallback curve if progress polling hasn't returned yet
+    if (elapsedSeconds < 3.0) fallbackOverall = Math.round(5 + (elapsedSeconds / 3.0) * 10);
+    else if (elapsedSeconds < 8.0) fallbackOverall = Math.round(15 + ((elapsedSeconds - 3.0) / 5.0) * 15);
+    else if (elapsedSeconds < 16.0) fallbackOverall = Math.round(30 + ((elapsedSeconds - 8.0) / 8.0) * 25);
+    else if (elapsedSeconds < 30.0) fallbackOverall = Math.round(55 + ((elapsedSeconds - 16.0) / 14.0) * 30);
+    else {
+      const extraTime = elapsedSeconds - 30.0;
+      fallbackOverall = Math.min(98, Math.round(85 + 13 * (1 - Math.exp(-extraTime / 15.0))));
+    }
+  }
 
-  // Determine active scan index based on real stage statuses or elapsed time pacing
+  const activeStage = stages?.find((s) => s.status === "in_progress");
+  const polledProgressPercent = customProgressPercent !== undefined ? customProgressPercent : activeStage?.progressPercent;
+
+  const finalOverallPercent =
+    polledProgressPercent !== undefined ? polledProgressPercent : fallbackOverall;
+
+  // Determine active scan index based on real stage statuses or progress percentage
   let activeScanIndex = 0;
-  if (allStagesDone || isFrameworkComplete) {
+  if (allStagesDone || finalOverallPercent >= 100) {
     activeScanIndex = 3;
-  } else if (fitStage?.status === "in_progress" || isDepComplete || elapsedSeconds >= 8.0) {
+  } else if (fitStage?.status === "in_progress" || finalOverallPercent >= 75) {
     activeScanIndex = 3;
-  } else if (depStage?.status === "in_progress" || isJavaComplete || elapsedSeconds >= 5.0) {
+  } else if (depStage?.status === "in_progress" || finalOverallPercent >= 50) {
     activeScanIndex = 2;
-  } else if (prevStage?.status === "in_progress" || isRepoComplete || elapsedSeconds >= 2.5) {
+  } else if (prevStage?.status === "in_progress" || finalOverallPercent >= 25) {
     activeScanIndex = 1;
   } else {
     activeScanIndex = 0;
   }
 
-  // Calculate dynamic scan progress percentages
+  const isRepoComplete = allStagesDone || activeScanIndex > 0 || repoStage?.status === "complete";
+  const isJavaComplete = allStagesDone || activeScanIndex > 1 || prevStage?.status === "complete";
+  const isDepComplete = allStagesDone || activeScanIndex > 2 || depStage?.status === "complete";
+  const isFrameworkComplete = allStagesDone || (activeScanIndex === 3 && finalOverallPercent >= 100) || fitStage?.status === "complete";
+
+  // Calculate dynamic scan progress percentages strictly synchronized with overall percentage
   const getScanPercent = (idx: number, isComplete: boolean, isActive: boolean) => {
     if (isComplete || allStagesDone) return 100;
     if (!isActive) return 0;
 
-    // Realistic stage start times (0s, 2.5s, 5.0s, 8.0s)
-    const stageStart = idx === 0 ? 0 : idx === 1 ? 2.5 : idx === 2 ? 5.0 : 8.0;
-    const stageElapsed = Math.max(0, elapsedSeconds - stageStart);
-
-    if (idx < 3) {
-      // Intermediate stages advance smoothly from 20% to ~88% over their allotted duration
-      const duration = idx === 2 ? 3.0 : 2.5;
-      const progressRatio = Math.min(1, stageElapsed / duration);
-      return Math.min(88, Math.round(20 + progressRatio * 68));
-    } else {
-      // Framework Scan (runs until backend finishes):
-      // Smoothly advance across subtasks without ever freezing at 95%/99%
-      if (stageElapsed < 2.0) {
-        return Math.round(15 + (stageElapsed / 2.0) * 10);
-      } else if (stageElapsed < 4.5) {
-        return Math.round(25 + ((stageElapsed - 2.0) / 2.5) * 25);
-      } else if (stageElapsed < 7.5) {
-        return Math.round(50 + ((stageElapsed - 4.5) / 3.0) * 25);
-      } else {
-        const extraTime = stageElapsed - 7.5;
-        return Math.min(90, Math.round(75 + 15 * (1 - Math.exp(-extraTime / 8.0))));
-      }
-    }
+    const stageRangeStart = idx * 25;
+    const offset = Math.max(0, finalOverallPercent - stageRangeStart);
+    return Math.min(99, Math.max(0, Math.round(offset * 4)));
   };
 
   const scanStates = SCANS_CONFIG.map((scan, idx) => {
@@ -216,20 +217,6 @@ export function DiscoveryLoader({
 
   const activeScan = scanStates[activeScanIndex];
 
-  // Calculate overall progress percentage
-  // 100% is reached ONLY when all discovery work has genuinely completed
-  let calculatedOverall = 0;
-  if (allStagesDone || isFrameworkComplete) {
-    calculatedOverall = 100;
-  } else {
-    const baseProgress = activeScanIndex * 25;
-    const activePercent = activeScan ? activeScan.percent : 0;
-    calculatedOverall = Math.min(97, Math.max(1, Math.round(baseProgress + (activePercent / 100) * 25)));
-  }
-
-  const finalOverallPercent =
-    customProgressPercent !== undefined ? customProgressPercent : calculatedOverall;
-
   // Calculate active subtask index within active scan
   const activeSubtasks = activeScan.subtasks;
   const activeSubtaskIdx =
@@ -237,14 +224,12 @@ export function DiscoveryLoader({
       ? activeSubtasks.length - 1
       : Math.min(activeSubtasks.length - 1, Math.floor((activeScan.percent / 100) * activeSubtasks.length));
 
+
   return (
     <div className={`discovery-analysis-container${compact ? " is-compact" : ""}`}>
       {/* Top Header Card Info */}
       <div className="discovery-analysis-header">
-        <div className="discovery-loader-eyebrow">
-          Repository Intelligence Engine
-          {elapsedLabel ? <span className="discovery-loader-timer">{elapsedLabel}</span> : null}
-        </div>
+        <div className="discovery-loader-eyebrow">Repository Intelligence Engine</div>
         <div className="discovery-loader-title">{title}</div>
         <div className="discovery-loader-subtitle">{subtitle}</div>
       </div>
@@ -297,8 +282,7 @@ export function DiscoveryLoader({
               <p className="discovery-detail-subtitle">{activeScan.subtitle}</p>
             </div>
           </div>
-          <div className="discovery-detail-pct-badge">{activeScan.percent}%</div>
-        </div>
+        </div>/
 
         <div className="discovery-detail-body">
           {/* Subtasks list */}
