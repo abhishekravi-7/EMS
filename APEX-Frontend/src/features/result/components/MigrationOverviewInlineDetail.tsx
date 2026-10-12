@@ -72,12 +72,6 @@ function CopyAllDependenciesButton({
     </button>
   );
 }
-      }}
-    >
-      {copied ? <FaCheck size={10} style={{ color: "#166534" }} /> : <FaCopy size={10} />}
-    </button>
-  );
-}
 import type { MigrationResult } from "../services/resultService";
 import { getMigrationFileDiff } from "../services/resultService";
 import "./MigrationOverviewInlineDetail.css";

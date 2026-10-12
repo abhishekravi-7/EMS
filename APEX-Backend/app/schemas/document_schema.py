@@ -24,6 +24,7 @@ class TechnicalDocumentRequest(BaseModel):
     brd_instructions: Optional[str] = None
     brd_focus_prompt: Optional[str] = None
     brd_system_prompt: Optional[str] = None
+    technical_specification_instructions: Optional[str] = None
     brd_migration_target: Optional[str] = None
     brd_generation_enabled: Optional[bool] = None
     brd_microservices_enabled: Optional[bool] = None

@@ -113,7 +113,13 @@ import {
   type StrategyPageContext,
 } from "@/features/strategy/services/strategyService";
 import { ApiError } from "@/services/http/client";
-import { getUserSettings } from "@/features/admin/services/adminService";
+import {
+  getDocumentGenerationPromptSettings,
+  getUserSettings,
+  saveDocumentGenerationPrompt,
+  type DocumentGenerationPromptSettings,
+  type DocumentPromptType,
+} from "@/features/admin/services/adminService";
 import { formatLlmAwareError, isLlmNotConfiguredError } from "@/shared/utils/llmError";
 import {
   getMigrationDetail,
@@ -1271,6 +1277,53 @@ export function useWizardController() {
   const [brdUploadStatus, setBrdUploadStatus] = useState<"IDLE" | "FILE_SELECTED" | "UPLOADING" | "UPLOAD_SUCCESS" | "UPLOAD_FAILED" | "EXISTING_ATTACHMENT">("IDLE");
   const [brdMetadata, setBrdMetadata] = useState<{ filename: string; size?: number; uploadedAt?: string } | null>(null);
   const [brdUploadError, setBrdUploadError] = useState<string | null>(null);
+  const [documentPromptSettings, setDocumentPromptSettings] = useState<DocumentGenerationPromptSettings>({
+    prompts: { BRD: "", TECHNICAL_SPECIFICATION: "" },
+    savedTypes: { BRD: false, TECHNICAL_SPECIFICATION: false },
+  });
+  const [documentPromptLoading, setDocumentPromptLoading] = useState(true);
+  const [documentPromptLoadError, setDocumentPromptLoadError] = useState("");
+  const [documentPromptSavingType, setDocumentPromptSavingType] = useState<DocumentPromptType | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    getDocumentGenerationPromptSettings()
+      .then((settings) => {
+        if (isMounted) {
+          setDocumentPromptSettings(settings);
+          setDocumentPromptLoadError("");
+        }
+      })
+      .catch((err: unknown) => {
+        if (isMounted) {
+          setDocumentPromptLoadError(
+            err instanceof Error ? err.message : "Failed to load saved document prompts."
+          );
+        }
+      })
+      .finally(() => {
+        if (isMounted) setDocumentPromptLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const handleSaveDocumentPrompt = useCallback(async (
+    promptType: DocumentPromptType,
+    prompt: string
+  ): Promise<string> => {
+    setDocumentPromptSavingType(promptType);
+    try {
+      const savedSettings = await saveDocumentGenerationPrompt(promptType, prompt);
+      setDocumentPromptSettings(savedSettings);
+      setDocumentPromptLoadError("");
+      return savedSettings.prompts[promptType];
+    } finally {
+      setDocumentPromptSavingType(null);
+    }
+  }, []);
 
   const handleBrdFileSelect = (file: File | null) => {
     setBrdFile(file);
@@ -2118,6 +2171,9 @@ export function useWizardController() {
       const brdInstructions = String(brdValues.brd_instructions ?? brdValues.brd_focus_prompt ?? "");
       const brdRequestSettings = {
         ...(brdInstructions.trim() ? { brd_instructions: brdInstructions } : {}),
+        ...(documentPromptSettings.savedTypes.TECHNICAL_SPECIFICATION
+          ? { technical_specification_instructions: documentPromptSettings.prompts.TECHNICAL_SPECIFICATION }
+          : {}),
         brd_generation_enabled: brdValues.brd_generation_enabled !== false,
         brd_system_prompt: typeof brdValues.brd_system_prompt === "string" ? brdValues.brd_system_prompt : undefined,
         brd_migration_target: typeof brdValues.brd_migration_target === "string" ? brdValues.brd_migration_target : undefined,
@@ -2136,11 +2192,13 @@ export function useWizardController() {
               repo_url: repoReference,
               repository_url: repoReference,
               source_repo_url: repoReference,
+              job_id: jobId || migrationJob?.job_id || undefined,
+              migration_job_id: migrationJob?.job_id || undefined,
               source_repo: selectedRepo?.name || repoAnalysis?.name || repoReference,
               target_repo: migrationJob?.target_repo || null,
               source_java_version: repoAnalysis?.java_version || selectedSourceVersion || undefined,
               target_java_version: effectiveTargetVersion || undefined,
-              document_type: "BRD",
+              document_type: "TECHNICAL_SPECIFICATION",
               ...brdRequestSettings,
               analysis: repoAnalysis as unknown as Record<string, unknown>,
             })
@@ -2156,7 +2214,7 @@ export function useWizardController() {
               target_repo: migrationJob?.target_repo || null,
               source_java_version: repoAnalysis?.java_version || selectedSourceVersion || undefined,
               target_java_version: effectiveTargetVersion || undefined,
-              document_type: "BRD",
+              document_type: "TECHNICAL_SPECIFICATION",
               ...brdRequestSettings,
               analysis: repoAnalysis as unknown as Record<string, unknown>,
             });
@@ -5273,7 +5331,7 @@ export function useWizardController() {
   useEffect(() => {
     const repoReference = selectedRepo?.url || repoUrl || migrationJob?.source_repo || "";
 
-    if (!repoAnalysis || !repoReference) {
+    if (!repoAnalysis || !repoReference || documentPromptLoading) {
       return;
     }
 
@@ -5288,6 +5346,8 @@ export function useWizardController() {
       String(repoAnalysis?.api_endpoints?.length || 0),
       selectedSourceVersion || "",
       effectiveTargetVersion || "",
+      documentPromptSettings.prompts.BRD,
+      documentPromptSettings.prompts.TECHNICAL_SPECIFICATION,
     ].join("::");
     if (documentPrefetchKeyRef.current === prefetchKey) {
       return;
@@ -5310,18 +5370,20 @@ export function useWizardController() {
       target_repo: migrationJob?.target_repo || null,
       source_java_version: repoAnalysis?.java_version || selectedSourceVersion || undefined,
       target_java_version: effectiveTargetVersion || undefined,
-      document_type: "BRD",
+      document_type: "TECHNICAL_SPECIFICATION",
       analysis: repoAnalysis as unknown as Record<string, unknown>,
     };
     const localProjectRequest = {
       repo_url: repoReference,
       repository_url: repoReference,
       source_repo_url: repoReference,
+      job_id: effectiveJobId || migrationJob?.job_id || undefined,
+      migration_job_id: migrationJob?.job_id || undefined,
       source_repo: selectedRepo?.name || repoAnalysis?.name || repoReference,
       target_repo: migrationJob?.target_repo || null,
       source_java_version: repoAnalysis?.java_version || selectedSourceVersion || undefined,
       target_java_version: effectiveTargetVersion || undefined,
-      document_type: "BRD",
+      document_type: "TECHNICAL_SPECIFICATION",
       analysis: repoAnalysis as unknown as Record<string, unknown>,
     };
 
@@ -5331,6 +5393,9 @@ export function useWizardController() {
       const brdInstructions = String(values.brd_instructions ?? values.brd_focus_prompt ?? "");
       const brdSettings = {
         ...(brdInstructions.trim() ? { brd_instructions: brdInstructions } : {}),
+        ...(documentPromptSettings.savedTypes.TECHNICAL_SPECIFICATION
+          ? { technical_specification_instructions: documentPromptSettings.prompts.TECHNICAL_SPECIFICATION }
+          : {}),
         brd_generation_enabled: values.brd_generation_enabled !== false,
         brd_system_prompt: typeof values.brd_system_prompt === "string" ? values.brd_system_prompt : undefined,
         brd_migration_target: typeof values.brd_migration_target === "string" ? values.brd_migration_target : undefined,
@@ -5399,6 +5464,10 @@ export function useWizardController() {
     setDocumentPrefetchStatus,
     setPrefetchedBrdDocument,
     technicalDocumentFallbackRepoName,
+    documentPromptLoading,
+    documentPromptSettings.prompts.BRD,
+    documentPromptSettings.prompts.TECHNICAL_SPECIFICATION,
+    documentPromptSettings.savedTypes.TECHNICAL_SPECIFICATION,
   ]);
 
   // Background pre-fetch existing tests as soon as a valid repository session/jobId is available
@@ -6144,6 +6213,11 @@ export function useWizardController() {
     setShowFolderStructure,
     handleCheckMicroserviceEligibility,
     handleGenerateBrdDocument,
+    documentPromptSettings,
+    documentPromptLoading,
+    documentPromptLoadError,
+    documentPromptSavingType,
+    handleSaveDocumentPrompt,
     handleOpenFrameworkFile,
     handleRerunAnalysis,
     isDiscoveryPending,

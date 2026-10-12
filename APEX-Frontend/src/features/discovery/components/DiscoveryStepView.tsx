@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   FaCheckCircle,
   FaSearch,
@@ -35,6 +35,10 @@ import type { RepoAnalysis, RepoFile, RepoInfo, DiscoveredApiEndpoint } from "@/
 import { getFileContent, getDiscoveryFileContent } from "../services/discoveryService";
 import { getLocalProjectFileContent } from "@/features/connect/services/connectService";
 import { getUserSettings } from "@/features/admin/services/adminService";
+import type {
+  DocumentGenerationPromptSettings,
+  DocumentPromptType,
+} from "@/features/admin/services/adminService";
 import { DiscoveryLoader } from "./DiscoveryLoader";
 import type { useDiscoveryState } from "../hooks/useDiscoveryState";
 import "./DiscoveryDashboard.css";
@@ -1256,6 +1260,11 @@ interface DiscoveryStepViewProps {
   setShowFolderStructure: (value: boolean) => void;
   handleCheckMicroserviceEligibility: () => Promise<void>;
   handleGenerateBrdDocument: () => Promise<void>;
+  documentPromptSettings: DocumentGenerationPromptSettings;
+  documentPromptLoading: boolean;
+  documentPromptLoadError: string;
+  documentPromptSavingType: DocumentPromptType | null;
+  handleSaveDocumentPrompt: (promptType: DocumentPromptType, prompt: string) => Promise<string>;
   handleOpenFrameworkFile: (framework: { name: string; path: string; type: string }) => Promise<void>;
   handleRerunAnalysis: () => Promise<void>;
   isDiscoveryPending: boolean;
@@ -1304,6 +1313,11 @@ export function DiscoveryStepView({
   setShowFolderStructure: _setShowFolderStructure,
   handleCheckMicroserviceEligibility: _handleCheckMicroserviceEligibility,
   handleGenerateBrdDocument,
+  documentPromptSettings,
+  documentPromptLoading,
+  documentPromptLoadError,
+  documentPromptSavingType,
+  handleSaveDocumentPrompt,
   handleOpenFrameworkFile: _handleOpenFrameworkFile,
   handleRerunAnalysis: _handleRerunAnalysis,
   isDiscoveryPending,
@@ -1343,6 +1357,50 @@ export function DiscoveryStepView({
   const [collapsedFolders, setCollapsedFolders] = useState<Record<string, boolean>>({});
 
   const [isBrdAllowed, setIsBrdAllowed] = useState<boolean>(true);
+  const [documentPromptType, setDocumentPromptType] = useState<DocumentPromptType>("TECHNICAL_SPECIFICATION");
+  const [documentPromptDrafts, setDocumentPromptDrafts] = useState<Record<DocumentPromptType, string>>({
+    BRD: "",
+    TECHNICAL_SPECIFICATION: "",
+  });
+  const [documentPromptSaveError, setDocumentPromptSaveError] = useState("");
+  const documentPromptDraftsInitialized = useRef(false);
+
+  useEffect(() => {
+    if (!documentPromptLoading && !documentPromptDraftsInitialized.current) {
+      setDocumentPromptDrafts(documentPromptSettings.prompts);
+      documentPromptDraftsInitialized.current = true;
+    }
+  }, [documentPromptLoading, documentPromptSettings.prompts]);
+
+  const activeDocumentPrompt = documentPromptDrafts[documentPromptType];
+  const activeSavedPrompt = documentPromptSettings.prompts[documentPromptType];
+  const isDocumentPromptDirty = activeDocumentPrompt !== activeSavedPrompt;
+  const isDocumentPromptSaved =
+    !documentPromptLoading &&
+    !isDocumentPromptDirty &&
+    documentPromptSettings.savedTypes[documentPromptType] &&
+    !documentPromptSaveError;
+  const documentPromptStatusMessage = documentPromptLoadError
+    ? "Saved prompts could not be loaded."
+    : documentPromptSaveError
+      ? "Prompt save failed."
+      : isDocumentPromptSaved
+        ? "Saved"
+        : isDocumentPromptDirty || documentPromptSettings.savedTypes[documentPromptType]
+          ? "Unsaved changes"
+          : "Not saved yet";
+
+  const saveActiveDocumentPrompt = async () => {
+    setDocumentPromptSaveError("");
+    try {
+      const confirmedPrompt = await handleSaveDocumentPrompt(documentPromptType, activeDocumentPrompt);
+      setDocumentPromptDrafts((current) => ({ ...current, [documentPromptType]: confirmedPrompt }));
+    } catch (err: unknown) {
+      setDocumentPromptSaveError(
+        err instanceof Error ? err.message : "The document prompt could not be saved."
+      );
+    }
+  };
 
   useEffect(() => {
     getUserSettings()
@@ -3544,7 +3602,12 @@ export function DiscoveryStepView({
 
                 <button
                   className="discovery-spec-generate-btn"
-                  disabled={!isBrdAllowed || documentGenerationLoading !== null}
+                  disabled={
+                    !isBrdAllowed ||
+                    documentGenerationLoading !== null ||
+                    documentPromptLoading ||
+                    documentPromptSavingType !== null
+                  }
                   style={!isBrdAllowed ? { opacity: 0.5, cursor: "not-allowed", backgroundColor: "#94a3b8" } : undefined}
                   onClick={() => {
                     if (!isBrdAllowed) return;
@@ -3555,6 +3618,70 @@ export function DiscoveryStepView({
                   <FaFileAlt size={13} />
                   {!isBrdAllowed ? "Disabled by Super Admin" : (documentGenerationLoading ? "Generating Document..." : (technicalSpecificationButtonLabel || "Generate Document"))}
                 </button>
+
+                <div className="discovery-document-prompt">
+                  <div className="discovery-document-prompt-tabs" role="tablist" aria-label="Document prompt type">
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={documentPromptType === "TECHNICAL_SPECIFICATION"}
+                      className={documentPromptType === "TECHNICAL_SPECIFICATION" ? "is-active" : ""}
+                      disabled={documentPromptSavingType !== null}
+                      onClick={() => setDocumentPromptType("TECHNICAL_SPECIFICATION")}
+                    >
+                      Technical Specification
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={documentPromptType === "BRD"}
+                      className={documentPromptType === "BRD" ? "is-active" : ""}
+                      disabled={documentPromptSavingType !== null}
+                      onClick={() => setDocumentPromptType("BRD")}
+                    >
+                      BRD
+                    </button>
+                  </div>
+                  <div className="discovery-document-prompt-input-row">
+                    <textarea
+                      aria-label={`${documentPromptType === "BRD" ? "BRD" : "Technical Specification"} custom document instructions`}
+                      className={`discovery-document-prompt-input ${
+                        isDocumentPromptSaved ? "is-saved" : "is-pending"
+                      }`}
+                      value={activeDocumentPrompt}
+                      onChange={(event) => {
+                        setDocumentPromptDrafts((current) => ({
+                          ...current,
+                          [documentPromptType]: event.target.value,
+                        }));
+                        setDocumentPromptSaveError("");
+                      }}
+                      placeholder="Enter custom document instructions..."
+                      rows={3}
+                      disabled={documentPromptLoading}
+                    />
+                    <button
+                      type="button"
+                      className={`discovery-document-prompt-save ${
+                        isDocumentPromptSaved ? "is-saved" : "is-pending"
+                      }`}
+                      onClick={() => void saveActiveDocumentPrompt()}
+                      disabled={documentPromptLoading || documentPromptSavingType !== null}
+                      title={isDocumentPromptSaved ? "Prompt saved" : "Save custom document instructions"}
+                      aria-label={`Save ${documentPromptType === "BRD" ? "BRD" : "Technical Specification"} prompt`}
+                    >
+                      {documentPromptSavingType === documentPromptType ? "…" : <FaCheckCircle size={15} />}
+                    </button>
+                  </div>
+                  <div
+                    className={`discovery-document-prompt-status ${
+                      isDocumentPromptSaved ? "is-saved" : "is-pending"
+                    }`}
+                    role="status"
+                  >
+                    {documentPromptLoadError || documentPromptSaveError || documentPromptStatusMessage}
+                  </div>
+                </div>
 
                 <div className="discovery-spec-footnote">
                   {/* {technicalSpecificationHelperText || "The Technical Specification Document is ready to download."} */}
