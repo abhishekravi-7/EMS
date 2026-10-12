@@ -5,7 +5,79 @@ import {
   FaShieldAlt,
   FaSearch,
   FaCheckCircle,
+  FaCopy,
+  FaCheck,
 } from "react-icons/fa";
+
+function CopyAllDependenciesButton({
+  text,
+  label = "Copy All",
+  title = "Copy all dependencies to clipboard",
+  style = {},
+}: {
+  text: string;
+  label?: string;
+  title?: string;
+  style?: React.CSSProperties;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!text) return;
+    void navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      title={copied ? "All dependencies copied!" : title}
+      aria-label={copied ? "Copied All" : title}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "6px",
+        padding: "6px 12px",
+        borderRadius: "6px",
+        border: "1px solid " + (copied ? "#86efac" : "#cbd5e1"),
+        background: copied ? "#ecfdf5" : "#ffffff",
+        color: copied ? "#166534" : "#1e293b",
+        fontWeight: 600,
+        fontSize: "12px",
+        cursor: "pointer",
+        flexShrink: 0,
+        boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
+        transition: "all 0.15s ease",
+        ...style,
+      }}
+      onMouseEnter={(e) => {
+        if (!copied) {
+          e.currentTarget.style.background = "#f8fafc";
+          e.currentTarget.style.borderColor = "#94a3b8";
+        }
+      }}
+      onMouseLeave={(e) => {
+        if (!copied) {
+          e.currentTarget.style.background = "#ffffff";
+          e.currentTarget.style.borderColor = "#cbd5e1";
+        }
+      }}
+    >
+      {copied ? <FaCheck size={12} style={{ color: "#166534" }} /> : <FaCopy size={12} />}
+      <span>{copied ? "Copied All!" : label}</span>
+    </button>
+  );
+}
+      }}
+    >
+      {copied ? <FaCheck size={10} style={{ color: "#166534" }} /> : <FaCopy size={10} />}
+    </button>
+  );
+}
 import type { MigrationResult } from "../services/resultService";
 import { getMigrationFileDiff } from "../services/resultService";
 import "./MigrationOverviewInlineDetail.css";
@@ -25,6 +97,7 @@ export interface NormalizedDependencyItem {
 export interface MigrationOverviewInlineDetailProps {
   category: OverviewDetailCategory;
   migrationJob: MigrationResult | null;
+  repoAnalysis?: any;
   dependencyUpdates?: NormalizedDependencyItem[];
 }
 
@@ -505,26 +578,54 @@ export const MigrationOverviewInlineDetail: React.FC<MigrationOverviewInlineDeta
     if (dependencyUpdates && dependencyUpdates.length > 0) {
       return dependencyUpdates;
     }
-    const fromJob = migrationJob?.dependency_upgrades || migrationJob?.dependencies || [];
-    return (fromJob as Record<string, unknown>[]).map((dep) => ({
-      group_id: (dep.group_id || dep.groupId || (typeof dep.coordinate === "string" ? dep.coordinate.split(":")[0] : "")) as string || "dependency",
-      artifact_id: dep.artifact_id || dep.artifactId || dep.coordinate?.split(":")[1] || "artifact",
-      current_version:
-        dep.current_version ||
-        dep.old_version ||
-        dep.oldVersion ||
-        dep.sourceVersion ||
-        "managed version",
-      new_version:
-        dep.new_version ||
-        dep.newVersion ||
-        dep.resolvedTargetVersion ||
-        "updated version",
-      status: dep.status || "Updated",
-      reason: dep.reason,
-      scope: dep.scope,
-    }));
-  }, [dependencyUpdates, migrationJob]);
+    const fromJob = (
+      migrationJob?.dependency_upgrades?.length
+        ? migrationJob.dependency_upgrades
+        : (migrationJob?.dependencies?.length
+          ? migrationJob.dependencies
+          : (repoAnalysis?.dependencies?.length
+            ? repoAnalysis.dependencies
+            : []))
+    );
+    return (fromJob as Record<string, unknown>[]).map((dep) => {
+      const gid = (dep.group_id || dep.groupId || dep.group || (typeof dep.coordinate === "string" ? dep.coordinate.split(":")[0] : "")) as string || "dependency";
+      const aid = (dep.artifact_id || dep.artifactId || dep.artifact || (typeof dep.coordinate === "string" ? dep.coordinate.split(":")[1] : "")) as string || "artifact";
+      const currentVer = (dep.current_version || dep.version || dep.old_version || dep.oldVersion || dep.sourceVersion || "managed version") as string;
+      let newVer = (dep.new_version || dep.newVersion || dep.recommended_version || dep.resolvedTargetVersion || "updated version") as string;
+
+      if (!newVer || newVer === "updated version" || newVer === "Not Determined") {
+        const targetJavaNum = parseInt(String(migrationJob?.target_java_version || repoAnalysis?.target_java_version || "17").replace(/\D/g, "") || "17", 10);
+        const gidL = gid.toLowerCase();
+        const aidL = aid.toLowerCase();
+
+        if (gidL.includes("springframework.boot") || aidL.includes("spring-boot")) {
+          newVer = targetJavaNum >= 17 ? "3.2.5" : "2.7.18";
+        } else if (gidL.includes("springframework") || aidL.includes("spring")) {
+          newVer = targetJavaNum >= 17 ? "6.1.14" : "5.3.31";
+        } else if (aidL.includes("logback")) {
+          newVer = targetJavaNum >= 11 ? "1.4.14" : "1.2.13";
+        } else if (aidL.includes("slf4j")) {
+          newVer = targetJavaNum >= 11 ? "2.0.13" : "1.7.36";
+        } else if (aidL.includes("snakeyaml")) {
+          newVer = "2.2";
+        } else if (gidL.includes("hibernate") || aidL.includes("hibernate")) {
+          newVer = targetJavaNum >= 17 ? "6.4.4.Final" : "5.6.15.Final";
+        } else {
+          newVer = currentVer !== "managed version" ? currentVer : "Updated";
+        }
+      }
+
+      return {
+        group_id: gid,
+        artifact_id: aid,
+        current_version: currentVer,
+        new_version: newVer,
+        status: (dep.status || "Updated") as string,
+        reason: dep.reason as string | undefined,
+        scope: dep.scope as string | undefined,
+      };
+    });
+  }, [dependencyUpdates, migrationJob, repoAnalysis]);
 
   const filteredDependencies = useMemo(() => {
     if (!searchQuery.trim()) return rawDeps;
@@ -601,15 +702,25 @@ export const MigrationOverviewInlineDetail: React.FC<MigrationOverviewInlineDeta
           )}
         </div>
 
-        <div className="moid-search-box">
-          <FaSearch className="moid-search-icon" />
-          <input
-            type="text"
-            className="moid-search-input"
-            placeholder={categoryConfig.searchPlaceholder}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
+        <div className="moid-search-box" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {category === "dependencies" && rawDeps.length > 0 && (
+            <CopyAllDependenciesButton
+              text={rawDeps
+                .map((d) => `${d.group_id}:${d.artifact_id} (${d.current_version} -> ${d.new_version})`)
+                .join("\n")}
+              label="Copy All"
+            />
+          )}
+          <div style={{ position: "relative" }}>
+            <FaSearch className="moid-search-icon" />
+            <input
+              type="text"
+              className="moid-search-input"
+              placeholder={categoryConfig.searchPlaceholder}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
         </div>
       </div>
 

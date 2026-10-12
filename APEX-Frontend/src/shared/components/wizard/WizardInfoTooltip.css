@@ -1,6 +1,7 @@
 .ui-info-tooltip-host {
   position: relative;
   display: inline-flex;
+  z-index: 99999;
 }
 
 .ui-info-trigger {
@@ -31,6 +32,7 @@
 
 .ui-info-tooltip {
   display: none !important;
+  z-index: 999999 !important;
 }
 
 .ui-info-tooltip-host:hover > .ui-info-trigger,

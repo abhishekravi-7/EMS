@@ -22,12 +22,16 @@ import {
   FaWrench,
   FaVial,
   FaEye,
+  FaNetworkWired,
+  FaReact,
+  FaAngular,
+  FaVuejs,
 } from "react-icons/fa";
 import {
   renderForwardButtonLabel,
 } from "@/shared/components/wizard";
 import { wizardStyles as styles } from "@/shared/components/wizard/wizardStyles";
-import type { RepoAnalysis, RepoFile, RepoInfo } from "@/shared/types/domain";
+import type { RepoAnalysis, RepoFile, RepoInfo, DiscoveredApiEndpoint } from "@/shared/types/domain";
 import { getFileContent, getDiscoveryFileContent } from "../services/discoveryService";
 import { getLocalProjectFileContent } from "@/features/connect/services/connectService";
 import { getUserSettings } from "@/features/admin/services/adminService";
@@ -44,14 +48,25 @@ export interface DetectedFrameworkDetail {
   name: string;
   type: string;
   status: string;
-  category: "spring" | "database" | "tool" | "test" | "security" | "generic";
+  category: "spring" | "database" | "tool" | "test" | "security" | "frontend" | "generic";
   tags: { label: string; color: "purple" | "gray" | "blue" | "green" | "amber" }[];
 }
 
-function renderFrameworkIcon(category: string) {
+function renderFrameworkIcon(category: string, id?: string) {
+  if (id === "angular" || id === "angular-router") {
+    return <FaAngular size={15} />;
+  }
+  if (id === "react" || id === "react-router") {
+    return <FaReact size={15} />;
+  }
+  if (id === "vue") {
+    return <FaVuejs size={15} />;
+  }
   switch (category) {
     case "spring":
       return <FaLeaf size={15} />;
+    case "frontend":
+      return <FaCode size={15} />;
     case "database":
       return <FaDatabase size={15} />;
     case "security":
@@ -65,23 +80,202 @@ function renderFrameworkIcon(category: string) {
   }
 }
 
+// Canonical technology mapping table for robust deduplication across different sources and namings
+const CANONICAL_TECH_MAP: Record<string, string> = {
+  // Spring Ecosystem
+  "spring-boot": "spring-boot",
+  "springboot": "spring-boot",
+  "spring-framework": "spring-framework",
+  "springframework": "spring-framework",
+  "spring-core": "spring-framework",
+  "springcore": "spring-framework",
+  "spring-security": "spring-security",
+  "springsecurity": "spring-security",
+  "security": "spring-security",
+  "spring-cloud": "spring-cloud",
+  "springcloud": "spring-cloud",
+  "spring-data": "spring-data",
+  "springdata": "spring-data",
+  "spring-data-jpa": "spring-data-jpa",
+  "springdatajpa": "spring-data-jpa",
+  "jpa-hibernate": "jpa-hibernate",
+  "jpahibernate": "jpa-hibernate",
+  "hibernate": "hibernate",
+  "hibernate-orm": "hibernate",
+  "hibernateorm": "hibernate",
+
+  // Frontend Frameworks & Libraries
+  "angular": "angular",
+  "@angular/core": "angular",
+  "angular-core": "angular",
+  "angularcore": "angular",
+  "angular-router": "angular-router",
+  "@angular/router": "angular-router",
+  "angularrouter": "angular-router",
+  "react": "react",
+  "react-dom": "react",
+  "reactjs": "react",
+  "react-router": "react-router",
+  "react-router-dom": "react-router",
+  "reactrouter": "react-router",
+  "reactrouterdom": "react-router",
+  "vue": "vue",
+  "vuejs": "vue",
+  "vue-router": "vue-router",
+  "vuerouter": "vue-router",
+  "svelte": "svelte",
+  "sveltejs": "svelte",
+  "next": "nextjs",
+  "nextjs": "nextjs",
+  "next.js": "nextjs",
+  "redux": "redux",
+  "@reduxjs/toolkit": "redux",
+  "reduxtoolkit": "redux",
+
+  // Build / Tooling / Styling
+  "typescript": "typescript",
+  "vite": "vite",
+  "webpack": "webpack",
+  "tailwindcss": "tailwindcss",
+  "tailwind": "tailwindcss",
+  "tailwind-css": "tailwindcss",
+  "tailwind-styling": "tailwindcss",
+  "axios": "axios",
+  "lombok": "lombok",
+  "project-lombok": "lombok",
+  "projectlombok": "lombok",
+
+  // Database / Drivers / Migrations / Caches
+  "postgresql": "postgresql",
+  "postgres": "postgresql",
+  "mysql": "mysql",
+  "mysql-connector": "mysql",
+  "mysql-connector-j": "mysql",
+  "liquibase": "liquibase",
+  "flyway": "flyway",
+  "redis": "redis",
+
+  // API Documentation
+  "openapi": "springdoc-openapi",
+  "springdoc": "springdoc-openapi",
+  "springdoc-openapi": "springdoc-openapi",
+  "swagger": "springdoc-openapi",
+
+  // Testing Frameworks
+  "junit": "junit",
+  "junit5": "junit",
+  "junit4": "junit",
+  "jupiter": "junit",
+  "mockito": "mockito",
+  "testng": "testng",
+  "jest": "jest",
+  "vitest": "vitest",
+  "cypress": "cypress",
+  "playwright": "playwright",
+  "@playwright/test": "playwright",
+};
+
+function normalizeTechKey(val: string): string {
+  return (val || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function getCanonicalTechId(idOrName: string): string {
+  const norm = normalizeTechKey(idOrName);
+  return CANONICAL_TECH_MAP[norm] || CANONICAL_TECH_MAP[idOrName.toLowerCase().trim()] || norm;
+}
+
+function formatTechDisplayName(raw: string): string {
+  if (!raw) return "Framework";
+  const friendly: Record<string, string> = {
+    "spring-boot": "Spring Boot",
+    "spring-framework": "Spring Framework",
+    "spring-security": "Spring Security",
+    "spring-cloud": "Spring Cloud",
+    "spring-data": "Spring Data",
+    "spring-data-jpa": "Spring Data JPA",
+    "hibernate": "Hibernate ORM",
+    "jpa-hibernate": "Spring Data JPA / Hibernate",
+    "angular": "Angular",
+    "angular-router": "Angular Router",
+    "react": "React",
+    "react-router": "React Router",
+    "vue": "Vue.js",
+    "svelte": "Svelte",
+    "typescript": "TypeScript",
+    "vite": "Vite",
+    "webpack": "Webpack",
+    "tailwindcss": "Tailwind CSS",
+    "axios": "Axios",
+    "next": "Next.js",
+    "nextjs": "Next.js",
+    "redux": "Redux",
+    "junit": "JUnit Testing",
+    "mockito": "Mockito",
+    "testng": "TestNG",
+    "jest": "Jest Testing",
+    "vitest": "Vitest",
+    "cypress": "Cypress",
+    "playwright": "Playwright",
+    "springdoc-openapi": "Springdoc OpenAPI",
+    "liquibase": "Liquibase",
+    "flyway": "Flyway",
+    "postgresql": "PostgreSQL JDBC",
+    "mysql": "MySQL Connector",
+    "lombok": "Project Lombok",
+    "redis": "Redis Cache",
+  };
+  const key = raw.toLowerCase().trim();
+  if (friendly[key]) return friendly[key];
+  return raw
+    .split(/[-_\s]+/)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
 function extractDetectedFrameworks(repoAnalysis: RepoAnalysis | null): DetectedFrameworkDetail[] {
   if (!repoAnalysis) {
     return [];
   }
   const items: DetectedFrameworkDetail[] = [];
-  const seen = new Set<string>();
+  const seenCanonicalKeys = new Set<string>();
+  const seenAliases = new Set<string>();
+
+  function registerItem(item: DetectedFrameworkDetail, aliases: string[] = []) {
+    const canonKey = getCanonicalTechId(item.id) || normalizeTechKey(item.id);
+    seenCanonicalKeys.add(canonKey);
+    seenAliases.add(normalizeTechKey(item.id));
+    seenAliases.add(normalizeTechKey(item.name));
+    aliases.forEach((a) => {
+      seenAliases.add(normalizeTechKey(a));
+      const aCanon = getCanonicalTechId(a);
+      if (aCanon) seenCanonicalKeys.add(aCanon);
+    });
+    items.push(item);
+  }
+
+  function isAlreadyRepresented(candidate: string): boolean {
+    if (!candidate) return false;
+    const norm = normalizeTechKey(candidate);
+    if (seenAliases.has(norm)) return true;
+    const canon = getCanonicalTechId(candidate);
+    if (canon && seenCanonicalKeys.has(canon)) return true;
+    return false;
+  }
 
   const deps = repoAnalysis?.dependencies || [];
-  const depCoords = deps.map((d) => `${d.group_id || ""}:${d.artifact_id || ""}`.toLowerCase());
-  const depGroups = deps.map((d) => (d.group_id || "").toLowerCase());
-  const depArtifacts = deps.map((d) => (d.artifact_id || "").toLowerCase());
+  const feDeps = repoAnalysis?.frontend_dependencies || (repoAnalysis as any)?.frontendDependencies || [];
+  const allDeps = [...deps, ...feDeps];
+
+  const depCoords = allDeps.map((d) => `${d.group_id || ""}:${d.artifact_id || ""}`.toLowerCase());
+  const depGroups = allDeps.map((d) => (d.group_id || "").toLowerCase());
+  const depArtifacts = allDeps.map((d) => (d.artifact_id || "").toLowerCase());
+  const depNames = allDeps.map((d) => (d.name || d.artifact_id || "").toLowerCase());
   const rawFrameworks = (repoAnalysis?.frameworks || []).map((f) => f.toLowerCase());
   const detectedFrameworksRaw = (repoAnalysis?.detected_frameworks || []).map((df) =>
     (typeof df === "string" ? df : df.name || "").toLowerCase()
   );
 
-  // 1. Spring Boot
+  // 1. Spring Boot (Backend Framework)
   const springBootVersion =
     repoAnalysis?.spring_boot_version ||
     repoAnalysis?.spring_boot_eligibility?.springBootVersion ||
@@ -97,25 +291,26 @@ function extractDetectedFrameworks(repoAnalysis: RepoAnalysis | null): DetectedF
     Boolean(repoAnalysis?.spring_boot_version) ||
     rawFrameworks.includes("spring-boot") ||
     detectedFrameworksRaw.some((f) => f.includes("boot")) ||
-    depGroups.includes("org.springframework.boot") ||
-    depCoords.some((c) => c.startsWith("org.springframework.boot:"));
+    deps.some((d) => (d.group_id || "").toLowerCase() === "org.springframework.boot") ||
+    deps.some((d) => `${d.group_id || ""}:${d.artifact_id || ""}`.toLowerCase().startsWith("org.springframework.boot:"));
 
-  if (isSpringBoot) {
-    seen.add("spring-boot");
-    seen.add("spring-framework");
-    items.push({
-      id: "spring-boot",
-      name: springBootVersion ? `Spring Boot ${springBootVersion}` : "Spring Boot",
-      type: "Application Framework",
-      status: springBootVersion ? `v${springBootVersion}` : "Detected",
-      category: "spring",
-      tags: [
-        { label: "FRAMEWORK", color: "purple" },
-        { label: "SPRING BOOT", color: "green" },
-        { label: "JAVA", color: "gray" },
-      ],
-    });
-  } else {
+  if (isSpringBoot && !isAlreadyRepresented("spring-boot")) {
+    registerItem(
+      {
+        id: "spring-boot",
+        name: springBootVersion ? `Spring Boot ${springBootVersion}` : "Spring Boot",
+        type: "Backend Framework",
+        status: springBootVersion ? `v${springBootVersion}` : "Detected",
+        category: "spring",
+        tags: [
+          { label: "FRAMEWORK", color: "purple" },
+          { label: "SPRING BOOT", color: "green" },
+          { label: "JAVA", color: "gray" },
+        ],
+      },
+      ["spring-boot", "springboot", "spring-framework", "springframework"]
+    );
+  } else if (!isSpringBoot) {
     // 2. Traditional Spring Framework (if not Spring Boot)
     const springVersion =
       repoAnalysis?.spring_boot_eligibility?.springVersion ||
@@ -130,262 +325,899 @@ function extractDetectedFrameworks(repoAnalysis: RepoAnalysis | null): DetectedF
       Boolean(repoAnalysis?.spring_boot_eligibility?.springDetected) ||
       rawFrameworks.includes("spring-framework") ||
       detectedFrameworksRaw.some((f) => f.includes("spring")) ||
-      depGroups.some((g) => g.includes("org.springframework"));
+      deps.some((d) => (d.group_id || "").toLowerCase().includes("org.springframework"));
 
-    if (isSpring) {
-      seen.add("spring-framework");
-      items.push({
-        id: "spring-framework",
-        name: springVersion ? `Spring Framework ${springVersion}` : "Spring Framework",
-        type: "Application Framework",
-        status: springVersion ? `v${springVersion}` : "Detected",
-        category: "spring",
-        tags: [
-          { label: "FRAMEWORK", color: "purple" },
-          { label: "SPRING", color: "green" },
-          { label: "JAVA", color: "gray" },
-        ],
-      });
+    if (isSpring && !isAlreadyRepresented("spring-framework")) {
+      registerItem(
+        {
+          id: "spring-framework",
+          name: springVersion ? `Spring Framework ${springVersion}` : "Spring Framework",
+          type: "Backend Framework",
+          status: springVersion ? `v${springVersion}` : "Detected",
+          category: "spring",
+          tags: [
+            { label: "FRAMEWORK", color: "purple" },
+            { label: "SPRING", color: "green" },
+            { label: "JAVA", color: "gray" },
+          ],
+        },
+        ["spring-framework", "springframework", "spring-core"]
+      );
     }
   }
 
-  // 3. Spring Data JPA / Hibernate
+  // 3. Angular (Frontend Framework) - Primary evidence: @angular/core
+  const angularDep = allDeps.find(
+    (d) =>
+      d.name?.toLowerCase() === "@angular/core" ||
+      (d.group_id?.toLowerCase() === "@angular" && d.artifact_id?.toLowerCase() === "core")
+  );
+  const isAngular =
+    Boolean(angularDep) ||
+    rawFrameworks.includes("angular") ||
+    detectedFrameworksRaw.some((f) => f === "angular");
+
+  if (isAngular && !isAlreadyRepresented("angular")) {
+    const angularVersion =
+      angularDep?.resolvedVersion ||
+      angularDep?.current_version ||
+      (angularDep?.declaredVersion ? angularDep.declaredVersion.replace(/^[~^>=<v\s]*/, "") : null);
+    registerItem(
+      {
+        id: "angular",
+        name: angularVersion && !angularVersion.toLowerCase().includes("unknown") ? `Angular ${angularVersion}` : "Angular",
+        type: "Frontend Framework",
+        status: angularVersion && !angularVersion.toLowerCase().includes("unknown") ? `v${angularVersion}` : "Detected",
+        category: "frontend",
+        tags: [
+          { label: "FRAMEWORK", color: "purple" },
+          { label: "ANGULAR", color: "amber" },
+          { label: "SPA", color: "blue" },
+        ],
+      },
+      ["angular", "@angular/core", "angular-core"]
+    );
+  }
+
+  // Angular Router (kept strictly distinct from Angular)
+  const angularRouterDep = allDeps.find(
+    (d) =>
+      d.name?.toLowerCase() === "@angular/router" ||
+      (d.group_id?.toLowerCase() === "@angular" && d.artifact_id?.toLowerCase() === "router")
+  );
+  if ((angularRouterDep || rawFrameworks.includes("angular-router")) && !isAlreadyRepresented("angular-router")) {
+    const routerVer =
+      angularRouterDep?.resolvedVersion ||
+      angularRouterDep?.current_version ||
+      (angularRouterDep?.declaredVersion ? angularRouterDep.declaredVersion.replace(/^[~^>=<v\s]*/, "") : null);
+    registerItem(
+      {
+        id: "angular-router",
+        name: routerVer && !routerVer.toLowerCase().includes("unknown") ? `Angular Router ${routerVer}` : "Angular Router",
+        type: "Routing Library",
+        status: routerVer && !routerVer.toLowerCase().includes("unknown") ? `v${routerVer}` : "Detected",
+        category: "frontend",
+        tags: [
+          { label: "ROUTING", color: "blue" },
+          { label: "LIBRARY", color: "gray" },
+        ],
+      },
+      ["angular-router", "@angular/router"]
+    );
+  }
+
+  // React (Frontend Framework) - Primary evidence: react / react-dom
+  const reactDep = allDeps.find(
+    (d) => d.name?.toLowerCase() === "react" || d.artifact_id?.toLowerCase() === "react"
+  );
+  const reactDomDep = allDeps.find(
+    (d) => d.name?.toLowerCase() === "react-dom" || d.artifact_id?.toLowerCase() === "react-dom"
+  );
+  const isReact =
+    Boolean(reactDep) ||
+    Boolean(reactDomDep) ||
+    rawFrameworks.includes("react") ||
+    detectedFrameworksRaw.some((f) => f === "react");
+
+  if (isReact && !isAlreadyRepresented("react")) {
+    const rDep = reactDep || reactDomDep;
+    const reactVer =
+      rDep?.resolvedVersion ||
+      rDep?.current_version ||
+      (rDep?.declaredVersion ? rDep.declaredVersion.replace(/^[~^>=<v\s]*/, "") : null);
+    registerItem(
+      {
+        id: "react",
+        name: reactVer && !reactVer.toLowerCase().includes("unknown") ? `React ${reactVer}` : "React",
+        type: "Frontend Framework",
+        status: reactVer && !reactVer.toLowerCase().includes("unknown") ? `v${reactVer}` : "Detected",
+        category: "frontend",
+        tags: [
+          { label: "FRAMEWORK", color: "purple" },
+          { label: "REACT", color: "blue" },
+          { label: "UI", color: "green" },
+        ],
+      },
+      ["react", "react-dom", "reactjs"]
+    );
+  }
+
+  // React Router (kept strictly distinct from React)
+  const reactRouterDep = allDeps.find(
+    (d) =>
+      d.name?.toLowerCase() === "react-router" ||
+      d.name?.toLowerCase() === "react-router-dom" ||
+      d.artifact_id?.toLowerCase() === "react-router" ||
+      d.artifact_id?.toLowerCase() === "react-router-dom"
+  );
+  if ((reactRouterDep || rawFrameworks.includes("react-router")) && !isAlreadyRepresented("react-router")) {
+    const rrVer =
+      reactRouterDep?.resolvedVersion ||
+      reactRouterDep?.current_version ||
+      (reactRouterDep?.declaredVersion ? reactRouterDep.declaredVersion.replace(/^[~^>=<v\s]*/, "") : null);
+    registerItem(
+      {
+        id: "react-router",
+        name: rrVer && !rrVer.toLowerCase().includes("unknown") ? `React Router ${rrVer}` : "React Router",
+        type: "Routing Library",
+        status: rrVer && !rrVer.toLowerCase().includes("unknown") ? `v${rrVer}` : "Detected",
+        category: "frontend",
+        tags: [
+          { label: "ROUTING", color: "blue" },
+          { label: "LIBRARY", color: "gray" },
+        ],
+      },
+      ["react-router", "react-router-dom"]
+    );
+  }
+
+  // Vue.js
+  const vueDep = allDeps.find(
+    (d) => d.name?.toLowerCase() === "vue" || d.artifact_id?.toLowerCase() === "vue"
+  );
+  if ((vueDep || rawFrameworks.includes("vue")) && !isAlreadyRepresented("vue")) {
+    const vueVer =
+      vueDep?.resolvedVersion ||
+      vueDep?.current_version ||
+      (vueDep?.declaredVersion ? vueDep.declaredVersion.replace(/^[~^>=<v\s]*/, "") : null);
+    registerItem(
+      {
+        id: "vue",
+        name: vueVer && !vueVer.toLowerCase().includes("unknown") ? `Vue.js ${vueVer}` : "Vue.js",
+        type: "Frontend Framework",
+        status: vueVer && !vueVer.toLowerCase().includes("unknown") ? `v${vueVer}` : "Detected",
+        category: "frontend",
+        tags: [
+          { label: "FRAMEWORK", color: "purple" },
+          { label: "VUE", color: "green" },
+        ],
+      },
+      ["vue", "vuejs"]
+    );
+  }
+
+  // Svelte
+  const svelteDep = allDeps.find(
+    (d) => d.name?.toLowerCase() === "svelte" || d.artifact_id?.toLowerCase() === "svelte"
+  );
+  if ((svelteDep || rawFrameworks.includes("svelte")) && !isAlreadyRepresented("svelte")) {
+    const svelteVer =
+      svelteDep?.resolvedVersion ||
+      svelteDep?.current_version ||
+      (svelteDep?.declaredVersion ? svelteDep.declaredVersion.replace(/^[~^>=<v\s]*/, "") : null);
+    registerItem(
+      {
+        id: "svelte",
+        name: svelteVer && !svelteVer.toLowerCase().includes("unknown") ? `Svelte ${svelteVer}` : "Svelte",
+        type: "Frontend Framework",
+        status: svelteVer && !svelteVer.toLowerCase().includes("unknown") ? `v${svelteVer}` : "Detected",
+        category: "frontend",
+        tags: [
+          { label: "FRAMEWORK", color: "purple" },
+          { label: "SVELTE", color: "amber" },
+        ],
+      },
+      ["svelte", "sveltejs"]
+    );
+  }
+
+  // 4. Spring Data JPA / Hibernate (Carefully merged when representing the same stack)
+  const hasSpringDataJpa = deps.some((a) => {
+    const aid = (a.artifact_id || "").toLowerCase();
+    const gid = (a.group_id || "").toLowerCase();
+    return aid.includes("spring-boot-starter-data-jpa") || aid.includes("spring-data-jpa") || `${gid}:${aid}`.includes("data-jpa");
+  });
+
   const hasHibernate =
     rawFrameworks.includes("hibernate") ||
-    depGroups.some((g) => g.includes("hibernate")) ||
-    depCoords.some((c) => c.includes("hibernate"));
-  const hasSpringDataJpa = depArtifacts.some(
-    (a) => a.includes("spring-boot-starter-data-jpa") || a.includes("spring-data-jpa")
-  );
+    deps.some((g) => (g.group_id || "").toLowerCase().includes("hibernate")) ||
+    deps.some((c) => `${c.group_id || ""}:${c.artifact_id || ""}`.toLowerCase().includes("hibernate"));
 
-  if (hasSpringDataJpa || hasHibernate) {
-    seen.add("hibernate");
-    seen.add("jpa");
-    items.push({
-      id: "jpa-hibernate",
-      name: hasSpringDataJpa ? "Spring Data JPA / Hibernate" : "Hibernate ORM",
-      type: "Persistence Framework",
-      status: "Detected",
-      category: "database",
-      tags: [
-        { label: "ORM", color: "blue" },
-        { label: "JPA", color: "purple" },
-        { label: "DATABASE", color: "gray" },
-      ],
-    });
+  const hasSpringDataOther =
+    (rawFrameworks.includes("spring-data") || deps.some((d) => (d.artifact_id || "").toLowerCase().includes("spring-data"))) &&
+    !hasSpringDataJpa;
+
+  if (hasSpringDataJpa) {
+    // Both Spring Data JPA and Hibernate represent the shared persistence layer
+    registerItem(
+      {
+        id: "jpa-hibernate",
+        name: "Spring Data JPA / Hibernate",
+        type: "Persistence Framework",
+        status: "Detected",
+        category: "database",
+        tags: [
+          { label: "ORM", color: "blue" },
+          { label: "JPA", color: "purple" },
+          { label: "DATABASE", color: "gray" },
+        ],
+      },
+      ["spring-data", "spring-data-jpa", "springdata", "springdatajpa", "hibernate", "jpa", "jpa-hibernate"]
+    );
+  } else {
+    // Distinguishable separate representations when not combined as Spring Data JPA
+    if (hasHibernate && !isAlreadyRepresented("hibernate")) {
+      registerItem(
+        {
+          id: "hibernate",
+          name: "Hibernate ORM",
+          type: "Persistence Framework",
+          status: "Detected",
+          category: "database",
+          tags: [
+            { label: "ORM", color: "blue" },
+            { label: "HIBERNATE", color: "purple" },
+            { label: "DATABASE", color: "gray" },
+          ],
+        },
+        ["hibernate", "jpa", "hibernate-orm"]
+      );
+    }
+    if (hasSpringDataOther && !isAlreadyRepresented("spring-data")) {
+      registerItem(
+        {
+          id: "spring-data",
+          name: "Spring Data",
+          type: "Data Access Framework",
+          status: "Detected",
+          category: "database",
+          tags: [
+            { label: "SPRING DATA", color: "blue" },
+            { label: "DATABASE", color: "gray" },
+          ],
+        },
+        ["spring-data", "springdata"]
+      );
+    }
   }
 
-  // 4. Spring Security
+  // 5. Spring Security (Guaranteed single canonical card)
   const hasSecurity =
     rawFrameworks.includes("spring-security") ||
-    depCoords.some((c) => c.includes("spring-security") || c.includes("spring-boot-starter-security"));
-
-  if (hasSecurity) {
-    seen.add("security");
-    items.push({
-      id: "spring-security",
-      name: "Spring Security",
-      type: "Security Framework",
-      status: "Detected",
-      category: "security",
-      tags: [
-        { label: "SECURITY", color: "purple" },
-        { label: "AUTH", color: "blue" },
-        { label: "JAVA", color: "gray" },
-      ],
+    deps.some((c) => {
+      const coord = `${c.group_id || ""}:${c.artifact_id || ""}`.toLowerCase();
+      return coord.includes("spring-security") || coord.includes("spring-boot-starter-security");
     });
+
+  if (hasSecurity && !isAlreadyRepresented("spring-security")) {
+    registerItem(
+      {
+        id: "spring-security",
+        name: "Spring Security",
+        type: "Security Framework",
+        status: "Detected",
+        category: "security",
+        tags: [
+          { label: "SECURITY", color: "purple" },
+          { label: "AUTH", color: "blue" },
+          { label: "JAVA", color: "gray" },
+        ],
+      },
+      ["spring-security", "springsecurity", "security"]
+    );
   }
 
-  // 5. Database Drivers & Migrations
+  // 6. Spring Cloud
+  const hasSpringCloud =
+    rawFrameworks.includes("spring-cloud") ||
+    depCoords.some((c) => c.startsWith("org.springframework.cloud:"));
+
+  if (hasSpringCloud && !isAlreadyRepresented("spring-cloud")) {
+    registerItem(
+      {
+        id: "spring-cloud",
+        name: "Spring Cloud",
+        type: "Cloud Framework",
+        status: "Detected",
+        category: "spring",
+        tags: [
+          { label: "FRAMEWORK", color: "purple" },
+          { label: "CLOUD", color: "blue" },
+          { label: "JAVA", color: "gray" },
+        ],
+      },
+      ["spring-cloud", "springcloud"]
+    );
+  }
+
+  // 7. Database Drivers & Migrations
   const postgresDep = deps.find((d) => d.group_id?.includes("postgresql") || d.artifact_id?.includes("postgresql"));
-  if (postgresDep) {
-    seen.add("postgresql");
-    items.push({
-      id: "postgresql",
-      name: "PostgreSQL JDBC",
-      type: "Database Driver",
-      status:
-        postgresDep.current_version && !postgresDep.current_version.toLowerCase().includes("unknown")
-          ? `v${postgresDep.current_version}`
-          : "Detected",
-      category: "database",
-      tags: [
-        { label: "DATABASE", color: "blue" },
-        { label: "SQL", color: "gray" },
-      ],
-    });
+  if (postgresDep && !isAlreadyRepresented("postgresql")) {
+    registerItem(
+      {
+        id: "postgresql",
+        name: "PostgreSQL JDBC",
+        type: "Database Driver",
+        status:
+          postgresDep.current_version && !postgresDep.current_version.toLowerCase().includes("unknown")
+            ? `v${postgresDep.current_version}`
+            : "Detected",
+        category: "database",
+        tags: [
+          { label: "DATABASE", color: "blue" },
+          { label: "SQL", color: "gray" },
+        ],
+      },
+      ["postgresql", "postgres"]
+    );
   }
 
   const mysqlDep = deps.find((d) => d.group_id?.includes("mysql") || d.artifact_id?.includes("mysql"));
-  if (mysqlDep) {
-    seen.add("mysql");
-    items.push({
-      id: "mysql",
-      name: "MySQL Connector",
-      type: "Database Driver",
-      status:
-        mysqlDep.current_version && !mysqlDep.current_version.toLowerCase().includes("unknown")
-          ? `v${mysqlDep.current_version}`
-          : "Detected",
-      category: "database",
-      tags: [
-        { label: "DATABASE", color: "blue" },
-        { label: "SQL", color: "gray" },
-      ],
-    });
+  if (mysqlDep && !isAlreadyRepresented("mysql")) {
+    registerItem(
+      {
+        id: "mysql",
+        name: "MySQL Connector",
+        type: "Database Driver",
+        status:
+          mysqlDep.current_version && !mysqlDep.current_version.toLowerCase().includes("unknown")
+            ? `v${mysqlDep.current_version}`
+            : "Detected",
+        category: "database",
+        tags: [
+          { label: "DATABASE", color: "blue" },
+          { label: "SQL", color: "gray" },
+        ],
+      },
+      ["mysql", "mysql-connector", "mysql-connector-j"]
+    );
   }
 
   const liquibaseDep = deps.find((d) => d.artifact_id?.toLowerCase().includes("liquibase"));
-  if (liquibaseDep || rawFrameworks.includes("liquibase")) {
-    seen.add("liquibase");
-    items.push({
-      id: "liquibase",
-      name: "Liquibase",
-      type: "Database Migration",
-      status:
-        liquibaseDep?.current_version && !liquibaseDep.current_version.toLowerCase().includes("unknown")
-          ? `v${liquibaseDep.current_version}`
-          : "Detected",
-      category: "database",
-      tags: [
-        { label: "MIGRATION", color: "amber" },
-        { label: "DATABASE", color: "blue" },
-      ],
-    });
+  if ((liquibaseDep || rawFrameworks.includes("liquibase")) && !isAlreadyRepresented("liquibase")) {
+    registerItem(
+      {
+        id: "liquibase",
+        name: "Liquibase",
+        type: "Database Migration",
+        status:
+          liquibaseDep?.current_version && !liquibaseDep.current_version.toLowerCase().includes("unknown")
+            ? `v${liquibaseDep.current_version}`
+            : "Detected",
+        category: "database",
+        tags: [
+          { label: "MIGRATION", color: "amber" },
+          { label: "DATABASE", color: "blue" },
+        ],
+      },
+      ["liquibase"]
+    );
   }
 
   const flywayDep = deps.find((d) => d.artifact_id?.toLowerCase().includes("flyway"));
-  if (flywayDep || rawFrameworks.includes("flyway")) {
-    seen.add("flyway");
-    items.push({
-      id: "flyway",
-      name: "Flyway",
-      type: "Database Migration",
-      status:
-        flywayDep?.current_version && !flywayDep.current_version.toLowerCase().includes("unknown")
-          ? `v${flywayDep.current_version}`
-          : "Detected",
-      category: "database",
-      tags: [
-        { label: "MIGRATION", color: "amber" },
-        { label: "DATABASE", color: "blue" },
-      ],
-    });
+  if ((flywayDep || rawFrameworks.includes("flyway")) && !isAlreadyRepresented("flyway")) {
+    registerItem(
+      {
+        id: "flyway",
+        name: "Flyway",
+        type: "Database Migration",
+        status:
+          flywayDep?.current_version && !flywayDep.current_version.toLowerCase().includes("unknown")
+            ? `v${flywayDep.current_version}`
+            : "Detected",
+        category: "database",
+        tags: [
+          { label: "MIGRATION", color: "amber" },
+          { label: "DATABASE", color: "blue" },
+        ],
+      },
+      ["flyway"]
+    );
   }
 
-  // 6. Redis / Cache
+  // Redis Cache
   const redisDep = deps.find(
     (d) => d.artifact_id?.toLowerCase().includes("redis") || d.group_id?.toLowerCase().includes("redis")
   );
-  if (redisDep) {
-    seen.add("redis");
-    items.push({
-      id: "redis",
-      name: "Redis Cache",
-      type: "In-Memory Store",
-      status: "Detected",
-      category: "database",
-      tags: [
-        { label: "CACHE", color: "amber" },
-        { label: "NOSQL", color: "gray" },
-      ],
-    });
+  if (redisDep && !isAlreadyRepresented("redis")) {
+    registerItem(
+      {
+        id: "redis",
+        name: "Redis Cache",
+        type: "In-Memory Store",
+        status: "Detected",
+        category: "database",
+        tags: [
+          { label: "CACHE", color: "amber" },
+          { label: "NOSQL", color: "gray" },
+        ],
+      },
+      ["redis"]
+    );
   }
 
-  // 7. OpenAPI / Swagger (Springdoc)
+  // 8. OpenAPI / Swagger (Springdoc)
   const springdocDep = deps.find(
-    (d) => d.artifact_id?.toLowerCase().includes("springdoc") || d.group_id?.toLowerCase().includes("swagger")
+    (d) =>
+      d.artifact_id?.toLowerCase().includes("springdoc") ||
+      d.group_id?.toLowerCase().includes("springdoc") ||
+      d.group_id?.toLowerCase().includes("swagger") ||
+      d.artifact_id?.toLowerCase().includes("swagger")
   );
-  if (springdocDep || rawFrameworks.includes("springdoc-openapi")) {
-    seen.add("openapi");
-    items.push({
-      id: "springdoc",
-      name: "Springdoc OpenAPI",
-      type: "API Documentation",
-      status:
-        springdocDep?.current_version && !springdocDep.current_version.toLowerCase().includes("unknown")
-          ? `v${springdocDep.current_version}`
-          : "Detected",
-      category: "generic",
-      tags: [
-        { label: "OPENAPI", color: "purple" },
-        { label: "REST API", color: "blue" },
-      ],
-    });
+  if (
+    (springdocDep || rawFrameworks.includes("springdoc-openapi") || rawFrameworks.includes("swagger")) &&
+    !isAlreadyRepresented("springdoc-openapi")
+  ) {
+    registerItem(
+      {
+        id: "springdoc-openapi",
+        name: "Springdoc OpenAPI",
+        type: "API Documentation",
+        status:
+          springdocDep?.current_version && !springdocDep.current_version.toLowerCase().includes("unknown")
+            ? `v${springdocDep.current_version}`
+            : "Detected",
+        category: "generic",
+        tags: [
+          { label: "OPENAPI", color: "purple" },
+          { label: "REST API", color: "blue" },
+        ],
+      },
+      ["springdoc-openapi", "springdoc", "swagger", "openapi"]
+    );
   }
 
-  // 8. Project Lombok
+  // 9. Project Lombok
   const lombokDep = deps.find(
     (d) => d.artifact_id?.toLowerCase().includes("lombok") || d.group_id?.toLowerCase().includes("lombok")
   );
-  if (lombokDep || rawFrameworks.includes("lombok")) {
-    seen.add("lombok");
-    items.push({
-      id: "lombok",
-      name: "Project Lombok",
-      type: "Developer Library",
-      status:
-        lombokDep?.current_version && !lombokDep.current_version.toLowerCase().includes("unknown")
-          ? `v${lombokDep.current_version}`
-          : "Detected",
-      category: "tool",
-      tags: [
-        { label: "LIBRARY", color: "amber" },
-        { label: "CODEGEN", color: "purple" },
-      ],
-    });
+  if ((lombokDep || rawFrameworks.includes("lombok")) && !isAlreadyRepresented("lombok")) {
+    registerItem(
+      {
+        id: "lombok",
+        name: "Project Lombok",
+        type: "Developer Library",
+        status:
+          lombokDep?.current_version && !lombokDep.current_version.toLowerCase().includes("unknown")
+            ? `v${lombokDep.current_version}`
+            : "Detected",
+        category: "tool",
+        tags: [
+          { label: "LIBRARY", color: "amber" },
+          { label: "CODEGEN", color: "purple" },
+        ],
+      },
+      ["lombok", "project-lombok", "projectlombok"]
+    );
   }
 
-  // 9. Testing (JUnit / Mockito)
-  const junitDep = deps.find(
-    (d) => d.artifact_id?.toLowerCase().includes("junit") || d.group_id?.toLowerCase().includes("junit")
+  // 10. Frontend Build Tools & Styling
+  // TypeScript
+  const tsDep = allDeps.find(
+    (d) => d.name?.toLowerCase() === "typescript" || d.artifact_id?.toLowerCase() === "typescript"
   );
-  const hasTests = repoAnalysis?.has_tests || rawFrameworks.includes("junit") || Boolean(junitDep);
-  if (hasTests) {
-    seen.add("junit");
-    const isJunit5 = depCoords.some((c) => c.includes("jupiter")) || junitDep?.artifact_id?.includes("jupiter");
-    items.push({
-      id: "junit",
-      name: isJunit5 ? "JUnit 5 (Jupiter)" : "JUnit Testing",
-      type: "Testing Framework",
-      status:
-        junitDep?.current_version && !junitDep.current_version.toLowerCase().includes("unknown")
-          ? `v${junitDep.current_version}`
-          : "Detected",
-      category: "test",
-      tags: [
-        { label: "TESTING", color: "purple" },
-        { label: "UNIT TEST", color: "gray" },
-      ],
-    });
+  if ((tsDep || rawFrameworks.includes("typescript")) && !isAlreadyRepresented("typescript")) {
+    const tsVer =
+      tsDep?.resolvedVersion ||
+      tsDep?.current_version ||
+      (tsDep?.declaredVersion ? tsDep.declaredVersion.replace(/^[~^>=<v\s]*/, "") : null);
+    registerItem(
+      {
+        id: "typescript",
+        name: tsVer && !tsVer.toLowerCase().includes("unknown") ? `TypeScript ${tsVer}` : "TypeScript",
+        type: "Language / Tooling",
+        status: tsVer && !tsVer.toLowerCase().includes("unknown") ? `v${tsVer}` : "Detected",
+        category: "tool",
+        tags: [
+          { label: "TOOL", color: "purple" },
+          { label: "TYPESCRIPT", color: "blue" },
+        ],
+      },
+      ["typescript"]
+    );
   }
 
-  // 10. Fallback or additional raw detected frameworks
+  // Vite
+  const viteDep = allDeps.find(
+    (d) => d.name?.toLowerCase() === "vite" || d.artifact_id?.toLowerCase() === "vite"
+  );
+  if ((viteDep || rawFrameworks.includes("vite")) && !isAlreadyRepresented("vite")) {
+    const viteVer =
+      viteDep?.resolvedVersion ||
+      viteDep?.current_version ||
+      (viteDep?.declaredVersion ? viteDep.declaredVersion.replace(/^[~^>=<v\s]*/, "") : null);
+    registerItem(
+      {
+        id: "vite",
+        name: viteVer && !viteVer.toLowerCase().includes("unknown") ? `Vite ${viteVer}` : "Vite",
+        type: "Build Tool",
+        status: viteVer && !viteVer.toLowerCase().includes("unknown") ? `v${viteVer}` : "Detected",
+        category: "tool",
+        tags: [
+          { label: "BUILD TOOL", color: "purple" },
+          { label: "BUNDLER", color: "amber" },
+        ],
+      },
+      ["vite"]
+    );
+  }
+
+  // Webpack
+  const webpackDep = allDeps.find(
+    (d) => d.name?.toLowerCase() === "webpack" || d.artifact_id?.toLowerCase() === "webpack"
+  );
+  if ((webpackDep || rawFrameworks.includes("webpack")) && !isAlreadyRepresented("webpack")) {
+    const wpVer =
+      webpackDep?.resolvedVersion ||
+      webpackDep?.current_version ||
+      (webpackDep?.declaredVersion ? webpackDep.declaredVersion.replace(/^[~^>=<v\s]*/, "") : null);
+    registerItem(
+      {
+        id: "webpack",
+        name: wpVer && !wpVer.toLowerCase().includes("unknown") ? `Webpack ${wpVer}` : "Webpack",
+        type: "Build Tool",
+        status: wpVer && !wpVer.toLowerCase().includes("unknown") ? `v${wpVer}` : "Detected",
+        category: "tool",
+        tags: [
+          { label: "BUILD TOOL", color: "purple" },
+          { label: "BUNDLER", color: "gray" },
+        ],
+      },
+      ["webpack"]
+    );
+  }
+
+  // Tailwind CSS
+  const tailwindDep = allDeps.find(
+    (d) => d.name?.toLowerCase() === "tailwindcss" || d.artifact_id?.toLowerCase() === "tailwindcss"
+  );
+  if ((tailwindDep || rawFrameworks.includes("tailwindcss")) && !isAlreadyRepresented("tailwindcss")) {
+    const twVer =
+      tailwindDep?.resolvedVersion ||
+      tailwindDep?.current_version ||
+      (tailwindDep?.declaredVersion ? tailwindDep.declaredVersion.replace(/^[~^>=<v\s]*/, "") : null);
+    registerItem(
+      {
+        id: "tailwindcss",
+        name: twVer && !twVer.toLowerCase().includes("unknown") ? `Tailwind CSS ${twVer}` : "Tailwind CSS",
+        type: "Styling Tool",
+        status: twVer && !twVer.toLowerCase().includes("unknown") ? `v${twVer}` : "Detected",
+        category: "tool",
+        tags: [
+          { label: "STYLING", color: "blue" },
+          { label: "CSS", color: "green" },
+        ],
+      },
+      ["tailwindcss", "tailwind"]
+    );
+  }
+
+  // Axios
+  const axiosDep = allDeps.find(
+    (d) => d.name?.toLowerCase() === "axios" || d.artifact_id?.toLowerCase() === "axios"
+  );
+  if ((axiosDep || rawFrameworks.includes("axios")) && !isAlreadyRepresented("axios")) {
+    const axVer =
+      axiosDep?.resolvedVersion ||
+      axiosDep?.current_version ||
+      (axiosDep?.declaredVersion ? axiosDep.declaredVersion.replace(/^[~^>=<v\s]*/, "") : null);
+    registerItem(
+      {
+        id: "axios",
+        name: axVer && !axVer.toLowerCase().includes("unknown") ? `Axios ${axVer}` : "Axios",
+        type: "HTTP Client Library",
+        status: axVer && !axVer.toLowerCase().includes("unknown") ? `v${axVer}` : "Detected",
+        category: "tool",
+        tags: [
+          { label: "HTTP CLIENT", color: "blue" },
+          { label: "LIBRARY", color: "gray" },
+        ],
+      },
+      ["axios"]
+    );
+  }
+
+  // Next.js
+  const nextDep = allDeps.find(
+    (d) => d.name?.toLowerCase() === "next" || d.artifact_id?.toLowerCase() === "next"
+  );
+  if ((nextDep || rawFrameworks.includes("next")) && !isAlreadyRepresented("next")) {
+    const nextVer =
+      nextDep?.resolvedVersion ||
+      nextDep?.current_version ||
+      (nextDep?.declaredVersion ? nextDep.declaredVersion.replace(/^[~^>=<v\s]*/, "") : null);
+    registerItem(
+      {
+        id: "nextjs",
+        name: nextVer && !nextVer.toLowerCase().includes("unknown") ? `Next.js ${nextVer}` : "Next.js",
+        type: "Full-Stack Framework",
+        status: nextVer && !nextVer.toLowerCase().includes("unknown") ? `v${nextVer}` : "Detected",
+        category: "frontend",
+        tags: [
+          { label: "FRAMEWORK", color: "purple" },
+          { label: "SSR", color: "blue" },
+        ],
+      },
+      ["next", "nextjs"]
+    );
+  }
+
+  // Redux
+  const reduxDep = allDeps.find(
+    (d) =>
+      d.name?.toLowerCase() === "redux" ||
+      d.name?.toLowerCase() === "@reduxjs/toolkit" ||
+      d.artifact_id?.toLowerCase() === "redux"
+  );
+  if ((reduxDep || rawFrameworks.includes("redux")) && !isAlreadyRepresented("redux")) {
+    const redVer =
+      reduxDep?.resolvedVersion ||
+      reduxDep?.current_version ||
+      (reduxDep?.declaredVersion ? reduxDep.declaredVersion.replace(/^[~^>=<v\s]*/, "") : null);
+    registerItem(
+      {
+        id: "redux",
+        name: redVer && !redVer.toLowerCase().includes("unknown") ? `Redux ${redVer}` : "Redux",
+        type: "State Management",
+        status: redVer && !redVer.toLowerCase().includes("unknown") ? `v${redVer}` : "Detected",
+        category: "frontend",
+        tags: [
+          { label: "STATE", color: "purple" },
+          { label: "LIBRARY", color: "gray" },
+        ],
+      },
+      ["redux", "@reduxjs/toolkit"]
+    );
+  }
+
+  // 11. Testing Frameworks & Tools (strictly validated against actual dependency metadata)
+  // JUnit: MUST have actual test dependency evidence (never inferred merely from generic test dirs)
+  const junitDep = deps.find(
+    (d) =>
+      d.artifact_id?.toLowerCase().includes("junit") ||
+      d.group_id?.toLowerCase().includes("junit") ||
+      d.artifact_id?.toLowerCase().includes("jupiter")
+  );
+  const hasJunit =
+    Boolean(junitDep) ||
+    rawFrameworks.includes("junit") ||
+    depCoords.some((c) => c.includes("junit") || c.includes("jupiter"));
+
+  if (hasJunit && !isAlreadyRepresented("junit")) {
+    const isJunit5 = depCoords.some((c) => c.includes("jupiter")) || junitDep?.artifact_id?.includes("jupiter");
+    registerItem(
+      {
+        id: "junit",
+        name: isJunit5 ? "JUnit 5 (Jupiter)" : "JUnit Testing",
+        type: "Testing Framework",
+        status:
+          junitDep?.current_version && !junitDep.current_version.toLowerCase().includes("unknown")
+            ? `v${junitDep.current_version}`
+            : "Detected",
+        category: "test",
+        tags: [
+          { label: "TESTING", color: "purple" },
+          { label: "UNIT TEST", color: "gray" },
+        ],
+      },
+      ["junit", "jupiter", "junit5", "junit4"]
+    );
+  }
+
+  // Mockito
+  const mockitoDep = deps.find(
+    (d) => d.artifact_id?.toLowerCase().includes("mockito") || d.group_id?.toLowerCase().includes("mockito")
+  );
+  if ((mockitoDep || rawFrameworks.includes("mockito")) && !isAlreadyRepresented("mockito")) {
+    registerItem(
+      {
+        id: "mockito",
+        name: "Mockito",
+        type: "Mocking Framework",
+        status:
+          mockitoDep?.current_version && !mockitoDep.current_version.toLowerCase().includes("unknown")
+            ? `v${mockitoDep.current_version}`
+            : "Detected",
+        category: "test",
+        tags: [
+          { label: "TESTING", color: "purple" },
+          { label: "MOCK", color: "gray" },
+        ],
+      },
+      ["mockito"]
+    );
+  }
+
+  // TestNG
+  const testngDep = deps.find(
+    (d) => d.artifact_id?.toLowerCase().includes("testng") || d.group_id?.toLowerCase().includes("testng")
+  );
+  if (testngDep && !isAlreadyRepresented("testng")) {
+    registerItem(
+      {
+        id: "testng",
+        name: "TestNG",
+        type: "Testing Framework",
+        status:
+          testngDep.current_version && !testngDep.current_version.toLowerCase().includes("unknown")
+            ? `v${testngDep.current_version}`
+            : "Detected",
+        category: "test",
+        tags: [
+          { label: "TESTING", color: "purple" },
+          { label: "UNIT TEST", color: "gray" },
+        ],
+      },
+      ["testng"]
+    );
+  }
+
+  // Frontend Testing
+  const jestDep = allDeps.find((d) => d.name?.toLowerCase() === "jest" || d.artifact_id?.toLowerCase() === "jest");
+  if ((jestDep || rawFrameworks.includes("jest")) && !isAlreadyRepresented("jest")) {
+    const jVer =
+      jestDep?.resolvedVersion ||
+      jestDep?.current_version ||
+      (jestDep?.declaredVersion ? jestDep.declaredVersion.replace(/^[~^>=<v\s]*/, "") : null);
+    registerItem(
+      {
+        id: "jest",
+        name: jVer && !jVer.toLowerCase().includes("unknown") ? `Jest ${jVer}` : "Jest Testing",
+        type: "Testing Tool",
+        status: jVer && !jVer.toLowerCase().includes("unknown") ? `v${jVer}` : "Detected",
+        category: "test",
+        tags: [
+          { label: "TESTING", color: "purple" },
+          { label: "UNIT TEST", color: "gray" },
+        ],
+      },
+      ["jest"]
+    );
+  }
+
+  const vitestDep = allDeps.find((d) => d.name?.toLowerCase() === "vitest" || d.artifact_id?.toLowerCase() === "vitest");
+  if ((vitestDep || rawFrameworks.includes("vitest")) && !isAlreadyRepresented("vitest")) {
+    const vVer =
+      vitestDep?.resolvedVersion ||
+      vitestDep?.current_version ||
+      (vitestDep?.declaredVersion ? vitestDep.declaredVersion.replace(/^[~^>=<v\s]*/, "") : null);
+    registerItem(
+      {
+        id: "vitest",
+        name: vVer && !vVer.toLowerCase().includes("unknown") ? `Vitest ${vVer}` : "Vitest",
+        type: "Testing Tool",
+        status: vVer && !vVer.toLowerCase().includes("unknown") ? `v${vVer}` : "Detected",
+        category: "test",
+        tags: [
+          { label: "TESTING", color: "purple" },
+          { label: "UNIT TEST", color: "gray" },
+        ],
+      },
+      ["vitest"]
+    );
+  }
+
+  const cypressDep = allDeps.find((d) => d.name?.toLowerCase() === "cypress" || d.artifact_id?.toLowerCase() === "cypress");
+  if ((cypressDep || rawFrameworks.includes("cypress")) && !isAlreadyRepresented("cypress")) {
+    const cVer =
+      cypressDep?.resolvedVersion ||
+      cypressDep?.current_version ||
+      (cypressDep?.declaredVersion ? cypressDep.declaredVersion.replace(/^[~^>=<v\s]*/, "") : null);
+    registerItem(
+      {
+        id: "cypress",
+        name: cVer && !cVer.toLowerCase().includes("unknown") ? `Cypress ${cVer}` : "Cypress",
+        type: "E2E Testing Tool",
+        status: cVer && !cVer.toLowerCase().includes("unknown") ? `v${cVer}` : "Detected",
+        category: "test",
+        tags: [
+          { label: "TESTING", color: "purple" },
+          { label: "E2E", color: "gray" },
+        ],
+      },
+      ["cypress"]
+    );
+  }
+
+  const playwrightDep = allDeps.find(
+    (d) =>
+      d.name?.toLowerCase() === "@playwright/test" ||
+      d.name?.toLowerCase() === "playwright" ||
+      d.artifact_id?.toLowerCase() === "playwright"
+  );
+  if ((playwrightDep || rawFrameworks.includes("playwright")) && !isAlreadyRepresented("playwright")) {
+    const pVer =
+      playwrightDep?.resolvedVersion ||
+      playwrightDep?.current_version ||
+      (playwrightDep?.declaredVersion ? playwrightDep.declaredVersion.replace(/^[~^>=<v\s]*/, "") : null);
+    registerItem(
+      {
+        id: "playwright",
+        name: pVer && !pVer.toLowerCase().includes("unknown") ? `Playwright ${pVer}` : "Playwright",
+        type: "E2E Testing Tool",
+        status: pVer && !pVer.toLowerCase().includes("unknown") ? `v${pVer}` : "Detected",
+        category: "test",
+        tags: [
+          { label: "TESTING", color: "purple" },
+          { label: "E2E", color: "gray" },
+        ],
+      },
+      ["playwright", "@playwright/test"]
+    );
+  }
+
+  // 12. Fallback / Raw detected frameworks from repository intelligence
+  // Deduplicates against all previously registered technologies and formats friendly labels
   if (repoAnalysis?.detected_frameworks) {
     repoAnalysis.detected_frameworks.forEach((df, idx) => {
       const name = typeof df === "string" ? df : df.name;
-      const lower = (name || "").toLowerCase();
-      if (!seen.has(lower) && !items.some((it) => it.name.toLowerCase().includes(lower))) {
-        seen.add(lower);
-        items.push({
-          id: `custom-fw-${idx}`,
-          name: name || "Framework",
-          type: typeof df === "object" && df.type ? df.type : "Library / Framework",
-          status: "Detected",
-          category: "generic",
-          tags: [
-            { label: "FRAMEWORK", color: "purple" },
-            { label: "JAVA", color: "gray" },
-          ],
-        });
+      if (!name) return;
+      if (!isAlreadyRepresented(name)) {
+        const canonicalKey = getCanonicalTechId(name) || normalizeTechKey(name);
+        const isFe = typeof df === "object" && df.type === "FRONTEND";
+        registerItem(
+          {
+            id: canonicalKey || `custom-fw-${idx}`,
+            name: formatTechDisplayName(name),
+            type: typeof df === "object" && df.type ? df.type : "Library / Framework",
+            status: "Detected",
+            category: isFe ? "frontend" : "generic",
+            tags: [
+              { label: "FRAMEWORK", color: "purple" },
+              { label: isFe ? "FRONTEND" : "JAVA", color: "gray" },
+            ],
+          },
+          [name, canonicalKey]
+        );
       }
     });
   }
 
+  // Final deduplication pass: groups strictly by canonical technology identifier
+  const deduplicatedItems: DetectedFrameworkDetail[] = [];
+  const finalSeenKeys = new Set<string>();
+
+  for (const it of items) {
+    const canon = getCanonicalTechId(it.id) || normalizeTechKey(it.id) || normalizeTechKey(it.name);
+    if (!finalSeenKeys.has(canon)) {
+      finalSeenKeys.add(canon);
+      deduplicatedItems.push(it);
+    } else {
+      // If a record with version/status is available, enrich the existing record
+      const existingIdx = deduplicatedItems.findIndex(
+        (existing) => (getCanonicalTechId(existing.id) || normalizeTechKey(existing.id)) === canon
+      );
+      if (existingIdx !== -1) {
+        const existing = deduplicatedItems[existingIdx];
+        if (
+          (!existing.status || existing.status === "Detected") &&
+          it.status &&
+          it.status !== "Detected"
+        ) {
+          deduplicatedItems[existingIdx] = {
+            ...existing,
+            status: it.status,
+            name: it.name,
+          };
+        }
+      }
+    }
+  }
+
   // Fallback if no framework was detected at all
-  if (items.length === 0) {
+  if (deduplicatedItems.length === 0) {
     const buildTool = repoAnalysis?.build_tool ? repoAnalysis.build_tool.toUpperCase() : "Standard";
-    items.push({
+    deduplicatedItems.push({
       id: "standard-java",
       name: `${buildTool} Java Project`,
       type: "Core Application",
@@ -398,7 +1230,7 @@ function extractDetectedFrameworks(repoAnalysis: RepoAnalysis | null): DetectedF
     });
   }
 
-  return items;
+  return deduplicatedItems;
 }
 
 interface MicroserviceAccordionKeyed {
@@ -585,6 +1417,11 @@ export function DiscoveryStepView({
   const [pinnedKpi, setPinnedKpi] = useState<string | null>(null);
   const activeKpi = pinnedKpi || hoveredKpi;
 
+  // API Endpoints modal and filter state
+  const [showEndpointsModal, setShowEndpointsModal] = useState<boolean>(false);
+  const [endpointFilterMethod, setEndpointFilterMethod] = useState<string>("ALL");
+  const [endpointSearchQuery, setEndpointSearchQuery] = useState<string>("");
+
   // Global click to unpin KPI popover when clicking elsewhere
   useEffect(() => {
     const handleGlobalClick = () => setPinnedKpi(null);
@@ -753,6 +1590,64 @@ export function DiscoveryStepView({
       scriptFiles +
       sqlFiles +
       otherFiles;
+
+  const apiEndpoints = useMemo<DiscoveredApiEndpoint[]>(() => {
+    const raw = repoAnalysis?.api_endpoints;
+    if (Array.isArray(raw)) return raw;
+    if (raw && typeof raw === "object" && Array.isArray((raw as any).endpoints)) {
+      return (raw as any).endpoints;
+    }
+    return [];
+  }, [repoAnalysis?.api_endpoints]);
+
+  const apiEndpointCount =
+    typeof repoAnalysis?.api_endpoint_count === "number"
+      ? repoAnalysis.api_endpoint_count
+      : (typeof (repoAnalysis?.api_endpoints as any)?.count === "number"
+          ? (repoAnalysis?.api_endpoints as any).count
+          : apiEndpoints.length);
+
+  const getHttpMethodBadge = (method: string): { color: string; bg: string } => {
+    switch ((method || "").toUpperCase()) {
+      case "GET":
+        return { color: "#0284c7", bg: "#e0f2fe" };
+      case "POST":
+        return { color: "#16a34a", bg: "#dcfce7" };
+      case "PUT":
+        return { color: "#d97706", bg: "#fef3c7" };
+      case "DELETE":
+        return { color: "#dc2626", bg: "#fee2e2" };
+      case "PATCH":
+        return { color: "#7c3aed", bg: "#f5f3ff" };
+      case "OPTIONS":
+      case "HEAD":
+        return { color: "#475569", bg: "#f1f5f9" };
+      default:
+        return { color: "#2563eb", bg: "#eff6ff" };
+    }
+  };
+
+  const filteredEndpoints = useMemo(() => {
+    const q = endpointSearchQuery.trim().toLowerCase();
+    return apiEndpoints.filter((ep) => {
+      const method = (ep.httpMethod || ep.method || "GET").toUpperCase();
+      if (endpointFilterMethod !== "ALL" && method !== endpointFilterMethod) {
+        return false;
+      }
+      if (!q) return true;
+      const path = (ep.path || ep.urlPath || ep.endpoint || "").toLowerCase();
+      const ctrl = (ep.controller || ep.className || "").toLowerCase();
+      const handler = (ep.handlerMethod || ep.methodName || "").toLowerCase();
+      const file = (ep.sourceFile || ep.file || "").toLowerCase();
+      return (
+        path.includes(q) ||
+        ctrl.includes(q) ||
+        handler.includes(q) ||
+        file.includes(q) ||
+        method.toLowerCase().includes(q)
+      );
+    });
+  }, [apiEndpoints, endpointFilterMethod, endpointSearchQuery]);
 
   const extractFileName = (filepath: string) => {
     const parts = filepath.replace(/\\/g, "/").split("/");
@@ -1302,7 +2197,7 @@ export function DiscoveryStepView({
       <div className="discovery-header-box">
         <div className="discovery-header-left" style={{ alignItems: "center" }}>
           <div className="discovery-header-icon-badge">
-            <FaSearch />
+            <span className="discovery-search-icon-animated"><FaSearch /></span>
           </div>
           <div className="discovery-header-titles">
              <h2 style={{ margin: 0, fontSize: 22 }}>Repository Discovery &amp; Dependencies</h2>
@@ -2123,6 +3018,136 @@ export function DiscoveryStepView({
                 </div>
               )}
             </div>
+
+            {/* Card: API Endpoints */}
+            <div
+              className={`discovery-kpi-card ${activeKpi === "endpoints" ? "has-popover-open" : ""}`}
+              onMouseEnter={() => setHoveredKpi("endpoints")}
+              onMouseLeave={() => setHoveredKpi(null)}
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowEndpointsModal(true);
+                setPinnedKpi(null);
+              }}
+              style={{ cursor: "pointer" }}
+            >
+              <div className="discovery-kpi-top">
+                <div className="discovery-kpi-icon" style={{ background: "#ecfdf5", color: "#059669" }}>
+                  <FaNetworkWired />
+                </div>
+                <div className="discovery-kpi-number-wrap">
+                  <span className="discovery-kpi-number">{apiEndpointCount}</span>
+                </div>
+              </div>
+              <div className="discovery-kpi-bottom">
+                <span className="discovery-kpi-label">API Endpoints</span>
+                <span className="discovery-kpi-sub">Detected API endpoints</span>
+              </div>
+
+              {/* Popover */}
+              {activeKpi === "endpoints" && (
+                <div
+                  className="discovery-kpi-popover align-right"
+                  onClick={(e) => e.stopPropagation()}
+                  onMouseEnter={() => setHoveredKpi("endpoints")}
+                  onMouseLeave={() => setHoveredKpi(null)}
+                  style={{ width: 440, maxWidth: "90vw" }}
+                >
+                  <div className="discovery-kpi-popover-header">
+                    <div className="discovery-kpi-popover-title-wrap">
+                      <FaNetworkWired color="#059669" size={14} />
+                      <span className="discovery-kpi-popover-title">Detected API Endpoints</span>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span className="discovery-kpi-popover-badge" style={{ background: "#ecfdf5", color: "#059669" }}>
+                        {apiEndpointCount} endpoints
+                      </span>
+                      {pinnedKpi === "endpoints" && (
+                        <button
+                          className="discovery-kpi-popover-close"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPinnedKpi(null);
+                            setHoveredKpi(null);
+                          }}
+                          title="Close"
+                        >
+                          <FaTimes size={10} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {apiEndpoints.length === 0 ? (
+                    <div style={{ padding: "16px 12px", color: "#64748b", fontSize: 13, textAlign: "center" }}>
+                      No REST endpoints detected in this repository.
+                    </div>
+                  ) : (
+                    <div className="discovery-kpi-file-list" style={{ maxHeight: 240, overflowY: "auto" }}>
+                      {apiEndpoints.map((ep, idx) => {
+                        const method = (ep.httpMethod || ep.method || "GET").toUpperCase();
+                        const methodBadge = getHttpMethodBadge(method);
+                        const path = ep.path || ep.urlPath || ep.endpoint || "/";
+                        const controllerName = ep.controller || ep.className || "Controller";
+                        const methodName = ep.handlerMethod || ep.methodName || "";
+                        const sourceFile = ep.sourceFile || ep.file || "";
+
+                        return (
+                          <div
+                            key={ep.id || `${method}-${path}-${idx}`}
+                            className="discovery-kpi-file-item discovery-endpoint-row"
+                            onClick={(e) => {
+                              if (sourceFile) {
+                                handleSelectPopoverFile(sourceFile, e);
+                              }
+                            }}
+                            title={sourceFile ? `Click to view ${sourceFile}` : `${controllerName}.${methodName}`}
+                            style={{ cursor: sourceFile ? "pointer" : "default" }}
+                          >
+                            <div className="discovery-kpi-file-left" style={{ gap: 8 }}>
+                              <span
+                                style={{
+                                  fontSize: 10,
+                                  fontWeight: 800,
+                                  padding: "2px 6px",
+                                  borderRadius: 4,
+                                  background: methodBadge.bg,
+                                  color: methodBadge.color,
+                                  minWidth: 42,
+                                  textAlign: "center",
+                                  letterSpacing: "0.03em",
+                                  flexShrink: 0,
+                                }}
+                              >
+                                {method}
+                              </span>
+                              <div className="discovery-kpi-file-info" style={{ minWidth: 0 }}>
+                                <span className="discovery-kpi-file-name" style={{ fontFamily: "monospace", fontSize: 12 }}>
+                                  {path}
+                                </span>
+                                <span className="discovery-kpi-file-path">
+                                  {controllerName}{methodName ? ` · ${methodName}` : ""}
+                                </span>
+                              </div>
+                            </div>
+                            {sourceFile && (
+                              <span className="discovery-kpi-file-tag" style={{ color: "#059669", background: "#ecfdf5", fontSize: 10 }}>
+                                {extractFileName(sourceFile)}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  <div className="discovery-kpi-popover-footer">
+                    <span>Showing {apiEndpoints.length} detected endpoints</span>
+                    <span style={{ color: "#94a3b8" }}>{pinnedKpi === "endpoints" ? "Pinned" : "Click to pin"}</span>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Row 2: Repository Files (Full Width) */}
@@ -2363,7 +3388,7 @@ export function DiscoveryStepView({
                     <div className="discovery-framework-item-top">
                       <div className="discovery-framework-item-brand">
                         <div className="discovery-framework-brand-icon">
-                          {renderFrameworkIcon(fw.category)}
+                          {renderFrameworkIcon(fw.category, fw.id)}
                         </div>
                         <div>
                           <div className="discovery-framework-brand-name">{fw.name}</div>
@@ -2713,7 +3738,7 @@ export function DiscoveryStepView({
                     <div className="discovery-framework-item-top">
                       <div className="discovery-framework-item-brand">
                         <div className="discovery-framework-brand-icon">
-                          {renderFrameworkIcon(fw.category)}
+                          {renderFrameworkIcon(fw.category, fw.id)}
                         </div>
                         <div>
                           <div className="discovery-framework-brand-name">{fw.name}</div>
@@ -2733,6 +3758,210 @@ export function DiscoveryStepView({
                   </div>
                 ))}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* All Detected API Endpoints Explorer Modal */}
+      {showEndpointsModal && (
+        <div className="discovery-modal-overlay" onClick={() => setShowEndpointsModal(false)}>
+          <div
+            className="discovery-modal-content is-endpoints"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: 960, width: "95vw", maxHeight: "88vh", display: "flex", flexDirection: "column" }}
+          >
+            <div className="discovery-modal-header" style={{ padding: "16px 20px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <div className="discovery-panel-icon" style={{ background: "#ecfdf5", color: "#059669" }}>
+                  <FaNetworkWired />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#0f172a" }}>
+                    Detected API Endpoints
+                  </h3>
+                  <p style={{ margin: "2px 0 0", fontSize: 12, color: "#64748b" }}>
+                    {apiEndpoints.length} total endpoints detected in Spring Boot controllers
+                  </p>
+                </div>
+              </div>
+              <button
+                className="discovery-preview-close-btn"
+                onClick={() => setShowEndpointsModal(false)}
+                title="Close"
+              >
+                <FaTimes size={14} />
+              </button>
+            </div>
+
+            {/* Filter and Search Bar */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
+                padding: "12px 20px",
+                borderBottom: "1px solid #e2e8f0",
+                background: "#f8fafc",
+                flexWrap: "wrap",
+              }}
+            >
+              {/* Method filter pills */}
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {["ALL", "GET", "POST", "PUT", "DELETE", "PATCH"].map((m) => {
+                  const isActive = endpointFilterMethod === m;
+                  const badge = m === "ALL" ? null : getHttpMethodBadge(m);
+                  return (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setEndpointFilterMethod(m)}
+                      style={{
+                        padding: "4px 10px",
+                        fontSize: 12,
+                        fontWeight: 700,
+                        borderRadius: 6,
+                        border: isActive ? "1px solid transparent" : "1px solid #cbd5e1",
+                        background: isActive ? (badge ? badge.bg : "#0f172a") : "#ffffff",
+                        color: isActive ? (badge ? badge.color : "#ffffff") : "#475569",
+                        cursor: "pointer",
+                        transition: "all 0.15s ease",
+                      }}
+                    >
+                      {m}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Search input */}
+              <div style={{ position: "relative", minWidth: 240, flex: "1 1 200px", maxWidth: 360 }}>
+                <input
+                  type="text"
+                  placeholder="Filter by path, controller, method..."
+                  value={endpointSearchQuery}
+                  onChange={(e) => setEndpointSearchQuery(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "6px 28px 6px 10px",
+                    fontSize: 12,
+                    borderRadius: 6,
+                    border: "1px solid #cbd5e1",
+                    outline: "none",
+                    background: "#ffffff",
+                    boxSizing: "border-box",
+                  }}
+                />
+                {endpointSearchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setEndpointSearchQuery("")}
+                    style={{
+                      position: "absolute",
+                      right: 8,
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      color: "#94a3b8",
+                      padding: 0,
+                    }}
+                  >
+                    <FaTimes size={10} />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Modal Body: Table of endpoints */}
+            <div className="discovery-modal-body" style={{ padding: 0, overflowY: "auto", flex: 1 }}>
+              {filteredEndpoints.length === 0 ? (
+                <div style={{ padding: 40, textAlign: "center", color: "#64748b", fontSize: 13 }}>
+                  {apiEndpoints.length === 0
+                    ? "No REST API endpoints detected in this repository."
+                    : "No endpoints match the selected filter."}
+                </div>
+              ) : (
+                <table className="discovery-endpoints-table">
+                  <thead>
+                    <tr>
+                      <th style={{ width: 90 }}>HTTP Method</th>
+                      <th>Path</th>
+                      <th>Controller</th>
+                      <th>Method</th>
+                      <th>Source File</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredEndpoints.map((ep, idx) => {
+                      const method = (ep.httpMethod || ep.method || "GET").toUpperCase();
+                      const methodBadge = getHttpMethodBadge(method);
+                      const path = ep.path || ep.urlPath || ep.endpoint || "/";
+                      const controllerName = ep.controller || ep.className || "Controller";
+                      const methodName = ep.handlerMethod || ep.methodName || "—";
+                      const sourceFile = ep.sourceFile || ep.file || "";
+
+                      return (
+                        <tr key={ep.id || `${method}-${path}-${idx}`} className="discovery-endpoint-row">
+                          <td>
+                            <span
+                              style={{
+                                display: "inline-block",
+                                fontSize: 11,
+                                fontWeight: 800,
+                                padding: "2px 8px",
+                                borderRadius: 4,
+                                background: methodBadge.bg,
+                                color: methodBadge.color,
+                                letterSpacing: "0.03em",
+                              }}
+                            >
+                              {method}
+                            </span>
+                          </td>
+                          <td style={{ fontFamily: "monospace", fontSize: 12, fontWeight: 600, color: "#0f172a" }}>
+                            {path}
+                          </td>
+                          <td style={{ color: "#334155", fontWeight: 500 }}>
+                            {controllerName}
+                          </td>
+                          <td style={{ color: "#64748b", fontFamily: "monospace", fontSize: 11 }}>
+                            {methodName}
+                          </td>
+                          <td>
+                            {sourceFile ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setShowEndpointsModal(false);
+                                  handleSelectPopoverFile(sourceFile);
+                                }}
+                                title={`Open file preview: ${sourceFile}`}
+                                style={{
+                                  background: "none",
+                                  border: "none",
+                                  padding: 0,
+                                  color: "#2563eb",
+                                  cursor: "pointer",
+                                  fontSize: 12,
+                                  textDecoration: "underline",
+                                  textAlign: "left",
+                                }}
+                              >
+                                {extractFileName(sourceFile)}
+                              </button>
+                            ) : (
+                              <span style={{ color: "#94a3b8" }}>—</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
             </div>
           </div>
         </div>

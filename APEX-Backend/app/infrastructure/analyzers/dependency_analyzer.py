@@ -1,7 +1,8 @@
-"""Extracts declared dependencies from Maven or Gradle build files."""
+"""Extracts declared dependencies from Maven or Gradle build files and frontend package manifests."""
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import uuid
@@ -29,6 +30,122 @@ _GRADLE_CONFIGS = (
     "compile",  # legacy
     "testCompile",  # legacy
 )
+
+_IGNORED_DIRS = {
+    ".git",
+    "node_modules",
+    "dist",
+    "build",
+    "target",
+    ".gradle",
+    ".mvn",
+    ".idea",
+    ".vscode",
+    "coverage",
+    ".next",
+    ".nuxt",
+    "bin",
+    "obj",
+}
+
+
+def _clean_npm_version(raw_version: str | None) -> str | None:
+    """Clean semver version range specifiers without inventing versions."""
+    if not raw_version or not isinstance(raw_version, str):
+        return None
+    val = raw_version.strip()
+    if not val or val in ("*", "latest"):
+        return val
+
+    # Match leading semver ranges like ^18.2.0, ~1.0.4, >=16.0.0, v2.3.1
+    m = re.match(r"^[~^><=v\s]*(\d+(?:\.\d+)*(?:-[a-zA-Z0-9.\-_]+)?(?:\+[a-zA-Z0-9.\-_]+)?)", val)
+    if m:
+        return m.group(1)
+    return val
+
+
+def _parse_package_lock_json(lock_path: Path) -> dict[str, str]:
+    """Extract resolved versions from package-lock.json (supports v1, v2, v3 formats)."""
+    resolved: dict[str, str] = {}
+    try:
+        data = json.loads(lock_path.read_text(encoding="utf-8"))
+    except Exception:
+        return resolved
+
+    # npm v2 / v3 packages dictionary
+    packages = data.get("packages")
+    if isinstance(packages, dict):
+        for pkg_key, pkg_info in packages.items():
+            if not isinstance(pkg_info, dict):
+                continue
+            ver = pkg_info.get("version")
+            if not ver or not isinstance(ver, str):
+                continue
+            if "node_modules/" in pkg_key:
+                clean_name = pkg_key.split("node_modules/")[-1]
+                if clean_name and clean_name not in resolved:
+                    resolved[clean_name] = ver
+
+    # npm v1 dependencies dictionary
+    deps = data.get("dependencies")
+    if isinstance(deps, dict):
+        for pkg_name, dep_info in deps.items():
+            if isinstance(dep_info, dict):
+                ver = dep_info.get("version")
+                if ver and isinstance(ver, str) and pkg_name not in resolved:
+                    resolved[pkg_name] = ver
+
+    return resolved
+
+
+def _parse_yarn_lock(lock_path: Path) -> dict[str, str]:
+    """Extract resolved versions from yarn.lock (classic & berry)."""
+    resolved: dict[str, str] = {}
+    try:
+        content = lock_path.read_text(encoding="utf-8")
+    except Exception:
+        return resolved
+
+    version_pattern = re.compile(r'^\s+version(?::|\s+)["\']?([^"\'\s]+)["\']?', re.MULTILINE)
+
+    lines = content.splitlines()
+    current_pkgs: list[str] = []
+    for line in lines:
+        if not line.startswith(" ") and ":" in line:
+            current_pkgs = []
+            for part in line.split(","):
+                part_clean = part.strip().strip('"').strip("'")
+                if "@" in part_clean:
+                    at_idx = part_clean.rfind("@")
+                    if at_idx > 0:
+                        pkg = part_clean[:at_idx]
+                        current_pkgs.append(pkg)
+        elif line.startswith(" ") and current_pkgs:
+            ver_match = version_pattern.match(line)
+            if ver_match:
+                ver = ver_match.group(1)
+                for p in current_pkgs:
+                    if p not in resolved:
+                        resolved[p] = ver
+                current_pkgs = []
+    return resolved
+
+
+def _parse_pnpm_lock(lock_path: Path) -> dict[str, str]:
+    """Extract resolved versions from pnpm-lock.yaml."""
+    resolved: dict[str, str] = {}
+    try:
+        content = lock_path.read_text(encoding="utf-8")
+    except Exception:
+        return resolved
+
+    entry_pattern = re.compile(r"['\"]?/?((?:@[a-zA-Z0-9._\-]+\/)?[a-zA-Z0-9._\-]+)@([0-9a-zA-Z.\-_+]+)['\"]?:")
+    for match in entry_pattern.finditer(content):
+        pkg, ver = match.group(1), match.group(2)
+        clean_ver = ver.split("(")[0].split("_")[0]
+        if pkg not in resolved:
+            resolved[pkg] = clean_ver
+    return resolved
 
 
 @dataclass(frozen=True)
@@ -74,11 +191,198 @@ class DependencyAnalyzer:
         build_gradle_text: str,
         project_root: Path | None = None,
     ) -> list[Dependency]:
+        """Extract declared Java dependencies from Maven or Gradle."""
         if pom_root is not None:
-            return self._from_maven_comprehensive(project_root)
+            deps = self._from_maven_comprehensive(project_root)
+            if not deps:
+                deps = self._from_maven_basic(pom_root)
+            return deps
         if build_gradle_text:
             return self._from_gradle(build_gradle_text)
         return []
+
+    def analyze_frontend(self, repo_root: Path | None) -> list[Dependency]:
+        """Find and parse all package.json files across the repository."""
+        if not repo_root or not repo_root.is_dir():
+            return []
+        return self._from_frontend_packages(repo_root)
+
+    def _from_maven_basic(self, pom_root: Element | None) -> list[Dependency]:
+        """Fallback lightweight Maven dependency extraction without CLI."""
+        if pom_root is None:
+            return []
+        deps: list[Dependency] = []
+        seen = set()
+        for dep in pom_root.iter():
+            tag = dep.tag.split("}", 1)[1] if "}" in dep.tag else dep.tag
+            if tag == "dependency":
+                gid, aid, ver, scope = "", "", None, "compile"
+                for child in dep:
+                    ctag = child.tag.split("}", 1)[1] if "}" in child.tag else child.tag
+                    text = child.text.strip() if child.text else ""
+                    if ctag == "groupId":
+                        gid = text
+                    elif ctag == "artifactId":
+                        aid = text
+                    elif ctag == "version":
+                        ver = text
+                    elif ctag == "scope":
+                        scope = text
+                if gid and aid:
+                    key = (gid, aid, scope)
+                    if key not in seen:
+                        seen.add(key)
+                        deps.append(
+                            Dependency(
+                                group_id=gid,
+                                artifact_id=aid,
+                                version=ver,
+                                scope=scope,
+                                type="jar",
+                                direct=True,
+                                declared_version=ver,
+                                resolved_version=ver,
+                                version_source="DIRECT" if ver else "MANAGED",
+                            )
+                        )
+        return deps
+
+    def _from_frontend_packages(self, root: Path) -> list[Dependency]:
+        """Find and parse all package.json files across the repository."""
+        package_files = self._find_package_json_files(root)
+        all_deps: list[Dependency] = []
+        seen_keys: set[tuple[str, str, str]] = set()
+
+        for pkg_file in package_files:
+            folder = pkg_file.parent
+            try:
+                rel_module = folder.relative_to(root).as_posix()
+            except Exception:
+                rel_module = "frontend"
+            if rel_module == ".":
+                rel_module = "root"
+
+            deps = self._parse_package_json_file(pkg_file, module_name=rel_module, repo_root=root)
+            for d in deps:
+                key = (d.module, d.group_id, d.artifact_id)
+                if key not in seen_keys:
+                    seen_keys.add(key)
+                    all_deps.append(d)
+
+        return all_deps
+
+    def _find_package_json_files(self, root: Path) -> list[Path]:
+        """Recursively scan for package.json while skipping ignored build/cache directories."""
+        package_files: list[Path] = []
+        try:
+            for item in root.rglob("package.json"):
+                parts = set(item.parts)
+                if not parts.intersection(_IGNORED_DIRS) and item.is_file():
+                    package_files.append(item)
+        except Exception as exc:
+            logger.debug("Error scanning for package.json files: %s", exc)
+        return package_files
+
+    def _parse_package_json_file(
+        self, pkg_path: Path, module_name: str, repo_root: Path
+    ) -> list[Dependency]:
+        """Extract dependencies and devDependencies from a single package.json with lockfile resolution."""
+        if not pkg_path.is_file():
+            return []
+
+        try:
+            content = pkg_path.read_text(encoding="utf-8")
+            data = json.loads(content)
+        except Exception as exc:
+            logger.debug("Failed to read or parse %s: %s", pkg_path, exc)
+            return []
+
+        if not isinstance(data, dict):
+            return []
+
+        resolved_versions: dict[str, str] = {}
+        for search_dir in (pkg_path.parent, repo_root):
+            if not resolved_versions and (search_dir / "package-lock.json").is_file():
+                resolved_versions = _parse_package_lock_json(search_dir / "package-lock.json")
+            if not resolved_versions and (search_dir / "yarn.lock").is_file():
+                resolved_versions = _parse_yarn_lock(search_dir / "yarn.lock")
+            if not resolved_versions and (search_dir / "pnpm-lock.yaml").is_file():
+                resolved_versions = _parse_pnpm_lock(search_dir / "pnpm-lock.yaml")
+            if resolved_versions:
+                break
+
+        results: list[Dependency] = []
+
+        prod_deps = data.get("dependencies")
+        if isinstance(prod_deps, dict):
+            for name, declared_ver in prod_deps.items():
+                dep = self._create_npm_dependency(
+                    name=str(name),
+                    raw_declared=str(declared_ver) if declared_ver is not None else None,
+                    resolved_versions=resolved_versions,
+                    module_name=module_name,
+                    is_dev=False,
+                )
+                if dep:
+                    results.append(dep)
+
+        dev_deps = data.get("devDependencies")
+        if isinstance(dev_deps, dict):
+            for name, declared_ver in dev_deps.items():
+                dep = self._create_npm_dependency(
+                    name=str(name),
+                    raw_declared=str(declared_ver) if declared_ver is not None else None,
+                    resolved_versions=resolved_versions,
+                    module_name=module_name,
+                    is_dev=True,
+                )
+                if dep:
+                    results.append(dep)
+
+        return results
+
+    def _create_npm_dependency(
+        self,
+        name: str,
+        raw_declared: str | None,
+        resolved_versions: dict[str, str],
+        module_name: str,
+        is_dev: bool,
+    ) -> Dependency | None:
+        clean_name = name.strip()
+        if not clean_name:
+            return None
+
+        if clean_name.startswith("@") and "/" in clean_name:
+            group_id, artifact_id = clean_name.split("/", 1)
+        else:
+            group_id = "npm"
+            artifact_id = clean_name
+
+        resolved_ver = resolved_versions.get(clean_name)
+        if resolved_ver:
+            final_version = resolved_ver
+            ver_source = "LOCKFILE"
+        elif raw_declared:
+            final_version = _clean_npm_version(raw_declared)
+            ver_source = "DECLARED"
+        else:
+            final_version = None
+            ver_source = None
+
+        return Dependency(
+            group_id=group_id,
+            artifact_id=artifact_id,
+            version=final_version,
+            module=module_name,
+            name=clean_name,
+            type="npm-dev" if is_dev else "npm",
+            scope="devDependencies" if is_dev else "dependencies",
+            direct=True,
+            declared_version=raw_declared,
+            resolved_version=resolved_ver,
+            version_source=ver_source,
+        )
 
     # -- Maven Comprehensive -------------------------------------------------- #
 

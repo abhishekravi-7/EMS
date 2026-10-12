@@ -10,7 +10,73 @@ import {
   FaCode,
   FaCheckCircle,
   FaExternalLinkAlt,
+  FaCopy,
+  FaCheck,
 } from "react-icons/fa";
+
+function CopyAllDependenciesButton({
+  text,
+  label = "Copy All",
+  title = "Copy all dependencies to clipboard",
+  style = {},
+}: {
+  text: string;
+  label?: string;
+  title?: string;
+  style?: React.CSSProperties;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!text) return;
+    void navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      title={copied ? "All dependencies copied!" : title}
+      aria-label={copied ? "Copied All" : title}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "6px",
+        padding: "6px 12px",
+        borderRadius: "6px",
+        border: "1px solid " + (copied ? "#86efac" : "#cbd5e1"),
+        background: copied ? "#ecfdf5" : "#ffffff",
+        color: copied ? "#166534" : "#1e293b",
+        fontWeight: 600,
+        fontSize: "12px",
+        cursor: "pointer",
+        flexShrink: 0,
+        boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
+        transition: "all 0.15s ease",
+        ...style,
+      }}
+      onMouseEnter={(e) => {
+        if (!copied) {
+          e.currentTarget.style.background = "#f8fafc";
+          e.currentTarget.style.borderColor = "#94a3b8";
+        }
+      }}
+      onMouseLeave={(e) => {
+        if (!copied) {
+          e.currentTarget.style.background = "#ffffff";
+          e.currentTarget.style.borderColor = "#cbd5e1";
+        }
+      }}
+    >
+      {copied ? <FaCheck size={12} style={{ color: "#166534" }} /> : <FaCopy size={12} />}
+      <span>{copied ? "Copied All!" : label}</span>
+    </button>
+  );
+}
 import type { ReportDetailsResponse } from "../services/resultService";
 
 interface MigrationReportDetailModalProps {
@@ -217,6 +283,14 @@ export const MigrationReportDetailModal: React.FC<MigrationReportDetailModalProp
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+            {category === "dependencies" && items.length > 0 && (
+              <CopyAllDependenciesButton
+                text={items
+                  .map((item: any) => `${item.name || `${item.group_id}:${item.artifact_id}`} (${item.old_version || item.current_version || ""} -> ${item.new_version || ""})`)
+                  .join("\n")}
+                label="Copy All"
+              />
+            )}
             {/* Search Input */}
             <div style={{ position: "relative", width: 260 }}>
               <input

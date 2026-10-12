@@ -56,13 +56,14 @@ class ChatLLM:
         first_token_timeout: float | None = None,
         max_tokens: int | None = None,
     ) -> AsyncIterator[str]:
-        # Require Groq to be configured in User Settings
-        if not self._groq.is_configured:
-            raise ChatLLMNotConfiguredError("LLM is not configured. Please setup your credentials in User Settings.")
-
-        providers = [self._groq]
+        providers = []
+        if self._groq.is_configured:
+            providers.append(self._groq)
         if self._ollama.is_configured:
             providers.append(self._ollama)
+            
+        if not providers:
+            raise ChatLLMNotConfiguredError("LLM is not configured. Please setup your credentials in User Settings.")
 
         errors: list[tuple[str, Exception]] = []
         total_start = time.time()

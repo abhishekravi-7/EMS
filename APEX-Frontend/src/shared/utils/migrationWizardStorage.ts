@@ -53,6 +53,7 @@ export const WIZARD_JOB_ID_KEY = "migration_wizard_job_id";
 export const WIZARD_DISCOVERY_COMPLETED_KEY = "migration_wizard_discovery_completed";
 export const WIZARD_STRATEGY_COMPLETED_KEY = "migration_wizard_strategy_completed";
 export const WIZARD_MIGRATION_COMPLETED_KEY = "migration_wizard_migration_completed";
+export const WIZARD_IS_JUNIT_ONLY_KEY = "migration_wizard_is_junit_only";
 const LEGACY_WIZARD_LOCAL_PROJECT_PATH_KEY = "migration_wizard_local_project_path";
 
 export const WIZARD_STORAGE_KEYS = [
@@ -65,6 +66,7 @@ export const WIZARD_STORAGE_KEYS = [
   WIZARD_DISCOVERY_COMPLETED_KEY,
   WIZARD_STRATEGY_COMPLETED_KEY,
   WIZARD_MIGRATION_COMPLETED_KEY,
+  WIZARD_IS_JUNIT_ONLY_KEY,
 ];
 
 export const getScopedRepoAnalysisKey = (repoUrlOrJobId?: string | null): string => {

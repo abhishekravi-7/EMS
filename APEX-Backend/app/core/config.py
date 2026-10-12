@@ -75,7 +75,7 @@ class Settings(BaseSettings):
     groq_base_url: str = "https://api.groq.com/openai/v1"
     # Fallback LLM: a local Ollama server. Used only when GROQ is unavailable.
     ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "llama3.2"
+    ollama_model: str = "qwen2.5-coder:7b"
     # Sentence-embedding model (384-dim). Downloaded + cached on first use.
     embedding_model_name: str = "BAAI/bge-small-en-v1.5"
     # Embedded Qdrant (Vector Store) — persists to disk (no server/Docker needed).
@@ -104,11 +104,11 @@ class Settings(BaseSettings):
     # Number of knowledge chunks retrieved per question.
     rag_top_k: int = 4
     # Timeout (seconds) for a single chat-LLM request (GROQ or Ollama).
-    chat_llm_request_timeout_seconds: float = 60.0
+    chat_llm_request_timeout_seconds: float = 1800.0
     # Timeout (seconds) to wait for the first token before falling back to next provider.
-    chat_llm_fallback_timeout_seconds: float = 45.0
+    chat_llm_fallback_timeout_seconds: float = 600.0
     chat_llm_temperature: float = Field(default=0.3, ge=0.0, le=2.0)
-    chat_llm_max_tokens: int = Field(default=800, ge=1)
+    chat_llm_max_tokens: int = Field(default=8192, ge=1)
 
     # --- Git / clone ---------------------------------------------------------
     # Timeout (seconds) for a `git clone` during Discovery.
