@@ -24,7 +24,7 @@ interface LlmUserSettingsProps {
   allowedHuggingFaceModelsStr?: string;
 }
 
-async function testUserLlmConnection(payload: { provider: string; api_key: string; selected_model: string }): Promise<{ status: string; message: string }> {
+async function testUserLlmConnection(payload: { provider: string; api_key: string; selected_model: string; url?: string }): Promise<{ status: string; message: string }> {
   return requestJson<{ status: string; message: string }>(
     "/v1/user/settings/llm/test",
     "Failed to test User LLM connection",
@@ -46,6 +46,10 @@ export function LlmUserSettings({ settings, onChange, isAdminEnabled, allowedGro
   const [testingHF, setTestingHF] = useState(false);
   const [testResultHF, setTestResultHF] = useState<{ status: "success" | "error"; message: string } | null>(null);
   const [showHFSecret, setShowHFSecret] = useState(false);
+
+  // State for Ollama
+  const [testingOllama, setTestingOllama] = useState(false);
+  const [testResultOllama, setTestResultOllama] = useState<{ status: "success" | "error"; message: string } | null>(null);
 
   let allowedGroqModels: string[] = [];
   try {
@@ -76,7 +80,7 @@ export function LlmUserSettings({ settings, onChange, isAdminEnabled, allowedGro
     const apiKey = llmValues[`${provider}_api_key`];
     const model = llmValues[`${provider}_model`];
 
-    if (!apiKey) {
+    if (!apiKey && provider !== "ollama") {
       alert(`Please enter an API Key for ${provider}.`);
       return;
     }
@@ -84,34 +88,44 @@ export function LlmUserSettings({ settings, onChange, isAdminEnabled, allowedGro
     if (provider === "groq") {
       setTestingGroq(true);
       setTestResultGroq(null);
-    } else {
+    } else if (provider === "huggingface") {
       setTestingHF(true);
       setTestResultHF(null);
+    } else {
+      setTestingOllama(true);
+      setTestResultOllama(null);
     }
 
     try {
       const res = await testUserLlmConnection({
         provider: provider,
         api_key: apiKey || "",
-        selected_model: model || ""
+        selected_model: model || "",
+        ...(provider === "ollama" ? { url: llmValues.ollama_url } : {})
       });
       if (provider === "groq") {
         setTestResultGroq({ status: "success", message: res.message || "Connected to Groq successfully." });
-      } else {
+      } else if (provider === "huggingface") {
         setTestResultHF({ status: "success", message: res.message || "Connected to HuggingFace successfully." });
+      } else {
+        setTestResultOllama({ status: "success", message: res.message || "Connected to Ollama successfully." });
       }
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : "Connection failed.";
       if (provider === "groq") {
         setTestResultGroq({ status: "error", message: errMsg });
-      } else {
+      } else if (provider === "huggingface") {
         setTestResultHF({ status: "error", message: errMsg });
+      } else {
+        setTestResultOllama({ status: "error", message: errMsg });
       }
     } finally {
       if (provider === "groq") {
         setTestingGroq(false);
-      } else {
+      } else if (provider === "huggingface") {
         setTestingHF(false);
+      } else {
+        setTestingOllama(false);
       }
     }
   };
@@ -242,6 +256,60 @@ export function LlmUserSettings({ settings, onChange, isAdminEnabled, allowedGro
           >
             {testingHF ? <FaSpinner className="animate-spin" /> : <FaPlay size={12} />}
             <span style={{ marginLeft: "6px" }}>{testingHF ? "Testing..." : "Test Connection"}</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Ollama Configuration Card */}
+      <div className="settings-card" style={{ display: "flex", flexDirection: "column", gridColumn: "1 / -1" }}>
+        <div style={{ marginBottom: "16px" }}>
+          <h4 style={{ margin: 0, fontSize: "16px", fontWeight: 700, color: "#0f172a" }}>
+            Ollama Configuration (Local AI)
+          </h4>
+          <p className="settings-card-subtitle" style={{ marginTop: "4px" }}>
+            Configure your local Ollama instance for totally private, local execution.
+          </p>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "row", gap: "16px", marginBottom: "16px" }}>
+          <div style={{ flex: 1 }}>
+            <label className="settings-label">OLLAMA BASE URL</label>
+            <input
+              type="text"
+              className="settings-input"
+              value={llmValues.ollama_url || ""}
+              onChange={(e) => updateLlmValue("ollama_url", e.target.value)}
+              placeholder="e.g. http://localhost:11434"
+            />
+          </div>
+
+          <div style={{ flex: 1 }}>
+            <label className="settings-label">MODEL</label>
+            <input
+              type="text"
+              className="settings-input"
+              value={llmValues.ollama_model || ""}
+              onChange={(e) => updateLlmValue("ollama_model", e.target.value)}
+              placeholder="e.g. qwen2.5-coder:7b"
+            />
+          </div>
+        </div>
+
+        <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: "8px", maxWidth: "200px" }}>
+          {testResultOllama && (
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.85rem", color: testResultOllama.status === "success" ? "#16a34a" : "#dc2626", fontWeight: 500 }}>
+              {testResultOllama.status === "success" ? <FaCheckCircle /> : <FaTimesCircle />}
+              {testResultOllama.message}
+            </div>
+          )}
+          <button
+            onClick={() => handleTestConnection("ollama" as any)}
+            disabled={testingOllama || !llmValues.ollama_url}
+            className="settings-action-btn"
+            style={{ width: "100%", marginTop: "auto" }}
+          >
+            {testingOllama ? <FaSpinner className="animate-spin" /> : <FaPlay size={12} />}
+            <span style={{ marginLeft: "6px" }}>{testingOllama ? "Testing..." : "Test Connection"}</span>
           </button>
         </div>
       </div>

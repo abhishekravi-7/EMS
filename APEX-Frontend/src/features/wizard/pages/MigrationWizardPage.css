@@ -1450,9 +1450,18 @@
   opacity: 0.45;
 }
 
-.wizard-step-item:not(.is-active):not(.is-completed):hover {
+.wizard-step-item:not(.is-active):not(.is-completed):not(.is-locked):not(.is-disabled):hover {
   opacity: 0.85;
   background: rgba(255, 255, 255, 0.7);
+}
+
+.wizard-step-item.is-locked,
+.wizard-step-item.is-disabled {
+  opacity: 0.35 !important;
+  filter: grayscale(100%) !important;
+  cursor: not-allowed !important;
+  pointer-events: none !important;
+  background: transparent !important;
 }
 
 .wizard-step-item.is-active,

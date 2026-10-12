@@ -138,7 +138,7 @@ class GroqClient:
             "Content-Type": "application/json",
         }
 
-        max_retries = 5
+        max_retries = 20
         rate_limited_models: set[str] = set()
 
         # Keep the transport inside the current event loop. A module-global
@@ -189,19 +189,6 @@ class GroqClient:
                                     else:
                                         retry_after = 2 ** attempt
 
-                                if retry_after > 30:
-                                    rate_limited_models.add(self._model)
-                                    logger.warning(
-                                        "[GROQ] Daily or long rate limit (%ss) hit for model %s. Attempting model failover.",
-                                        retry_after,
-                                        self._model,
-                                    )
-                                    model_switched = await self._discover_model(client, exclude_models=rate_limited_models)
-                                    if model_switched:
-                                        payload["model"] = self._model
-                                        logger.info("[GROQ] Retrying request with fallback model %s", self._model)
-                                        continue
-                                    raise ChatLLMServiceError(f"Groq rate limit exceeded on model {self._model} ({body_preview[:120]}).")
                                 if attempt < max_retries - 1:
                                     logger.warning(
                                         "[GROQ] Rate limited (429). Retrying in %ss (attempt %s/%s)",

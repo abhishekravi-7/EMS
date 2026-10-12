@@ -130,6 +130,7 @@ export default function MigrationWizardPage() {
     highestCompletedStep: _highestCompletedStep,
     isStepCompleted,
     isStepAccessible,
+    isJUnitOnly,
     setIsMigrationFinishedState,
   } = useWizardController();
 
@@ -639,8 +640,9 @@ export default function MigrationWizardPage() {
               runFunctionalTests={runFunctionalTests}
               selectedLLMProvider={selectedLLMProvider}
               useLLMTests={useLLMTests}
+              isJUnitOnly={isJUnitOnly}
               resetWizard={resetWizard}
-              onBack={() => setStep(4)}
+              onBack={() => setStep(isJUnitOnly ? 1 : 4)}
               onError={(message) => setError(message)}
             />
           </ResultPage>

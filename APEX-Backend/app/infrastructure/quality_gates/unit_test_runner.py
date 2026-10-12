@@ -55,7 +55,12 @@ class UnitTestRunner:
                 executable = resolve_executable("gradle")
                 if not executable:
                     executable = "gradle.bat" if is_windows else "gradle"
-            cmd = [executable, "clean", "test"]
+                    
+            init_script_path = project_dir / "jacoco-init.gradle"
+            if not init_script_path.exists():
+                init_script_path.write_text("allprojects { apply plugin: 'jacoco' }\n", encoding="utf-8")
+                
+            cmd = [executable, "--init-script", "jacoco-init.gradle", "clean", "test", "jacocoTestReport"]
             if targets:
                 for name in targets:
                     cmd.extend(["--tests", f"*{name}*"])
@@ -77,6 +82,7 @@ class UnitTestRunner:
             cmd = [
                 executable,
                 "clean",
+                "org.jacoco:jacoco-maven-plugin:prepare-agent",
                 "test",
                 "-DfailIfNoTests=false",
                 "-DtestFailureIgnore=true",
@@ -86,7 +92,7 @@ class UnitTestRunner:
             ]
             if targets:
                 cmd.append(f"-Dtest={','.join([f'*{n}*' for n in targets])}")
-            cmd.append("surefire-report:report")
+            cmd.extend(["surefire-report:report", "org.jacoco:jacoco-maven-plugin:report"])
 
         # Locate XML report directory and clean stale XML reports from previous runs to prevent leaking results
         reports_dir = (
