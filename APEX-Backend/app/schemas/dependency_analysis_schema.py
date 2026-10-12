@@ -19,6 +19,8 @@ class DependencyItemInput(BaseModel):
     type: Optional[str] = None
     direct: Optional[bool] = None
     transitive: Optional[bool] = None
+    parent: Optional[str] = None
+    introduced_by: Optional[str] = None
 
 
 class DependencyAnalysisRequest(BaseModel):
@@ -54,6 +56,11 @@ class AnalyzedDependencyItem(BaseModel):
     risk: str = "LOW"  # CRITICAL, HIGH, MEDIUM, LOW
     explanation: str = ""
     recommendation: str = ""
+    scope: Optional[str] = "compile"
+    direct: bool = True
+    transitive: bool = False
+    parent: Optional[str] = None
+    introduced_by: Optional[str] = None
 
 
 class DependencyRiskCounts(BaseModel):

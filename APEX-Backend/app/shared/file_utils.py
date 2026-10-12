@@ -153,7 +153,7 @@ def find_shallowest_dir_with(
 
         for name in files:
             if name.lower() in targets:
-                match_dir = Path(dirpath)
+                match_dir = Path(to_plain_path_str(dirpath))
                 matches.append((depth, match_dir))
                 if depth == 0:
                     return match_dir
