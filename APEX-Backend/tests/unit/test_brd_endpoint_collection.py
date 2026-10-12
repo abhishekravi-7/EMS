@@ -6,6 +6,24 @@ from app.schemas.document_schema import TechnicalDocumentRequest
 from unittest.mock import MagicMock
 
 
+def test_document_instructions_are_selected_by_document_type():
+    technical_request = TechnicalDocumentRequest(
+        document_type="TECHNICAL_SPECIFICATION",
+        brd_instructions="BRD instructions",
+        technical_specification_instructions="Technical specification instructions",
+    )
+    brd_request = TechnicalDocumentRequest(
+        document_type="BRD",
+        brd_instructions="BRD instructions",
+        technical_specification_instructions="Technical specification instructions",
+    )
+
+    assert GenerateTechnicalDocumentUseCase._get_effective_brd_instructions(
+        technical_request
+    ) == "Technical specification instructions"
+    assert GenerateTechnicalDocumentUseCase._get_effective_brd_instructions(brd_request) == "BRD instructions"
+
+
 def test_collect_endpoints_with_java_endpoints():
     uc = GenerateTechnicalDocumentUseCase()
     classes = [
@@ -120,4 +138,3 @@ public class DemoController {
         assert res.get("filename") is not None
         assert len(res.get("html", "")) > 0
         assert "DemoController" in res.get("html", "") or "demo-app" in res.get("html", "")
-

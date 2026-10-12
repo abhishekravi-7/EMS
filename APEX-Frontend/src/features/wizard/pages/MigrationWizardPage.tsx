@@ -69,6 +69,11 @@ export default function MigrationWizardPage() {
     setShowFolderStructure,
     handleCheckMicroserviceEligibility,
     handleGenerateBrdDocument,
+    documentPromptSettings,
+    documentPromptLoading,
+    documentPromptLoadError,
+    documentPromptSavingType,
+    handleSaveDocumentPrompt,
     handleOpenFrameworkFile,
     handleRerunAnalysis,
     isDiscoveryPending,
@@ -515,6 +520,11 @@ export default function MigrationWizardPage() {
               setShowFolderStructure={setShowFolderStructure}
               handleCheckMicroserviceEligibility={handleCheckMicroserviceEligibility}
               handleGenerateBrdDocument={handleGenerateBrdDocument}
+              documentPromptSettings={documentPromptSettings}
+              documentPromptLoading={documentPromptLoading}
+              documentPromptLoadError={documentPromptLoadError}
+              documentPromptSavingType={documentPromptSavingType}
+              handleSaveDocumentPrompt={handleSaveDocumentPrompt}
               handleOpenFrameworkFile={handleOpenFrameworkFile}
               handleRerunAnalysis={handleRerunAnalysis}
               isDiscoveryPending={isDiscoveryPending}

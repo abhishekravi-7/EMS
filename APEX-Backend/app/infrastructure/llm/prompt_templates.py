@@ -522,12 +522,11 @@ The JSON object must have exactly these keys:
     - "artifact": string (e.g. "spring-boot-starter-web").
     - "name": string, human-friendly dependency name or artifact name.
     - "version": string, the current/detected version from the input (do not change).
-    - "recommended_version": string; use a verified compatible released version from candidate list, current version for UNCHANGED, or "Not Determined" when REVIEW REQUIRED.
-    - "upgrade_status": exactly "UPGRADED", "DOWNGRADED / BOM ALIGNMENT", "UNCHANGED", "REMOVE / REPLACE", or "REVIEW REQUIRED".
-    - "source": exactly "Target Spring Boot BOM", "Project pom.xml/build.gradle", "Independent compatibility review", or "Other authoritative source".
+    - "recommended_version": string; use a verified compatible released version, the current version only for NO_UPGRADE_REQUIRED, or exactly "Not Determined" when evidence is insufficient.
+    - "upgrade_status": exactly "UPGRADE_REQUIRED", "UPGRADE_RECOMMENDED", "NO_UPGRADE_REQUIRED", "INCOMPATIBLE", or "UNKNOWN".
     - "java_compatibility": exactly "Compatible", "Not Compatible", or "Unknown".
     - "framework_compatibility": exactly "Compatible", "Not Compatible", or "Unknown".
-    - "upgrade_reason": concise technical explanation explaining why this target version and status were selected.
+    - "upgrade_reason": concise explanation distinguishing evidence from uncertainty.
     - "upgrade_confidence": exactly "High", "Medium", or "Low".
     - "category": string, one of "Framework", "Persistence", "Security", "Database", "Testing", "Logging", "Web", "Build", "Utility", "Other".
     - "risk": string, one of "CRITICAL", "HIGH", "MEDIUM", "LOW".

@@ -439,6 +439,7 @@ export interface GithubDocumentRequest {
   brd_instructions?: string;
   brd_focus_prompt?: string;
   brd_system_prompt?: string;
+  technical_specification_instructions?: string;
   brd_generation_enabled?: boolean;
   brd_microservices_enabled?: boolean;
   brd_migration_target?: string;

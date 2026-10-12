@@ -138,6 +138,41 @@ export interface FullUserSettings {
   settings_permissions?: UserSettingsPermissions;
 }
 
+export type DocumentPromptType = "BRD" | "TECHNICAL_SPECIFICATION";
+
+export type DocumentGenerationPrompts = Record<DocumentPromptType, string>;
+
+export interface DocumentGenerationPromptSettings {
+  prompts: DocumentGenerationPrompts;
+  savedTypes: Record<DocumentPromptType, boolean>;
+}
+
+function readDocumentGenerationPromptSettings(settings: FullUserSettings): DocumentGenerationPromptSettings {
+  const qualityChecks = settings.quality_checks_values;
+  const prompts: DocumentGenerationPrompts = {
+    BRD:
+      (typeof qualityChecks.brd_instructions === "string" ? qualityChecks.brd_instructions : undefined) ??
+      (typeof qualityChecks.brd_focus_prompt === "string" ? qualityChecks.brd_focus_prompt : ""),
+    TECHNICAL_SPECIFICATION:
+      typeof qualityChecks.technical_specification_instructions === "string"
+        ? qualityChecks.technical_specification_instructions
+        : "",
+  };
+
+  return {
+    prompts,
+    savedTypes: {
+      BRD:
+        Object.prototype.hasOwnProperty.call(qualityChecks, "brd_instructions") ||
+        Object.prototype.hasOwnProperty.call(qualityChecks, "brd_focus_prompt"),
+      TECHNICAL_SPECIFICATION: Object.prototype.hasOwnProperty.call(
+        qualityChecks,
+        "technical_specification_instructions"
+      ),
+    },
+  };
+}
+
 export async function getUserSettings(): Promise<FullUserSettings> {
   const response = await requestJson<UserSettingsResponse>(
     "/v1/user/settings/github",
@@ -204,6 +239,36 @@ export async function saveUserSettings(fullSettings: FullUserSettings): Promise<
     fullSettings.llm_values || {},
     fullSettings.artifactory_values || {}
   );
+}
+
+export async function getDocumentGenerationPromptSettings(): Promise<DocumentGenerationPromptSettings> {
+  return readDocumentGenerationPromptSettings(await getUserSettings());
+}
+
+export async function saveDocumentGenerationPrompt(
+  promptType: DocumentPromptType,
+  prompt: string
+): Promise<DocumentGenerationPromptSettings> {
+  const currentSettings = await getUserSettings();
+  const qualityChecksValues: Record<string, unknown> = { ...currentSettings.quality_checks_values };
+
+  if (promptType === "BRD") {
+    qualityChecksValues.brd_instructions = prompt;
+    qualityChecksValues.brd_focus_prompt = prompt;
+  } else {
+    qualityChecksValues.technical_specification_instructions = prompt;
+  }
+
+  const savedSettings = await saveUserSettings({
+    ...currentSettings,
+    quality_checks_values: qualityChecksValues,
+  });
+  const confirmedSettings = readDocumentGenerationPromptSettings(savedSettings);
+  if (confirmedSettings.prompts[promptType] !== prompt || !confirmedSettings.savedTypes[promptType]) {
+    throw new Error("The saved document prompt could not be confirmed by the server.");
+  }
+
+  return confirmedSettings;
 }
  
 export async function testUserPlaywrightConnection(baseUrl: string): Promise<{ status: string; message: string }> {
@@ -421,4 +486,3 @@ export async function getMySettingsPermissions(): Promise<UserEffectivePermissio
     "Failed to fetch user settings permissions"
   );
 }
-
