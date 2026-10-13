@@ -26,6 +26,11 @@ export interface DiscoveryDependency {
   declaredVersion?: string | null;
   resolvedVersion?: string | null;
   versionSource?: string | null;
+  direct?: boolean;
+  transitive?: boolean;
+  scope?: string | null;
+  parent?: string | null;
+  introducedBy?: string | null;
 }
 
 export interface DiscoveryProject {
@@ -199,6 +204,13 @@ export function mapDiscoveryToRepoAnalysis(response: DiscoveryResponse): RepoAna
     declaredVersion: dep.declaredVersion,
     resolvedVersion: dep.resolvedVersion,
     versionSource: dep.versionSource,
+    direct: (dep as any).direct !== undefined ? Boolean((dep as any).direct) : true,
+    transitive: (dep as any).transitive !== undefined ? Boolean((dep as any).transitive) : false,
+    scope: (dep as any).scope || "compile",
+    parent: (dep as any).parent || null,
+    introduced_by: (dep as any).introducedBy || (dep as any).introduced_by || null,
+    type: (dep as any).type || null,
+    module: (dep as any).module || null,
   }));
 
   const frontendDependencies: DependencyInfo[] = (
@@ -267,6 +279,8 @@ export function mapDiscoveryToRepoAnalysis(response: DiscoveryResponse): RepoAna
     view_technologies: (extraProj.viewTechnologies ?? extraProj.view_technologies ?? undefined) as RepoAnalysis["view_technologies"],
     has_tests: Boolean(project.hasTests),
     dependencies,
+    dependency_resolution_status: project.dependencyResolutionStatus ?? (project as any).dependency_resolution_status ?? null,
+    dependency_resolution_message: project.dependencyResolutionMessage ?? (project as any).dependency_resolution_message ?? null,
     ...(() => {
       const rawApiEndpoints = (project.apiEndpoints ?? extraProj.api_endpoints ?? extraProj.apiEndpoints) as
         | DiscoveredApiEndpoint[]

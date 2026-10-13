@@ -101,6 +101,8 @@ class ProjectAnalysis:
     test_evidence: list[dict[str, Any]] = field(default_factory=list)
     repository_kind: str = "APPLICATION_REPOSITORY"
     scheduled_jobs: list[dict[str, Any]] = field(default_factory=list)
+    dependency_resolution_status: str = "RESOLVED"
+    dependency_resolution_message: str | None = None
 
     @property
     def java_loc(self) -> int:
@@ -277,10 +279,16 @@ class ProjectAnalyzer:
         all_files_plain = [fc.rel_path for fc in repo_metrics.classifications]
         brd_evidence = self._brd_evidence.scan(root, all_files_plain, project_type)
 
+        resolution_status = getattr(self._dependencies, "last_resolution_status", "RESOLVED")
+        resolution_message = getattr(self._dependencies, "last_resolution_reason", None)
+        build_warning = build_tool.warning
+        if resolution_status == "FALLBACK_DIRECT_ONLY" and not build_warning:
+            build_warning = "Full dependency tree resolution unavailable; direct dependencies extracted from build manifest."
+
         return ProjectAnalysis(
             build_tool=build_tool.build_tool,
             primary_build_tool=build_tool.primary_build_tool,
-            build_warning=build_tool.warning,
+            build_warning=build_warning,
             current_java_version=java_version,
             spring_boot_version=spring_boot_version,
             spring_framework_version=spring_framework_version,
@@ -322,6 +330,8 @@ class ProjectAnalyzer:
             workflow_edges=brd_evidence.workflow_edges,
             test_evidence=brd_evidence.test_evidence,
             repository_kind=brd_evidence.repository_kind,
+            dependency_resolution_status=resolution_status,
+            dependency_resolution_message=resolution_message,
         )
 
     @staticmethod
@@ -333,10 +343,13 @@ class ProjectAnalyzer:
         ``build.gradle.kts``. Falls back to the repo root when none is found.
         """
         build_files = ("pom.xml", "build.gradle", "build.gradle.kts")
-        if any((root / name).is_file() for name in build_files):
-            return root
-        found = file_utils.find_shallowest_dir_with(root, build_files)
-        return found or root
+        plain_root = Path(file_utils.to_plain_path_str(root))
+        if any((plain_root / name).is_file() for name in build_files):
+            return plain_root
+        found = file_utils.find_shallowest_dir_with(plain_root, build_files)
+        if found:
+            return Path(file_utils.to_plain_path_str(found))
+        return plain_root
 
     # -- file reading -------------------------------------------------------- #
 
@@ -357,11 +370,22 @@ class ProjectAnalyzer:
 
     @staticmethod
     def _read_gradle_build(root: Path) -> str:
-        parts = [
-            file_utils.read_text(root / name)
-            for name in ("build.gradle", "build.gradle.kts")
-            if (root / name).is_file()
-        ]
+        build_files: list[Path] = []
+        for name in ("build.gradle", "build.gradle.kts"):
+            candidate = root / name
+            if candidate.is_file():
+                build_files.append(candidate)
+
+        # Also search for submodule build files
+        from app.infrastructure.analyzers.dependency_analyzer import _IGNORED_DIRS
+
+        for ext in ("build.gradle", "build.gradle.kts"):
+            for candidate in root.rglob(ext):
+                if candidate.is_file() and candidate not in build_files:
+                    if not any(part in _IGNORED_DIRS for part in candidate.parts):
+                        build_files.append(candidate)
+
+        parts = [file_utils.read_text(bf) for bf in build_files]
         return "\n".join(parts)
 
     @staticmethod

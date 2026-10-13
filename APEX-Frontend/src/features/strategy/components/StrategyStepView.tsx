@@ -184,7 +184,7 @@ export function StrategyStepView({
 
   const calculatedRiskLevel = useMemo(() => {
     const depOverall = effectiveDependencyAnalysis?.overall_risk?.toLowerCase();
-    
+
     let depCriticalCount = 0;
     let depHighCount = 0;
     let depMediumCount = 0;
@@ -438,13 +438,13 @@ export function StrategyStepView({
               {/* 1. Build Tool */}
               {(() => {
                 const tool = buildToolDisplayLabel.toLowerCase();
-                const isMaven  = tool.includes("maven");
+                const isMaven = tool.includes("maven");
                 const isGradle = tool.includes("gradle");
-                const isAnt    = tool.includes("ant");
-                const toolIcon = isMaven  ? <FaLayerGroup /> :
-                                 isGradle ? <FaWrench />    :
-                                 isAnt    ? <FaCogs />      :
-                                            <FaBoxOpen />;
+                const isAnt = tool.includes("ant");
+                const toolIcon = isMaven ? <FaLayerGroup /> :
+                  isGradle ? <FaWrench /> :
+                    isAnt ? <FaCogs /> :
+                      <FaBoxOpen />;
                 return (
                   <div className="strat-assessment-card strat-card-build-tool" style={{ animationDelay: "0.05s" }}>
                     <div className="strat-assessment-icon-wrap">
@@ -484,7 +484,7 @@ export function StrategyStepView({
                       {hasTests ? <FaCheckCircle /> : <FaTimesCircle />}
                     </div>
                     <div className="strat-assessment-info">
-                      <div className="strat-assessment-label">Maven Tests</div>
+                      <div className="strat-assessment-label"> Tests</div>
                       <div className="strat-assessment-value">
                         {hasTests ? "Yes ✔" : "No ✘"}
                       </div>
@@ -690,7 +690,7 @@ export function StrategyStepView({
                     (isSpringBootPathway || isUiModPathway) && !pathway.disabled && isActivePathway && pathway.key !== "spring_boot"
                       ? "Active"
                       : (isForcedSpringBoot ? "Required" : (isActivePathway && isSpringBootPathway ? "Active" : pathway.badgeLabel));
-                      
+
                   const pathwayBadgeStyle: React.CSSProperties | undefined =
                     isForcedSpringBoot
                       ? { backgroundColor: "#fef3c7", color: "#92400e", boxShadow: "none", fontWeight: 700 }
@@ -712,7 +712,7 @@ export function StrategyStepView({
                         if (pathway.key === "ui_modernization" && (!isAssessmentLoaded || !isUiModEligible)) {
                           return;
                         }
-                        
+
                         setSelectedConversions((prev) => {
                           let next = [...prev];
                           const isCurrentlySelected = next.includes(pathway.key);

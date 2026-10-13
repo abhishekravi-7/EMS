@@ -61,6 +61,10 @@ export interface DependencyInfo {
   direct?: boolean;
   transitive?: boolean;
   scope?: string | null;
+  parent?: string | null;
+  introduced_by?: string | null;
+  type?: string | null;
+  module?: string | null;
 }
 
 export interface DetectedFramework {
@@ -198,6 +202,8 @@ export interface RepoAnalysis {
   test_file_list?: { path: string; tool: string }[];
   dependencies: DependencyInfo[];
   frontend_dependencies?: DependencyInfo[];
+  dependency_resolution_status?: string | null;
+  dependency_resolution_message?: string | null;
   api_endpoints?: DiscoveredApiEndpoint[];
   api_endpoint_count?: number;
   // Optional extras consumed by the wizard/modernization views (populated by

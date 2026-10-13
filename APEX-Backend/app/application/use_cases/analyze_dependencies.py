@@ -312,8 +312,9 @@ def _build_fallback_analysis(
 
         # Jakarta EE namespace shift detection
         if gid.startswith("javax.") or aid.startswith("javax."):
-            risk = "CRITICAL"
-            explanation = f"{name} uses the legacy javax.* namespace and requires migration to jakarta.*."
+            # Namespace shift is a platform/framework migration requirement (MEDIUM), not a critical CVE/blocker.
+            risk = "MEDIUM"
+            explanation = f"{name} uses the legacy javax.* namespace. For Jakarta EE 9+ / Spring Boot 3+ platforms, migration to jakarta.* is required."
             recommendation = "Update coordinates and import statements to Jakarta EE 9+ equivalent."
         elif "log4j" in aid and ver.startswith("1."):
             risk = "CRITICAL"
@@ -335,6 +336,7 @@ def _build_fallback_analysis(
             target_java_version=target_java,
         )
 
+        is_direct = dep.direct if dep.direct is not None else (not dep.transitive)
         analyzed_list.append(
             AnalyzedDependencyItem(
                 id=dep_id,
@@ -353,6 +355,11 @@ def _build_fallback_analysis(
                 risk=risk,
                 explanation=explanation,
                 recommendation=recommendation,
+                scope=dep.scope or "compile",
+                direct=is_direct,
+                transitive=not is_direct,
+                parent=dep.parent,
+                introduced_by=dep.introduced_by,
             )
         )
 
@@ -674,6 +681,10 @@ class AnalyzeDependenciesUseCase:
                 if not upgrade_reason:
                     upgrade_reason = resolved["upgrade_reason"]
 
+                if risk == "CRITICAL" and (gid.startswith("javax.") or aid.startswith("javax.")) and "log4j" not in aid:
+                    risk = "MEDIUM"
+
+                is_direct = dep.direct if dep.direct is not None else (not dep.transitive)
                 final_dependencies.append(
                     AnalyzedDependencyItem(
                         id=dep_id,
@@ -692,6 +703,11 @@ class AnalyzeDependenciesUseCase:
                         risk=risk,
                         explanation=explanation,
                         recommendation=recommendation,
+                        scope=dep.scope or "compile",
+                        direct=is_direct,
+                        transitive=not is_direct,
+                        parent=dep.parent,
+                        introduced_by=dep.introduced_by,
                     )
                 )
 

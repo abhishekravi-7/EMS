@@ -43,8 +43,16 @@ class DiscoveryDependency(BaseModel):
     declared_version: Optional[str] = Field(None, alias="declaredVersion")
     resolved_version: Optional[str] = Field(None, alias="resolvedVersion")
     version_source: Optional[str] = Field(None, alias="versionSource")
+    scope: Optional[str] = "compile"
+    direct: Optional[bool] = True
+    transitive: Optional[bool] = False
+    parent: Optional[str] = None
+    introduced_by: Optional[str] = Field(None, alias="introducedBy")
+    module: Optional[str] = "root"
+    type: Optional[str] = "jar"
+    classifier: Optional[str] = None
 
-    model_config = {"populate_by_name": True}
+    model_config = {"populate_by_name": True, "extra": "allow"}
 
 
 class DiscoveryFrontend(BaseModel):
@@ -136,11 +144,20 @@ class DiscoveryProject(BaseModel):
         None, alias="frameworkRecommendations"
     )
     frameworks: list[str] = Field(default_factory=list)
+    dependencies: list[DiscoveryDependency] = Field(
+        default_factory=list, alias="dependencies"
+    )
     frontend_dependencies: list[DiscoveryDependency] = Field(
         default_factory=list, alias="frontendDependencies"
     )
+    dependency_resolution_status: Optional[str] = Field(
+        None, alias="dependencyResolutionStatus"
+    )
+    dependency_resolution_message: Optional[str] = Field(
+        None, alias="dependencyResolutionMessage"
+    )
 
-    model_config = {"populate_by_name": True}
+    model_config = {"populate_by_name": True, "extra": "allow"}
 
 
 class DiscoveryResponse(BaseModel):

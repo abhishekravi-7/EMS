@@ -85,10 +85,17 @@ def run_command(
     :attr:`CommandResult.succeeded`. Only genuinely exceptional conditions
     (e.g. the executable not being found) propagate.
     """
+    cwd_str = str(cwd) if cwd is not None else None
+    if cwd_str:
+        if cwd_str.startswith("\\\\?\\UNC\\"):
+            cwd_str = "\\\\" + cwd_str[8:]
+        elif cwd_str.startswith("\\\\?\\"):
+            cwd_str = cwd_str[4:]
+
     try:
         completed = subprocess.run(  # nosec B603 # noqa: S603
             list(command),
-            cwd=str(cwd) if cwd is not None else None,
+            cwd=cwd_str,
             capture_output=True,
             text=True,
             timeout=timeout,
