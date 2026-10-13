@@ -56,6 +56,146 @@ const RISK_CONFIG: Record<MigrationRisk, { text: string; background: string; bor
   LOW: { text: "#047857", background: "#ecfdf5", border: "#a7f3d0" },
 };
 
+export function compareSemVer(v1: string, v2: string): number {
+  if (v1 === v2) return 0;
+  if (!v1 && !v2) return 0;
+  if (!v1) return -1;
+  if (!v2) return 1;
+
+  const parseParts = (v: string) => {
+    return (v || "")
+      .replace(/^[vV]/, "")
+      .split(/[-._]/)
+      .map((part) => {
+        const num = parseInt(part, 10);
+        return isNaN(num) ? part.toLowerCase() : num;
+      });
+  };
+
+  const p1 = parseParts(v1);
+  const p2 = parseParts(v2);
+  const maxLen = Math.max(p1.length, p2.length);
+
+  for (let i = 0; i < maxLen; i++) {
+    const a = p1[i] ?? 0;
+    const b = p2[i] ?? 0;
+    if (typeof a === "number" && typeof b === "number") {
+      if (a !== b) return a - b;
+    } else {
+      const sa = String(a);
+      const sb = String(b);
+      if (sa !== sb) return sa.localeCompare(sb);
+    }
+  }
+  return 0;
+}
+
+export interface JavaBaselineFloor {
+  boot: string;
+  fw: string;
+  data: string;
+  logback: string;
+  log4j: string;
+  slf4j: string;
+  snakeyaml: string;
+  jackson: string;
+  tomcat: string;
+  mysql: string;
+  security: string;
+  annotation: string;
+  validation: string;
+  jupiter: string;
+  mockito: string;
+  lombok: string;
+  hibernate: string;
+}
+
+export function getMinimumBaselineForJava(javaNum: number): JavaBaselineFloor {
+  if (javaNum >= 25) {
+    return {
+      boot: "3.4.0",
+      fw: "6.2.0",
+      data: "2024.0.0",
+      logback: "1.5.12",
+      log4j: "2.24.1",
+      slf4j: "2.0.16",
+      snakeyaml: "2.3",
+      jackson: "2.17.2",
+      tomcat: "10.1.33",
+      mysql: "9.0.0",
+      security: "6.4.0",
+      annotation: "3.0.0",
+      validation: "3.1.0",
+      jupiter: "5.11.3",
+      mockito: "5.14.2",
+      lombok: "1.18.36",
+      hibernate: "6.6.1.Final",
+    };
+  }
+  if (javaNum >= 21) {
+    return {
+      boot: "3.3.0",
+      fw: "6.1.14",
+      data: "2023.1.5",
+      logback: "1.5.6",
+      log4j: "2.23.1",
+      slf4j: "2.0.13",
+      snakeyaml: "2.2",
+      jackson: "2.17.1",
+      tomcat: "10.1.24",
+      mysql: "8.3.0",
+      security: "6.3.0",
+      annotation: "2.1.1",
+      validation: "3.0.2",
+      jupiter: "5.10.2",
+      mockito: "5.11.0",
+      lombok: "1.18.36",
+      hibernate: "6.5.2.Final",
+    };
+  }
+  if (javaNum >= 17) {
+    return {
+      boot: "3.2.5",
+      fw: "6.1.14",
+      data: "2023.1.5",
+      logback: "1.4.14",
+      log4j: "2.21.1",
+      slf4j: "2.0.13",
+      snakeyaml: "2.2",
+      jackson: "2.15.4",
+      tomcat: "10.1.20",
+      mysql: "8.3.0",
+      security: "6.2.4",
+      annotation: "2.1.1",
+      validation: "3.0.2",
+      jupiter: "5.10.2",
+      mockito: "5.8.0",
+      lombok: "1.18.36",
+      hibernate: "6.4.4.Final",
+    };
+  }
+  // Java 8 / 11
+  return {
+    boot: "2.7.18",
+    fw: "5.3.31",
+    data: "2021.2.18",
+    logback: "1.2.13",
+    log4j: "2.17.2",
+    slf4j: "1.7.36",
+    snakeyaml: "1.33",
+    jackson: "2.13.5",
+    tomcat: "9.0.83",
+    mysql: "8.0.33",
+    security: "5.7.11",
+    annotation: "1.3.5",
+    validation: "2.0.2",
+    jupiter: "5.8.2",
+    mockito: "4.5.1",
+    lombok: "1.18.30",
+    hibernate: "5.6.15.Final",
+  };
+}
+
 function resolveTargetVersionFallback(
   gid: string,
   aid: string,
@@ -66,11 +206,12 @@ function resolveTargetVersionFallback(
   const a = (aid || "").toLowerCase();
   const ver = (currentVer || "Unknown").trim();
   const javaNum = parseInt((targetJavaVersion || "17").replace(/\D/g, "") || "17", 10);
-  const bootVer = javaNum >= 17 ? "3.2.5" : "2.7.18";
-  const fwVer = javaNum >= 17 ? "6.1.14" : "5.3.31";
+  const baseline = getMinimumBaselineForJava(javaNum);
+  const bootVer = baseline.boot;
+  const fwVer = baseline.fw;
 
   let tgtDep = `${gid}:${aid}`;
-  let tgtVer = "3.2.5";
+  let tgtVer = bootVer;
   let action: DependencyAction = "UPGRADE";
   let reasoning = `Managed directly by Target Spring Boot ${bootVer} BOM.`;
   let sourceChanges = "Build manifest version property update required.";
@@ -78,57 +219,63 @@ function resolveTargetVersionFallback(
 
   if (g === "org.springframework.boot" || a.includes("spring-boot")) {
     tgtVer = bootVer;
-    action = "MAJOR UPGRADE";
     reasoning = `The detected Spring Boot version belongs to an earlier generation. Target Spring Boot ${bootVer} manages all starter dependencies for Java ${javaNum}.`;
     sourceChanges = "Update Spring Boot parent/starter BOM version in build manifest.";
-    risk = "HIGH";
+    risk = javaNum >= 17 ? "HIGH" : "LOW";
   } else if (g === "org.springframework" || (g.startsWith("org.springframework") && !g.includes("boot") && !g.includes("data"))) {
     tgtVer = fwVer;
-    action = "MAJOR UPGRADE";
     reasoning = `Managed by Target Spring Boot ${bootVer} BOM (Spring Framework ${fwVer}). Crosses major Spring generation.`;
-    sourceChanges = "API compatibility review required for Spring Framework 6.x breaking changes.";
-    risk = "HIGH";
+    sourceChanges = "API compatibility review required for Spring Framework breaking changes.";
+    risk = javaNum >= 17 ? "HIGH" : "LOW";
   } else if (g.startsWith("org.springframework.data") || a.includes("spring-data")) {
-    tgtVer = javaNum >= 17 ? "3.2.5" : "2.7.18";
-    action = "MAJOR UPGRADE";
-    reasoning = `Managed by Target Spring Boot ${bootVer} BOM (Spring Data 2023.1.5 release train).`;
-    sourceChanges = "Audit custom repository interfaces for Spring Data 3.x query method changes.";
-    risk = "HIGH";
+    tgtVer = baseline.data;
+    reasoning = `Managed by Target Spring Boot ${bootVer} BOM (Spring Data release train).`;
+    sourceChanges = "Audit custom repository interfaces for Spring Data query method changes.";
+    risk = javaNum >= 17 ? "HIGH" : "LOW";
   } else if (g.startsWith("javax.") || a.startsWith("javax.") || a === "validation-api") {
-    action = "REPLACE";
-    reasoning = `The old javax.* API belongs to the pre-Jakarta namespace. Spring Boot 3.x uses Jakarta EE APIs. Requires dependency-coordinate and source-package migration.`;
-    risk = "HIGH";
-    if (a.includes("validation")) {
-      tgtDep = "jakarta.validation:jakarta.validation-api";
-      tgtVer = "3.0.2";
-      sourceChanges = "javax.validation.* → jakarta.validation.*";
-    } else if (a.includes("persistence")) {
-      tgtDep = "jakarta.persistence:jakarta.persistence-api";
-      tgtVer = "3.1.0";
-      sourceChanges = "javax.persistence.* → jakarta.persistence.*";
-    } else if (a.includes("servlet")) {
-      tgtDep = "jakarta.servlet:jakarta.servlet-api";
-      tgtVer = "6.0.0";
-      sourceChanges = "javax.servlet.* → jakarta.servlet.*";
-    } else if (a.includes("transaction")) {
-      tgtDep = "jakarta.transaction:jakarta.transaction-api";
-      tgtVer = "2.0.1";
-      sourceChanges = "javax.transaction.* → jakarta.transaction.*";
-    } else if (a.includes("annotation")) {
-      tgtDep = "jakarta.annotation:jakarta.annotation-api";
-      tgtVer = "2.1.1";
-      sourceChanges = "javax.annotation.* → jakarta.annotation.*";
-    } else if (a.includes("ws.rs") || a.includes("jaxrs")) {
-      tgtDep = "jakarta.ws.rs:jakarta.ws.rs-api";
-      tgtVer = "3.1.0";
-      sourceChanges = "javax.ws.rs.* → jakarta.ws.rs.*";
+    if (javaNum >= 17) {
+      action = "REPLACE";
+      reasoning = `The old javax.* API belongs to the pre-Jakarta namespace. Spring Boot 3.x uses Jakarta EE APIs. Requires dependency-coordinate and source-package migration.`;
+      risk = "HIGH";
+      if (a.includes("validation")) {
+        tgtDep = "jakarta.validation:jakarta.validation-api";
+        tgtVer = baseline.validation;
+        sourceChanges = "javax.validation.* → jakarta.validation.*";
+      } else if (a.includes("persistence")) {
+        tgtDep = "jakarta.persistence:jakarta.persistence-api";
+        tgtVer = "3.1.0";
+        sourceChanges = "javax.persistence.* → jakarta.persistence.*";
+      } else if (a.includes("servlet")) {
+        tgtDep = "jakarta.servlet:jakarta.servlet-api";
+        tgtVer = "6.0.0";
+        sourceChanges = "javax.servlet.* → jakarta.servlet.*";
+      } else if (a.includes("transaction")) {
+        tgtDep = "jakarta.transaction:jakarta.transaction-api";
+        tgtVer = "2.0.1";
+        sourceChanges = "javax.transaction.* → jakarta.transaction.*";
+      } else if (a.includes("annotation")) {
+        tgtDep = "jakarta.annotation:jakarta.annotation-api";
+        tgtVer = baseline.annotation;
+        sourceChanges = "javax.annotation.* → jakarta.annotation.*";
+      } else if (a.includes("ws.rs") || a.includes("jaxrs")) {
+        tgtDep = "jakarta.ws.rs:jakarta.ws.rs-api";
+        tgtVer = "3.1.0";
+        sourceChanges = "javax.ws.rs.* → jakarta.ws.rs.*";
+      } else {
+        tgtDep = `jakarta.${a}:jakarta.${a}`;
+        tgtVer = "3.0.0";
+        sourceChanges = "javax.* → jakarta.*";
+      }
     } else {
-      tgtDep = `jakarta.${a}:jakarta.${a}`;
-      tgtVer = "3.0.0";
-      sourceChanges = "javax.* → jakarta.*";
+      tgtDep = `${gid}:${aid}`;
+      tgtVer = ver;
+      action = "ALREADY COMPATIBLE";
+      reasoning = `Legacy javax.* artifact remains supported on Java ${javaNum} and Spring Boot ${bootVer}.`;
+      sourceChanges = "None required.";
+      risk = "LOW";
     }
   } else if (a.includes("lombok")) {
-    tgtVer = javaNum >= 17 ? "1.18.36" : "1.18.30";
+    tgtVer = baseline.lombok;
     action = "UPGRADE";
     reasoning = `Upgraded Lombok version required for Java ${javaNum} bytecode compiler support.`;
     sourceChanges = "Build manifest Lombok dependency version update.";
@@ -142,40 +289,44 @@ function resolveTargetVersionFallback(
       sourceChanges = "Remove obsolete hibernate-entitymanager dependency from pom.xml";
       risk = "MEDIUM";
     } else {
-      tgtVer = javaNum >= 17 ? "6.4.4.Final" : "5.6.15.Final";
-      action = "MAJOR UPGRADE";
-      reasoning = `Managed by Target Spring Boot ${bootVer} BOM (Hibernate ORM 6.4.4.Final).`;
-      sourceChanges = "Audit JPA queries and dialect configuration for Hibernate 6.x.";
-      risk = "HIGH";
+      tgtVer = baseline.hibernate;
+      reasoning = `Managed by Target Spring Boot ${bootVer} BOM (Hibernate ORM ${tgtVer}).`;
+      sourceChanges = "Audit JPA queries and dialect configuration for Hibernate.";
+      risk = javaNum >= 17 ? "HIGH" : "LOW";
     }
   } else if (a.includes("jackson")) {
-    tgtVer = javaNum >= 17 ? "2.15.4" : "2.13.5";
+    tgtVer = baseline.jackson;
     action = "UPGRADE";
-    reasoning = `Managed by Target Spring Boot ${bootVer} BOM (Jackson 2.15.4).`;
-    sourceChanges = "None - Jackson 2.15.4 is backward compatible.";
+    reasoning = `Managed by Target Spring Boot ${bootVer} BOM (Jackson ${tgtVer}).`;
+    sourceChanges = "None - Jackson is backward compatible.";
+    risk = "LOW";
+  } else if (a.includes("log4j") || g.includes("log4j")) {
+    tgtVer = baseline.log4j;
+    action = "UPGRADE";
+    reasoning = `Managed by Target Spring Boot ${bootVer} BOM (Log4j 2 ${tgtVer}).`;
+    sourceChanges = "None - logging configuration backward compatible.";
     risk = "LOW";
   } else if (a.includes("logback")) {
-    tgtVer = javaNum >= 11 ? "1.4.14" : "1.2.13";
+    tgtVer = baseline.logback;
     action = "UPGRADE";
-    reasoning = `Managed by Target Spring Boot ${bootVer} BOM (Logback 1.4.14).`;
+    reasoning = `Managed by Target Spring Boot ${bootVer} BOM (Logback ${tgtVer}).`;
     sourceChanges = "None - standard logging configuration.";
     risk = "LOW";
   } else if (a.includes("slf4j")) {
-    tgtVer = javaNum >= 11 ? "2.0.13" : "1.7.36";
+    tgtVer = baseline.slf4j;
     action = "UPGRADE";
-    reasoning = `Managed by Target Spring Boot ${bootVer} BOM (SLF4J 2.0.13).`;
+    reasoning = `Managed by Target Spring Boot ${bootVer} BOM (SLF4J ${tgtVer}).`;
     sourceChanges = "None - logging facade backward compatible.";
     risk = "LOW";
   } else if (a.includes("tomcat")) {
-    tgtVer = javaNum >= 17 ? "10.1.20" : "9.0.83";
-    action = "MAJOR UPGRADE";
-    reasoning = `Managed by Target Spring Boot ${bootVer} BOM (Tomcat 10.1.20, Jakarta Servlet 6.0 compatible).`;
-    sourceChanges = "Refactor server web.xml or Servlet filters to Jakarta Servlet 6.0.";
-    risk = "HIGH";
+    tgtVer = baseline.tomcat;
+    reasoning = `Managed by Target Spring Boot ${bootVer} BOM (Tomcat ${tgtVer}).`;
+    sourceChanges = javaNum >= 17 ? "Refactor server web.xml or Servlet filters to modern Tomcat." : "Standard Tomcat update.";
+    risk = javaNum >= 17 ? "HIGH" : "LOW";
   } else if (a.includes("mysql")) {
-    tgtVer = javaNum >= 17 ? "8.3.0" : "8.0.33";
+    tgtVer = baseline.mysql;
     action = "UPGRADE";
-    reasoning = `Managed by Target Spring Boot ${bootVer} BOM (MySQL Connector/J 8.3.0).`;
+    reasoning = `Managed by Target Spring Boot ${bootVer} BOM (MySQL Connector/J ${tgtVer}).`;
     sourceChanges = "Update JDBC driver class name to com.mysql.cj.jdbc.Driver if legacy.";
     risk = "LOW";
   } else if (a.includes("h2") || a.includes("hsqldb")) {
@@ -190,6 +341,48 @@ function resolveTargetVersionFallback(
     reasoning = `Managed by Target Spring Boot ${bootVer} BOM.`;
     sourceChanges = "None - PostgreSQL JDBC driver backward compatible.";
     risk = "LOW";
+  } else if (a === "snakeyaml" || g === "org.yaml") {
+    tgtVer = baseline.snakeyaml;
+    action = "UPGRADE";
+    reasoning = `Managed by Target Spring Boot ${bootVer} BOM (SnakeYAML ${tgtVer}).`;
+    sourceChanges = "Review YAML parsing configuration.";
+    risk = "LOW";
+  } else if (g.includes("spring-security") || a.includes("spring-security")) {
+    tgtVer = baseline.security;
+    action = "MAJOR UPGRADE";
+    reasoning = `Managed by Target Spring Boot ${bootVer} BOM (Spring Security ${tgtVer}).`;
+    sourceChanges = "Review security configuration adapter.";
+    risk = javaNum >= 17 ? "HIGH" : "LOW";
+  } else if (a === "jakarta.annotation-api" || g === "jakarta.annotation") {
+    tgtVer = baseline.annotation;
+    action = "UPGRADE";
+    reasoning = `Managed by Target Spring Boot ${bootVer} BOM.`;
+    sourceChanges = "None required.";
+    risk = "LOW";
+  } else if (a === "jakarta.validation-api" || g === "jakarta.validation") {
+    tgtVer = baseline.validation;
+    action = "UPGRADE";
+    reasoning = `Managed by Target Spring Boot ${bootVer} BOM.`;
+    sourceChanges = "None required.";
+    risk = "LOW";
+  } else if (a.includes("jupiter") || g === "org.junit.jupiter") {
+    tgtVer = baseline.jupiter;
+    action = "UPGRADE";
+    reasoning = `Managed by Target Spring Boot ${bootVer} BOM (JUnit Jupiter ${tgtVer}).`;
+    sourceChanges = "None - JUnit Jupiter backward compatible.";
+    risk = "LOW";
+  } else if (a === "junit" || g === "junit") {
+    tgtVer = "4.13.2";
+    action = "UPGRADE";
+    reasoning = `Managed by Target Spring Boot ${bootVer} BOM (JUnit 4).`;
+    sourceChanges = "None required.";
+    risk = "LOW";
+  } else if (a.includes("mockito")) {
+    tgtVer = baseline.mockito;
+    action = "UPGRADE";
+    reasoning = `Managed by Target Spring Boot ${bootVer} BOM (Mockito ${tgtVer}).`;
+    sourceChanges = "None required.";
+    risk = "LOW";
   } else if (ver && ver !== "Unknown" && ver !== "unknown" && ver !== "managed version") {
     tgtVer = ver;
     action = "ALREADY COMPATIBLE";
@@ -197,37 +390,41 @@ function resolveTargetVersionFallback(
     sourceChanges = "None required.";
     risk = "LOW";
   } else {
-    tgtVer = "3.2.5";
+    tgtVer = bootVer;
     action = "MANUAL REVIEW";
     reasoning = `Third-party dependency requiring independent API compatibility verification for Java ${javaNum}.`;
     sourceChanges = "Audit library API usages against target JDK release.";
     risk = "MEDIUM";
   }
 
+  // GOLDEN RULE (Floor & Preserve): Never downgrade a higher current version
   if (action !== "REPLACE" && action !== "REMOVE") {
-    if (ver && ver !== "Unknown" && ver !== "unknown" && ver !== "managed version") {
-      if (ver.toLowerCase() === tgtVer.toLowerCase()) {
+    if (ver && ver !== "Unknown" && ver !== "unknown" && ver !== "managed version" && tgtVer && tgtVer !== "N/A" && tgtVer !== "Not Determined") {
+      const cmp = compareSemVer(ver, tgtVer);
+      const parseDigits = (s: string) => (s.match(/\d+/g) || []).map(Number);
+      const curD = parseDigits(ver);
+      const tgtD = parseDigits(tgtVer);
+      const curMaj = curD[0] ?? 0;
+      const tgtMaj = tgtD[0] ?? 0;
+
+      if (cmp === 0) {
         action = "ALREADY COMPATIBLE";
-        reasoning = `Current version ${ver} already matches target Spring Boot BOM release.`;
+        reasoning = `Current version ${ver} already matches target Spring Boot BOM release for Java ${javaNum}.`;
         sourceChanges = "None required.";
         risk = "LOW";
+      } else if (tgtMaj > curMaj && curMaj > 0) {
+        action = "MAJOR UPGRADE";
+        risk = "HIGH";
+      } else if (cmp < 0) {
+        action = "UPGRADE";
+        risk = risk === "HIGH" ? "HIGH" : "LOW";
       } else {
-        const parseDigits = (s: string) => (s.match(/\d+/g) || []).map(Number);
-        const curD = parseDigits(ver);
-        const tgtD = parseDigits(tgtVer);
-        const curMaj = curD[0] ?? 0;
-        const tgtMaj = tgtD[0] ?? 0;
-
-        if (tgtMaj > curMaj && curMaj > 0) {
-          action = "MAJOR UPGRADE";
-          risk = "HIGH";
-        } else if (tgtD > curD) {
-          action = "UPGRADE";
-          risk = "LOW";
-        } else {
-          action = "ALREADY COMPATIBLE";
-          risk = "LOW";
-        }
+        // Floor & Preserve: If current version already exceeds baseline, preserve it!
+        tgtVer = ver;
+        action = "ALREADY COMPATIBLE";
+        reasoning = `Current version ${ver} already meets or exceeds target Java ${javaNum} baseline requirements.`;
+        sourceChanges = "None required.";
+        risk = "LOW";
       }
     }
   }
@@ -255,6 +452,8 @@ export function DetectedDependenciesTable({
   const [pageSize, setPageSize] = useState<number>(15);
 
   const sourceJava = repoAnalysis?.java_version || repoAnalysis?.java_version_from_build || "1.7";
+  const sourceJavaNum = parseInt(String(sourceJava).replace(/^1\./, "").replace(/\D/g, "") || "8", 10);
+  const targetJavaNum = parseInt((targetJavaVersion || "21").replace(/\D/g, "") || "21", 10);
   const currentBoot = repoAnalysis?.spring_boot_version || "1.3.5.RELEASE";
   const currentFramework = repoAnalysis?.frameworks?.[0]?.name ? `${repoAnalysis.frameworks[0].name} (${currentBoot})` : `Spring Boot ${currentBoot}`;
 
@@ -305,13 +504,28 @@ export function DetectedDependenciesTable({
       let sourceChanges = analysis?.migration_action || analysis?.recommendation || fallback.sourceChanges;
       let risk: MigrationRisk = (analysis?.risk as MigrationRisk) || fallback.risk;
 
+      const javaNum = targetJavaNum;
       const isJavax = gid.toLowerCase().startsWith("javax.") || aid.toLowerCase().startsWith("javax.") || aid.toLowerCase() === "validation-api";
 
       if (isJavax) {
-        action = "REPLACE";
-        risk = "HIGH";
-        if (!sourceChanges.includes("jakarta")) {
-          sourceChanges = `${gid}.* → jakarta.${aid.replace("-api", "")}.*`;
+        if (javaNum >= 17) {
+          action = "REPLACE";
+          risk = "HIGH";
+          if (!sourceChanges.includes("jakarta")) {
+            sourceChanges = `${gid}.* → jakarta.${aid.replace("-api", "")}.*`;
+          }
+        } else {
+          const cmp = compareSemVer(currentVer, targetVer);
+          if (cmp === 0 || currentVer.toLowerCase() === targetVer.toLowerCase()) {
+            action = "ALREADY COMPATIBLE";
+            risk = "LOW";
+          } else if (cmp < 0) {
+            action = "UPGRADE";
+            risk = "LOW";
+          } else {
+            action = "MANUAL REVIEW";
+            risk = "MEDIUM";
+          }
         }
       } else if (String(analysis?.upgrade_status || "").toUpperCase().includes("REMOVE")) {
         action = "REMOVE";
@@ -321,9 +535,33 @@ export function DetectedDependenciesTable({
       } else if (analysis?.upgrade_status === "REVIEW REQUIRED" || analysis?.upgrade_status === "Manual Review" || targetVer === "Not Determined") {
         action = "MANUAL REVIEW";
         risk = "MEDIUM";
-      } else if (currentVer.toLowerCase() === targetVer.toLowerCase() && currentVer !== "Unknown") {
-        action = "ALREADY COMPATIBLE";
-        risk = "LOW";
+      } else if (currentVer && currentVer !== "Unknown" && currentVer !== "unknown" && currentVer !== "managed version" && targetVer && targetVer !== "N/A" && targetVer !== "Not Determined") {
+        const cmp = compareSemVer(currentVer, targetVer);
+        const parseDigits = (s: string) => (s.match(/\d+/g) || []).map(Number);
+        const curD = parseDigits(currentVer);
+        const tgtD = parseDigits(targetVer);
+        const curMaj = curD[0] ?? 0;
+        const tgtMaj = tgtD[0] ?? 0;
+
+        if (cmp === 0) {
+          action = "ALREADY COMPATIBLE";
+          risk = "LOW";
+          if (!analysis?.upgrade_reason) {
+            reasoning = `Current version ${currentVer} is already compatible with target Java ${javaNum}.`;
+          }
+        } else if (tgtMaj > curMaj && curMaj > 0) {
+          action = "MAJOR UPGRADE";
+          risk = "HIGH";
+        } else if (cmp < 0) {
+          action = "UPGRADE";
+          risk = risk === "CRITICAL" ? "MEDIUM" : (risk === "HIGH" ? "MEDIUM" : "LOW");
+        } else {
+          // Floor & Preserve: If current version exceeds target baseline, preserve it!
+          targetVer = currentVer;
+          action = "ALREADY COMPATIBLE";
+          risk = "LOW";
+          reasoning = `Current version ${currentVer} already meets or exceeds target Java ${javaNum} baseline requirements.`;
+        }
       }
 
       const category = (analysis?.category || "").toLowerCase();
@@ -350,7 +588,7 @@ export function DetectedDependenciesTable({
           dependency.direct === false || dependency.transitive
             ? "TRANSITIVE / BOOT-MANAGED"
             : "DIRECT",
-        isJavaxToJakarta: isJavax,
+        isJavaxToJakarta: isJavax && javaNum >= 17,
       });
 
       cnts[group] = (cnts[group] || 0) + 1;
@@ -377,7 +615,6 @@ export function DetectedDependenciesTable({
     return totals;
   }, [allRows]);
 
-  const targetJavaNum = parseInt((targetJavaVersion || "21").replace(/\D/g, "") || "21", 10);
   const selectedBootVersion = targetJavaNum >= 17 ? "3.2.5" : "2.7.18";
   const selectedFrameworkVersion = targetJavaNum >= 17 ? "6.1.14" : "5.3.31";
 
@@ -418,13 +655,109 @@ export function DetectedDependenciesTable({
 
   const renderJavaRow = javaCurrent && (activeTab === "ALL" || activeTab === "Framework") && !searchQuery.trim() && currentPage === 1;
 
-  // Compute Overall Assessment level
-  const overallAssessment = useMemo(() => {
-    if (actionTotals.REPLACE > 0 || actionTotals["MAJOR UPGRADE"] > 0) return "CRITICAL";
-    if (actionTotals["MANUAL REVIEW"] > 0) return "HIGH";
-    if (actionTotals.UPGRADE > 0) return "MEDIUM";
+  // Compute Overall Assessment level dynamically based on target Java, source Java, and actions
+  const overallAssessment = useMemo((): MigrationRisk => {
+    const totalRows = allRows.length;
+    if (totalRows === 0) return "LOW";
+
+    // 1. If all dependencies are already compatible, risk is LOW
+    if (actionTotals["ALREADY COMPATIBLE"] === totalRows) {
+      return "LOW";
+    }
+
+    // 2. Target Java < 17 (e.g. Java 11 or Java 8):
+    // Preserves javax.* namespace. Spring Boot 2.7 / Spring 5.3 baseline.
+    if (targetJavaNum < 17) {
+      if (actionTotals["MANUAL REVIEW"] >= 4 || (actionTotals["MAJOR UPGRADE"] >= 6 && sourceJavaNum < 8)) {
+        return "HIGH";
+      }
+      if (actionTotals["MAJOR UPGRADE"] > 0 || actionTotals["MANUAL REVIEW"] > 0 || actionTotals.REMOVE > 0) {
+        return "MEDIUM";
+      }
+      if (actionTotals.UPGRADE > 0) {
+        return "LOW";
+      }
+      return "LOW";
+    }
+
+    // 3. Target Java >= 17 (e.g. Java 17, 21, 25):
+    // Crosses Jakarta EE 9+/10 boundary (Spring Boot 3.x / Spring 6.x).
+    const hasJavaxShift = javaxList.length > 0;
+    const isMultiGenJump = sourceJavaNum <= 8;
+
+    // CRITICAL:
+    // Only when jumping multiple generations (Java 8 -> 17/21/25) WITH multiple javax->jakarta package replacements,
+    // or heavy architectural refactoring required across many dependencies.
+    if (
+      (isMultiGenJump && hasJavaxShift && (javaxList.length >= 2 || actionTotals.REPLACE >= 2)) ||
+      (isMultiGenJump && actionTotals["MAJOR UPGRADE"] >= 4) ||
+      actionTotals["MANUAL REVIEW"] >= 5
+    ) {
+      return "CRITICAL";
+    }
+
+    // HIGH:
+    // Required javax->jakarta shift for isolated dependencies, or multiple major version upgrades.
+    if (
+      hasJavaxShift ||
+      actionTotals.REPLACE > 0 ||
+      actionTotals["MAJOR UPGRADE"] >= 2 ||
+      actionTotals["MANUAL REVIEW"] > 0 ||
+      (isMultiGenJump && actionTotals["MAJOR UPGRADE"] > 0)
+    ) {
+      return "HIGH";
+    }
+
+    // MEDIUM:
+    // Some minor upgrades or single major upgrade without namespace replacement.
+    if (actionTotals.UPGRADE > 0 || actionTotals["MAJOR UPGRADE"] > 0) {
+      return "MEDIUM";
+    }
+
     return "LOW";
-  }, [actionTotals]);
+  }, [allRows.length, actionTotals, javaxList.length, targetJavaNum, sourceJavaNum]);
+
+  // Dynamic explanation for Overall Assessment
+  const overallAssessmentExplanation = useMemo(() => {
+    const totalRows = allRows.length;
+    if (totalRows === 0) {
+      return "No external dependencies detected. Zero migration risk.";
+    }
+
+    if (actionTotals["ALREADY COMPATIBLE"] === totalRows) {
+      return `All detected dependencies already meet or exceed Java ${targetJavaNum} baseline requirements.`;
+    }
+
+    if (targetJavaNum < 17) {
+      if (overallAssessment === "HIGH") {
+        return `Framework upgrade required for Java ${targetJavaNum} (Spring Boot ${selectedBootVersion}). Preserves legacy javax.* namespace while upgrading dependencies for Java ${targetJavaNum} runtime compatibility.`;
+      }
+      if (overallAssessment === "MEDIUM") {
+        return `Moderate migration impact for Java ${targetJavaNum} (Spring Boot ${selectedBootVersion}). Dependencies require standard version alignment; legacy javax.* namespace remains supported with no package refactoring.`;
+      }
+      return `Low migration friction for Java ${targetJavaNum}. Dependencies are compatible with the Spring Boot ${selectedBootVersion} baseline with standard updates.`;
+    }
+
+    // targetJavaNum >= 17
+    if (javaxList.length > 0) {
+      if (overallAssessment === "CRITICAL") {
+        return `Major multi-generational framework upgrade to Java ${targetJavaNum} (Spring Boot ${selectedBootVersion}). Involves package namespace conversions (javax.* → jakarta.* for ${javaxList.length} ${javaxList.length === 1 ? "dependency" : "dependencies"}) and source code API audits.`;
+      }
+      if (overallAssessment === "HIGH") {
+        return `Significant migration to Java ${targetJavaNum} (Spring Boot ${selectedBootVersion}). Requires updating ${javaxList.length} ${javaxList.length === 1 ? "dependency" : "dependencies"} from javax.* to jakarta.* and aligning core framework versions.`;
+      }
+      return `Moderate migration to Java ${targetJavaNum}. Involves targeted namespace updates (javax.* → jakarta.*) for ${javaxList.length} ${javaxList.length === 1 ? "dependency" : "dependencies"}.`;
+    }
+
+    // targetJavaNum >= 17 without javax
+    if (overallAssessment === "HIGH") {
+      return `Framework upgrade to Java ${targetJavaNum} (Spring Boot ${selectedBootVersion}). No legacy javax.* conversions required, but major version updates are needed for ${actionTotals["MAJOR UPGRADE"]} dependencies.`;
+    }
+    if (overallAssessment === "MEDIUM") {
+      return `Moderate migration impact for Java ${targetJavaNum}. Dependencies require version bumps to align with Spring Boot ${selectedBootVersion} BOM with no namespace conversions needed.`;
+    }
+    return `Low migration friction for Java ${targetJavaNum}. Detected dependencies are already compatible or require standard version alignment.`;
+  }, [allRows.length, actionTotals, targetJavaNum, selectedBootVersion, overallAssessment, javaxList.length]);
 
   return (
     <section
@@ -970,9 +1303,15 @@ export function DetectedDependenciesTable({
           <div style={{ background: "#ffffff", padding: "14px", borderRadius: 10, border: "1px solid #e2e8f0" }}>
             <h5 style={{ margin: "0 0 8px", fontSize: 13, fontWeight: 800, color: "#1e293b" }}>Major Migration Reasons</h5>
             <ul style={{ margin: 0, paddingLeft: 18, color: "#475569", lineHeight: 1.6 }}>
-              <li>JDK {targetJavaVersion || "21"} LTS runtime upgrade baseline alignment.</li>
+              <li>JDK {targetJavaVersion || "21"} runtime upgrade baseline alignment.</li>
               <li>Spring Boot {selectedBootVersion} dependency-management BOM integration.</li>
-              <li>Jakarta EE 10 specification namespace shift (`javax.*` → `jakarta.*`).</li>
+              {targetJavaNum >= 17 && javaxList.length > 0 ? (
+                <li>Jakarta EE specification namespace shift (`javax.*` → `jakarta.*`).</li>
+              ) : targetJavaNum < 17 ? (
+                <li>Preserves Java EE 8 / `javax.*` namespace on Spring Boot 2.7.x LTS baseline.</li>
+              ) : (
+                <li>Compatible with modern runtime specifications without legacy javax namespace conversion.</li>
+              )}
             </ul>
           </div>
 
@@ -980,7 +1319,7 @@ export function DetectedDependenciesTable({
           <div style={{ background: "#ffffff", padding: "14px", borderRadius: 10, border: "1px solid #e2e8f0" }}>
             <h5 style={{ margin: "0 0 8px", fontSize: 13, fontWeight: 800, color: "#1e293b" }}>Framework Changes</h5>
             <p style={{ margin: 0, color: "#475569", lineHeight: 1.6 }}>
-              Upgrades core Spring Boot parent from <strong>{currentBoot}</strong> to <strong>{selectedBootVersion}</strong> and Spring Framework from 4.2.x to <strong>{selectedFrameworkVersion}</strong>.
+              Upgrades core Spring Boot parent from <strong>{currentBoot}</strong> to <strong>{selectedBootVersion}</strong> and Spring Framework to <strong>{selectedFrameworkVersion}</strong>.
             </p>
           </div>
 
@@ -995,7 +1334,9 @@ export function DetectedDependenciesTable({
               </ul>
             ) : (
               <p style={{ margin: 0, color: "#047857", fontWeight: 600 }}>
-                No legacy javax.* namespace replacements detected.
+                {targetJavaNum < 17
+                  ? `Java ${targetJavaNum} retains javax.* namespace support. No package replacements required.`
+                  : "No legacy javax.* namespace replacements detected."}
               </p>
             )}
           </div>
@@ -1004,7 +1345,9 @@ export function DetectedDependenciesTable({
           <div style={{ background: "#ffffff", padding: "14px", borderRadius: 10, border: "1px solid #e2e8f0" }}>
             <h5 style={{ margin: "0 0 8px", fontSize: 13, fontWeight: 800, color: "#1e293b" }}>Source-Code Impact</h5>
             <p style={{ margin: 0, color: "#475569", lineHeight: 1.6 }}>
-              Package import updates for all Jakarta EE classes, Spring Framework 6.x breaking API deprecations, and custom repository query methods.
+              {targetJavaNum >= 17
+                ? `Package import updates for Jakarta EE classes (${javaxList.length > 0 ? `${javaxList.length} detected` : "none required"}), Spring Framework ${selectedFrameworkVersion} API deprecations, and custom repository query methods.`
+                : `Package imports remain unchanged (javax.*). Source audits focused on Spring Framework ${selectedFrameworkVersion} compatibility and Java ${targetJavaNum} bytecode requirements.`}
             </p>
           </div>
 
@@ -1012,8 +1355,17 @@ export function DetectedDependenciesTable({
           <div style={{ background: "#ffffff", padding: "14px", borderRadius: 10, border: "1px solid #e2e8f0" }}>
             <h5 style={{ margin: "0 0 8px", fontSize: 13, fontWeight: 800, color: "#1e293b" }}>Configuration Impact</h5>
             <p style={{ margin: 0, color: "#475569", lineHeight: 1.6 }}>
-              Update <code>application.properties</code>/<code>application.yml</code> for Boot 3 property keys, set{" "}
-              <code>&lt;java.version&gt;{targetJavaVersion || "21"}&lt;/java.version&gt;</code>, and configure Hibernate 6 dialects.
+              {targetJavaNum >= 17 ? (
+                <>
+                  Update <code>application.properties</code>/<code>application.yml</code> for Boot 3 property keys, set{" "}
+                  <code>&lt;java.version&gt;{targetJavaVersion || "21"}&lt;/java.version&gt;</code>, and configure Hibernate 6 dialects.
+                </>
+              ) : (
+                <>
+                  Update configuration for Spring Boot 2.7 properties, set{" "}
+                  <code>&lt;java.version&gt;{targetJavaVersion || "11"}&lt;/java.version&gt;</code>, and retain Hibernate 5 dialects.
+                </>
+              )}
             </p>
           </div>
 
@@ -1037,9 +1389,7 @@ export function DetectedDependenciesTable({
               {overallAssessment} RISK
             </span>
             <p style={{ margin: 0, color: "#475569", lineHeight: 1.5 }}>
-              {overallAssessment === "CRITICAL" || overallAssessment === "HIGH"
-                ? "Major multi-generational framework upgrade required. Involves package namespace conversions (javax -> jakarta) and source code API audits."
-                : "Low to moderate migration impact. Most dependencies are compatible or require standard version bumps."}
+              {overallAssessmentExplanation}
             </p>
           </div>
         </div>

@@ -183,6 +183,7 @@ export function StrategyStepView({
   ].filter((c) => c.detected) : [];
 
   const calculatedRiskLevel = useMemo(() => {
+    const targetJavaNum = parseInt((effectiveTargetVersion || "17").replace(/\D/g, "") || "17", 10);
     const depOverall = effectiveDependencyAnalysis?.overall_risk?.toLowerCase();
 
     let depCriticalCount = 0;
@@ -214,35 +215,40 @@ export function StrategyStepView({
 
     const normPropRisk = (riskLevel || "").toLowerCase();
 
+    // When targeting Java < 17, javax packages do not constitute critical migration friction
+    const effectiveDepCritical = targetJavaNum < 17 ? 0 : depCriticalCount;
+    const effectiveOverallRisk = (targetJavaNum < 17 && depOverall === "critical") ? "medium" : depOverall;
+    const effectivePropRisk = (targetJavaNum < 17 && normPropRisk === "critical") ? "medium" : normPropRisk;
+
     if (
-      depOverall === "critical" ||
-      depCriticalCount > 0 ||
-      normPropRisk === "critical"
+      effectiveOverallRisk === "critical" ||
+      effectiveDepCritical > 0 ||
+      effectivePropRisk === "critical"
     ) {
       return "CRITICAL";
     }
 
     if (
-      depOverall === "high" ||
+      effectiveOverallRisk === "high" ||
       depHighCount > 0 ||
       hasJsp ||
       hasJsf ||
-      normPropRisk === "high"
+      effectivePropRisk === "high"
     ) {
       return "HIGH";
     }
 
     if (
-      depOverall === "medium" ||
+      effectiveOverallRisk === "medium" ||
       depMediumCount > 0 ||
       repoAnalysis?.has_tests === false ||
-      normPropRisk === "medium"
+      effectivePropRisk === "medium"
     ) {
       return "MEDIUM";
     }
 
     return "LOW";
-  }, [effectiveDependencyAnalysis, repoAnalysis, hasJsp, hasJsf, riskLevel]);
+  }, [effectiveDependencyAnalysis, repoAnalysis, hasJsp, hasJsf, riskLevel, effectiveTargetVersion]);
 
   const riskBadgeStyle = useMemo(() => {
     const r = calculatedRiskLevel.toLowerCase();

@@ -71,7 +71,7 @@ def compute_analysis_fingerprint(request: DependencyAnalysisRequest) -> str:
             for d in (request.dependencies or [])
         ]
     )
-    raw = f"{request.source_java_version}:{request.target_java_version}:{str(request.build_tool or '').upper()}:{','.join(deps)}"
+    raw = f"v2:{request.source_java_version}:{request.target_java_version}:{request.spring_boot_version or ''}:{str(request.build_tool or '').upper()}:{','.join(deps)}"
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 # Allowed standard risk levels and categories
@@ -135,13 +135,74 @@ def resolve_target_dependency_version(
     except ValueError:
         target_java_num = 17
 
-    if not target_boot_version:
-        target_boot_version = "3.2.5" if target_java_num >= 17 else "2.7.18"
-
-    if target_boot_version.startswith("3."):
+    if target_java_num >= 25:
+        target_boot_version = target_boot_version or "3.4.0"
+        target_fw_version = "6.2.0"
+        log4j_base = "2.24.1"
+        logback_base = "1.5.12"
+        slf4j_base = "2.0.16"
+        snakeyaml_base = "2.3"
+        jackson_base = "2.17.2"
+        tomcat_base = "10.1.33"
+        mysql_base = "9.0.0"
+        security_base = "6.4.0"
+        annotation_base = "3.0.0"
+        validation_base = "3.1.0"
+        jupiter_base = "5.11.3"
+        mockito_base = "5.14.2"
+        lombok_base = "1.18.36"
+        hibernate_base = "6.6.1.Final"
+    elif target_java_num >= 21:
+        target_boot_version = target_boot_version or "3.3.0"
         target_fw_version = "6.1.14"
+        log4j_base = "2.23.1"
+        logback_base = "1.5.6"
+        slf4j_base = "2.0.13"
+        snakeyaml_base = "2.2"
+        jackson_base = "2.17.1"
+        tomcat_base = "10.1.24"
+        mysql_base = "8.3.0"
+        security_base = "6.3.0"
+        annotation_base = "2.1.1"
+        validation_base = "3.0.2"
+        jupiter_base = "5.10.2"
+        mockito_base = "5.11.0"
+        lombok_base = "1.18.36"
+        hibernate_base = "6.5.2.Final"
+    elif target_java_num >= 17:
+        target_boot_version = target_boot_version or "3.2.5"
+        target_fw_version = "6.1.14"
+        log4j_base = "2.21.1"
+        logback_base = "1.4.14"
+        slf4j_base = "2.0.13"
+        snakeyaml_base = "2.2"
+        jackson_base = "2.15.4"
+        tomcat_base = "10.1.20"
+        mysql_base = "8.3.0"
+        security_base = "6.2.4"
+        annotation_base = "2.1.1"
+        validation_base = "3.0.2"
+        jupiter_base = "5.10.2"
+        mockito_base = "5.8.0"
+        lombok_base = "1.18.36"
+        hibernate_base = "6.4.4.Final"
     else:
+        target_boot_version = target_boot_version or "2.7.18"
         target_fw_version = "5.3.31"
+        log4j_base = "2.17.2"
+        logback_base = "1.2.13"
+        slf4j_base = "1.7.36"
+        snakeyaml_base = "1.33"
+        jackson_base = "2.13.5"
+        tomcat_base = "9.0.83"
+        mysql_base = "8.0.33"
+        security_base = "5.7.11"
+        annotation_base = "1.3.5"
+        validation_base = "2.0.2"
+        jupiter_base = "5.8.2"
+        mockito_base = "4.5.1"
+        lombok_base = "1.18.30"
+        hibernate_base = "5.6.15.Final"
 
     rec_ver = "Not Determined"
     status = "REVIEW REQUIRED"
@@ -171,63 +232,73 @@ def resolve_target_dependency_version(
 
     # 4. Legacy javax.* namespace artifacts requiring Jakarta EE replacement
     elif gid.startswith("javax.") or aid.startswith("javax.") or aid == "validation-api":
-        status = "REMOVE / REPLACE"
-        source = "Target Spring Boot BOM"
-        reason = f"Legacy javax.* artifact must be replaced by Jakarta EE equivalent for Java {target_java_num}+ and Spring Boot 3.x."
-        if "validation" in aid:
-            rec_ver = "3.0.2"
-        elif "persistence" in aid:
-            rec_ver = "3.1.0"
-        elif "servlet" in aid:
-            rec_ver = "6.0.0"
-        elif "transaction" in aid:
-            rec_ver = "2.0.1"
-        elif "annotation" in aid:
-            rec_ver = "2.1.1"
-        elif "ws.rs" in aid or "jaxrs" in aid:
-            rec_ver = "3.1.0"
-        elif "el" in aid:
-            rec_ver = "5.0.0"
+        if target_java_num >= 17:
+            status = "REMOVE / REPLACE"
+            source = "Target Spring Boot BOM"
+            reason = f"Legacy javax.* artifact must be replaced by Jakarta EE equivalent for Java {target_java_num}+ and Spring Boot 3.x."
+            if "validation" in aid:
+                rec_ver = validation_base
+            elif "persistence" in aid:
+                rec_ver = "3.1.0"
+            elif "servlet" in aid:
+                rec_ver = "6.0.0"
+            elif "transaction" in aid:
+                rec_ver = "2.0.1"
+            elif "annotation" in aid:
+                rec_ver = annotation_base
+            elif "ws.rs" in aid or "jaxrs" in aid:
+                rec_ver = "3.1.0"
+            elif "el" in aid:
+                rec_ver = "5.0.0"
+            else:
+                rec_ver = "Remove / Replace"
         else:
-            rec_ver = "Remove / Replace"
+            rec_ver = ver
+            status = "UNCHANGED"
+            source = "Project pom.xml/build.gradle"
+            reason = f"Legacy javax.* artifact remains supported on Java {target_java_num} and Spring Boot 2.7.x."
 
     # 5. Lombok
     elif "lombok" in aid:
-        rec_ver = "1.18.36" if target_java_num >= 17 else "1.18.30"
+        rec_ver = lombok_base
         source = "Independent compatibility review"
         reason = f"Upgraded Lombok for Java {target_java_num} compiler compatibility."
 
     # 6. Hibernate / JPA
     elif "hibernate" in gid or "hibernate" in aid:
-        rec_ver = "6.4.4.Final" if target_java_num >= 17 else "5.6.15.Final"
+        rec_ver = hibernate_base
         source = "Target Spring Boot BOM"
         reason = f"Managed by Target Spring Boot {target_boot_version} BOM."
 
     # 7. Jackson
     elif "jackson" in gid or "jackson" in aid:
-        rec_ver = "2.15.4" if target_java_num >= 17 else "2.13.5"
+        rec_ver = jackson_base
         source = "Target Spring Boot BOM"
         reason = f"Managed by Target Spring Boot {target_boot_version} BOM."
 
-    # 8. Logging (Logback / SLF4J / Log4j)
+    # 8. Logging (Log4j / Logback / SLF4J) - check log4j before slf4j to avoid log4j-to-slf4j mismatch
+    elif "log4j" in aid or "log4j" in gid:
+        rec_ver = log4j_base
+        source = "Target Spring Boot BOM"
+        reason = f"Managed by Target Spring Boot {target_boot_version} BOM (Log4j 2)."
     elif "logback" in aid:
-        rec_ver = "1.4.14" if target_java_num >= 11 else "1.2.13"
+        rec_ver = logback_base
         source = "Target Spring Boot BOM"
-        reason = f"Managed by Target Spring Boot {target_boot_version} BOM."
+        reason = f"Managed by Target Spring Boot {target_boot_version} BOM (Logback)."
     elif "slf4j" in aid:
-        rec_ver = "2.0.13" if target_java_num >= 11 else "1.7.36"
+        rec_ver = slf4j_base
         source = "Target Spring Boot BOM"
-        reason = f"Managed by Target Spring Boot {target_boot_version} BOM."
+        reason = f"Managed by Target Spring Boot {target_boot_version} BOM (SLF4J)."
 
     # 9. Tomcat Embed
     elif "tomcat" in aid or "tomcat" in gid:
-        rec_ver = "10.1.20" if target_java_num >= 17 else "9.0.83"
+        rec_ver = tomcat_base
         source = "Target Spring Boot BOM"
         reason = f"Managed by Target Spring Boot {target_boot_version} BOM."
 
     # 10. Database Drivers & Utils
     elif "mysql" in aid or "mysql" in gid:
-        rec_ver = "8.3.0" if target_java_num >= 17 else "8.0.33"
+        rec_ver = mysql_base
         source = "Target Spring Boot BOM"
         reason = f"Managed by Target Spring Boot {target_boot_version} BOM."
     elif "h2" in aid or "hsqldb" in aid:
@@ -238,18 +309,42 @@ def resolve_target_dependency_version(
         rec_ver = "42.6.2"
         source = "Target Spring Boot BOM"
         reason = f"Managed by Target Spring Boot {target_boot_version} BOM."
+    elif aid == "snakeyaml" or gid == "org.yaml":
+        rec_ver = snakeyaml_base
+        source = "Target Spring Boot BOM"
+        reason = f"Managed by Target Spring Boot {target_boot_version} BOM (SnakeYAML)."
 
-    # 11. Testing (JUnit, Mockito)
-    elif "junit" in aid or "jupiter" in aid:
-        rec_ver = "5.10.2" if target_java_num >= 17 else "4.13.2"
+    # 11. Spring Security
+    elif "spring-security" in gid or "spring-security" in aid:
+        rec_ver = security_base
+        source = "Target Spring Boot BOM"
+        reason = f"Managed by Target Spring Boot {target_boot_version} BOM (Spring Security)."
+
+    # 12. Jakarta APIs
+    elif aid == "jakarta.annotation-api" or gid == "jakarta.annotation":
+        rec_ver = annotation_base
         source = "Target Spring Boot BOM"
         reason = f"Managed by Target Spring Boot {target_boot_version} BOM."
+    elif aid == "jakarta.validation-api" or gid == "jakarta.validation":
+        rec_ver = validation_base
+        source = "Target Spring Boot BOM"
+        reason = f"Managed by Target Spring Boot {target_boot_version} BOM."
+
+    # 13. Testing (JUnit, Mockito)
+    elif "jupiter" in aid or (gid == "org.junit.jupiter"):
+        rec_ver = jupiter_base
+        source = "Target Spring Boot BOM"
+        reason = f"Managed by Target Spring Boot {target_boot_version} BOM (JUnit Jupiter)."
+    elif "junit" in aid or (gid == "junit"):
+        rec_ver = "4.13.2"
+        source = "Target Spring Boot BOM"
+        reason = f"Managed by Target Spring Boot {target_boot_version} BOM (JUnit 4)."
     elif "mockito" in aid:
-        rec_ver = "5.8.0" if target_java_num >= 17 else "4.11.0"
+        rec_ver = mockito_base
         source = "Target Spring Boot BOM"
-        reason = f"Managed by Target Spring Boot {target_boot_version} BOM."
+        reason = f"Managed by Target Spring Boot {target_boot_version} BOM (Mockito)."
 
-    # 12. Candidate version or current version
+    # 14. Candidate version or current version
     elif candidate_versions and len(candidate_versions) > 0:
         rec_ver = candidate_versions[0]
         source = "Independent compatibility review"
@@ -265,15 +360,19 @@ def resolve_target_dependency_version(
         elif ver.lower() == rec_ver.lower():
             status = "UNCHANGED"
             reason = "Current version already matches the target-compatible version."
-        else:
+        elif ver and ver.lower() not in ("unknown", "managed version") and rec_ver not in ("Not Determined", "N/A"):
             def _ver_key(v: str) -> list[int]:
                 return [int(x) for x in re.findall(r"\d+", v)]
             cur_key = _ver_key(ver)
             rec_key = _ver_key(rec_ver)
             if rec_key > cur_key:
                 status = "UPGRADED"
-            elif rec_key < cur_key:
-                status = "DOWNGRADED / BOM ALIGNMENT"
+            elif cur_key >= rec_key:
+                # GOLDEN RULE (Floor & Preserve):
+                # If project's existing version meets or exceeds the baseline floor, PRESERVE IT!
+                rec_ver = ver
+                status = "UNCHANGED"
+                reason = f"Current version {ver} meets or exceeds target Java {target_java_num} baseline requirements."
             else:
                 status = "UNCHANGED"
 
@@ -295,6 +394,12 @@ def _build_fallback_analysis(
     target_java: str | None = None,
 ) -> DependencyAnalysisResponse:
     """Deterministic fallback analysis when LLM is unavailable or fails."""
+    try:
+        t_num = int(re.sub(r"\D", "", str(target_java or "17")) or "17")
+    except ValueError:
+        t_num = 17
+    target_boot = "3.2.5" if t_num >= 17 else "2.7.18"
+
     analyzed_list: list[AnalyzedDependencyItem] = []
 
     for dep in dependencies:
@@ -310,12 +415,15 @@ def _build_fallback_analysis(
         explanation = f"{name} detected in {build_tool or 'project'} build configuration."
         recommendation = "Verify compatibility with target Java release."
 
-        # Jakarta EE namespace shift detection
-        if gid.startswith("javax.") or aid.startswith("javax."):
-            # Namespace shift is a platform/framework migration requirement (MEDIUM), not a critical CVE/blocker.
+        # Jakarta EE namespace shift detection (only applies when target Java >= 17)
+        if (gid.startswith("javax.") or aid.startswith("javax.")) and t_num >= 17:
             risk = "MEDIUM"
-            explanation = f"{name} uses the legacy javax.* namespace. For Jakarta EE 9+ / Spring Boot 3+ platforms, migration to jakarta.* is required."
+            explanation = f"{name} uses the legacy javax.* namespace and requires migration to jakarta.*."
             recommendation = "Update coordinates and import statements to Jakarta EE 9+ equivalent."
+        elif gid.startswith("javax.") or aid.startswith("javax."):
+            risk = "LOW"
+            explanation = f"{name} uses the javax.* namespace, which remains supported on Java {t_num}."
+            recommendation = f"Compatible with Java {t_num} and Spring Boot {target_boot}."
         elif "log4j" in aid and ver.startswith("1."):
             risk = "CRITICAL"
             explanation = f"{name} is on legacy Log4j 1.x which has reached End-of-Life."
@@ -386,12 +494,6 @@ def _build_fallback_analysis(
         complexity = "MODERATE"
     else:
         complexity = "COMPLEX"
-
-    try:
-        t_num = int(re.sub(r"\D", "", str(target_java or "17")) or "17")
-    except ValueError:
-        t_num = 17
-    target_boot = "3.2.5" if t_num >= 17 else "2.7.18"
 
     logger.info(
         "[STRATEGY DEPENDENCIES RISKS] - TotalDependencies: %d - Critical: %d - Medium: %d - Low: %d",
@@ -736,6 +838,12 @@ class AnalyzeDependenciesUseCase:
 
             # Determine overall risk
             overall_risk = overall_risk_candidates[0] if overall_risk_candidates and overall_risk_candidates[0] in ALLOWED_RISK_LEVELS else ""
+            try:
+                target_j_num = int(re.sub(r"\D", "", str(request.target_java_version or "17")) or "17")
+            except ValueError:
+                target_j_num = 17
+            if target_j_num < 17 and overall_risk == "CRITICAL" and crit_cnt == 0:
+                overall_risk = "HIGH" if high_cnt > 0 else "MEDIUM" if med_cnt > 0 else "LOW"
             if not overall_risk:
                 overall_risk = "CRITICAL" if crit_cnt > 0 else "HIGH" if high_cnt > 0 else "MEDIUM" if med_cnt > 0 else "LOW"
 

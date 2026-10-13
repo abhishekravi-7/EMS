@@ -12,7 +12,6 @@ import {
 } from "../services/existingTestService";
 import { ExistingTestCasesPanel } from "./ExistingTestCasesPanel";
 import { ExistingTestValidationReport } from "./ExistingTestValidationReport";
-import { FunctionalTestingDocumentCard } from "./FunctionalTestingDocumentCard";
 import { DetectedDependenciesTable } from "./DetectedDependenciesTable";
 import { TestReportsModal, type TestReportData } from "./TestReportsModal";
 import { wizardStyles as styles } from "@/shared/components/wizard/wizardStyles";
@@ -1239,9 +1238,6 @@ setIsLlmConfiguredMod(
           </section>
         );
       })()}
-
-      {/* Functional Testing Document Upload Section — only shown when enabled and permitted */}
-      {isFunctionalTestPermitted && runFunctionalTests && <FunctionalTestingDocumentCard jobId={jobId} />}
 
       {/* Test Validation Report Modal */}
       {showValidationReport && existingExecResult && (
