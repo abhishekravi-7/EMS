@@ -123,6 +123,7 @@ class JUnitLLMGenerator:
                 system_prompt=TESTING_PROMPT_ANALYSIS_SYSTEM_PROMPT,
                 user_prompt=formatted_prompt,
                 endpoint="testing_prompt_analysis",
+                first_token_timeout=3600.0,
             ):
                 response_text += chunk
 
@@ -226,6 +227,7 @@ class JUnitLLMGenerator:
                 system_prompt=PROMPT_COVERAGE_EVALUATION_SYSTEM_PROMPT,
                 user_prompt=formatted_prompt,
                 endpoint="prompt_coverage_evaluation",
+                first_token_timeout=3600.0,
             ):
                 response_text += chunk
 
@@ -290,6 +292,7 @@ class JUnitLLMGenerator:
             system_prompt=JUNIT_GENERATOR_SYSTEM_PROMPT,
             user_prompt=prompt,
             endpoint="junit_generation",
+            first_token_timeout=3600.0,
         ):
             response_text += chunk
 
@@ -314,6 +317,7 @@ class JUnitLLMGenerator:
             system_prompt=JUNIT_GENERATOR_SYSTEM_PROMPT,
             user_prompt=prompt,
             endpoint="junit_correction",
+            first_token_timeout=3600.0,
         ):
             response_text += chunk
 
@@ -360,4 +364,11 @@ class JUnitLLMGenerator:
         if match_generic:
             return match_generic.group(1).strip()
 
-        return raw_llm_response.strip()
+        # Handle truncated output missing the closing tag
+        cleaned = raw_llm_response.strip()
+        if cleaned.startswith("```java"):
+            cleaned = cleaned[7:].strip()
+        elif cleaned.startswith("```"):
+            cleaned = cleaned[3:].strip()
+            
+        return cleaned

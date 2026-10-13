@@ -417,6 +417,8 @@ class RunDiscoveryUseCase:
             },
             "springBootConversion": eligibility.to_dict(),
             "frameworkRecommendations": framework_recommendations,
+            "dependencyResolutionStatus": getattr(analysis, "dependency_resolution_status", "RESOLVED"),
+            "dependencyResolutionMessage": getattr(analysis, "dependency_resolution_message", None),
             "createdAt": created_at,
         }
 
@@ -538,6 +540,8 @@ class RunDiscoveryUseCase:
                 "buildPlugins": report.get("buildPlugins", []),
                 "bomVersions": report.get("bomVersions", []),
                 "frameworks": report.get("frameworks", []),
+                "dependencyResolutionStatus": report.get("dependencyResolutionStatus", "RESOLVED"),
+                "dependencyResolutionMessage": report.get("dependencyResolutionMessage"),
                 "apiEndpoints": report.get("apiEndpoints", []),
                 "hasTests": bool(report.get("hasTests", False)),
                 "javaFileCount": report.get("javaFileCount") if report.get("javaFileCount") is not None else len(java_files),
@@ -642,6 +646,8 @@ class RunDiscoveryUseCase:
                 "fileMetrics": analysis.file_metrics,
                 "defaultBranch": "main",
                 "buildWarning": analysis.build_warning,
+                "dependencyResolutionStatus": getattr(analysis, "dependency_resolution_status", "RESOLVED"),
+                "dependencyResolutionMessage": getattr(analysis, "dependency_resolution_message", None),
                 "frontend": analysis.frontend.to_dict(),
                 "frameworkRecommendations": framework_recommendations,
                 "viewTechnologies": analysis.view_technologies,

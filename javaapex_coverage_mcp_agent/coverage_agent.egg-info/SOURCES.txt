@@ -1,0 +1,13 @@
+README.md
+setup.py
+coverage_agent/__init__.py
+coverage_agent/agent.py
+coverage_agent/build.py
+coverage_agent/jacoco.py
+coverage_agent/llm.py
+coverage_agent/models.py
+coverage_agent/project_inspector.py
+coverage_agent.egg-info/PKG-INFO
+coverage_agent.egg-info/SOURCES.txt
+coverage_agent.egg-info/dependency_links.txt
+coverage_agent.egg-info/top_level.txt

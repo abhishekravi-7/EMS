@@ -1186,28 +1186,56 @@ setIsLlmConfiguredMod(
 
       {/* Detected technologies and their planned version changes */}
       {(() => {
-        const javaCurrent = repoAnalysis?.java_version || repoAnalysis?.java_version_from_build;
-        const allDepLines: string[] = [];
-        if (javaCurrent) {
-          allDepLines.push(`Java: ${javaCurrent} -> ${targetJavaVersion || "Not selected"}`);
-        }
-        (repoAnalysis?.dependencies || []).forEach((dependency: any) => {
-          const gid = dependency.group_id || dependency.groupId || dependency.group || "";
-          const aid = dependency.artifact_id || dependency.artifactId || dependency.artifact || "";
-          const currentVer = dependency.current_version || dependency.resolved_version || dependency.declared_version || dependency.version || "Unknown";
-          const name = gid && aid ? `${gid}:${aid}` : aid || gid || "Dependency";
-          allDepLines.push(`${name} (${currentVer})`);
+        const analyzedById = new Map((dependencyAnalysis?.dependencies || []).map((item) => [item.id.toLowerCase(), item]));
+        const groups: Record<string, { name: string; current: string; target: string; status: string; javaCompatibility: string; frameworkCompatibility: string; reason: string; confidence: string }[]> = {
+          Framework: [],
+          Library: [],
+          Dependency: [],
+        };
+        const groupColors: Record<string, { text: string; background: string; border: string }> = {
+          Framework: { text: "#1d4ed8", background: "#eff6ff", border: "#bfdbfe" },
+          Library: { text: "#047857", background: "#ecfdf5", border: "#a7f3d0" },
+          Dependency: { text: "#b45309", background: "#fffbeb", border: "#fde68a" },
+        };
+        (repoAnalysis?.dependencies || []).forEach((dependency) => {
+          const coordinate = `${dependency.group_id || ""}:${dependency.artifact_id || ""}`.toLowerCase();
+          const analysis = analyzedById.get(coordinate);
+          const category = (analysis?.category || "").toLowerCase();
+          const group = category === "framework" ? "Framework"
+            : ["persistence", "security", "database", "testing", "logging", "web", "utility"].includes(category) ? "Library"
+            : "Dependency";
+          groups[group].push({
+            name: dependency.group_id ? `${dependency.group_id}:${dependency.artifact_id}` : dependency.artifact_id || "Dependency",
+            current: dependency.current_version || "Unknown",
+            target: analysis?.recommended_version || "Not Determined",
+            status: analysis?.upgrade_status || "UNKNOWN",
+            javaCompatibility: analysis?.java_compatibility || "Unknown",
+            frameworkCompatibility: analysis?.framework_compatibility || "Unknown",
+            reason: analysis?.upgrade_reason || "The dependency analysis did not return an upgrade explanation.",
+            confidence: analysis?.upgrade_confidence || "Low",
+          });
         });
-        const allDepsText = allDepLines.join("\n");
-
+        const javaCurrent = repoAnalysis?.java_version || repoAnalysis?.java_version_from_build;
+        const total = Object.values(groups).reduce((sum, rows) => sum + rows.length, 0) + (javaCurrent ? 1 : 0);
         return (
-          <DetectedDependenciesTable
-            repoAnalysis={repoAnalysis}
-            dependencyAnalysis={dependencyAnalysis}
-            targetJavaVersion={targetJavaVersion}
-            allDepsText={allDepsText}
-            CopyAllDependenciesButton={CopyAllDependenciesButton}
-          />
+          <section style={{ margin: "22px 0", border: "1px solid #e2e8f0", borderRadius: 16, background: "#fff", boxShadow: "0 2px 5px rgba(15,23,42,.06)", overflow: "hidden" }}>
+            <div style={{ padding: "18px 20px", borderBottom: "1px solid #eef2f7", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+              <div><h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: "#1e40af" }}>Detected Versions &amp; Upgrade Recommendations</h3><p style={{ margin: "5px 0 0", color: "#64748b", fontSize: 12 }}>Detected versions come from the repository. Upgrade targets are LLM suggestions for the selected Java version.</p></div>
+              <span style={{ padding: "4px 9px", borderRadius: 7, background: "#eff6ff", color: "#2563eb", fontSize: 11, fontWeight: 700 }}>{total} items</span>
+            </div>
+            <div style={{ padding: "4px 20px" }}>
+              {javaCurrent && <div style={{ padding: "14px 0", borderBottom: "1px solid #f1f5f9", display: "grid", gridTemplateColumns: "minmax(180px, 1.5fr) minmax(110px, .7fr) minmax(110px, 1fr) 26px minmax(120px, 1fr)", gap: 12, alignItems: "center" }}><strong>Java</strong><span style={{ color: "#64748b", fontSize: 12 }}>Runtime</span><span>{javaCurrent}</span><span style={{ color: "#2563eb" }}>→</span><strong style={{ color: "#047857" }}>{targetJavaVersion || "Not selected"}</strong></div>}
+              {total > 0 && <div style={{ display: "grid", gridTemplateColumns: "minmax(180px, 1.5fr) minmax(110px, 1fr) 26px minmax(140px, 1fr)", gap: 12, padding: "12px 0 4px", color: "#64748b", fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: ".04em" }}><span>Detected component</span><span>Current version</span><span aria-hidden="true"> </span><span>Upgrade recommendation</span></div>}
+              {Object.entries(groups).map(([group, rows]) => rows.length > 0 && <div key={group} style={{ padding: "14px 0 4px" }}>
+                <h4 style={{ display: "inline-flex", alignItems: "center", margin: "0 0 4px", padding: "5px 10px", borderRadius: 7, border: `1px solid ${groupColors[group].border}`, background: groupColors[group].background, color: groupColors[group].text, fontSize: 12, fontWeight: 800 }}>{group} ({rows.length})</h4>
+                {rows.map((row) => <div key={row.name} style={{ display: "grid", gridTemplateColumns: "minmax(180px, 1.5fr) minmax(110px, 1fr) 26px minmax(140px, 1fr)", alignItems: "center", gap: 12, padding: "12px 0", borderBottom: "1px solid #f1f5f9" }}>
+                  <strong style={{ color: "#1e293b", fontSize: 13, overflowWrap: "anywhere" }}>{row.name}</strong><span style={{ color: "#475569", fontSize: 13 }}>{row.current}</span><span aria-hidden="true" style={{ color: "#2563eb", fontWeight: 800 }}>→</span><span title={`${row.reason} Java: ${row.javaCompatibility}. Framework: ${row.frameworkCompatibility}. Confidence: ${row.confidence}.`} style={{ color: row.target === "Not Determined" ? "#94a3b8" : "#047857", fontSize: 13 }}><strong>{row.target}</strong><small style={{ display: "block", marginTop: 3, color: "#64748b", fontSize: 10 }}>{row.status.replaceAll("_", " ")} · Java {row.javaCompatibility} · {row.confidence} confidence</small></span>
+                </div>)}
+              </div>)}
+              {total === 0 && <div style={{ padding: "26px 0", textAlign: "center", color: "#64748b", fontSize: 13 }}>No Java version or dependencies were detected for this repository.</div>}
+              {total > 0 && dependencyAnalysis?.provider_used && <p style={{ margin: "12px 0", color: "#94a3b8", fontSize: 11 }}>Recommendations generated by {dependencyAnalysis.provider_used} for Java {targetJavaVersion || "target not selected"}.</p>}
+            </div>
+          </section>
         );
       })()}
 

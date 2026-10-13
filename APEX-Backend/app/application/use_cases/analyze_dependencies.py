@@ -417,7 +417,7 @@ def _build_fallback_analysis(
 
         # Jakarta EE namespace shift detection (only applies when target Java >= 17)
         if (gid.startswith("javax.") or aid.startswith("javax.")) and t_num >= 17:
-            risk = "CRITICAL"
+            risk = "MEDIUM"
             explanation = f"{name} uses the legacy javax.* namespace and requires migration to jakarta.*."
             recommendation = "Update coordinates and import statements to Jakarta EE 9+ equivalent."
         elif gid.startswith("javax.") or aid.startswith("javax."):
@@ -444,6 +444,7 @@ def _build_fallback_analysis(
             target_java_version=target_java,
         )
 
+        is_direct = dep.direct if dep.direct is not None else (not dep.transitive)
         analyzed_list.append(
             AnalyzedDependencyItem(
                 id=dep_id,
@@ -462,6 +463,11 @@ def _build_fallback_analysis(
                 risk=risk,
                 explanation=explanation,
                 recommendation=recommendation,
+                scope=dep.scope or "compile",
+                direct=is_direct,
+                transitive=not is_direct,
+                parent=dep.parent,
+                introduced_by=dep.introduced_by,
             )
         )
 
@@ -777,6 +783,10 @@ class AnalyzeDependenciesUseCase:
                 if not upgrade_reason:
                     upgrade_reason = resolved["upgrade_reason"]
 
+                if risk == "CRITICAL" and (gid.startswith("javax.") or aid.startswith("javax.")) and "log4j" not in aid:
+                    risk = "MEDIUM"
+
+                is_direct = dep.direct if dep.direct is not None else (not dep.transitive)
                 final_dependencies.append(
                     AnalyzedDependencyItem(
                         id=dep_id,
@@ -795,6 +805,11 @@ class AnalyzeDependenciesUseCase:
                         risk=risk,
                         explanation=explanation,
                         recommendation=recommendation,
+                        scope=dep.scope or "compile",
+                        direct=is_direct,
+                        transitive=not is_direct,
+                        parent=dep.parent,
+                        introduced_by=dep.introduced_by,
                     )
                 )
 

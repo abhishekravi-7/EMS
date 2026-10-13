@@ -312,6 +312,33 @@
   box-shadow: 0 4px 16px rgba(22, 163, 74, 0.35);
 }
 
+.connect-primary-btn.is-purple {
+  background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%);
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(124, 58, 237, 0.3);
+}
+
+.connect-primary-btn.is-purple:hover:not(:disabled) {
+  background: linear-gradient(135deg, #6d28d9 0%, #5b21b6 100%);
+  box-shadow: 0 4px 18px rgba(124, 58, 237, 0.45);
+}
+
+.connect-card-accent-junit {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 160px;
+  height: 160px;
+  background: radial-gradient(circle at 100% 0, rgba(124, 58, 237, 0.08) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.connect-card-icon-badge.is-purple {
+  background: #f3e8ff;
+  border: 1px solid #e9d5ff;
+  color: #7c3aed;
+}
+
 .connect-primary-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;

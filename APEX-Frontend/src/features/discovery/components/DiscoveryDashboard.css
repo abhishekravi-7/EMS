@@ -1573,6 +1573,129 @@
   box-shadow: none;
 }
 
+.discovery-document-prompt {
+  width: min(100%, 520px);
+  margin-top: 16px;
+  text-align: left;
+}
+
+.discovery-document-prompt-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.discovery-document-prompt-tabs button {
+  padding: 5px 10px;
+  border: 1px solid #dbe3ef;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.discovery-document-prompt-tabs button.is-active {
+  border-color: #93c5fd;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.discovery-document-prompt-tabs button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.discovery-document-prompt-input-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.discovery-document-prompt-input {
+  flex: 1;
+  min-width: 0;
+  resize: vertical;
+  box-sizing: border-box;
+  padding: 9px 10px;
+  border: 1px solid #ef4444;
+  border-radius: 8px;
+  outline: none;
+  background: #ffffff;
+  color: #0f172a;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: left;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.discovery-document-prompt-input:focus {
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.discovery-document-prompt-input.is-saved {
+  border-color: #16a34a;
+}
+
+.discovery-document-prompt-input.is-pending {
+  border-color: #ef4444;
+}
+
+.discovery-document-prompt-input:disabled {
+  background: #f8fafc;
+  cursor: wait;
+}
+
+.discovery-document-prompt-save {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #ef4444;
+  border-radius: 8px;
+  background: #fef2f2;
+  color: #dc2626;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.discovery-document-prompt-save.is-saved {
+  border-color: #16a34a;
+  background: #f0fdf4;
+  color: #15803d;
+}
+
+.discovery-document-prompt-save.is-pending {
+  border-color: #ef4444;
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.discovery-document-prompt-save:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.discovery-document-prompt-status {
+  min-height: 16px;
+  margin-top: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.discovery-document-prompt-status.is-saved {
+  color: #15803d;
+}
+
+.discovery-document-prompt-status.is-pending {
+  color: #dc2626;
+}
+
 .discovery-spec-footnote {
   margin-top: 14px;
   font-size: 12px;

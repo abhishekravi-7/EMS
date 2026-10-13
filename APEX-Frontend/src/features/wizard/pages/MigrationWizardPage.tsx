@@ -69,6 +69,11 @@ export default function MigrationWizardPage() {
     setShowFolderStructure,
     handleCheckMicroserviceEligibility,
     handleGenerateBrdDocument,
+    documentPromptSettings,
+    documentPromptLoading,
+    documentPromptLoadError,
+    documentPromptSavingType,
+    handleSaveDocumentPrompt,
     handleOpenFrameworkFile,
     handleRerunAnalysis,
     isDiscoveryPending,
@@ -130,6 +135,7 @@ export default function MigrationWizardPage() {
     highestCompletedStep: _highestCompletedStep,
     isStepCompleted,
     isStepAccessible,
+    isJUnitOnly,
     setIsMigrationFinishedState,
   } = useWizardController();
 
@@ -514,6 +520,11 @@ export default function MigrationWizardPage() {
               setShowFolderStructure={setShowFolderStructure}
               handleCheckMicroserviceEligibility={handleCheckMicroserviceEligibility}
               handleGenerateBrdDocument={handleGenerateBrdDocument}
+              documentPromptSettings={documentPromptSettings}
+              documentPromptLoading={documentPromptLoading}
+              documentPromptLoadError={documentPromptLoadError}
+              documentPromptSavingType={documentPromptSavingType}
+              handleSaveDocumentPrompt={handleSaveDocumentPrompt}
               handleOpenFrameworkFile={handleOpenFrameworkFile}
               handleRerunAnalysis={handleRerunAnalysis}
               isDiscoveryPending={isDiscoveryPending}
@@ -639,8 +650,9 @@ export default function MigrationWizardPage() {
               runFunctionalTests={runFunctionalTests}
               selectedLLMProvider={selectedLLMProvider}
               useLLMTests={useLLMTests}
+              isJUnitOnly={isJUnitOnly}
               resetWizard={resetWizard}
-              onBack={() => setStep(4)}
+              onBack={() => setStep(isJUnitOnly ? 1 : 4)}
               onError={(message) => setError(message)}
             />
           </ResultPage>
