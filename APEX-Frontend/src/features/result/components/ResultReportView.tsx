@@ -45,6 +45,7 @@ import {
   type SonarReport,
 } from "../services/resultService";
 import { MigrationReportDetailModal } from "./MigrationReportDetailModal";
+import { compareSemVer, getMinimumBaselineForJava } from "@/features/modernization/components/DetectedDependenciesTable";
 import type { DependencyInfo } from "@/shared/types/domain";
 import {
   SONAR_FINDINGS_PAGE_SIZE,
@@ -994,28 +995,56 @@ export function ResultReportView({
 
     let newVer = source.new_version || source.newVersion || source.recommended_version || (source as any).resolvedTargetVersion || analysisMatch?.recommended_version;
 
-    if (!newVer || newVer === "Not Determined" || newVer === "updated version" || newVer === "Unknown") {
-      const targetJavaNum = parseInt(String(migrationJob?.target_java_version || repoAnalysis?.target_java_version || "17").replace(/\D/g, "") || "17", 10);
-      const gidL = gid.toLowerCase();
-      const aidL = aid.toLowerCase();
+    const targetJavaNum = parseInt(String(migrationJob?.target_java_version || repoAnalysis?.target_java_version || "17").replace(/\D/g, "") || "17", 10);
+    const baseline = getMinimumBaselineForJava(targetJavaNum);
+    const gidL = gid.toLowerCase();
+    const aidL = aid.toLowerCase();
 
-      if (gidL.includes("springframework.boot") || aidL.includes("spring-boot")) {
-        newVer = targetJavaNum >= 17 ? "3.2.5" : "2.7.18";
-      } else if (gidL.includes("springframework") || aidL.includes("spring")) {
-        newVer = targetJavaNum >= 17 ? "6.1.14" : "5.3.31";
-      } else if (aidL.includes("logback")) {
-        newVer = targetJavaNum >= 11 ? "1.4.14" : "1.2.13";
-      } else if (aidL.includes("slf4j")) {
-        newVer = targetJavaNum >= 11 ? "2.0.13" : "1.7.36";
-      } else if (aidL.includes("snakeyaml")) {
-        newVer = "2.2";
-      } else if (gidL.includes("hibernate") || aidL.includes("hibernate")) {
-        newVer = targetJavaNum >= 17 ? "6.4.4.Final" : "5.6.15.Final";
-      } else if (currentVer && currentVer !== "managed version" && currentVer !== "Unknown") {
+    let baselineFloor = "";
+    if (gidL.includes("springframework.boot") || aidL.includes("spring-boot")) {
+      baselineFloor = baseline.boot;
+    } else if (gidL.includes("springframework") || aidL.includes("spring")) {
+      baselineFloor = baseline.fw;
+    } else if (aidL.includes("log4j") || gidL.includes("log4j")) {
+      baselineFloor = baseline.log4j;
+    } else if (aidL.includes("logback")) {
+      baselineFloor = baseline.logback;
+    } else if (aidL.includes("slf4j")) {
+      baselineFloor = baseline.slf4j;
+    } else if (aidL.includes("snakeyaml") || gidL.includes("org.yaml")) {
+      baselineFloor = baseline.snakeyaml;
+    } else if (aidL.includes("jackson") || gidL.includes("jackson")) {
+      baselineFloor = baseline.jackson;
+    } else if (gidL.includes("hibernate") || aidL.includes("hibernate")) {
+      baselineFloor = targetJavaNum >= 17 ? "6.4.4.Final" : "5.6.15.Final";
+    }
+
+    const isValidCurrent = currentVer && currentVer !== "managed version" && currentVer !== "Unknown";
+
+    if (!newVer || newVer === "Not Determined" || newVer === "updated version" || newVer === "Unknown") {
+      if (isValidCurrent && baselineFloor) {
+        if (compareSemVer(currentVer, baselineFloor) >= 0) {
+          newVer = currentVer;
+        } else {
+          newVer = baselineFloor;
+        }
+      } else if (baselineFloor) {
+        newVer = baselineFloor;
+      } else if (isValidCurrent) {
         newVer = currentVer;
       } else {
         newVer = "Updated";
       }
+    } else if (isValidCurrent && newVer !== "N/A" && compareSemVer(currentVer, newVer) > 0) {
+      // Golden Rule: Never allow an unintended downgrade in the final report
+      newVer = currentVer;
+    }
+
+    let status = source.status || source.upgrade_status || "UPGRADED";
+    if (isValidCurrent && newVer && compareSemVer(currentVer, newVer) === 0) {
+      status = "ALREADY COMPATIBLE";
+    } else if (isValidCurrent && newVer && compareSemVer(currentVer, newVer) < 0) {
+      status = "UPGRADED";
     }
 
     return {
@@ -1023,7 +1052,7 @@ export function ResultReportView({
       artifact_id: aid,
       current_version: currentVer,
       new_version: newVer,
-      status: source.status || source.upgrade_status || "UPGRADED",
+      status,
     };
   });
   const dependencyUpgradeCount = dependencyUpdates.length;

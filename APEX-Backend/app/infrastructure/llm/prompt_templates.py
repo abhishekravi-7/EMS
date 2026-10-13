@@ -493,7 +493,7 @@ AUTHORITATIVE TARGET BASELINE & RESOLUTION RULES:
    - "UPGRADED": Target version is newer than current version.
    - "DOWNGRADED / BOM ALIGNMENT": Target version is lower than current version because the dependency must align with the target Spring Boot BOM. Do NOT call this an upgrade.
    - "UNCHANGED": Current version already matches the correct target version ("Current version already matches the target-compatible version.").
-   - "REMOVE / REPLACE": Dependency is obsolete, legacy (e.g. javax.* -> jakarta.*, Log4j 1.x, Struts), or does not exist in target Spring Boot and must be removed or replaced.
+   - "REMOVE / REPLACE": Dependency is obsolete, legacy (e.g. javax.* -> jakarta.* when target Java >= 17, Log4j 1.x, Struts), or does not exist in target Spring Boot and must be removed or replaced. Note: when target Java is 11 or lower, javax.* is supported and does NOT require replacement to jakarta.*.
    - "REVIEW REQUIRED": Dependency is not managed by target Spring Boot BOM or its target version cannot be safely determined from available candidates. Explain what is missing; do NOT invent a version.
 
 3. INDEPENDENT FAMILY RULE (NO VERSION FAMILY ASSUMPTIONS):

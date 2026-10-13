@@ -864,7 +864,7 @@ const classifyDependencyCategory = (dep: DependencyInfo): DependencyCategory => 
   return "Other";
 };
 
-const classifyDependencyRisk = (dep: DependencyInfo): { risk: DependencyRiskLevel; reason: string } => {
+const classifyDependencyRisk = (dep: DependencyInfo, targetJavaVersion?: string): { risk: DependencyRiskLevel; reason: string } => {
   const artifactId = (dep.artifact_id || "").toLowerCase();
   const groupId = (dep.group_id || "").toLowerCase();
   const status = (dep.status || "").toLowerCase();
@@ -873,6 +873,7 @@ const classifyDependencyRisk = (dep: DependencyInfo): { risk: DependencyRiskLeve
   const coordinate = `${groupId}:${artifactId}`;
   const unknownVersion = !version || version.toLowerCase() === "unknown";
   const snapshotVersion = /snapshot|alpha|beta|rc|milestone|release/i.test(version);
+  const targetJavaNum = parseInt((targetJavaVersion || "17").replace(/\D/g, "") || "17", 10);
   const isLegacyJavax = groupId.startsWith("javax.") || artifactId.startsWith("javax.");
   const isLegacyLog4j = artifactId.includes("log4j") && parsedVersion && parsedVersion.major < 2;
   const isLegacyStruts = coordinate.includes("struts");
@@ -885,9 +886,15 @@ const classifyDependencyRisk = (dep: DependencyInfo): { risk: DependencyRiskLeve
       : "";
 
   if (isLegacyJavax) {
+    if (targetJavaNum >= 17) {
+      return {
+        risk: "critical",
+        reason: `${dependencyLabel} is marked critical because it still relies on the legacy javax namespace, which requires explicit Jakarta migration work for Java ${targetJavaNum}. ${versionContext}`.trim(),
+      };
+    }
     return {
-      risk: "critical",
-      reason: `${dependencyLabel} is marked critical because it still relies on the legacy javax namespace, which usually needs explicit Jakarta migration work. ${versionContext}`.trim(),
+      risk: "low",
+      reason: `${dependencyLabel} uses the javax namespace, which remains supported on Java ${targetJavaNum} and Spring Boot 2.7. ${versionContext}`.trim(),
     };
   }
 
@@ -1004,7 +1011,8 @@ const classifyDependencyRisk = (dep: DependencyInfo): { risk: DependencyRiskLeve
 
 const categorizeDependencies = (
   dependencies: DependencyInfo[],
-  analysis?: DependencyAnalysisResponse | null
+  analysis?: DependencyAnalysisResponse | null,
+  targetJavaVersion?: string
 ): CategorizedDependency[] => {
   const analyzedMap = new Map<string, AnalyzedDependencyItem>();
   if (analysis?.dependencies) {
@@ -1039,7 +1047,7 @@ const categorizeDependencies = (
       };
     }
 
-    const { risk, reason } = classifyDependencyRisk(dep);
+    const { risk, reason } = classifyDependencyRisk(dep, targetJavaVersion);
     return {
       ...dep,
       displayName: `${dep.group_id}:${dep.artifact_id}`,
@@ -3021,7 +3029,7 @@ export function useWizardController() {
   };
 
   const renderCategorizedDependencies = (dependencies: DependencyInfo[]) => {
-    const categorizedDependencies = categorizeDependencies(dependencies, dependencyAnalysis);
+    const categorizedDependencies = categorizeDependencies(dependencies, dependencyAnalysis, effectiveTargetVersion);
     const riskCounts = categorizedDependencies.reduce(
       (acc, dep) => {
         acc[dep.risk] += 1;
@@ -4388,7 +4396,7 @@ export function useWizardController() {
   }, [availableTargetVersions, detectedSourceVersionForTargets, versionRecommendation]);
 
   const categorizedStrategyDependencies = useMemo(
-    () => categorizeDependencies(repoAnalysis?.dependencies || [], dependencyAnalysis),
+    () => categorizeDependencies(repoAnalysis?.dependencies || [], dependencyAnalysis, effectiveTargetVersion),
     [repoAnalysis?.dependencies, dependencyAnalysis]
   );
   const dependencyRiskSummary = useMemo(() => {
@@ -5157,7 +5165,7 @@ export function useWizardController() {
         if (cancelled) return;
         if (res && res.dependencies && res.dependencies.length > 0) {
           setDependencyAnalysis(res);
-          const overall = res.overall_risk?.toLowerCase();
+          let overall = res.overall_risk?.toLowerCase();
           let criticalCount = 0;
           if (res.categories) {
             Object.values(res.categories).forEach((cat: { items?: Array<{ risk?: string }> }) => {
@@ -5167,6 +5175,10 @@ export function useWizardController() {
                 });
               }
             });
+          }
+          const targetJavaNum = parseInt((effectiveTargetVersion || "17").replace(/\D/g, "") || "17", 10);
+          if (targetJavaNum < 17 && overall === "critical" && criticalCount === 0) {
+            overall = "medium";
           }
           if (overall === "critical" || criticalCount > 0) {
             setRiskLevel("critical");
