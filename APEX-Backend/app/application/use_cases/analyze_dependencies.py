@@ -71,7 +71,7 @@ def compute_analysis_fingerprint(request: DependencyAnalysisRequest) -> str:
             for d in (request.dependencies or [])
         ]
     )
-    raw = f"v2:{request.source_java_version}:{request.target_java_version}:{request.spring_boot_version or ''}:{str(request.build_tool or '').upper()}:{','.join(deps)}"
+    raw = f"{request.source_java_version}:{request.target_java_version}:{str(request.build_tool or '').upper()}:{','.join(deps)}"
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 # Allowed standard risk levels and categories
@@ -96,6 +96,15 @@ def _heuristic_classify_category(group: str, artifact: str) -> str:
     aid = (artifact or "").lower()
     coord = f"{gid}:{aid}"
 
+    # 1. Framework: All Spring / Spring Boot starters and core ecosystem, plus other full frameworks
+    if (
+        gid.startswith("org.springframework")
+        or aid.startswith("spring-boot")
+        or aid.startswith("spring-")
+        or any(k in coord for k in ["quarkus", "micronaut", "struts", "guice"])
+    ):
+        return "Framework"
+
     if any(k in coord for k in ["test", "junit", "mockito", "assertj", "mock", "wiremock"]):
         return "Testing"
     if any(k in coord for k in ["security", "auth", "oauth", "jwt", "crypto", "bcrypt", "shiro"]):
@@ -110,8 +119,8 @@ def _heuristic_classify_category(group: str, artifact: str) -> str:
         return "Web"
     if any(k in coord for k in ["plugin", "gradle", "maven-", "build"]):
         return "Build"
-    if any(k in coord for k in ["spring", "quarkus", "micronaut", "struts", "guice", "jakarta", "javax"]):
-        return "Framework"
+    if gid.startswith("jakarta.") or aid.startswith("jakarta.") or gid.startswith("javax.") or aid.startswith("javax."):
+        return "Library"
     if any(k in coord for k in ["commons", "guava", "lombok", "jackson", "gson", "apache"]):
         return "Utility"
     return "Other"
@@ -135,74 +144,13 @@ def resolve_target_dependency_version(
     except ValueError:
         target_java_num = 17
 
-    if target_java_num >= 25:
-        target_boot_version = target_boot_version or "3.4.0"
-        target_fw_version = "6.2.0"
-        log4j_base = "2.24.1"
-        logback_base = "1.5.12"
-        slf4j_base = "2.0.16"
-        snakeyaml_base = "2.3"
-        jackson_base = "2.17.2"
-        tomcat_base = "10.1.33"
-        mysql_base = "9.0.0"
-        security_base = "6.4.0"
-        annotation_base = "3.0.0"
-        validation_base = "3.1.0"
-        jupiter_base = "5.11.3"
-        mockito_base = "5.14.2"
-        lombok_base = "1.18.36"
-        hibernate_base = "6.6.1.Final"
-    elif target_java_num >= 21:
-        target_boot_version = target_boot_version or "3.3.0"
+    if not target_boot_version:
+        target_boot_version = "3.2.5" if target_java_num >= 17 else "2.7.18"
+
+    if target_boot_version.startswith("3."):
         target_fw_version = "6.1.14"
-        log4j_base = "2.23.1"
-        logback_base = "1.5.6"
-        slf4j_base = "2.0.13"
-        snakeyaml_base = "2.2"
-        jackson_base = "2.17.1"
-        tomcat_base = "10.1.24"
-        mysql_base = "8.3.0"
-        security_base = "6.3.0"
-        annotation_base = "2.1.1"
-        validation_base = "3.0.2"
-        jupiter_base = "5.10.2"
-        mockito_base = "5.11.0"
-        lombok_base = "1.18.36"
-        hibernate_base = "6.5.2.Final"
-    elif target_java_num >= 17:
-        target_boot_version = target_boot_version or "3.2.5"
-        target_fw_version = "6.1.14"
-        log4j_base = "2.21.1"
-        logback_base = "1.4.14"
-        slf4j_base = "2.0.13"
-        snakeyaml_base = "2.2"
-        jackson_base = "2.15.4"
-        tomcat_base = "10.1.20"
-        mysql_base = "8.3.0"
-        security_base = "6.2.4"
-        annotation_base = "2.1.1"
-        validation_base = "3.0.2"
-        jupiter_base = "5.10.2"
-        mockito_base = "5.8.0"
-        lombok_base = "1.18.36"
-        hibernate_base = "6.4.4.Final"
     else:
-        target_boot_version = target_boot_version or "2.7.18"
         target_fw_version = "5.3.31"
-        log4j_base = "2.17.2"
-        logback_base = "1.2.13"
-        slf4j_base = "1.7.36"
-        snakeyaml_base = "1.33"
-        jackson_base = "2.13.5"
-        tomcat_base = "9.0.83"
-        mysql_base = "8.0.33"
-        security_base = "5.7.11"
-        annotation_base = "1.3.5"
-        validation_base = "2.0.2"
-        jupiter_base = "5.8.2"
-        mockito_base = "4.5.1"
-        lombok_base = "1.18.30"
-        hibernate_base = "5.6.15.Final"
 
     rec_ver = "Not Determined"
     status = "REVIEW REQUIRED"
@@ -232,73 +180,63 @@ def resolve_target_dependency_version(
 
     # 4. Legacy javax.* namespace artifacts requiring Jakarta EE replacement
     elif gid.startswith("javax.") or aid.startswith("javax.") or aid == "validation-api":
-        if target_java_num >= 17:
-            status = "REMOVE / REPLACE"
-            source = "Target Spring Boot BOM"
-            reason = f"Legacy javax.* artifact must be replaced by Jakarta EE equivalent for Java {target_java_num}+ and Spring Boot 3.x."
-            if "validation" in aid:
-                rec_ver = validation_base
-            elif "persistence" in aid:
-                rec_ver = "3.1.0"
-            elif "servlet" in aid:
-                rec_ver = "6.0.0"
-            elif "transaction" in aid:
-                rec_ver = "2.0.1"
-            elif "annotation" in aid:
-                rec_ver = annotation_base
-            elif "ws.rs" in aid or "jaxrs" in aid:
-                rec_ver = "3.1.0"
-            elif "el" in aid:
-                rec_ver = "5.0.0"
-            else:
-                rec_ver = "Remove / Replace"
+        status = "REMOVE / REPLACE"
+        source = "Target Spring Boot BOM"
+        reason = f"Legacy javax.* artifact must be replaced by Jakarta EE equivalent for Java {target_java_num}+ and Spring Boot 3.x."
+        if "validation" in aid:
+            rec_ver = "3.0.2"
+        elif "persistence" in aid:
+            rec_ver = "3.1.0"
+        elif "servlet" in aid:
+            rec_ver = "6.0.0"
+        elif "transaction" in aid:
+            rec_ver = "2.0.1"
+        elif "annotation" in aid:
+            rec_ver = "2.1.1"
+        elif "ws.rs" in aid or "jaxrs" in aid:
+            rec_ver = "3.1.0"
+        elif "el" in aid:
+            rec_ver = "5.0.0"
         else:
-            rec_ver = ver
-            status = "UNCHANGED"
-            source = "Project pom.xml/build.gradle"
-            reason = f"Legacy javax.* artifact remains supported on Java {target_java_num} and Spring Boot 2.7.x."
+            rec_ver = "Remove / Replace"
 
     # 5. Lombok
     elif "lombok" in aid:
-        rec_ver = lombok_base
+        rec_ver = "1.18.36" if target_java_num >= 17 else "1.18.30"
         source = "Independent compatibility review"
         reason = f"Upgraded Lombok for Java {target_java_num} compiler compatibility."
 
     # 6. Hibernate / JPA
     elif "hibernate" in gid or "hibernate" in aid:
-        rec_ver = hibernate_base
+        rec_ver = "6.4.4.Final" if target_java_num >= 17 else "5.6.15.Final"
         source = "Target Spring Boot BOM"
         reason = f"Managed by Target Spring Boot {target_boot_version} BOM."
 
     # 7. Jackson
     elif "jackson" in gid or "jackson" in aid:
-        rec_ver = jackson_base
+        rec_ver = "2.15.4" if target_java_num >= 17 else "2.13.5"
         source = "Target Spring Boot BOM"
         reason = f"Managed by Target Spring Boot {target_boot_version} BOM."
 
-    # 8. Logging (Log4j / Logback / SLF4J) - check log4j before slf4j to avoid log4j-to-slf4j mismatch
-    elif "log4j" in aid or "log4j" in gid:
-        rec_ver = log4j_base
-        source = "Target Spring Boot BOM"
-        reason = f"Managed by Target Spring Boot {target_boot_version} BOM (Log4j 2)."
+    # 8. Logging (Logback / SLF4J / Log4j)
     elif "logback" in aid:
-        rec_ver = logback_base
+        rec_ver = "1.4.14" if target_java_num >= 11 else "1.2.13"
         source = "Target Spring Boot BOM"
-        reason = f"Managed by Target Spring Boot {target_boot_version} BOM (Logback)."
+        reason = f"Managed by Target Spring Boot {target_boot_version} BOM."
     elif "slf4j" in aid:
-        rec_ver = slf4j_base
+        rec_ver = "2.0.13" if target_java_num >= 11 else "1.7.36"
         source = "Target Spring Boot BOM"
-        reason = f"Managed by Target Spring Boot {target_boot_version} BOM (SLF4J)."
+        reason = f"Managed by Target Spring Boot {target_boot_version} BOM."
 
     # 9. Tomcat Embed
     elif "tomcat" in aid or "tomcat" in gid:
-        rec_ver = tomcat_base
+        rec_ver = "10.1.20" if target_java_num >= 17 else "9.0.83"
         source = "Target Spring Boot BOM"
         reason = f"Managed by Target Spring Boot {target_boot_version} BOM."
 
     # 10. Database Drivers & Utils
     elif "mysql" in aid or "mysql" in gid:
-        rec_ver = mysql_base
+        rec_ver = "8.3.0" if target_java_num >= 17 else "8.0.33"
         source = "Target Spring Boot BOM"
         reason = f"Managed by Target Spring Boot {target_boot_version} BOM."
     elif "h2" in aid or "hsqldb" in aid:
@@ -309,42 +247,18 @@ def resolve_target_dependency_version(
         rec_ver = "42.6.2"
         source = "Target Spring Boot BOM"
         reason = f"Managed by Target Spring Boot {target_boot_version} BOM."
-    elif aid == "snakeyaml" or gid == "org.yaml":
-        rec_ver = snakeyaml_base
-        source = "Target Spring Boot BOM"
-        reason = f"Managed by Target Spring Boot {target_boot_version} BOM (SnakeYAML)."
 
-    # 11. Spring Security
-    elif "spring-security" in gid or "spring-security" in aid:
-        rec_ver = security_base
-        source = "Target Spring Boot BOM"
-        reason = f"Managed by Target Spring Boot {target_boot_version} BOM (Spring Security)."
-
-    # 12. Jakarta APIs
-    elif aid == "jakarta.annotation-api" or gid == "jakarta.annotation":
-        rec_ver = annotation_base
+    # 11. Testing (JUnit, Mockito)
+    elif "junit" in aid or "jupiter" in aid:
+        rec_ver = "5.10.2" if target_java_num >= 17 else "4.13.2"
         source = "Target Spring Boot BOM"
         reason = f"Managed by Target Spring Boot {target_boot_version} BOM."
-    elif aid == "jakarta.validation-api" or gid == "jakarta.validation":
-        rec_ver = validation_base
-        source = "Target Spring Boot BOM"
-        reason = f"Managed by Target Spring Boot {target_boot_version} BOM."
-
-    # 13. Testing (JUnit, Mockito)
-    elif "jupiter" in aid or (gid == "org.junit.jupiter"):
-        rec_ver = jupiter_base
-        source = "Target Spring Boot BOM"
-        reason = f"Managed by Target Spring Boot {target_boot_version} BOM (JUnit Jupiter)."
-    elif "junit" in aid or (gid == "junit"):
-        rec_ver = "4.13.2"
-        source = "Target Spring Boot BOM"
-        reason = f"Managed by Target Spring Boot {target_boot_version} BOM (JUnit 4)."
     elif "mockito" in aid:
-        rec_ver = mockito_base
+        rec_ver = "5.8.0" if target_java_num >= 17 else "4.11.0"
         source = "Target Spring Boot BOM"
-        reason = f"Managed by Target Spring Boot {target_boot_version} BOM (Mockito)."
+        reason = f"Managed by Target Spring Boot {target_boot_version} BOM."
 
-    # 14. Candidate version or current version
+    # 12. Candidate version or current version
     elif candidate_versions and len(candidate_versions) > 0:
         rec_ver = candidate_versions[0]
         source = "Independent compatibility review"
@@ -360,19 +274,15 @@ def resolve_target_dependency_version(
         elif ver.lower() == rec_ver.lower():
             status = "UNCHANGED"
             reason = "Current version already matches the target-compatible version."
-        elif ver and ver.lower() not in ("unknown", "managed version") and rec_ver not in ("Not Determined", "N/A"):
+        else:
             def _ver_key(v: str) -> list[int]:
                 return [int(x) for x in re.findall(r"\d+", v)]
             cur_key = _ver_key(ver)
             rec_key = _ver_key(rec_ver)
             if rec_key > cur_key:
                 status = "UPGRADED"
-            elif cur_key >= rec_key:
-                # GOLDEN RULE (Floor & Preserve):
-                # If project's existing version meets or exceeds the baseline floor, PRESERVE IT!
-                rec_ver = ver
-                status = "UNCHANGED"
-                reason = f"Current version {ver} meets or exceeds target Java {target_java_num} baseline requirements."
+            elif rec_key < cur_key:
+                status = "DOWNGRADED / BOM ALIGNMENT"
             else:
                 status = "UNCHANGED"
 
@@ -387,6 +297,175 @@ def resolve_target_dependency_version(
     }
 
 
+def _heuristic_source_changes(
+    group_id: str,
+    artifact_id: str,
+    current_version: str = "",
+    recommended_version: str = "",
+    target_java: str = "17",
+) -> str:
+    """Generate a clear, detailed, and meaningful description of required source-code changes."""
+    gid = (group_id or "").lower()
+    aid = (artifact_id or "").lower()
+    cur = (current_version or "").strip().lower()
+    rec = (recommended_version or "").strip().lower()
+
+    # 1. Legacy javax.* namespace migration
+    if gid.startswith("javax.") or aid.startswith("javax.") or aid == "validation-api":
+        if "validation" in aid:
+            return "Refactor package imports: javax.validation.* -> jakarta.validation.* (e.g., @NotNull, @Size, @Valid)."
+        if "persistence" in aid:
+            return "Refactor package imports: javax.persistence.* -> jakarta.persistence.* (e.g., @Entity, @Id, @Table)."
+        if "servlet" in aid:
+            return "Refactor package imports: javax.servlet.* -> jakarta.servlet.* (e.g., HttpServletRequest, Filter)."
+        if "transaction" in aid:
+            return "Refactor package imports: javax.transaction.* -> jakarta.transaction.* (e.g., @Transactional)."
+        if "annotation" in aid:
+            return "Refactor package imports: javax.annotation.* -> jakarta.annotation.* (e.g., @PostConstruct, @PreDestroy, @Resource)."
+        if "ws.rs" in aid or "jaxrs" in aid:
+            return "Refactor package imports: javax.ws.rs.* -> jakarta.ws.rs.* (e.g., @Path, @GET, @POST)."
+        if "mail" in aid:
+            return "Refactor package imports: javax.mail.* -> jakarta.mail.* for JavaMail APIs."
+        if "xml.bind" in aid or "jaxb" in aid:
+            return "Refactor package imports: javax.xml.bind.* -> jakarta.xml.bind.* across XML serialization code."
+        clean_aid = aid.replace("-api", "").replace("javax.", "")
+        return f"Refactor package imports: {group_id or 'javax'}.* -> jakarta.{clean_aid or artifact_id}.* across codebase."
+
+    # 2. Already compatible (same version)
+    if cur and rec and cur == rec and cur != "unknown":
+        if gid.startswith("jakarta.") or aid.startswith("jakarta."):
+            return "No source-code modifications required. Standard Jakarta EE annotations (@PostConstruct, @PreDestroy, @Resource) are compatible with target runtime."
+        if "snakeyaml" in aid:
+            return "No source-code modifications required. Existing YAML parsing configuration is compatible with target runtime."
+        if "jackson" in aid:
+            return "No source-code modifications required. Existing Jackson serialization configuration is compatible with target runtime."
+        if "slf4j" in aid or "logback" in aid or "log4j" in aid:
+            return "No source-code modifications required. Current logging configuration matches target runtime baseline."
+        if "spring" in aid:
+            return "No source-code modifications required. Framework configuration already matches target release train."
+        return f"No source-code modifications required. Current version ({current_version}) is already compatible with target runtime."
+
+    # 3. Jackson family
+    if "jackson" in aid or "jackson" in gid:
+        if "databind" in aid:
+            return "No source-code modifications required. Jackson 2.15 databind and ObjectMapper APIs remain backward compatible."
+        if "annotations" in aid:
+            return "No source-code modifications required. Standard JSON annotations (@JsonProperty, @JsonIgnore, @JsonInclude) remain backward compatible."
+        if "core" in aid:
+            return "No source-code modifications required. Low-level JsonParser and JsonGenerator streaming APIs remain backward compatible."
+        if "jdk8" in aid:
+            return "No source-code modifications required. JDK 8 datatype module (Optional, Streams) is managed transparently by Jackson 2.15+."
+        if "jsr310" in aid:
+            return "No source-code modifications required. Java 8 Date/Time (JSR-310) module is managed transparently by Jackson 2.15+."
+        return "No source-code modifications required. Jackson 2.15+ library APIs remain fully backward compatible."
+
+    # 4. SLF4J / Logging bridges
+    if "slf4j" in aid or "slf4j" in gid:
+        if "jul-to-slf4j" in aid or "jcl-over-slf4j" in aid or "log4j-over-slf4j" in aid:
+            return "No source-code modifications required. SLF4J 2.x preserves backward-compatible Logger APIs with ServiceLoader provider model."
+        if "slf4j-api" in aid:
+            return "No source-code modifications required. SLF4J 2.x Logger API retains backward compatibility; provider binding is handled via ServiceLoader."
+        return "No source-code modifications required. SLF4J 2.x logging facade preserves backward compatibility."
+
+    # 5. Logback
+    if "logback" in aid:
+        return "No source-code modifications required. Standard logback.xml appenders and SLF4J logger calls remain compatible."
+
+    # 6. SnakeYAML
+    if "snakeyaml" in aid:
+        return "Audit custom Yaml() constructor usage; SnakeYAML 2.x requires LoaderOptions(SafeConstructor) when parsing untrusted YAML."
+
+    # 7. Spring Boot starters
+    if gid == "org.springframework.boot" or "spring-boot" in aid:
+        if "starter-web" in aid:
+            return "Refactor package imports: javax.servlet.* -> jakarta.servlet.*. Replace deprecated WebMvcConfigurerAdapter with WebMvcConfigurer interface."
+        if "starter-data-jpa" in aid:
+            return "Refactor package imports: javax.persistence.* -> jakarta.persistence.*. Audit custom repository queries for Hibernate 6 dialect and Spring Data 3.x compatibility."
+        if "starter-security" in aid:
+            return "Migrate deprecated WebSecurityConfigurerAdapter to SecurityFilterChain @Bean. Replace antMatchers() with requestMatchers()."
+        if "starter-json" in aid:
+            return "Update BOM version. Jackson 2.15+ ObjectMapper configuration is handled transparently by Spring Boot 3."
+        if "starter-validation" in aid:
+            return "Refactor package imports: javax.validation.* -> jakarta.validation.* (e.g., @NotNull, @Size, @Valid)."
+        if "starter-actuator" in aid:
+            return "Audit management endpoint path mappings and security configurations in application.properties/yml for Spring Boot 3."
+        if "starter-test" in aid:
+            return "Update test annotations: Replace legacy JUnit 4 imports with JUnit 5 (@Test org.junit.jupiter.api.Test) and @ExtendWith(SpringExtension.class)."
+        if "starter-batch" in aid:
+            return "Migrate StepBuilderFactory and JobBuilderFactory to JobRepository-based JobBuilder and StepBuilder for Spring Batch 5."
+        if "starter-mail" in aid:
+            return "Refactor package imports: javax.mail.* -> jakarta.mail.* for MIME message and JavaMailSender implementations."
+        if "starter-thymeleaf" in aid:
+            return "Update Thymeleaf template dialect syntax and layout integrations for Spring 6 / Jakarta EE 10."
+        if "starter-aop" in aid:
+            return "No source-code modifications required. AspectJ and Spring AOP annotations (@Aspect, @Around) remain backward compatible."
+        return "Update starter BOM version in build manifest. Audit application.properties for Spring Boot 3 configuration property changes."
+
+    # 8. Spring Data
+    if gid.startswith("org.springframework.data") or "spring-data" in aid:
+        return "Audit custom repository interfaces; Spring Data 3.x deprecates legacy query execution and changes null-safety contracts."
+
+    # 9. Spring Framework core
+    if gid.startswith("org.springframework"):
+        if "web" in aid:
+            return "Refactor package imports: javax.servlet.* -> jakarta.servlet.*. Audit Controller advice and HTTP message converters for Spring 6."
+        if "tx" in aid or "jdbc" in aid:
+            return "Refactor package imports: javax.transaction.* -> jakarta.transaction.*. Audit custom JdbcTemplate RowMappers."
+        if any(k in aid for k in ["core", "beans", "context"]):
+            return "No source-code modifications required. Standard IoC/DI annotations (@Component, @Autowired, @Service) remain backward compatible."
+        return "API compatibility review for Spring Framework 6.x. Audit reflective calls and deprecated method invocations."
+
+    # 10. Jakarta namespace
+    if gid.startswith("jakarta.") or aid.startswith("jakarta."):
+        return "No source-code modifications required. Standard Jakarta EE annotations (@PostConstruct, @PreDestroy, @Resource) are compatible with target runtime."
+
+    # 11. Hibernate
+    if "hibernate" in aid:
+        if "entitymanager" in aid:
+            return "Remove obsolete dependency from build manifest; EntityManager is bundled directly in hibernate-core 6.x."
+        if "validator" in aid:
+            return "Refactor package imports: javax.validation.* -> jakarta.validation.*. Standard constraint validators remain compatible."
+        return "Refactor annotations: javax.persistence.* -> jakarta.persistence.*. Audit custom UserType implementations and query syntax for Hibernate 6.x."
+
+    # 12. Lombok
+    if "lombok" in aid:
+        return "No Java source changes. Ensure Lombok version in build compiler plugin supports target Java bytecode generation."
+
+    # 13. Tomcat
+    if "tomcat" in aid:
+        return "Refactor server web.xml or custom Servlet filters to Jakarta Servlet 6.0 specifications."
+
+    # 14. Database drivers
+    if "mysql" in aid:
+        return "Update datasource configuration: Set driver-class-name to com.mysql.cj.jdbc.Driver if legacy com.mysql.jdbc.Driver is configured."
+    if "postgresql" in aid:
+        return "No source-code modifications required. PostgreSQL JDBC 42.x driver is backward compatible with modern Java runtimes."
+    if "h2" in aid or "hsqldb" in aid:
+        return "Audit SQL queries and test schema DDL for H2 2.x reserved keywords (e.g. USER, VALUE, KEY). Update JDBC URL syntax if required."
+
+    # 15. Testing
+    if aid == "junit" or (gid == "junit" and "junit" in aid):
+        return "Refactor unit tests: Replace legacy org.junit.Test with org.junit.jupiter.api.Test and assert/assume methods."
+    if "junit-jupiter" in aid:
+        return "No source-code modifications required. JUnit Jupiter 5 test annotations and assertions remain backward compatible."
+    if "mockito" in aid:
+        return "No source-code modifications required. Standard @Mock, @InjectMocks, and Mockito.when() APIs remain compatible."
+    if "assertj" in aid:
+        return "No source-code modifications required. AssertJ fluent assertion APIs (assertThat) remain backward compatible."
+
+    # 16. Common utilities
+    if "commons-lang" in aid:
+        return "No source-code modifications required. Standard Commons Lang utility methods (StringUtils, ObjectUtils) remain backward compatible."
+    if "commons-collections" in aid:
+        return "No source-code modifications required. Apache Commons Collections APIs remain backward compatible."
+    if "commons-io" in aid:
+        return "No source-code modifications required. Standard I/O utility methods (FileUtils, IOUtils) remain backward compatible."
+    if "guava" in aid:
+        return "No source-code modifications required. Standard Guava collections, primitives, and utility methods remain backward compatible."
+
+    return "No source-code modifications required. Standard library APIs remain backward compatible with target runtime."
+
+
 def _build_fallback_analysis(
     dependencies: list[DependencyItemInput],
     build_tool: str | None,
@@ -394,12 +473,6 @@ def _build_fallback_analysis(
     target_java: str | None = None,
 ) -> DependencyAnalysisResponse:
     """Deterministic fallback analysis when LLM is unavailable or fails."""
-    try:
-        t_num = int(re.sub(r"\D", "", str(target_java or "17")) or "17")
-    except ValueError:
-        t_num = 17
-    target_boot = "3.2.5" if t_num >= 17 else "2.7.18"
-
     analyzed_list: list[AnalyzedDependencyItem] = []
 
     for dep in dependencies:
@@ -413,29 +486,20 @@ def _build_fallback_analysis(
         category = _heuristic_classify_category(gid, aid)
         risk = "LOW"
         explanation = f"{name} detected in {build_tool or 'project'} build configuration."
-        recommendation = "Verify compatibility with target Java release."
 
-        # Jakarta EE namespace shift detection (only applies when target Java >= 17)
-        if (gid.startswith("javax.") or aid.startswith("javax.")) and t_num >= 17:
-            risk = "MEDIUM"
+        # Jakarta EE namespace shift detection
+        if gid.startswith("javax.") or aid.startswith("javax."):
+            risk = "CRITICAL"
             explanation = f"{name} uses the legacy javax.* namespace and requires migration to jakarta.*."
-            recommendation = "Update coordinates and import statements to Jakarta EE 9+ equivalent."
-        elif gid.startswith("javax.") or aid.startswith("javax."):
-            risk = "LOW"
-            explanation = f"{name} uses the javax.* namespace, which remains supported on Java {t_num}."
-            recommendation = f"Compatible with Java {t_num} and Spring Boot {target_boot}."
         elif "log4j" in aid and ver.startswith("1."):
             risk = "CRITICAL"
             explanation = f"{name} is on legacy Log4j 1.x which has reached End-of-Life."
-            recommendation = "Upgrade to Log4j 2.x or slf4j/logback logging facade."
         elif any(k in aid for k in ["struts", "velocity"]):
             risk = "HIGH"
             explanation = f"{name} is a legacy framework requiring major modernization."
-            recommendation = "Plan refactoring to modern Spring Web / REST architecture."
         elif category in ("Security", "Persistence", "Database"):
             risk = "MEDIUM"
             explanation = f"{name} interacts with {category.lower()} runtime and requires API review."
-            recommendation = "Test database drivers and security configurations against modern Java."
 
         resolved = resolve_target_dependency_version(
             group_id=gid,
@@ -444,7 +508,14 @@ def _build_fallback_analysis(
             target_java_version=target_java,
         )
 
-        is_direct = dep.direct if dep.direct is not None else (not dep.transitive)
+        recommendation = _heuristic_source_changes(
+            group_id=gid,
+            artifact_id=aid,
+            current_version=ver,
+            recommended_version=resolved.get("recommended_version", ""),
+            target_java=target_java or "17",
+        )
+
         analyzed_list.append(
             AnalyzedDependencyItem(
                 id=dep_id,
@@ -463,11 +534,6 @@ def _build_fallback_analysis(
                 risk=risk,
                 explanation=explanation,
                 recommendation=recommendation,
-                scope=dep.scope or "compile",
-                direct=is_direct,
-                transitive=not is_direct,
-                parent=dep.parent,
-                introduced_by=dep.introduced_by,
             )
         )
 
@@ -494,6 +560,12 @@ def _build_fallback_analysis(
         complexity = "MODERATE"
     else:
         complexity = "COMPLEX"
+
+    try:
+        t_num = int(re.sub(r"\D", "", str(target_java or "17")) or "17")
+    except ValueError:
+        t_num = 17
+    target_boot = "3.2.5" if t_num >= 17 else "2.7.18"
 
     logger.info(
         "[STRATEGY DEPENDENCIES RISKS] - TotalDependencies: %d - Critical: %d - Medium: %d - Low: %d",
@@ -732,8 +804,6 @@ class AnalyzeDependenciesUseCase:
                     explanation = f"{name} evaluated in {request.build_tool or 'project'} configuration."
 
                 recommendation = str(llm_entry.get("recommendation") or "").strip()
-                if not recommendation:
-                    recommendation = "Verify compatibility with target Java version."
 
                 recommended_version = str(llm_entry.get("recommended_version") or "Not Determined").strip()
                 upgrade_status = str(llm_entry.get("upgrade_status") or "REVIEW REQUIRED").strip().upper()
@@ -762,6 +832,12 @@ class AnalyzeDependenciesUseCase:
                     candidate_versions=coords_candidates,
                 )
 
+                source = str(llm_entry.get("source") or "").strip()
+                java_compatibility = str(llm_entry.get("java_compatibility") or "").strip()
+                framework_compatibility = str(llm_entry.get("framework_compatibility") or "").strip()
+                upgrade_confidence = float(llm_entry.get("upgrade_confidence") or 0.95)
+                upgrade_reason = str(llm_entry.get("upgrade_reason") or "").strip()
+
                 if (
                     not recommended_version
                     or recommended_version == "Not Determined"
@@ -783,10 +859,15 @@ class AnalyzeDependenciesUseCase:
                 if not upgrade_reason:
                     upgrade_reason = resolved["upgrade_reason"]
 
-                if risk == "CRITICAL" and (gid.startswith("javax.") or aid.startswith("javax.")) and "log4j" not in aid:
-                    risk = "MEDIUM"
+                if not recommendation or "verify compatibility" in recommendation.lower():
+                    recommendation = _heuristic_source_changes(
+                        group_id=gid,
+                        artifact_id=aid,
+                        current_version=ver,
+                        recommended_version=recommended_version,
+                        target_java=request.target_java_version or "17",
+                    )
 
-                is_direct = dep.direct if dep.direct is not None else (not dep.transitive)
                 final_dependencies.append(
                     AnalyzedDependencyItem(
                         id=dep_id,
@@ -805,11 +886,6 @@ class AnalyzeDependenciesUseCase:
                         risk=risk,
                         explanation=explanation,
                         recommendation=recommendation,
-                        scope=dep.scope or "compile",
-                        direct=is_direct,
-                        transitive=not is_direct,
-                        parent=dep.parent,
-                        introduced_by=dep.introduced_by,
                     )
                 )
 
@@ -838,12 +914,6 @@ class AnalyzeDependenciesUseCase:
 
             # Determine overall risk
             overall_risk = overall_risk_candidates[0] if overall_risk_candidates and overall_risk_candidates[0] in ALLOWED_RISK_LEVELS else ""
-            try:
-                target_j_num = int(re.sub(r"\D", "", str(request.target_java_version or "17")) or "17")
-            except ValueError:
-                target_j_num = 17
-            if target_j_num < 17 and overall_risk == "CRITICAL" and crit_cnt == 0:
-                overall_risk = "HIGH" if high_cnt > 0 else "MEDIUM" if med_cnt > 0 else "LOW"
             if not overall_risk:
                 overall_risk = "CRITICAL" if crit_cnt > 0 else "HIGH" if high_cnt > 0 else "MEDIUM" if med_cnt > 0 else "LOW"
 
@@ -884,6 +954,21 @@ class AnalyzeDependenciesUseCase:
     @staticmethod
     def _extract_json(content: str) -> dict:
         text = (content or "").strip()
+        # Some models wrap JSON in ```json ... ``` fences
+        if text.startswith("```"):
+            text = text.strip("`")
+            if text[:4].lower() == "json":
+                text = text[4:]
+
+        start = text.find("{")
+        end = text.rfind("}")
+        if start == -1 or end == -1 or end < start:
+            raise LLMResponseInvalidError("Fallback model response did not contain JSON.")
+
+        try:
+            return json.loads(text[start : end + 1])
+        except json.JSONDecodeError as exc:
+            raise LLMResponseInvalidError("Fallback model response was not valid JSON.") from exc
         # Some models wrap JSON in ```json ... ``` fences
         if text.startswith("```"):
             text = text.strip("`")

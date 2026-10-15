@@ -183,7 +183,6 @@ export function StrategyStepView({
   ].filter((c) => c.detected) : [];
 
   const calculatedRiskLevel = useMemo(() => {
-    const targetJavaNum = parseInt((effectiveTargetVersion || "17").replace(/\D/g, "") || "17", 10);
     const depOverall = effectiveDependencyAnalysis?.overall_risk?.toLowerCase();
 
     let depCriticalCount = 0;
@@ -215,40 +214,35 @@ export function StrategyStepView({
 
     const normPropRisk = (riskLevel || "").toLowerCase();
 
-    // When targeting Java < 17, javax packages do not constitute critical migration friction
-    const effectiveDepCritical = targetJavaNum < 17 ? 0 : depCriticalCount;
-    const effectiveOverallRisk = (targetJavaNum < 17 && depOverall === "critical") ? "medium" : depOverall;
-    const effectivePropRisk = (targetJavaNum < 17 && normPropRisk === "critical") ? "medium" : normPropRisk;
-
     if (
-      effectiveOverallRisk === "critical" ||
-      effectiveDepCritical > 0 ||
-      effectivePropRisk === "critical"
+      depOverall === "critical" ||
+      depCriticalCount > 0 ||
+      normPropRisk === "critical"
     ) {
       return "CRITICAL";
     }
 
     if (
-      effectiveOverallRisk === "high" ||
+      depOverall === "high" ||
       depHighCount > 0 ||
       hasJsp ||
       hasJsf ||
-      effectivePropRisk === "high"
+      normPropRisk === "high"
     ) {
       return "HIGH";
     }
 
     if (
-      effectiveOverallRisk === "medium" ||
+      depOverall === "medium" ||
       depMediumCount > 0 ||
       repoAnalysis?.has_tests === false ||
-      effectivePropRisk === "medium"
+      normPropRisk === "medium"
     ) {
       return "MEDIUM";
     }
 
     return "LOW";
-  }, [effectiveDependencyAnalysis, repoAnalysis, hasJsp, hasJsf, riskLevel, effectiveTargetVersion]);
+  }, [effectiveDependencyAnalysis, repoAnalysis, hasJsp, hasJsf, riskLevel]);
 
   const riskBadgeStyle = useMemo(() => {
     const r = calculatedRiskLevel.toLowerCase();
@@ -490,7 +484,7 @@ export function StrategyStepView({
                       {hasTests ? <FaCheckCircle /> : <FaTimesCircle />}
                     </div>
                     <div className="strat-assessment-info">
-                      <div className="strat-assessment-label"> Tests</div>
+                      <div className="strat-assessment-label">Maven Tests</div>
                       <div className="strat-assessment-value">
                         {hasTests ? "Yes ✔" : "No ✘"}
                       </div>

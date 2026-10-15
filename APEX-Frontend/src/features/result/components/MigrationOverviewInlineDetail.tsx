@@ -1,5 +1,4 @@
 import React, { useState, useMemo, useEffect } from "react";
-import { compareSemVer, getMinimumBaselineForJava } from "@/features/modernization/components/DetectedDependenciesTable";
 import {
   FaFileAlt,
   FaCode,
@@ -71,6 +70,12 @@ function CopyAllDependenciesButton({
       {copied ? <FaCheck size={12} style={{ color: "#166534" }} /> : <FaCopy size={12} />}
       <span>{copied ? "Copied All!" : label}</span>
     </button>
+  );
+}
+      }}
+    >
+  { copied?<FaCheck size = { 10 } style = {{ color: "#166534" } } /> : <FaCopy size={10} />}
+    </button >
   );
 }
 import type { MigrationResult } from "../services/resultService";
@@ -347,8 +352,8 @@ export const MigrationOverviewInlineDetail: React.FC<MigrationOverviewInlineDeta
           rawType === "ADDED" || rawType === "CREATED"
             ? "Added"
             : rawType === "DELETED" || rawType === "REMOVED"
-            ? "Removed"
-            : "Modified";
+              ? "Removed"
+              : "Modified";
         const additions = diff.addedLineCount ?? diff.additions ?? 0;
         const deletions = diff.removedLineCount ?? diff.deletions ?? 0;
 
@@ -459,21 +464,21 @@ export const MigrationOverviewInlineDetail: React.FC<MigrationOverviewInlineDeta
           deletions: issue.code_snippet ? issue.code_snippet.split("\n").length : 0,
           beforeLines: issue.code_snippet
             ? issue.code_snippet
-                .split("\n")
-                .map((t: string, i: number) => ({
-                  num: (issue.line_number || 1) + i,
-                  text: t,
-                  type: "removed",
-                }))
+              .split("\n")
+              .map((t: string, i: number) => ({
+                num: (issue.line_number || 1) + i,
+                text: t,
+                type: "removed",
+              }))
             : undefined,
           afterLines: issue.suggested_fix
             ? issue.suggested_fix
-                .split("\n")
-                .map((t: string, i: number) => ({
-                  num: (issue.line_number || 1) + i,
-                  text: t,
-                  type: "added",
-                }))
+              .split("\n")
+              .map((t: string, i: number) => ({
+                num: (issue.line_number || 1) + i,
+                text: t,
+                type: "added",
+              }))
             : undefined,
         });
       });
@@ -588,56 +593,26 @@ export const MigrationOverviewInlineDetail: React.FC<MigrationOverviewInlineDeta
       const currentVer = (dep.current_version || dep.version || dep.old_version || dep.oldVersion || dep.sourceVersion || "managed version") as string;
       let newVer = (dep.new_version || dep.newVersion || dep.recommended_version || dep.resolvedTargetVersion || "updated version") as string;
 
-      const targetJavaNum = parseInt(String(migrationJob?.target_java_version || repoAnalysis?.target_java_version || "17").replace(/\D/g, "") || "17", 10);
-      const baseline = getMinimumBaselineForJava(targetJavaNum);
-      const gidL = gid.toLowerCase();
-      const aidL = aid.toLowerCase();
-
-      let baselineFloor = "";
-      if (gidL.includes("springframework.boot") || aidL.includes("spring-boot")) {
-        baselineFloor = baseline.boot;
-      } else if (gidL.includes("springframework") || aidL.includes("spring")) {
-        baselineFloor = baseline.fw;
-      } else if (aidL.includes("log4j") || gidL.includes("log4j")) {
-        baselineFloor = baseline.log4j;
-      } else if (aidL.includes("logback")) {
-        baselineFloor = baseline.logback;
-      } else if (aidL.includes("slf4j")) {
-        baselineFloor = baseline.slf4j;
-      } else if (aidL.includes("snakeyaml") || gidL.includes("org.yaml")) {
-        baselineFloor = baseline.snakeyaml;
-      } else if (aidL.includes("jackson") || gidL.includes("jackson")) {
-        baselineFloor = baseline.jackson;
-      } else if (gidL.includes("hibernate") || aidL.includes("hibernate")) {
-        baselineFloor = targetJavaNum >= 17 ? "6.4.4.Final" : "5.6.15.Final";
-      }
-
-      const isValidCurrent = currentVer && currentVer !== "managed version" && currentVer !== "Unknown";
-
       if (!newVer || newVer === "updated version" || newVer === "Not Determined") {
-        if (isValidCurrent && baselineFloor) {
-          if (compareSemVer(currentVer, baselineFloor) >= 0) {
-            newVer = currentVer;
-          } else {
-            newVer = baselineFloor;
-          }
-        } else if (baselineFloor) {
-          newVer = baselineFloor;
-        } else if (isValidCurrent) {
-          newVer = currentVer;
-        } else {
-          newVer = "Updated";
-        }
-      } else if (isValidCurrent && newVer !== "N/A" && compareSemVer(currentVer, newVer) > 0) {
-        // Floor & Preserve: Never downgrade higher current version in overview
-        newVer = currentVer;
-      }
+        const targetJavaNum = parseInt(String(migrationJob?.target_java_version || repoAnalysis?.target_java_version || "17").replace(/\D/g, "") || "17", 10);
+        const gidL = gid.toLowerCase();
+        const aidL = aid.toLowerCase();
 
-      let status = (dep.status || "Updated") as string;
-      if (isValidCurrent && newVer && compareSemVer(currentVer, newVer) === 0) {
-        status = "ALREADY COMPATIBLE";
-      } else if (isValidCurrent && newVer && compareSemVer(currentVer, newVer) < 0) {
-        status = "UPGRADED";
+        if (gidL.includes("springframework.boot") || aidL.includes("spring-boot")) {
+          newVer = targetJavaNum >= 17 ? "3.2.5" : "2.7.18";
+        } else if (gidL.includes("springframework") || aidL.includes("spring")) {
+          newVer = targetJavaNum >= 17 ? "6.1.14" : "5.3.31";
+        } else if (aidL.includes("logback")) {
+          newVer = targetJavaNum >= 11 ? "1.4.14" : "1.2.13";
+        } else if (aidL.includes("slf4j")) {
+          newVer = targetJavaNum >= 11 ? "2.0.13" : "1.7.36";
+        } else if (aidL.includes("snakeyaml")) {
+          newVer = "2.2";
+        } else if (gidL.includes("hibernate") || aidL.includes("hibernate")) {
+          newVer = targetJavaNum >= 17 ? "6.4.4.Final" : "5.6.15.Final";
+        } else {
+          newVer = currentVer !== "managed version" ? currentVer : "Updated";
+        }
       }
 
       return {
@@ -645,7 +620,7 @@ export const MigrationOverviewInlineDetail: React.FC<MigrationOverviewInlineDeta
         artifact_id: aid,
         current_version: currentVer,
         new_version: newVer,
-        status,
+        status: (dep.status || "Updated") as string,
         reason: dep.reason as string | undefined,
         scope: dep.scope as string | undefined,
       };
@@ -678,9 +653,8 @@ export const MigrationOverviewInlineDetail: React.FC<MigrationOverviewInlineDeta
       icon: <FaCode />,
       colorClass: "transformations",
       pillClass: "purple",
-      countText: `${changedFilesList.length} ${
-        changedFilesList.length === 1 ? "File" : "Files"
-      }`,
+      countText: `${changedFilesList.length} ${changedFilesList.length === 1 ? "File" : "Files"
+        }`,
       searchPlaceholder: "Search changed files...",
     },
     dependencies: {
@@ -785,13 +759,12 @@ export const MigrationOverviewInlineDetail: React.FC<MigrationOverviewInlineDeta
                     </td>
                     <td style={{ textAlign: "center" }}>
                       <span
-                        className={`moid-badge ${
-                          file.status === "ADDED"
+                        className={`moid-badge ${file.status === "ADDED"
                             ? "added"
                             : file.status === "DELETED"
-                            ? "deleted"
-                            : "modified"
-                        }`}
+                              ? "deleted"
+                              : "modified"
+                          }`}
                       >
                         {file.status}
                       </span>
@@ -871,13 +844,12 @@ export const MigrationOverviewInlineDetail: React.FC<MigrationOverviewInlineDeta
                         </div>
 
                         <span
-                          className={`moid-badge ${
-                            file.status === "Modified"
+                          className={`moid-badge ${file.status === "Modified"
                               ? "modified"
                               : file.status === "Added"
-                              ? "added"
-                              : "deleted"
-                          }`}
+                                ? "added"
+                                : "deleted"
+                            }`}
                         >
                           {file.status}
                         </span>
@@ -921,13 +893,12 @@ export const MigrationOverviewInlineDetail: React.FC<MigrationOverviewInlineDeta
                         {activeFile.fileName}
                       </h4>
                       <span
-                        className={`moid-badge ${
-                          activeFile.status === "Modified"
+                        className={`moid-badge ${activeFile.status === "Modified"
                             ? "modified"
                             : activeFile.status === "Added"
-                            ? "added"
-                            : "deleted"
-                        }`}
+                              ? "added"
+                              : "deleted"
+                          }`}
                       >
                         {activeFile.status}
                       </span>
@@ -958,8 +929,8 @@ export const MigrationOverviewInlineDetail: React.FC<MigrationOverviewInlineDeta
                             const rowClass = isRemoved
                               ? "diff-row-removed"
                               : isAdded
-                              ? "diff-row-added"
-                              : "diff-row-normal";
+                                ? "diff-row-added"
+                                : "diff-row-normal";
 
                             return (
                               <tr key={idx} className={rowClass}>
